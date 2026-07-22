@@ -1237,6 +1237,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      create_sale: { Args: { payload: Json }; Returns: Json }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -1245,6 +1246,7 @@ export type Database = {
         Returns: boolean
       }
       is_admin: { Args: { _user_id: string }; Returns: boolean }
+      record_payment: { Args: { payload: Json }; Returns: Json }
     }
     Enums: {
       app_role:
