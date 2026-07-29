@@ -1,0 +1,341 @@
+import type { IconName, ModuleConfig, ModuleFilterOption } from './types';
+
+export const DELIVERY_PRODUCTS = ['50cl PET', 'Sachet (bags)', '20L Dispenser', '1.5L PET', '75cl PET'];
+export const DELIVERY_STATUS_OPTIONS: ModuleFilterOption[] = [
+  { value: 'DELIVERED', label: 'Delivered' }, { value: 'IN_TRANSIT', label: 'In transit' },
+  { value: 'PENDING', label: 'Pending' }, { value: 'ON_HOLD', label: 'On hold' },
+];
+
+export const RAW_MATERIALS = [
+  'PET preforms', 'Bottle caps', 'Labels', 'Shrink wraps', 'Packaging nylon', 'Chemicals',
+  'Water treatment consumables', 'Cartons', 'Fuel', 'Generator diesel', 'Lubricants', 'Spare materials',
+];
+
+/** Per-module, per-field pick-lists — a field with an entry here renders as a <select> in
+ *  RecordForm and is drawn from here in mock data generation, instead of being free text. */
+const USER_ROLES = [
+  'Super Admin', 'Admin',
+  'Water treatment', 'Production', 'Quality control', 'Inventory', 'Procurement', 'Commercial',
+  'Sales', 'Point of sale', 'Finance & people', 'Human resources',
+  'Assets & maintenance',
+];
+
+export const FIELD_OPTIONS: Record<string, Record<string, string[]>> = {
+  procurement: { item: RAW_MATERIALS },
+  users: { role: USER_ROLES },
+};
+
+export interface NavItem {
+  key: string;
+  label: string;
+  icon: IconName;
+  group: string;
+  moduleNo?: number;
+  path: string;
+}
+
+export const DASHBOARD_NAV: NavItem = { key: 'dashboard', label: 'Dashboard', icon: 'grid', group: 'Overview', path: '/' };
+
+/** Single source of truth for every non-dashboard nav item: drives the sidebar,
+ *  the command palette, the routes, and the server's generic /api/modules/:key mock data. */
+export const MODULES: ModuleConfig[] = [
+  {
+    key: 'water-treatment', label: 'Water treatment', group: 'Operations', icon: 'drop', moduleNo: 6,
+    subtitle: 'Borehole draw, RO, UV and ozone treatment runs.',
+    searchPlaceholder: 'Search treatment runs or borehole reference',
+    columns: [
+      { key: 'id', label: 'Run', kind: 'mono' },
+      { key: 'source', label: 'Source', kind: 'text', subKey: 'stage' },
+      { key: 'volume_l', label: 'Volume (L)', kind: 'num' },
+      { key: 'operator', label: 'Operator', kind: 'text' },
+      { key: 'status', label: 'Status', kind: 'status' },
+    ],
+    statusOptions: [
+      { value: 'PASS', label: 'Passed' }, { value: 'IN_PROGRESS', label: 'In progress' }, { value: 'FAIL', label: 'Failed' },
+    ],
+  },
+  {
+    key: 'production', label: 'Production', group: 'Operations', icon: 'factory', moduleNo: 7,
+    subtitle: 'Fill runs by production line and shift.',
+    searchPlaceholder: 'Search production runs or product',
+    columns: [
+      { key: 'id', label: 'Run', kind: 'mono' },
+      { key: 'line', label: 'Line & shift', kind: 'text', subKey: 'product' },
+      { key: 'units', label: 'Units filled', kind: 'num' },
+      { key: 'operator', label: 'Operator', kind: 'text' },
+      { key: 'status', label: 'Status', kind: 'status' },
+    ],
+    statusOptions: [
+      { value: 'COMPLETED', label: 'Completed' }, { value: 'RUNNING', label: 'Running' },
+      { value: 'SCHEDULED', label: 'Scheduled' }, { value: 'FAILED', label: 'Failed' },
+    ],
+  },
+  {
+    key: 'quality-control', label: 'Quality control', group: 'Operations', icon: 'flask', moduleNo: 8,
+    subtitle: 'Lab tests against batch samples.',
+    searchPlaceholder: 'Search tests or batch code',
+    columns: [
+      { key: 'id', label: 'Test', kind: 'mono' },
+      { key: 'batch', label: 'Batch & parameter', kind: 'text', subKey: 'parameter' },
+      { key: 'result', label: 'Result', kind: 'text' },
+      { key: 'analyst', label: 'Analyst', kind: 'text' },
+      { key: 'status', label: 'Status', kind: 'status' },
+    ],
+    statusOptions: [
+      { value: 'PASS', label: 'Passed' }, { value: 'PENDING', label: 'Pending' }, { value: 'FAIL', label: 'Failed' },
+    ],
+  },
+  {
+    key: 'inventory', label: 'Inventory', group: 'Operations', icon: 'box', moduleNo: 5,
+    subtitle: 'Stock on hand across raw materials and finished goods.',
+    searchPlaceholder: 'Search SKU or item name',
+    columns: [
+      { key: 'id', label: 'SKU', kind: 'mono' },
+      { key: 'item', label: 'Item & category', kind: 'text', subKey: 'category' },
+      { key: 'onHand', label: 'On hand', kind: 'num' },
+      { key: 'reorderPoint', label: 'Reorder at', kind: 'num' },
+      { key: 'status', label: 'Status', kind: 'status' },
+    ],
+    statusOptions: [
+      { value: 'IN_STOCK', label: 'In stock' }, { value: 'LOW_STOCK', label: 'Low stock' }, { value: 'OUT_OF_STOCK', label: 'Out of stock' },
+    ],
+  },
+  {
+    key: 'procurement', label: 'Procurement', group: 'Operations', icon: 'receipt', moduleNo: 4,
+    subtitle: 'Purchase orders to suppliers.',
+    searchPlaceholder: 'Search purchase orders or supplier',
+    columns: [
+      { key: 'id', label: 'PO', kind: 'mono' },
+      { key: 'supplier', label: 'Supplier & item', kind: 'text', subKey: 'item' },
+      { key: 'amount', label: 'Amount', kind: 'num' },
+      { key: 'requestedBy', label: 'Requested by', kind: 'text' },
+      { key: 'status', label: 'Status', kind: 'status' },
+    ],
+    statusOptions: [
+      { value: 'DRAFT', label: 'Draft' }, { value: 'AWAITING_APPROVAL', label: 'Awaiting approval' },
+      { value: 'APPROVED', label: 'Approved' }, { value: 'REJECTED', label: 'Rejected' },
+    ],
+  },
+  {
+    key: 'sales', label: 'Sales', group: 'Commercial', icon: 'cart', moduleNo: 9,
+    subtitle: 'Customer orders across all channels.',
+    searchPlaceholder: 'Search orders or customer',
+    columns: [
+      { key: 'id', label: 'Order', kind: 'mono' },
+      { key: 'customer', label: 'Customer & location', kind: 'text', subKey: 'location' },
+      { key: 'amount', label: 'Amount', kind: 'num' },
+      { key: 'rep', label: 'Rep', kind: 'text' },
+      { key: 'status', label: 'Status', kind: 'status' },
+    ],
+    statusOptions: [
+      { value: 'PENDING', label: 'Pending' }, { value: 'PROCESSING', label: 'Processing' },
+      { value: 'DELIVERED', label: 'Delivered' }, { value: 'CANCELLED', label: 'Cancelled' },
+    ],
+  },
+  {
+    key: 'pos', label: 'Point of sale', group: 'Commercial', icon: 'wallet', moduleNo: 10,
+    subtitle: 'Walk-in and depot till transactions.',
+    searchPlaceholder: 'Search receipts or cashier',
+    columns: [
+      { key: 'id', label: 'Receipt', kind: 'mono' },
+      { key: 'till', label: 'Till & cashier', kind: 'text', subKey: 'cashier' },
+      { key: 'amount', label: 'Amount', kind: 'num' },
+      { key: 'payment', label: 'Payment', kind: 'text' },
+      { key: 'status', label: 'Status', kind: 'status' },
+    ],
+    statusOptions: [
+      { value: 'PAID', label: 'Paid' }, { value: 'PENDING', label: 'Pending' }, { value: 'REJECTED', label: 'Rejected' },
+    ],
+  },
+  {
+    key: 'fleet', label: 'Fleet & delivery', group: 'Commercial', icon: 'truck', moduleNo: 11,
+    subtitle: 'Vehicles and delivery runs.',
+    searchPlaceholder: 'Search vehicles or driver',
+    columns: [
+      { key: 'id', label: 'Vehicle', kind: 'mono' },
+      { key: 'driver', label: 'Driver & route', kind: 'text', subKey: 'route' },
+      { key: 'load', label: 'Load (cases)', kind: 'num' },
+      { key: 'odometer', label: 'Odometer', kind: 'text' },
+      { key: 'status', label: 'Status', kind: 'status' },
+    ],
+    statusOptions: [
+      { value: 'ACTIVE', label: 'On the road' }, { value: 'SCHEDULED', label: 'Scheduled' }, { value: 'SUSPENDED', label: 'Grounded' },
+    ],
+  },
+  {
+    key: 'finance', label: 'Finance', group: 'Finance & people', icon: 'bank', moduleNo: 12,
+    subtitle: 'Invoices, payments and ledger entries.',
+    searchPlaceholder: 'Search references or narration',
+    columns: [
+      { key: 'id', label: 'Ref', kind: 'mono' },
+      { key: 'account', label: 'Account & narration', kind: 'text', subKey: 'narration' },
+      { key: 'amount', label: 'Amount', kind: 'num' },
+      { key: 'type', label: 'Type', kind: 'text' },
+      { key: 'status', label: 'Status', kind: 'status' },
+    ],
+    statusOptions: [
+      { value: 'CLEARED', label: 'Cleared' }, { value: 'PENDING', label: 'Pending' }, { value: 'OVERDUE', label: 'Overdue' },
+    ],
+  },
+  {
+    key: 'hr', label: 'Human resources', group: 'Finance & people', icon: 'users', moduleNo: 13,
+    subtitle: 'Staff records across departments.',
+    searchPlaceholder: 'Search staff or department',
+    columns: [
+      { key: 'id', label: 'Staff ID', kind: 'mono' },
+      { key: 'name', label: 'Name & department', kind: 'text', subKey: 'department' },
+      { key: 'role', label: 'Role', kind: 'text' },
+      { key: 'tenure', label: 'Tenure', kind: 'text' },
+      { key: 'status', label: 'Status', kind: 'status' },
+    ],
+    statusOptions: [
+      { value: 'ACTIVE', label: 'Active' }, { value: 'INVITED', label: 'Invited' }, { value: 'INACTIVE', label: 'Inactive' },
+    ],
+  },
+  {
+    key: 'payroll', label: 'Payroll', group: 'Finance & people', icon: 'clock', moduleNo: 14,
+    subtitle: 'Monthly payroll runs.',
+    searchPlaceholder: 'Search payslips or staff',
+    columns: [
+      { key: 'id', label: 'Payslip', kind: 'mono' },
+      { key: 'staff_id', label: 'Staff & period', kind: 'text', subKey: 'period' },
+      { key: 'gross', label: 'Gross', kind: 'num' },
+      { key: 'net', label: 'Net', kind: 'num' },
+      { key: 'status', label: 'Status', kind: 'status' },
+    ],
+    statusOptions: [
+      { value: 'PAID', label: 'Paid' }, { value: 'SCHEDULED', label: 'Scheduled' }, { value: 'ON_HOLD', label: 'On hold' },
+    ],
+  },
+  {
+    key: 'assets', label: 'Assets & maintenance', group: 'Plant & insight', icon: 'wrench', moduleNo: 15,
+    subtitle: 'Equipment and maintenance schedule.',
+    searchPlaceholder: 'Search equipment or location',
+    columns: [
+      { key: 'id', label: 'Asset', kind: 'mono' },
+      { key: 'equipment', label: 'Equipment & location', kind: 'text', subKey: 'location' },
+      { key: 'last_service', label: 'Last service', kind: 'text' },
+      { key: 'next_due', label: 'Next due', kind: 'text' },
+      { key: 'status', label: 'Status', kind: 'status' },
+    ],
+    statusOptions: [
+      { value: 'ACTIVE', label: 'Operating' }, { value: 'SCHEDULED', label: 'Service due' }, { value: 'SUSPENDED', label: 'Down' },
+    ],
+  },
+  {
+    key: 'reports', label: 'Reports & analytics', group: 'Plant & insight', icon: 'chart', moduleNo: 16,
+    subtitle: 'Scheduled and saved reports.',
+    searchPlaceholder: 'Search reports or owner',
+    columns: [
+      { key: 'id', label: 'Report', kind: 'mono' },
+      { key: 'name', label: 'Name & scope', kind: 'text', subKey: 'scope' },
+      { key: 'owner', label: 'Owner', kind: 'text' },
+      { key: 'last_run', label: 'Last run', kind: 'text' },
+      { key: 'status', label: 'Status', kind: 'status' },
+    ],
+    statusOptions: [
+      { value: 'COMPLETED', label: 'Completed' }, { value: 'RUNNING', label: 'Running' }, { value: 'FAILED', label: 'Failed' },
+    ],
+  },
+  {
+    key: 'users', label: 'Users', group: 'Administration', icon: 'usercog', moduleNo: 0,
+    subtitle: 'System accounts and access.',
+    searchPlaceholder: 'Search users or email',
+    columns: [
+      { key: 'id', label: 'User ID', kind: 'mono' },
+      { key: 'name', label: 'Name & email', kind: 'text', subKey: 'email' },
+      { key: 'role', label: 'Role', kind: 'text' },
+      { key: 'last_active', label: 'Last active', kind: 'text' },
+      { key: 'status', label: 'Status', kind: 'status' },
+    ],
+    statusOptions: [
+      { value: 'ACTIVE', label: 'Active' }, { value: 'INVITED', label: 'Invited' }, { value: 'SUSPENDED', label: 'Suspended' },
+    ],
+  },
+  {
+    key: 'roles', label: 'Roles & permissions', group: 'Administration', icon: 'shield', moduleNo: 0,
+    subtitle: 'Roles and their permission sets.',
+    searchPlaceholder: 'Search roles',
+    idInput: 'text',
+    columns: [
+      { key: 'id', label: 'Role', kind: 'mono' },
+      { key: 'description', label: 'Description', kind: 'text' },
+      { key: 'members', label: 'Members', kind: 'num' },
+      { key: 'scope', label: 'Scope', kind: 'text' },
+      { key: 'status', label: 'Status', kind: 'status' },
+    ],
+    statusOptions: [
+      { value: 'ACTIVE', label: 'Active' }, { value: 'DRAFT', label: 'Draft' },
+    ],
+  },
+  {
+    key: 'activity-log', label: 'Audit log', group: 'Administration', icon: 'scroll', moduleNo: 0,
+    subtitle: 'Read-only audit trail of every action taken across the system.',
+    searchPlaceholder: 'Search action, user or detail',
+    readOnly: true,
+    columns: [
+      { key: 'action', label: 'Action', kind: 'text' },
+      { key: 'actor', label: 'User', kind: 'text' },
+      { key: 'summary', label: 'Detail of activity', kind: 'text' },
+      { key: 'at', label: 'Timestamp', kind: 'text' },
+    ],
+    statusOptions: [
+      { value: 'COMPLETED', label: 'Completed' }, { value: 'FAILED', label: 'Failed' },
+    ],
+  },
+  {
+    key: 'settings', label: 'Settings', group: 'Administration', icon: 'cog', moduleNo: 18,
+    subtitle: 'Configuration and system preferences.',
+    searchPlaceholder: 'Search settings',
+    idInput: 'text',
+    columns: [
+      { key: 'id', label: 'Setting', kind: 'mono' },
+      { key: 'description', label: 'Description', kind: 'text' },
+      { key: 'value', label: 'Value', kind: 'text' },
+      { key: 'updated_by', label: 'Updated by', kind: 'text' },
+      { key: 'status', label: 'Status', kind: 'status' },
+    ],
+    statusOptions: [
+      { value: 'ACTIVE', label: 'Active' }, { value: 'DRAFT', label: 'Draft' },
+    ],
+  },
+];
+
+export const MODULE_GROUP_ORDER = ['Overview', 'Operations', 'Commercial', 'Finance & people', 'Plant & insight', 'Administration'];
+
+/** These three still use the generic ModulePage/RecordForm CRUD UI, but only ever
+ *  rendered embedded as a Control Panel tab — no sidebar entry, no standalone route. */
+export const CONTROL_PANEL_TAB_KEYS = ['users', 'roles', 'activity-log'];
+
+/** Not data modules — super-admin-only utility screens. Included in NAV_GROUPS so the
+ *  sidebar and command palette agree, but every consumer must gate them on isSuperAdmin
+ *  specifically, never on a per-user grant. */
+export const CONTROL_PANEL_NAV: NavItem = { key: 'control-panel', label: 'Admin panel', icon: 'lock', group: 'Administration', path: '/control-panel' };
+export const DELETE_REQUESTS_NAV: NavItem = { key: 'delete-requests', label: 'Delete requests', icon: 'trash', group: 'Administration', path: '/delete-requests' };
+export const ADMIN_ONLY_NAV_KEYS = [CONTROL_PANEL_NAV.key, DELETE_REQUESTS_NAV.key];
+
+export const NAV_GROUPS: { group: string; items: NavItem[] }[] = MODULE_GROUP_ORDER.map(group => ({
+  group,
+  items: [
+    ...(group === DASHBOARD_NAV.group ? [DASHBOARD_NAV] : []),
+    ...MODULES.filter(m => m.group === group && !CONTROL_PANEL_TAB_KEYS.includes(m.key)).map(m => ({
+      key: m.key, label: m.label, icon: m.icon, group: m.group,
+      moduleNo: m.moduleNo || undefined, path: '/' + m.key,
+    })),
+    ...(group === CONTROL_PANEL_NAV.group ? [CONTROL_PANEL_NAV, DELETE_REQUESTS_NAV] : []),
+  ],
+}));
+
+export const moduleByKey = (key: string): ModuleConfig | undefined => MODULES.find(m => m.key === key);
+
+/** The 9 modules with no natural multi-step business process — they keep the generic
+ *  ModulePage/RecordForm CRUD UI, now reading/writing a real table via the peripheral
+ *  service instead of an in-memory array. The other 8 (production, quality-control,
+ *  inventory, procurement, sales, pos, fleet, finance) get dedicated workflow pages.
+ *  Of these 9, users/roles/activity-log (see CONTROL_PANEL_TAB_KEYS) are embedded in
+ *  the Control Panel instead of being routed on their own. */
+export const GENERIC_MODULE_KEYS = [
+  'water-treatment', 'hr', 'payroll', 'assets', 'reports', 'users', 'roles', 'activity-log', 'settings',
+];
+export const GENERIC_MODULES: ModuleConfig[] = MODULES.filter(m => GENERIC_MODULE_KEYS.includes(m.key));
+export const ROUTED_GENERIC_MODULE_KEYS = GENERIC_MODULE_KEYS.filter(k => !CONTROL_PANEL_TAB_KEYS.includes(k));
