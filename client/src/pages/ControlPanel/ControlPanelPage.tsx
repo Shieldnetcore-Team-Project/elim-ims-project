@@ -18,12 +18,12 @@ export default function ControlPanelPage() {
     <>
       <PrintHeader />
       <div className="pagehead">
-        <div><h1>Admin panel</h1><p className="pagesub">Users, roles, the audit log, and who can see what — super admin only.</p></div>
+        <div><h1>Admin Panel</h1><p className="pagesub">Users, roles, the audit log, and who can see what — super admin only.</p></div>
       </div>
       <Tabs tabs={[
         { key: 'users', label: 'Users', content: <ModulePage moduleKey="users" embedded /> },
-        { key: 'roles', label: 'Roles & permissions', content: <ModulePage moduleKey="roles" embedded /> },
-        { key: 'activity-log', label: 'Audit log', content: <ModulePage moduleKey="activity-log" embedded /> },
+        { key: 'roles', label: 'Roles & Permissions', content: <ModulePage moduleKey="roles" embedded /> },
+        { key: 'activity-log', label: 'Audit Log', content: <ModulePage moduleKey="activity-log" embedded /> },
         { key: 'access', label: 'Access control', content: <AccessControlTab /> },
       ]} />
     </>

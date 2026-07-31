@@ -12,7 +12,7 @@ function fieldsFor(cfg: ModuleConfig): FieldSpec[] {
   const specs: FieldSpec[] = [];
   const optionsFor = FIELD_OPTIONS[cfg.key];
   for (const col of cfg.columns) {
-    if (col.key === 'id' || col.key === 'status') continue;
+    if (col.key === 'id' || col.key === 'status' || col.readOnly) continue;
     // col.label describes the combined table column ("Item & category"); once split into two
     // inputs, the primary one needs its own plain label rather than the pair's.
     const primaryLabel = col.subKey ? humanize(col.key) : col.label;

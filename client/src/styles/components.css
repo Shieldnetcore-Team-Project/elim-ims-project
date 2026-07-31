@@ -1,5 +1,6 @@
 .card{background:rgb(var(--card));border:1px solid rgb(var(--line));border-radius:12px;box-shadow:var(--shadow-card)}
-.card-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid rgb(var(--line))}
+.card-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid rgb(var(--line));
+  position:sticky;top:var(--sticky-card-top,64px);z-index:14;background:rgb(var(--card));border-radius:12px 12px 0 0}
 .card-title{font-family:"Plus Jakarta Sans";font-size:16px;font-weight:600}
 .card-desc{font-size:12px;color:rgb(var(--muted));margin-top:2px}
 
@@ -43,9 +44,12 @@ select{height:36px;border:1px solid rgb(var(--line));background:rgb(var(--card))
 .btn-secondary:hover{border-color:rgb(var(--aqua-300));background:rgb(var(--aqua-100)/.5)}
 .btn-sm{height:32px;padding:0 12px;font-size:12px}
 
+.table-wrap{overflow:auto;max-height:clamp(240px,calc(100vh - 460px),560px)}
+.table-wrap thead th{position:sticky;top:0;z-index:5}
+
 table{width:100%;border-collapse:collapse;font-size:13px}
 th{text-align:left;padding:12px 20px;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
-  color:rgb(var(--muted));border-bottom:1px solid rgb(var(--line));white-space:nowrap}
+  color:rgb(var(--muted));background:rgb(var(--card));border-bottom:1px solid rgb(var(--line));white-space:nowrap}
 th.num,td.num{text-align:right;font-variant-numeric:tabular-nums}
 td{padding:14px 20px;border-bottom:1px solid rgb(var(--line));color:rgb(var(--ink-800));white-space:nowrap}
 tbody tr{transition:background .12s}
@@ -107,7 +111,8 @@ html.dark .overlay{background:rgb(0 0 0/.6)}
 .form-row input:focus,.form-row select:focus,.form-row textarea:focus{border-color:rgb(var(--aqua-500));outline:none}
 .form-row input:disabled{color:rgb(var(--muted));background:rgb(var(--surface))}
 .row-clickable{cursor:pointer}
-.tabs{display:flex;gap:20px;border-bottom:1px solid rgb(var(--line));margin-bottom:20px}
+.tabs{display:flex;gap:20px;border-bottom:1px solid rgb(var(--line));margin-bottom:20px;
+  position:sticky;top:64px;z-index:15;background:rgb(var(--surface))}
 .tab{padding:10px 2px;font-size:13px;font-weight:500;color:rgb(var(--muted));border-bottom:2px solid transparent;margin-bottom:-1px}
 .tab.active{color:rgb(var(--ink-900));border-bottom-color:rgb(var(--aqua-500));font-weight:600}
 .tab:hover{color:rgb(var(--ink-900))}
@@ -138,8 +143,11 @@ html.dark .overlay{background:rgb(0 0 0/.6)}
   .no-print,.toasts,.tfoot{display:none!important}
   body{background:#fff}
   .card{box-shadow:none;break-inside:avoid}
+  .card-head{position:static}
+  .table-wrap{overflow:visible!important;max-height:none!important}
   tr{break-inside:avoid}
   thead{display:table-header-group}
+  th{background:#fff}
   .print-only{display:block!important}
   .sr.print-only{position:static;width:auto;height:auto;overflow:visible;clip:auto;white-space:normal;margin-top:8px}
   @page{margin:14mm 12mm}

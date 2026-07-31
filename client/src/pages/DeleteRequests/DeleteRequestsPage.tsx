@@ -38,15 +38,16 @@ export default function DeleteRequestsPage() {
           </select>
         )}
       >
-        <div style={{ overflowX: 'auto' }}>
+        <div className="table-wrap">
           <table>
-            <thead><tr><th>Request</th><th>Entity</th><th>Requested by</th><th>Reason</th><th>Status</th><th className="no-print">Action</th></tr></thead>
+            <thead><tr><th>Request</th><th>Entity</th><th>Requested by</th><th>Requested at</th><th>Reason</th><th>Status</th><th className="no-print">Action</th></tr></thead>
             <tbody>
               {requests.map(r => (
                 <tr key={r.id}>
                   <td className="mono" style={{ fontSize: 12, color: 'rgb(var(--aqua-700))' }}>{r.id}</td>
                   <td><p style={{ fontWeight: 500 }}>{r.entity_label ?? r.entity_id}</p><p className="sub">{r.entity_type} · {r.entity_id}</p></td>
                   <td>{r.requested_by}</td>
+                  <td className="sub">{r.requested_at}</td>
                   <td className="sub" style={{ whiteSpace: 'normal', maxWidth: 280 }}>{r.reason}</td>
                   <td><Pill status={r.status} /></td>
                   <td className="no-print">

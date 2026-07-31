@@ -64,9 +64,9 @@ export default function FleetPage() {
       <KpiRow kpis={kpis} />
 
       <Card title="Delivery runs" description="Every dispatch, most recent first.">
-        <div style={{ overflowX: 'auto' }}>
+        <div className="table-wrap">
           <table>
-            <thead><tr><th>Waybill</th><th>Customer</th><th>Sales order</th><th>Driver</th><th>Status</th><th className="no-print">Action</th><th className="no-print" /></tr></thead>
+            <thead><tr><th>Waybill</th><th>Customer</th><th>Sales order</th><th>Driver</th><th>Dispatched</th><th>Status</th><th className="no-print">Action</th><th className="no-print" /></tr></thead>
             <tbody>
               {runs.map(r => (
                 <tr key={r.id}>
@@ -74,6 +74,7 @@ export default function FleetPage() {
                   <td><p style={{ fontWeight: 500 }}>{r.customer_name}</p><p className="sub">{r.route ?? r.customer_location}</p></td>
                   <td className="mono" style={{ fontSize: 12 }}>{r.sales_id}</td>
                   <td>{r.driver}</td>
+                  <td className="sub">{r.dispatched_at}</td>
                   <td><Pill status={r.status} /></td>
                   <td className="no-print">
                     {r.status === 'ACTIVE' && <button className="btn btn-secondary btn-sm" onClick={() => markDelivered(r.id)}>Mark delivered</button>}

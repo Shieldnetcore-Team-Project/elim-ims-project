@@ -117,7 +117,7 @@ export function ModulePage({ moduleKey, embedded }: { moduleKey: string; embedde
         <div className="card-head">
           <div><h2 className="card-title">{cfg.label}</h2><p className="card-desc">{rows.length} of {data?.total ?? 0} records shown.{!cfg.readOnly && ' Click a row to edit it.'}</p></div>
         </div>
-        <div style={{ overflowX: 'auto' }}>
+        <div className="table-wrap">
           <DataTable
             columns={cfg.columns} rows={rows} onRowClick={cfg.readOnly ? undefined : row => setForm({ mode: 'edit', row })}
             deleteEntityType={cfg.readOnly ? undefined : cfg.key}

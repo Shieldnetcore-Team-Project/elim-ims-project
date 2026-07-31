@@ -161,6 +161,7 @@ CREATE TABLE IF NOT EXISTS inventory_transactions (
   source_type TEXT NOT NULL CHECK (source_type IN ('PURCHASE','PRODUCTION','SALES','MATERIAL_ISSUE','ADJUSTMENT')),
   source_id TEXT,
   note TEXT,
+  actor TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_inv_item ON inventory_transactions(item_id);
@@ -169,6 +170,19 @@ CREATE VIEW IF NOT EXISTS inventory_balances AS
 SELECT item_id, SUM(CASE WHEN direction = 'IN' THEN quantity ELSE -quantity END) AS on_hand
 FROM inventory_transactions
 GROUP BY item_id;
+
+-- ===================== Warehouse =====================
+CREATE TABLE IF NOT EXISTS warehouse_requisitions (
+  id TEXT PRIMARY KEY,
+  item TEXT NOT NULL,
+  quantity REAL NOT NULL DEFAULT 0,
+  expected_delivery TEXT,
+  priority TEXT NOT NULL DEFAULT 'Medium',
+  reason TEXT,
+  department TEXT,
+  status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','APPROVED','ISSUED','REJECTED')),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 
 -- ===================== Production: material requests =====================
 CREATE TABLE IF NOT EXISTS material_requests (
@@ -298,6 +312,7 @@ CREATE TABLE IF NOT EXISTS receipts (
 CREATE TABLE IF NOT EXISTS payroll_runs (
   id TEXT PRIMARY KEY,
   staff_id TEXT NOT NULL REFERENCES employees(id),
+  staff_name TEXT,
   period TEXT NOT NULL,
   gross REAL NOT NULL,
   net REAL NOT NULL,

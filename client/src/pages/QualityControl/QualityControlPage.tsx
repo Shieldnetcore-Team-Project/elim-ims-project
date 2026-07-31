@@ -11,7 +11,7 @@ import { EmptyState } from '../../components/ui/EmptyState';
 import { PrintHeader } from '../../components/ui/PrintHeader';
 
 interface PendingGoodsReceived { id: string; po_id: string; supplier_name: string; received_at: string }
-interface PendingProductionBatch { id: string; product_name: string; line: string; shift: string; units_actual: number }
+interface PendingProductionBatch { id: string; product_name: string; line: string; shift: string; units_actual: number; started_at: string }
 interface QcRecord { id: string; ref_type: 'GOODS_RECEIVED' | 'PRODUCTION_BATCH'; ref_id: string; inspector: string; parameter: string | null; result: string | null; verdict: 'PASS' | 'FAIL'; notes: string | null; tested_at: string }
 
 type PendingItem =
@@ -54,7 +54,7 @@ export default function QualityControlPage() {
           key: 'pending', label: 'Pending', content: (
             <div style={{ display: 'grid', gap: 20 }}>
               <Card title="Goods receipts awaiting QC" description="A PASS here is what posts the delivery into inventory.">
-                <div style={{ overflowX: 'auto' }}>
+                <div className="table-wrap">
                   <table>
                     <thead><tr><th>GRN</th><th>Purchase order</th><th>Supplier</th><th>Received</th><th className="no-print">Action</th></tr></thead>
                     <tbody>
@@ -74,9 +74,9 @@ export default function QualityControlPage() {
               </Card>
 
               <Card title="Production batches awaiting QC" description="A PASS here is what makes a batch eligible for packaging.">
-                <div style={{ overflowX: 'auto' }}>
+                <div className="table-wrap">
                   <table>
-                    <thead><tr><th>Batch</th><th>Product</th><th>Line / shift</th><th className="num">Units</th><th className="no-print">Action</th></tr></thead>
+                    <thead><tr><th>Batch</th><th>Product</th><th>Line / shift</th><th className="num">Units</th><th>Started</th><th className="no-print">Action</th></tr></thead>
                     <tbody>
                       {pendingBatch.map(b => (
                         <tr key={b.id}>
@@ -84,6 +84,7 @@ export default function QualityControlPage() {
                           <td>{b.product_name}</td>
                           <td className="sub">{b.line} · {b.shift}</td>
                           <td className="num tnum">{b.units_actual.toLocaleString('en-NG')}</td>
+                          <td className="sub">{b.started_at}</td>
                           <td className="no-print"><button className="btn btn-secondary btn-sm" onClick={() => setTarget({ kind: 'PRODUCTION_BATCH', id: b.id, title: b.id, subtitle: `${b.product_name} · ${b.line}` })}>Record result</button></td>
                         </tr>
                       ))}
@@ -98,9 +99,9 @@ export default function QualityControlPage() {
         {
           key: 'history', label: 'History', content: (
             <Card title="QC history" description="Every verdict ever recorded, most recent first.">
-              <div style={{ overflowX: 'auto' }}>
+              <div className="table-wrap">
                 <table>
-                  <thead><tr><th>Record</th><th>Against</th><th>Parameter</th><th>Result</th><th>Inspector</th><th>Verdict</th></tr></thead>
+                  <thead><tr><th>Record</th><th>Against</th><th>Parameter</th><th>Result</th><th>Inspector</th><th>Tested</th><th>Verdict</th></tr></thead>
                   <tbody>
                     {history.map(h => (
                       <tr key={h.id}>
@@ -109,6 +110,7 @@ export default function QualityControlPage() {
                         <td>{h.parameter}</td>
                         <td className="sub">{h.result ?? h.notes}</td>
                         <td>{h.inspector}</td>
+                        <td className="sub">{h.tested_at}</td>
                         <td><Pill status={h.verdict} /></td>
                       </tr>
                     ))}

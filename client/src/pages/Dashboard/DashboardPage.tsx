@@ -146,7 +146,7 @@ export function DashboardPage() {
         >
           {lowStock.length > 0 ? (
             <>
-              <div style={{ overflowX: 'auto' }}>
+              <div className="table-wrap">
                 <table>
                   <thead><tr><th>Product</th><th className="num">Current stock</th><th>Status</th></tr></thead>
                   <tbody>
@@ -205,10 +205,10 @@ export function DashboardPage() {
           <div><h2 className="card-title">Recent deliveries</h2><p className="card-desc">Dispatched from Fleet &amp; delivery. Click a row to trace it.</p></div>
           <Link to="/fleet" className="sub no-print">View all in Fleet &amp; delivery →</Link>
         </div>
-        <div style={{ overflowX: 'auto' }}>
+        <div className="table-wrap">
           <table>
             <thead>
-              <tr><th>Waybill</th><th>Customer</th><th>Sales order</th><th>Driver</th><th>Status</th></tr>
+              <tr><th>Waybill</th><th>Customer</th><th>Sales order</th><th>Driver</th><th>Dispatched</th><th>Status</th></tr>
             </thead>
             <tbody>
               {rows.map(r => (
@@ -217,6 +217,7 @@ export function DashboardPage() {
                   <td><p style={{ fontWeight: 500, color: 'rgb(var(--ink-900))' }}>{r.customer_name}</p><p className="sub">{r.route ?? r.customer_location}</p></td>
                   <td className="mono" style={{ fontSize: 12 }}>{r.sales_id}</td>
                   <td>{r.driver}</td>
+                  <td className="sub">{r.dispatched_at}</td>
                   <td><Pill status={r.status} /></td>
                 </tr>
               ))}

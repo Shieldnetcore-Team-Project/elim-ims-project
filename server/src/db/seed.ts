@@ -4,7 +4,7 @@
 import { db } from './client.js';
 import { mulberry32, pick, int } from '../lib/rng.js';
 import { fullName, businessName, emailFor, LOCATIONS } from '../data/pools.js';
-import { RAW_MATERIALS, DELIVERY_PRODUCTS } from '../../../shared/src/moduleConfig.js';
+import { RAW_MATERIALS, DELIVERY_PRODUCTS, DEPARTMENTS, JOB_ROLES, PRIORITY_LEVELS } from '../../../shared/src/moduleConfig.js';
 
 import * as inventory from '../services/inventory.js';
 import * as procurement from '../services/procurement.js';
@@ -159,21 +159,20 @@ function seedSalesAndFleet() {
 }
 
 function seedPeripherals() {
-  const departments = ['Production', 'Water treatment', 'Quality control', 'Sales', 'Fleet & delivery', 'Finance', 'Human resources', 'Warehouse'];
-  const roleTitles = ['Operator', 'Supervisor', 'Analyst', 'Driver', 'Accountant', 'Sales rep', 'Manager', 'Technician'];
-  const employeeIds: string[] = [];
+  const employees: { id: string; name: string }[] = [];
   for (let i = 0; i < 14; i++) {
     const name = fullName(rng);
     const row = peripheral.create('hr', 'System Administrator', undefined, pick(rng, ['ACTIVE', 'ACTIVE', 'ACTIVE', 'INVITED']), {
-      name, department: pick(rng, departments), role: pick(rng, roleTitles), tenure: `${int(rng, 0, 9)} yrs ${int(rng, 0, 11)} mo`,
+      name, department: pick(rng, DEPARTMENTS), role: pick(rng, JOB_ROLES), tenure: `${int(rng, 0, 9)} yrs ${int(rng, 0, 11)} mo`,
     });
-    if (row) employeeIds.push(row.id);
+    if (row) employees.push({ id: row.id, name });
   }
 
   for (let i = 0; i < 12; i++) {
     const gross = int(rng, 120000, 650000);
+    const staff = pick(rng, employees);
     peripheral.create('payroll', 'Finance officer', undefined, pick(rng, ['PAID', 'PAID', 'SCHEDULED', 'ON_HOLD']), {
-      staff_id: pick(rng, employeeIds), period: pick(rng, ['Jun 2026', 'Jul 2026']), gross, net: Math.round(gross * 0.82),
+      staff_id: staff.id, staff_name: staff.name, period: pick(rng, ['Jun 2026', 'Jul 2026']), gross, net: Math.round(gross * 0.82),
     });
   }
 
@@ -236,6 +235,18 @@ function seedPeripherals() {
   ];
   for (const [name, description, value, updated_by] of settingsRows) {
     peripheral.create('settings', 'System Administrator', name, 'ACTIVE', { description, value, updated_by });
+  }
+
+  const requisitionReasons = [
+    'Stock running low ahead of next delivery', 'Needed for scheduled maintenance', 'Replenishing safety stock',
+    'Urgent shortfall on the line', 'Routine monthly top-up', 'New batch requires additional supply',
+  ];
+  for (let i = 0; i < 12; i++) {
+    const expected = new Date(Date.now() + int(rng, 2, 21) * 86400000).toISOString().slice(0, 10);
+    peripheral.create('warehouse', 'System Administrator', undefined, pick(rng, ['PENDING', 'PENDING', 'APPROVED', 'ISSUED', 'REJECTED']), {
+      item: pick(rng, RAW_MATERIALS), quantity: int(rng, 20, 500), expected_delivery: expected,
+      priority: pick(rng, PRIORITY_LEVELS), reason: pick(rng, requisitionReasons), department: pick(rng, DEPARTMENTS),
+    });
   }
 }
 

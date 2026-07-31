@@ -20,6 +20,7 @@ interface MaterialRequest { id: string; requested_by: string; department: string
 interface ProductionBatch {
   id: string; product_item_id: string; product_name: string; line: string; shift: string; operator: string;
   units_target: number; units_actual: number; status: string; qc_verdict: 'PASS' | 'FAIL' | null; packaged_units: number;
+  started_at: string;
 }
 interface FinishedGood { id: string; item_name: string; batch_id: string; quantity: number; packaged_by: string | null; packaged_at: string }
 interface Item { id: string; name: string; type: string }
@@ -86,15 +87,16 @@ export default function ProductionPage() {
               title="Material requests" description="Raw materials drawn from the warehouse to the production floor."
               action={<button className="btn btn-primary no-print" onClick={() => setRequestOpen(true)}><Icon name="plus" size={14} /> New request</button>}
             >
-              <div style={{ overflowX: 'auto' }}>
+              <div className="table-wrap">
                 <table>
-                  <thead><tr><th>Request</th><th>Department</th><th>Requested by</th><th>Status</th><th className="no-print">Action</th><th className="no-print" /></tr></thead>
+                  <thead><tr><th>Request</th><th>Department</th><th>Requested by</th><th>Requested</th><th>Status</th><th className="no-print">Action</th><th className="no-print" /></tr></thead>
                   <tbody>
                     {requests.map(r => (
                       <tr key={r.id}>
                         <td className="mono" style={{ fontSize: 12, color: 'rgb(var(--aqua-700))' }}>{r.id}</td>
                         <td>{r.department}</td>
                         <td>{r.requested_by}</td>
+                        <td className="sub">{r.created_at}</td>
                         <td><Pill status={r.status} /></td>
                         <td className="no-print">
                           {r.status === 'PENDING' && (
@@ -122,9 +124,9 @@ export default function ProductionPage() {
               title="Production batches" description="Manufacturing runs, each needing a QC pass before packaging."
               action={<button className="btn btn-primary no-print" onClick={() => setBatchOpen(true)}><Icon name="plus" size={14} /> New batch</button>}
             >
-              <div style={{ overflowX: 'auto' }}>
+              <div className="table-wrap">
                 <table>
-                  <thead><tr><th>Batch</th><th>Product</th><th>Line / shift</th><th className="num">Units</th><th>QC</th><th className="num">Packaged</th><th className="no-print" /></tr></thead>
+                  <thead><tr><th>Batch</th><th>Product</th><th>Line / shift</th><th className="num">Units</th><th>QC</th><th className="num">Packaged</th><th>Started</th><th className="no-print" /></tr></thead>
                   <tbody>
                     {batches.map(b => (
                       <tr key={b.id}>
@@ -134,6 +136,7 @@ export default function ProductionPage() {
                         <td className="num tnum">{b.units_actual.toLocaleString('en-NG')}</td>
                         <td>{b.qc_verdict ? <Pill status={b.qc_verdict} /> : <span className="sub">Pending</span>}</td>
                         <td className="num tnum">{b.packaged_units.toLocaleString('en-NG')}</td>
+                        <td className="sub">{b.started_at}</td>
                         <td className="no-print">
                           <DeleteButton entityType="production_batches" entityId={b.id} entityLabel={b.id} pending={batchesPending.has(b.id)} onRequested={() => { refresh(); ui.toast('Deletion requested — pending admin approval'); }} />
                         </td>
@@ -150,9 +153,9 @@ export default function ProductionPage() {
           key: 'packaging', label: 'Packaging', content: (
             <div style={{ display: 'grid', gap: 20 }}>
               <Card title="Ready to package" description="QC-passed batches — package to add them to finished-goods inventory.">
-                <div style={{ overflowX: 'auto' }}>
+                <div className="table-wrap">
                   <table>
-                    <thead><tr><th>Batch</th><th>Product</th><th className="num">Units</th><th className="num">Already packaged</th><th className="no-print">Action</th></tr></thead>
+                    <thead><tr><th>Batch</th><th>Product</th><th className="num">Units</th><th className="num">Already packaged</th><th>Started</th><th className="no-print">Action</th></tr></thead>
                     <tbody>
                       {readyToPackage.map(b => (
                         <tr key={b.id}>
@@ -160,6 +163,7 @@ export default function ProductionPage() {
                           <td>{b.product_name}</td>
                           <td className="num tnum">{b.units_actual.toLocaleString('en-NG')}</td>
                           <td className="num tnum">{b.packaged_units.toLocaleString('en-NG')}</td>
+                          <td className="sub">{b.started_at}</td>
                           <td className="no-print"><button className="btn btn-secondary btn-sm" onClick={() => setPackageTarget(b)}>Package</button></td>
                         </tr>
                       ))}
@@ -170,9 +174,9 @@ export default function ProductionPage() {
               </Card>
 
               <Card title="Finished goods packaged" description="Every packaging run, most recent first.">
-                <div style={{ overflowX: 'auto' }}>
+                <div className="table-wrap">
                   <table>
-                    <thead><tr><th>Record</th><th>Item</th><th>Batch</th><th className="num">Cases</th><th>Packaged by</th><th className="no-print" /></tr></thead>
+                    <thead><tr><th>Record</th><th>Item</th><th>Batch</th><th className="num">Cases</th><th>Packaged by</th><th>Packaged</th><th className="no-print" /></tr></thead>
                     <tbody>
                       {finishedGoods.map(f => (
                         <tr key={f.id}>
@@ -181,6 +185,7 @@ export default function ProductionPage() {
                           <td className="mono" style={{ fontSize: 12 }}>{f.batch_id}</td>
                           <td className="num tnum">{f.quantity.toLocaleString('en-NG')}</td>
                           <td>{f.packaged_by}</td>
+                          <td className="sub">{f.packaged_at}</td>
                           <td className="no-print">
                             <DeleteButton entityType="finished_goods" entityId={f.id} entityLabel={f.id} pending={finishedGoodsPending.has(f.id)} onRequested={() => { refresh(); ui.toast('Deletion requested — pending admin approval'); }} />
                           </td>

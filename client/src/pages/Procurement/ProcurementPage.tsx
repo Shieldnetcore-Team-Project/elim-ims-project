@@ -79,9 +79,9 @@ export default function ProcurementPage() {
         {
           key: 'orders', label: 'Purchase orders', content: (
             <Card title="Purchase orders" description="Every order raised against a supplier.">
-              <div style={{ overflowX: 'auto' }}>
+              <div className="table-wrap">
                 <table>
-                  <thead><tr><th>PO</th><th>Supplier</th><th className="num">Items</th><th className="num">Amount</th><th>Requested by</th><th>Status</th><th className="no-print">Action</th><th className="no-print" /></tr></thead>
+                  <thead><tr><th>PO</th><th>Supplier</th><th className="num">Items</th><th className="num">Amount</th><th>Requested by</th><th>Created</th><th>Status</th><th className="no-print">Action</th><th className="no-print" /></tr></thead>
                   <tbody>
                     {orders.map(o => (
                       <tr key={o.id}>
@@ -90,6 +90,7 @@ export default function ProcurementPage() {
                         <td className="num tnum">{o.item_count}</td>
                         <td className="num tnum">{naira(o.total_amount)}</td>
                         <td>{o.requested_by}</td>
+                        <td className="sub">{o.created_at}</td>
                         <td><Pill status={o.status} /></td>
                         <td className="no-print">
                           {o.status === 'AWAITING_APPROVAL' && (
@@ -117,9 +118,9 @@ export default function ProcurementPage() {
         {
           key: 'receipts', label: 'Goods received', content: (
             <Card title="Goods received" description="Deliveries logged against a purchase order, awaiting or past Quality Control.">
-              <div style={{ overflowX: 'auto' }}>
+              <div className="table-wrap">
                 <table>
-                  <thead><tr><th>GRN</th><th>Purchase order</th><th>Supplier</th><th>Received by</th><th>Status</th><th className="no-print" /></tr></thead>
+                  <thead><tr><th>GRN</th><th>Purchase order</th><th>Supplier</th><th>Received by</th><th>Received</th><th>Status</th><th className="no-print" /></tr></thead>
                   <tbody>
                     {receipts.map(r => (
                       <tr key={r.id}>
@@ -127,6 +128,7 @@ export default function ProcurementPage() {
                         <td className="mono" style={{ fontSize: 12 }}>{r.po_id}</td>
                         <td>{r.supplier_name}</td>
                         <td>{r.received_by}</td>
+                        <td className="sub">{r.received_at}</td>
                         <td><Pill status={r.status} /></td>
                         <td className="no-print">
                           <DeleteButton entityType="goods_received" entityId={r.id} entityLabel={r.id} pending={grnPending.has(r.id)} onRequested={() => { refresh(); ui.toast('Deletion requested — pending admin approval'); }} />

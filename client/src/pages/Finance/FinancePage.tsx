@@ -58,15 +58,16 @@ export default function FinancePage() {
         {
           key: 'ledger', label: 'Ledger', content: (
             <Card title="General ledger" description="Every entry posted by every other module — read-only here by design.">
-              <div style={{ overflowX: 'auto' }}>
+              <div className="table-wrap">
                 <table>
-                  <thead><tr><th>Ref</th><th>Account</th><th>Description</th><th className="num">Debit</th><th className="num">Credit</th></tr></thead>
+                  <thead><tr><th>Ref</th><th>Account</th><th>Description</th><th>Date</th><th className="num">Debit</th><th className="num">Credit</th></tr></thead>
                   <tbody>
                     {ledger.map(l => (
                       <tr key={l.id}>
                         <td className="mono" style={{ fontSize: 12, color: 'rgb(var(--aqua-700))' }}>{l.id}</td>
                         <td>{l.account}</td>
                         <td className="sub">{l.description}</td>
+                        <td className="sub">{l.entry_date}</td>
                         <td className="num tnum">{l.debit ? naira(l.debit) : ''}</td>
                         <td className="num tnum">{l.credit ? naira(l.credit) : ''}</td>
                       </tr>
@@ -81,15 +82,16 @@ export default function FinancePage() {
         {
           key: 'payments', label: 'Payments', content: (
             <Card title="Payments" description="Money paid out — suppliers, utilities, payroll." action={<button className="btn btn-primary no-print" onClick={() => setPaymentOpen(true)}><Icon name="plus" size={14} /> Record payment</button>}>
-              <div style={{ overflowX: 'auto' }}>
+              <div className="table-wrap">
                 <table>
-                  <thead><tr><th>Payment</th><th>Paid to</th><th>Method</th><th className="num">Amount</th><th className="no-print" /></tr></thead>
+                  <thead><tr><th>Payment</th><th>Paid to</th><th>Method</th><th>Date</th><th className="num">Amount</th><th className="no-print" /></tr></thead>
                   <tbody>
                     {payments.map(p => (
                       <tr key={p.id}>
                         <td className="mono" style={{ fontSize: 12, color: 'rgb(var(--aqua-700))' }}>{p.id}</td>
                         <td>{p.paid_to}</td>
                         <td className="sub">{p.method}</td>
+                        <td className="sub">{p.paid_at}</td>
                         <td className="num tnum">{naira(p.amount)}</td>
                         <td className="no-print">
                           <DeleteButton entityType="payments" entityId={p.id} entityLabel={p.id} pending={paymentsPending.has(p.id)} onRequested={() => { refresh(); ui.toast('Deletion requested — pending admin approval'); }} />
@@ -106,15 +108,16 @@ export default function FinancePage() {
         {
           key: 'receipts', label: 'Receipts', content: (
             <Card title="Receipts" description="Money received — mostly customer payments against sales orders." action={<button className="btn btn-primary no-print" onClick={() => setReceiptOpen(true)}><Icon name="plus" size={14} /> Record receipt</button>}>
-              <div style={{ overflowX: 'auto' }}>
+              <div className="table-wrap">
                 <table>
-                  <thead><tr><th>Receipt</th><th>Received from</th><th>Method</th><th className="num">Amount</th><th className="no-print" /></tr></thead>
+                  <thead><tr><th>Receipt</th><th>Received from</th><th>Method</th><th>Date</th><th className="num">Amount</th><th className="no-print" /></tr></thead>
                   <tbody>
                     {receipts.map(r => (
                       <tr key={r.id}>
                         <td className="mono" style={{ fontSize: 12, color: 'rgb(var(--aqua-700))' }}>{r.id}</td>
                         <td>{r.received_from}</td>
                         <td className="sub">{r.method}</td>
+                        <td className="sub">{r.received_at}</td>
                         <td className="num tnum">{naira(r.amount)}</td>
                         <td className="no-print">
                           <DeleteButton entityType="receipts" entityId={r.id} entityLabel={r.id} pending={receiptsPending.has(r.id)} onRequested={() => { refresh(); ui.toast('Deletion requested — pending admin approval'); }} />

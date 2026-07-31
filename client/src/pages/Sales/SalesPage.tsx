@@ -60,9 +60,9 @@ export default function SalesPage({ channel }: { channel: 'INVOICE' | 'POS' }) {
       <KpiRow kpis={kpis} />
 
       <Card title={copy.title} description={`${orders.length} record(s).`}>
-        <div style={{ overflowX: 'auto' }}>
+        <div className="table-wrap">
           <table>
-            <thead><tr><th>Order</th><th>Customer</th><th className="num">Amount</th><th>Rep</th><th>Status</th><th className="no-print" /></tr></thead>
+            <thead><tr><th>Order</th><th>Customer</th><th className="num">Amount</th><th>Rep</th><th>Date</th><th>Status</th><th className="no-print" /></tr></thead>
             <tbody>
               {orders.map(o => (
                 <tr key={o.id}>
@@ -70,6 +70,7 @@ export default function SalesPage({ channel }: { channel: 'INVOICE' | 'POS' }) {
                   <td><p style={{ fontWeight: 500 }}>{o.customer_name}</p><p className="sub">{o.customer_location}</p></td>
                   <td className="num tnum">{naira(o.total_amount)}</td>
                   <td>{o.rep}</td>
+                  <td className="sub">{o.created_at}</td>
                   <td><Pill status={o.status} /></td>
                   <td className="no-print">
                     <DeleteButton entityType="sales" entityId={o.id} entityLabel={o.id} pending={pendingDeletions.has(o.id)} onRequested={() => { refresh(); ui.toast('Deletion requested — pending admin approval'); }} />

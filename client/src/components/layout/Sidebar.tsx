@@ -20,7 +20,7 @@ export function Sidebar() {
       <div className="rail-head">
         <span className="rail-logo"><Icon name="drop" size={20} /></span>
         <div style={{ minWidth: 0 }}>
-          <p className="rail-name">Elim<span style={{ color: 'rgb(var(--aqua-300))' }}>Water</span></p>
+          <p className="rail-name">Elim Table<span style={{ color: 'rgb(var(--aqua-300))' }}> Water</span></p>
           <p className="rail-sub">Factory Operations</p>
         </div>
         <button className="rail-close" onClick={ui.closeDrawer} aria-label="Close navigation">
@@ -43,7 +43,6 @@ export function Sidebar() {
               >
                 <Icon name={item.icon} />
                 <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.label}</span>
-                {item.moduleNo ? <span className="rail-badge">M{String(item.moduleNo).padStart(2, '0')}</span> : null}
               </NavLink>
             ))}
           </div>

@@ -11,6 +11,16 @@ export const RAW_MATERIALS = [
   'Water treatment consumables', 'Cartons', 'Fuel', 'Generator diesel', 'Lubricants', 'Spare materials',
 ];
 
+export const DEPARTMENTS = [
+  'Production', 'Water Treatment', 'Quality Control', 'Sales', 'Fleet & Delivery', 'Finance', 'Human Resources', 'Warehouse',
+];
+
+export const JOB_ROLES = [
+  'Operator', 'Supervisor', 'Analyst', 'Driver', 'Accountant', 'Sales rep', 'Manager', 'Technician',
+];
+
+export const PRIORITY_LEVELS = ['Low', 'Medium', 'High', 'Urgent'];
+
 /** Per-module, per-field pick-lists — a field with an entry here renders as a <select> in
  *  RecordForm and is drawn from here in mock data generation, instead of being free text. */
 const USER_ROLES = [
@@ -23,6 +33,8 @@ const USER_ROLES = [
 export const FIELD_OPTIONS: Record<string, Record<string, string[]>> = {
   procurement: { item: RAW_MATERIALS },
   users: { role: USER_ROLES },
+  hr: { department: DEPARTMENTS, role: JOB_ROLES },
+  warehouse: { item: RAW_MATERIALS, department: DEPARTMENTS, priority: PRIORITY_LEVELS },
 };
 
 export interface NavItem {
@@ -39,52 +51,6 @@ export const DASHBOARD_NAV: NavItem = { key: 'dashboard', label: 'Dashboard', ic
 /** Single source of truth for every non-dashboard nav item: drives the sidebar,
  *  the command palette, the routes, and the server's generic /api/modules/:key mock data. */
 export const MODULES: ModuleConfig[] = [
-  {
-    key: 'water-treatment', label: 'Water treatment', group: 'Operations', icon: 'drop', moduleNo: 6,
-    subtitle: 'Borehole draw, RO, UV and ozone treatment runs.',
-    searchPlaceholder: 'Search treatment runs or borehole reference',
-    columns: [
-      { key: 'id', label: 'Run', kind: 'mono' },
-      { key: 'source', label: 'Source', kind: 'text', subKey: 'stage' },
-      { key: 'volume_l', label: 'Volume (L)', kind: 'num' },
-      { key: 'operator', label: 'Operator', kind: 'text' },
-      { key: 'status', label: 'Status', kind: 'status' },
-    ],
-    statusOptions: [
-      { value: 'PASS', label: 'Passed' }, { value: 'IN_PROGRESS', label: 'In progress' }, { value: 'FAIL', label: 'Failed' },
-    ],
-  },
-  {
-    key: 'production', label: 'Production', group: 'Operations', icon: 'factory', moduleNo: 7,
-    subtitle: 'Fill runs by production line and shift.',
-    searchPlaceholder: 'Search production runs or product',
-    columns: [
-      { key: 'id', label: 'Run', kind: 'mono' },
-      { key: 'line', label: 'Line & shift', kind: 'text', subKey: 'product' },
-      { key: 'units', label: 'Units filled', kind: 'num' },
-      { key: 'operator', label: 'Operator', kind: 'text' },
-      { key: 'status', label: 'Status', kind: 'status' },
-    ],
-    statusOptions: [
-      { value: 'COMPLETED', label: 'Completed' }, { value: 'RUNNING', label: 'Running' },
-      { value: 'SCHEDULED', label: 'Scheduled' }, { value: 'FAILED', label: 'Failed' },
-    ],
-  },
-  {
-    key: 'quality-control', label: 'Quality control', group: 'Operations', icon: 'flask', moduleNo: 8,
-    subtitle: 'Lab tests against batch samples.',
-    searchPlaceholder: 'Search tests or batch code',
-    columns: [
-      { key: 'id', label: 'Test', kind: 'mono' },
-      { key: 'batch', label: 'Batch & parameter', kind: 'text', subKey: 'parameter' },
-      { key: 'result', label: 'Result', kind: 'text' },
-      { key: 'analyst', label: 'Analyst', kind: 'text' },
-      { key: 'status', label: 'Status', kind: 'status' },
-    ],
-    statusOptions: [
-      { value: 'PASS', label: 'Passed' }, { value: 'PENDING', label: 'Pending' }, { value: 'FAIL', label: 'Failed' },
-    ],
-  },
   {
     key: 'inventory', label: 'Inventory', group: 'Operations', icon: 'box', moduleNo: 5,
     subtitle: 'Stock on hand across raw materials and finished goods.',
@@ -117,6 +83,70 @@ export const MODULES: ModuleConfig[] = [
     ],
   },
   {
+    key: 'warehouse', label: 'Warehouse', group: 'Operations', icon: 'warehouse', moduleNo: 17,
+    subtitle: 'Stock requisitions raised against the warehouse.',
+    searchPlaceholder: 'Search requisitions or item',
+    columns: [
+      { key: 'id', label: 'Requisition', kind: 'mono' },
+      { key: 'item', label: 'Item & department', kind: 'text', subKey: 'department' },
+      { key: 'quantity', label: 'Quantity', kind: 'num' },
+      { key: 'priority', label: 'Priority & expected delivery', kind: 'text', subKey: 'expected_delivery' },
+      { key: 'reason', label: 'Reason for request', kind: 'text' },
+      { key: 'status', label: 'Status', kind: 'status' },
+    ],
+    statusOptions: [
+      { value: 'PENDING', label: 'Pending' }, { value: 'APPROVED', label: 'Approved' },
+      { value: 'ISSUED', label: 'Issued' }, { value: 'REJECTED', label: 'Rejected' },
+    ],
+  },
+  {
+    key: 'production', label: 'Production', group: 'Operations', icon: 'factory', moduleNo: 7,
+    subtitle: 'Fill runs by production line and shift.',
+    searchPlaceholder: 'Search production runs or product',
+    columns: [
+      { key: 'id', label: 'Run', kind: 'mono' },
+      { key: 'line', label: 'Line & shift', kind: 'text', subKey: 'product' },
+      { key: 'units', label: 'Units filled', kind: 'num' },
+      { key: 'operator', label: 'Operator', kind: 'text' },
+      { key: 'status', label: 'Status', kind: 'status' },
+    ],
+    statusOptions: [
+      { value: 'COMPLETED', label: 'Completed' }, { value: 'RUNNING', label: 'Running' },
+      { value: 'SCHEDULED', label: 'Scheduled' }, { value: 'FAILED', label: 'Failed' },
+    ],
+  },
+  {
+    key: 'quality-control', label: 'Quality Control', group: 'Operations', icon: 'flask', moduleNo: 8,
+    subtitle: 'Lab tests against batch samples.',
+    searchPlaceholder: 'Search tests or batch code',
+    columns: [
+      { key: 'id', label: 'Test', kind: 'mono' },
+      { key: 'batch', label: 'Batch & parameter', kind: 'text', subKey: 'parameter' },
+      { key: 'result', label: 'Result', kind: 'text' },
+      { key: 'analyst', label: 'Analyst', kind: 'text' },
+      { key: 'status', label: 'Status', kind: 'status' },
+    ],
+    statusOptions: [
+      { value: 'PASS', label: 'Passed' }, { value: 'PENDING', label: 'Pending' }, { value: 'FAIL', label: 'Failed' },
+    ],
+  },
+  {
+    key: 'water-treatment', label: 'Water Treatment', group: 'Operations', icon: 'drop', moduleNo: 6,
+    subtitle: 'Borehole draw, RO, UV and ozone treatment runs.',
+    searchPlaceholder: 'Search treatment runs or borehole reference',
+    columns: [
+      { key: 'id', label: 'Run', kind: 'mono' },
+      { key: 'source', label: 'Source', kind: 'text', subKey: 'stage' },
+      { key: 'volume_l', label: 'Volume (L)', kind: 'num' },
+      { key: 'operator', label: 'Operator', kind: 'text' },
+      { key: 'tested_at', label: 'Tested', kind: 'text', readOnly: true },
+      { key: 'status', label: 'Status', kind: 'status' },
+    ],
+    statusOptions: [
+      { value: 'PASS', label: 'Passed' }, { value: 'IN_PROGRESS', label: 'In progress' }, { value: 'FAIL', label: 'Failed' },
+    ],
+  },
+  {
     key: 'sales', label: 'Sales', group: 'Commercial', icon: 'cart', moduleNo: 9,
     subtitle: 'Customer orders across all channels.',
     searchPlaceholder: 'Search orders or customer',
@@ -133,7 +163,7 @@ export const MODULES: ModuleConfig[] = [
     ],
   },
   {
-    key: 'pos', label: 'Point of sale', group: 'Commercial', icon: 'wallet', moduleNo: 10,
+    key: 'pos', label: 'Point of Sale', group: 'Commercial', icon: 'wallet', moduleNo: 10,
     subtitle: 'Walk-in and depot till transactions.',
     searchPlaceholder: 'Search receipts or cashier',
     columns: [
@@ -148,7 +178,7 @@ export const MODULES: ModuleConfig[] = [
     ],
   },
   {
-    key: 'fleet', label: 'Fleet & delivery', group: 'Commercial', icon: 'truck', moduleNo: 11,
+    key: 'fleet', label: 'Fleet & Delivery', group: 'Commercial', icon: 'truck', moduleNo: 11,
     subtitle: 'Vehicles and delivery runs.',
     searchPlaceholder: 'Search vehicles or driver',
     columns: [
@@ -178,7 +208,7 @@ export const MODULES: ModuleConfig[] = [
     ],
   },
   {
-    key: 'hr', label: 'Human resources', group: 'Finance & people', icon: 'users', moduleNo: 13,
+    key: 'hr', label: 'Human Resources', group: 'Finance & people', icon: 'users', moduleNo: 13,
     subtitle: 'Staff records across departments.',
     searchPlaceholder: 'Search staff or department',
     columns: [
@@ -186,6 +216,7 @@ export const MODULES: ModuleConfig[] = [
       { key: 'name', label: 'Name & department', kind: 'text', subKey: 'department' },
       { key: 'role', label: 'Role', kind: 'text' },
       { key: 'tenure', label: 'Tenure', kind: 'text' },
+      { key: 'created_at', label: 'Added', kind: 'text', readOnly: true },
       { key: 'status', label: 'Status', kind: 'status' },
     ],
     statusOptions: [
@@ -198,9 +229,11 @@ export const MODULES: ModuleConfig[] = [
     searchPlaceholder: 'Search payslips or staff',
     columns: [
       { key: 'id', label: 'Payslip', kind: 'mono' },
-      { key: 'staff_id', label: 'Staff & period', kind: 'text', subKey: 'period' },
+      { key: 'staff_name', label: 'Staff', kind: 'text', subKey: 'staff_id' },
+      { key: 'period', label: 'Period', kind: 'text' },
       { key: 'gross', label: 'Gross', kind: 'num' },
       { key: 'net', label: 'Net', kind: 'num' },
+      { key: 'created_at', label: 'Run date', kind: 'text', readOnly: true },
       { key: 'status', label: 'Status', kind: 'status' },
     ],
     statusOptions: [
@@ -208,7 +241,7 @@ export const MODULES: ModuleConfig[] = [
     ],
   },
   {
-    key: 'assets', label: 'Assets & maintenance', group: 'Plant & insight', icon: 'wrench', moduleNo: 15,
+    key: 'assets', label: 'Assets & Maintenance', group: 'Plant & insight', icon: 'wrench', moduleNo: 15,
     subtitle: 'Equipment and maintenance schedule.',
     searchPlaceholder: 'Search equipment or location',
     columns: [
@@ -216,6 +249,7 @@ export const MODULES: ModuleConfig[] = [
       { key: 'equipment', label: 'Equipment & location', kind: 'text', subKey: 'location' },
       { key: 'last_service', label: 'Last service', kind: 'text' },
       { key: 'next_due', label: 'Next due', kind: 'text' },
+      { key: 'created_at', label: 'Added', kind: 'text', readOnly: true },
       { key: 'status', label: 'Status', kind: 'status' },
     ],
     statusOptions: [
@@ -223,7 +257,7 @@ export const MODULES: ModuleConfig[] = [
     ],
   },
   {
-    key: 'reports', label: 'Reports & analytics', group: 'Plant & insight', icon: 'chart', moduleNo: 16,
+    key: 'reports', label: 'Reports & Analytics', group: 'Plant & insight', icon: 'chart', moduleNo: 16,
     subtitle: 'Scheduled and saved reports.',
     searchPlaceholder: 'Search reports or owner',
     columns: [
@@ -246,6 +280,7 @@ export const MODULES: ModuleConfig[] = [
       { key: 'name', label: 'Name & email', kind: 'text', subKey: 'email' },
       { key: 'role', label: 'Role', kind: 'text' },
       { key: 'last_active', label: 'Last active', kind: 'text' },
+      { key: 'created_at', label: 'Created', kind: 'text', readOnly: true },
       { key: 'status', label: 'Status', kind: 'status' },
     ],
     statusOptions: [
@@ -253,7 +288,7 @@ export const MODULES: ModuleConfig[] = [
     ],
   },
   {
-    key: 'roles', label: 'Roles & permissions', group: 'Administration', icon: 'shield', moduleNo: 0,
+    key: 'roles', label: 'Roles & Permissions', group: 'Administration', icon: 'shield', moduleNo: 0,
     subtitle: 'Roles and their permission sets.',
     searchPlaceholder: 'Search roles',
     idInput: 'text',
@@ -262,6 +297,7 @@ export const MODULES: ModuleConfig[] = [
       { key: 'description', label: 'Description', kind: 'text' },
       { key: 'members', label: 'Members', kind: 'num' },
       { key: 'scope', label: 'Scope', kind: 'text' },
+      { key: 'created_at', label: 'Created', kind: 'text', readOnly: true },
       { key: 'status', label: 'Status', kind: 'status' },
     ],
     statusOptions: [
@@ -269,7 +305,7 @@ export const MODULES: ModuleConfig[] = [
     ],
   },
   {
-    key: 'activity-log', label: 'Audit log', group: 'Administration', icon: 'scroll', moduleNo: 0,
+    key: 'activity-log', label: 'Audit Log', group: 'Administration', icon: 'scroll', moduleNo: 0,
     subtitle: 'Read-only audit trail of every action taken across the system.',
     searchPlaceholder: 'Search action, user or detail',
     readOnly: true,
@@ -293,6 +329,7 @@ export const MODULES: ModuleConfig[] = [
       { key: 'description', label: 'Description', kind: 'text' },
       { key: 'value', label: 'Value', kind: 'text' },
       { key: 'updated_by', label: 'Updated by', kind: 'text' },
+      { key: 'updated_at', label: 'Updated', kind: 'text', readOnly: true },
       { key: 'status', label: 'Status', kind: 'status' },
     ],
     statusOptions: [
@@ -310,8 +347,8 @@ export const CONTROL_PANEL_TAB_KEYS = ['users', 'roles', 'activity-log'];
 /** Not data modules — super-admin-only utility screens. Included in NAV_GROUPS so the
  *  sidebar and command palette agree, but every consumer must gate them on isSuperAdmin
  *  specifically, never on a per-user grant. */
-export const CONTROL_PANEL_NAV: NavItem = { key: 'control-panel', label: 'Admin panel', icon: 'lock', group: 'Administration', path: '/control-panel' };
-export const DELETE_REQUESTS_NAV: NavItem = { key: 'delete-requests', label: 'Delete requests', icon: 'trash', group: 'Administration', path: '/delete-requests' };
+export const CONTROL_PANEL_NAV: NavItem = { key: 'control-panel', label: 'Admin Panel', icon: 'lock', group: 'Administration', path: '/control-panel' };
+export const DELETE_REQUESTS_NAV: NavItem = { key: 'delete-requests', label: 'Delete Requests', icon: 'trash', group: 'Administration', path: '/delete-requests' };
 export const ADMIN_ONLY_NAV_KEYS = [CONTROL_PANEL_NAV.key, DELETE_REQUESTS_NAV.key];
 
 export const NAV_GROUPS: { group: string; items: NavItem[] }[] = MODULE_GROUP_ORDER.map(group => ({
@@ -335,7 +372,7 @@ export const moduleByKey = (key: string): ModuleConfig | undefined => MODULES.fi
  *  Of these 9, users/roles/activity-log (see CONTROL_PANEL_TAB_KEYS) are embedded in
  *  the Control Panel instead of being routed on their own. */
 export const GENERIC_MODULE_KEYS = [
-  'water-treatment', 'hr', 'payroll', 'assets', 'reports', 'users', 'roles', 'activity-log', 'settings',
+  'water-treatment', 'warehouse', 'hr', 'payroll', 'assets', 'reports', 'users', 'roles', 'activity-log', 'settings',
 ];
 export const GENERIC_MODULES: ModuleConfig[] = MODULES.filter(m => GENERIC_MODULE_KEYS.includes(m.key));
 export const ROUTED_GENERIC_MODULE_KEYS = GENERIC_MODULE_KEYS.filter(k => !CONTROL_PANEL_TAB_KEYS.includes(k));

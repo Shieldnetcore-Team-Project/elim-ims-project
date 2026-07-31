@@ -4,7 +4,7 @@ export type IconName =
   | 'grid' | 'drop' | 'factory' | 'flask' | 'box' | 'receipt' | 'cart' | 'wallet'
   | 'truck' | 'bank' | 'users' | 'clock' | 'wrench' | 'chart' | 'usercog'
   | 'shield' | 'scroll' | 'cog' | 'search' | 'sun' | 'moon' | 'monitor' | 'bell'
-  | 'download' | 'print' | 'x' | 'chevronRight' | 'arrowRight' | 'table' | 'file' | 'plus' | 'trash' | 'lock' | 'switch';
+  | 'download' | 'print' | 'x' | 'chevronRight' | 'arrowRight' | 'table' | 'file' | 'plus' | 'trash' | 'lock' | 'switch' | 'warehouse';
 
 /** Every status string used anywhere in the app resolves to one of these four tones. */
 export type Tone = 'ok' | 'wait' | 'stop' | 'live';
@@ -76,6 +76,9 @@ export interface ModuleColumn {
   kind: 'mono' | 'text' | 'num' | 'status' | 'sub';
   /** For kind:'text' — a second field rendered as a muted line underneath. */
   subKey?: string;
+  /** System-generated (e.g. a created_at timestamp) — shown in the table but never
+   *  rendered as an input in RecordForm, and excluded from create/update writes. */
+  readOnly?: boolean;
 }
 
 export interface ModuleFilterOption { value: string; label: string }

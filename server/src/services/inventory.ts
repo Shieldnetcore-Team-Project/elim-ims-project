@@ -20,15 +20,26 @@ export interface InventoryBalance extends Item {
 
 export interface InventoryTransaction {
   id: number;
+  txn_no: string;
   item_id: string;
+  item_name: string;
+  category: string;
   direction: Direction;
   quantity: number;
   unit_cost: number;
   source_type: SourceType;
   source_id: string | null;
   note: string | null;
+  actor: string | null;
+  branch: string;
+  status: string;
   created_at: string;
+  qty_before: number;
+  qty_after: number;
 }
+
+/** Single-site plant for now — every transaction is posted against this branch. */
+const DEFAULT_BRANCH = 'Idu Central Warehouse';
 
 export function createItem(item: Item): void {
   db.prepare(
@@ -57,11 +68,11 @@ export function postTransaction(params: {
   actor?: string;
 }): void {
   db.prepare(
-    `INSERT INTO inventory_transactions (item_id, direction, quantity, unit_cost, source_type, source_id, note)
-     VALUES (?,?,?,?,?,?,?)`,
+    `INSERT INTO inventory_transactions (item_id, direction, quantity, unit_cost, source_type, source_id, note, actor)
+     VALUES (?,?,?,?,?,?,?,?)`,
   ).run(
     params.itemId, params.direction, params.quantity, params.unitCost ?? 0,
-    params.sourceType, params.sourceId ?? null, params.note ?? null,
+    params.sourceType, params.sourceId ?? null, params.note ?? null, params.actor ?? null,
   );
   activityLog.record(
     params.actor ?? 'System', params.direction === 'IN' ? 'received stock for' : 'issued stock for',
@@ -90,9 +101,29 @@ export function adjustStock(itemId: string, delta: number, note: string, actor =
 }
 
 export function listTransactions(itemId?: string, limit = 300): InventoryTransaction[] {
-  if (itemId) {
-    return db.prepare('SELECT * FROM inventory_transactions WHERE item_id = ? ORDER BY id DESC LIMIT ?')
-      .all(itemId, limit) as unknown as InventoryTransaction[];
-  }
-  return db.prepare('SELECT * FROM inventory_transactions ORDER BY id DESC LIMIT ?').all(limit) as unknown as InventoryTransaction[];
+  const query = `
+    SELECT t.id, t.item_id, i.name AS item_name, i.category, t.direction, t.quantity, t.unit_cost,
+           t.source_type, t.source_id, t.note, t.actor, t.created_at,
+           SUM(CASE WHEN t.direction = 'IN' THEN t.quantity ELSE -t.quantity END)
+             OVER (PARTITION BY t.item_id ORDER BY t.id) AS running_total
+    FROM inventory_transactions t
+    JOIN items i ON i.id = t.item_id
+    ${itemId ? 'WHERE t.item_id = ?' : ''}
+    ORDER BY t.id DESC
+    LIMIT ?
+  `;
+  const rows = (itemId ? db.prepare(query).all(itemId, limit) : db.prepare(query).all(limit)) as unknown as
+    (Omit<InventoryTransaction, 'txn_no' | 'branch' | 'status' | 'qty_before' | 'qty_after'> & { running_total: number })[];
+
+  return rows.map(({ running_total, ...r }) => {
+    const signed = r.direction === 'IN' ? r.quantity : -r.quantity;
+    return {
+      ...r,
+      txn_no: `TXN-${String(r.id).padStart(6, '0')}`,
+      branch: DEFAULT_BRANCH,
+      status: 'COMPLETED',
+      qty_after: running_total,
+      qty_before: running_total - signed,
+    };
+  });
 }
