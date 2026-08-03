@@ -100,10 +100,27 @@ export function create(key: string, actor: string, requestedId: string | undefin
   return get(key, id);
 }
 
+/** Module 17: the one place a real field-level edit of a stored master-data row
+ *  happens anywhere in this app (transactions are reversal-only — see reversals.ts).
+ *  Diffs old vs new before writing so activityLog gets real old_value/new_value,
+ *  populated only for fields that actually changed. */
 export function update(key: string, id: string, actor: string, status: string, fields: Record<string, string | number>): ModuleRow | null {
   const spec = TABLES[key];
   if (!spec) return null;
   const cols = fieldColumns(key, { writable: true });
+  const before = db.prepare(`SELECT * FROM ${spec.table} WHERE id = ?`).get(id) as Record<string, unknown> | undefined;
+  if (!before) return null;
+
+  const changedCols = spec.hasStatus && status !== String(before.status ?? '')
+    ? ['status', ...cols.filter(c => String(fields[c] ?? '') !== String(before[c] ?? ''))]
+    : cols.filter(c => String(fields[c] ?? '') !== String(before[c] ?? ''));
+  const oldDiff: Record<string, unknown> = {};
+  const newDiff: Record<string, unknown> = {};
+  for (const c of changedCols) {
+    oldDiff[c] = c === 'status' ? before.status : before[c];
+    newDiff[c] = c === 'status' ? status : fields[c];
+  }
+
   // Settings' "updated_at" means what it says — bump it to now on every edit, rather
   // than leaving it frozen at creation time like the other modules' readOnly timestamps.
   const touchCol = key === 'settings' ? "updated_at = datetime('now')" : null;
@@ -111,6 +128,8 @@ export function update(key: string, id: string, actor: string, status: string, f
   const values = [...(spec.hasStatus ? [status] : []), ...cols.map(c => fields[c] ?? '')];
   const res = db.prepare(`UPDATE ${spec.table} SET ${setCols.join(', ')} WHERE id = ?`).run(...values, id);
   if (res.changes === 0) return null;
-  activityLog.record(actor, 'updated', key, id, `${key} record ${id} updated`);
+  activityLog.record(actor, 'updated', key, id, `${key} record ${id} updated`, changedCols.length > 0
+    ? { oldValue: JSON.stringify(oldDiff), newValue: JSON.stringify(newDiff) }
+    : undefined);
   return get(key, id);
 }

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import * as materialRequests from '../services/materialRequests.js';
 import * as deletionRequests from '../services/deletionRequests.js';
+import * as accessControl from '../services/accessControl.js';
 import { safe } from '../lib/errors.js';
 
 export const materialRequestsRouter = Router();
@@ -29,4 +30,10 @@ materialRequestsRouter.post('/:id/issue', safe((req, res) => {
 materialRequestsRouter.post('/:id/reject', safe((req, res) => {
   materialRequests.reject(req.params.id, req.body?.actor);
   res.json({ ok: true });
+}));
+
+materialRequestsRouter.post('/:id/reverse', safe((req, res) => {
+  const { reason, userId } = req.body ?? {};
+  const approver = accessControl.requireRole(userId, ['Warehouse Manager']);
+  res.json(materialRequests.reverseIssue(req.params.id, { reason, actor: approver.name }));
 }));

@@ -1,0 +1,927 @@
+// =============================================================================
+// Elim Water Factory ERP — Prisma schema mirroring database/postgres/migrations.
+//
+// This schema describes the database; it does not create it. Run the SQL
+// migrations in ../migrations (in order) against a real database first, then
+// point Prisma at it and run `prisma db pull` to confirm drift, or treat this
+// file as the source of truth and use `prisma migrate diff` against the SQL
+// as a CI check. Triggers, functions and the polymorphic-reference checks
+// they enforce (0011_functions.sql, 0012_triggers.sql) have no Prisma
+// representation — call them with $queryRaw / $executeRaw, e.g.:
+//   await prisma.$queryRaw`SELECT fn_receive_goods(${poId}, ${employeeId}, ${items}::jsonb)`
+// =============================================================================
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["views", "postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [pgcrypto, citext]
+}
+
+// ================================== Enums ===================================
+
+enum ItemType { RAW_MATERIAL PACKAGING CONSUMABLE FINISHED_GOOD @@map("item_type_enum") }
+enum EmployeeStatus { ACTIVE INVITED INACTIVE @@map("employee_status_enum") }
+enum UserStatus { ACTIVE INVITED SUSPENDED @@map("user_status_enum") }
+enum RoleStatus { ACTIVE DRAFT @@map("role_status_enum") }
+enum VehicleStatus { ACTIVE SCHEDULED SUSPENDED @@map("vehicle_status_enum") }
+enum AssetStatus { ACTIVE SCHEDULED SUSPENDED @@map("asset_status_enum") }
+enum SettingStatus { ACTIVE DRAFT @@map("setting_status_enum") }
+enum WaterRunStatus { PASS IN_PROGRESS FAIL @@map("water_run_status_enum") }
+enum PoStatus { DRAFT AWAITING_APPROVAL APPROVED REJECTED RECEIVED @@map("po_status_enum") }
+enum GrnStatus { PENDING_QC PASSED FAILED @@map("grn_status_enum") }
+enum QcRefType { GOODS_RECEIVED PRODUCTION_BATCH @@map("qc_ref_type_enum") }
+enum QcVerdict { PASS FAIL @@map("qc_verdict_enum") }
+enum InventoryDirection { IN OUT @@map("inventory_direction_enum") }
+enum InventorySource { PURCHASE PRODUCTION SALES MATERIAL_ISSUE ADJUSTMENT @@map("inventory_source_enum") }
+enum RequisitionStatus { PENDING APPROVED ISSUED REJECTED @@map("requisition_status_enum") }
+enum Priority { LOW MEDIUM HIGH URGENT @@map("priority_enum") }
+enum MaterialRequestStatus { PENDING ISSUED REJECTED @@map("material_request_status_enum") }
+enum BatchStatus { IN_PROGRESS COMPLETED FAILED @@map("batch_status_enum") }
+enum SalesChannel { INVOICE POS @@map("sales_channel_enum") }
+enum SalesStatus { PENDING PROCESSING DELIVERED CANCELLED PAID @@map("sales_status_enum") }
+enum DeliveryStatus { SCHEDULED ACTIVE DELIVERED @@map("delivery_status_enum") }
+enum FinanceRefType { PURCHASE_ORDER SALES_ORDER PAYROLL_RUN GOODS_RECEIVED EXPENSE OTHER @@map("finance_ref_type_enum") }
+enum PaymentMethod { CASH BANK_TRANSFER CHEQUE POS_CARD MOBILE_MONEY @@map("payment_method_enum") }
+enum PaymentStatus { CLEARED PENDING OVERDUE @@map("payment_status_enum") }
+enum CounterpartyType { SUPPLIER CUSTOMER EMPLOYEE OTHER @@map("counterparty_type_enum") }
+enum PayrollStatus { PAID SCHEDULED ON_HOLD @@map("payroll_status_enum") }
+enum ReportStatus { COMPLETED RUNNING FAILED @@map("report_status_enum") }
+enum DeletionStatus { PENDING APPROVED REJECTED @@map("deletion_status_enum") }
+
+// =============================== Lookup tables ================================
+
+model Department {
+  id        String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String     @unique
+  employees Employee[]
+  materialRequests      MaterialRequest[]
+  warehouseRequisitions WarehouseRequisition[]
+
+  @@map("departments")
+}
+
+model Location {
+  id        String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String     @unique
+  suppliers Supplier[]
+  customers Customer[]
+
+  @@map("locations")
+}
+
+model WarehouseLocation {
+  id                 String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name               String           @unique
+  assets             Asset[]
+  stockMovementsFrom StockMovement[]  @relation("stockMovementFromLocation")
+  stockMovementsTo   StockMovement[]  @relation("stockMovementToLocation")
+
+  @@map("warehouse_locations")
+}
+
+model ItemCategory {
+  id    String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name  String @unique
+  items Item[]
+
+  @@map("item_categories")
+}
+
+model Uom {
+  code  String @id
+  name  String
+  items Item[]
+
+  @@map("uoms")
+}
+
+model JobTitle {
+  id        String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title     String     @unique
+  employees Employee[]
+
+  @@map("job_titles")
+}
+
+model ProductionLine {
+  id               String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name             String             @unique
+  productionBatches ProductionBatch[]
+
+  @@map("production_lines")
+}
+
+model Shift {
+  id               String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name             String             @unique
+  productionBatches ProductionBatch[]
+
+  @@map("shifts")
+}
+
+model WaterSource {
+  id          String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code        String               @unique
+  description String?
+  runs        WaterTreatmentRun[]
+
+  @@map("water_sources")
+}
+
+model TreatmentStage {
+  id   String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name String               @unique
+  runs WaterTreatmentRun[]
+
+  @@map("treatment_stages")
+}
+
+model ChartOfAccount {
+  id           String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code         String         @unique
+  name         String
+  accountType  String         @map("account_type")
+  ledgerEntries LedgerEntry[]
+
+  @@map("chart_of_accounts")
+}
+
+model Page {
+  pageKey        String            @id @map("page_key")
+  label          String
+  moduleGroup    String            @map("module_group")
+  rolePageAccess RolePageAccess[]
+  userPageAccess UserPageAccess[]
+
+  @@map("pages")
+}
+
+model DeletableEntity {
+  entityType String @id @map("entity_type")
+  tableName  String @map("table_name")
+  idColumn   String @default("id") @map("id_column")
+
+  @@map("deletable_entities")
+}
+
+model CodeSequence {
+  prefix       String @id
+  currentValue BigInt @default(0) @map("current_value")
+
+  @@map("code_sequences")
+}
+
+// ============================= People & access ================================
+
+model Employee {
+  id             String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code           String            @unique
+  fullName       String            @map("full_name")
+  departmentId   String?           @map("department_id") @db.Uuid
+  department     Department?       @relation(fields: [departmentId], references: [id])
+  jobTitleId     String?           @map("job_title_id") @db.Uuid
+  jobTitle       JobTitle?         @relation(fields: [jobTitleId], references: [id])
+  hireDate       DateTime?         @map("hire_date") @db.Date
+  status         EmployeeStatus    @default(ACTIVE)
+  deletedAt      DateTime?         @map("deleted_at") @db.Timestamptz(6)
+  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime          @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  user                     User?
+  vehiclesDriven           Vehicle[]
+  settingsUpdated          Setting[]
+  waterTreatmentRuns       WaterTreatmentRun[]
+  purchaseOrdersRequested  PurchaseOrder[]
+  goodsReceivedByMe        GoodsReceived[]
+  qualityControlsInspected QualityControl[]
+  inventoryTransactions    InventoryTransaction[]
+  warehouseRequisitions    WarehouseRequisition[]
+  materialRequests         MaterialRequest[]
+  stockMovements           StockMovement[]
+  productionBatches        ProductionBatch[]
+  finishedGoodsPackaged    FinishedGood[]
+  salesOrdersRepped        SalesOrder[]
+  deliveryRunsDriven       DeliveryRun[]
+  payrollRuns              PayrollRun[]
+  reportsOwned             Report[]
+
+  @@map("employees")
+}
+
+model AppRole {
+  id             String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name           String            @unique
+  description    String?
+  scope          String?
+  status         RoleStatus        @default(ACTIVE)
+  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime          @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  users          User[]
+  rolePageAccess RolePageAccess[]
+
+  @@map("app_roles")
+}
+
+model User {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code         String    @unique
+  employeeId   String?   @unique @map("employee_id") @db.Uuid
+  employee     Employee? @relation(fields: [employeeId], references: [id])
+  fullName     String    @map("full_name")
+  email        String?   @unique @db.Citext
+  roleId       String?   @map("role_id") @db.Uuid
+  role         AppRole?  @relation(fields: [roleId], references: [id])
+  status       UserStatus @default(ACTIVE)
+  lastActiveAt DateTime? @map("last_active_at") @db.Timestamptz(6)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  userPageAccess         UserPageAccess[]
+  activityLog            ActivityLog[]
+  deletionRequestsMade   DeletionRequest[] @relation("deletionRequestedBy")
+  deletionRequestsReviewed DeletionRequest[] @relation("deletionReviewedBy")
+
+  @@map("users")
+}
+
+model RolePageAccess {
+  roleId  String  @map("role_id") @db.Uuid
+  role    AppRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  pageKey String  @map("page_key")
+  page    Page    @relation(fields: [pageKey], references: [pageKey], onDelete: Cascade)
+
+  @@id([roleId, pageKey])
+  @@map("role_page_access")
+}
+
+model UserPageAccess {
+  userId    String   @map("user_id") @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pageKey   String   @map("page_key")
+  page      Page     @relation(fields: [pageKey], references: [pageKey], onDelete: Cascade)
+  grantedAt DateTime @default(now()) @map("granted_at") @db.Timestamptz(6)
+
+  @@id([userId, pageKey])
+  @@map("user_page_access")
+}
+
+// =================================== Masters ====================================
+
+model Item {
+  id            String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code          String       @unique
+  name          String
+  categoryId    String       @map("category_id") @db.Uuid
+  category      ItemCategory @relation(fields: [categoryId], references: [id])
+  type          ItemType
+  uomCode       String       @map("uom_code")
+  uom           Uom          @relation(fields: [uomCode], references: [code])
+  reorderPoint  Decimal      @default(0) @map("reorder_point") @db.Decimal(14, 3)
+  unitCost      Decimal      @default(0) @map("unit_cost") @db.Decimal(14, 2)
+  deletedAt     DateTime?    @map("deleted_at") @db.Timestamptz(6)
+  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime     @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  purchaseOrderItems  PurchaseOrderItem[]
+  goodsReceivedItems  GoodsReceivedItem[]
+  inventoryTransactions InventoryTransaction[]
+  warehouseRequisitions WarehouseRequisition[]
+  materialRequestItems  MaterialRequestItem[]
+  stockMovements        StockMovement[]
+  productionBatches     ProductionBatch[]
+  finishedGoods         FinishedGood[]
+  salesOrderItems       SalesOrderItem[]
+
+  @@map("items")
+}
+
+model Supplier {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code       String    @unique
+  name       String
+  locationId String?   @map("location_id") @db.Uuid
+  location   Location? @relation(fields: [locationId], references: [id])
+  phone      String?
+  email      String?   @db.Citext
+  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  purchaseOrders PurchaseOrder[]
+
+  @@map("suppliers")
+}
+
+model Customer {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code       String    @unique
+  name       String
+  locationId String?   @map("location_id") @db.Uuid
+  location   Location? @relation(fields: [locationId], references: [id])
+  phone      String?
+  email      String?   @db.Citext
+  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  salesOrders SalesOrder[]
+
+  @@map("customers")
+}
+
+model Vehicle {
+  id                       String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code                     String         @unique
+  defaultDriverEmployeeId  String?        @map("default_driver_employee_id") @db.Uuid
+  defaultDriver            Employee?      @relation(fields: [defaultDriverEmployeeId], references: [id])
+  odometerKm               Decimal?       @map("odometer_km") @db.Decimal(10, 1)
+  status                   VehicleStatus  @default(ACTIVE)
+  deletedAt                DateTime?      @map("deleted_at") @db.Timestamptz(6)
+  createdAt                DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime       @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  deliveryRuns DeliveryRun[]
+
+  @@map("vehicles")
+}
+
+model Asset {
+  id               String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code             String       @unique
+  equipmentName    String       @map("equipment_name")
+  locationId       String?      @map("location_id") @db.Uuid
+  location         WarehouseLocation? @relation(fields: [locationId], references: [id])
+  lastServiceDate  DateTime?    @map("last_service_date") @db.Date
+  nextDueDate      DateTime?    @map("next_due_date") @db.Date
+  status           AssetStatus  @default(ACTIVE)
+  deletedAt        DateTime?    @map("deleted_at") @db.Timestamptz(6)
+  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime     @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@map("assets")
+}
+
+model Setting {
+  settingKey            String        @id @map("setting_key")
+  description           String?
+  value                 String?
+  updatedByEmployeeId   String?       @map("updated_by_employee_id") @db.Uuid
+  updatedByEmployee     Employee?     @relation(fields: [updatedByEmployeeId], references: [id])
+  status                SettingStatus @default(ACTIVE)
+  updatedAt             DateTime      @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@map("settings")
+}
+
+model WaterTreatmentRun {
+  id                  String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code                String         @unique
+  sourceId            String?        @map("source_id") @db.Uuid
+  source              WaterSource?   @relation(fields: [sourceId], references: [id])
+  stageId             String?        @map("stage_id") @db.Uuid
+  stage               TreatmentStage? @relation(fields: [stageId], references: [id])
+  volumeL             Decimal?       @map("volume_l") @db.Decimal(12, 2)
+  operatorEmployeeId  String?        @map("operator_employee_id") @db.Uuid
+  operator            Employee?      @relation(fields: [operatorEmployeeId], references: [id])
+  status              WaterRunStatus @default(PASS)
+  testedAt            DateTime       @default(now()) @map("tested_at") @db.Timestamptz(6)
+
+  productionBatches ProductionBatch[]
+
+  @@map("water_treatment_runs")
+}
+
+// ==================== Procurement / receiving / QC =======================
+
+model PurchaseOrder {
+  id                      String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code                    String        @unique
+  supplierId              String        @map("supplier_id") @db.Uuid
+  supplier                Supplier      @relation(fields: [supplierId], references: [id])
+  requestedByEmployeeId   String?       @map("requested_by_employee_id") @db.Uuid
+  requestedBy             Employee?     @relation(fields: [requestedByEmployeeId], references: [id])
+  status                  PoStatus      @default(DRAFT)
+  deletedAt               DateTime?     @map("deleted_at") @db.Timestamptz(6)
+  createdAt               DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime      @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  items         PurchaseOrderItem[]
+  goodsReceived GoodsReceived[]
+
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderItem {
+  id        String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  poId      String        @map("po_id") @db.Uuid
+  po        PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
+  itemId    String        @map("item_id") @db.Uuid
+  item      Item          @relation(fields: [itemId], references: [id])
+  quantity  Decimal       @db.Decimal(14, 3)
+  unitPrice Decimal       @default(0) @map("unit_price") @db.Decimal(14, 2)
+
+  @@unique([poId, itemId])
+  @@map("purchase_order_items")
+}
+
+model GoodsReceived {
+  id                     String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code                   String        @unique
+  poId                   String        @map("po_id") @db.Uuid
+  po                     PurchaseOrder @relation(fields: [poId], references: [id])
+  receivedByEmployeeId   String?       @map("received_by_employee_id") @db.Uuid
+  receivedBy             Employee?     @relation(fields: [receivedByEmployeeId], references: [id])
+  status                 GrnStatus     @default(PENDING_QC)
+  receivedAt             DateTime      @default(now()) @map("received_at") @db.Timestamptz(6)
+
+  items GoodsReceivedItem[]
+
+  @@map("goods_received")
+}
+
+model GoodsReceivedItem {
+  id       String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  grnId    String        @map("grn_id") @db.Uuid
+  grn      GoodsReceived @relation(fields: [grnId], references: [id], onDelete: Cascade)
+  itemId   String        @map("item_id") @db.Uuid
+  item     Item          @relation(fields: [itemId], references: [id])
+  quantity Decimal       @db.Decimal(14, 3)
+
+  @@unique([grnId, itemId])
+  @@map("goods_received_items")
+}
+
+/// ref_type/ref_id is a polymorphic pointer at goods_received or
+/// production_batches, validated by trg_quality_control_validate_ref
+/// (0012_triggers.sql) rather than a Prisma relation — Prisma cannot express
+/// a conditional foreign key.
+model QualityControl {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code                  String    @unique
+  refType               QcRefType @map("ref_type")
+  refId                 String    @map("ref_id") @db.Uuid
+  inspectorEmployeeId   String?   @map("inspector_employee_id") @db.Uuid
+  inspector             Employee? @relation(fields: [inspectorEmployeeId], references: [id])
+  parameter             String?
+  result                String?
+  verdict               QcVerdict
+  notes                 String?
+  testedAt              DateTime  @default(now()) @map("tested_at") @db.Timestamptz(6)
+
+  @@map("quality_control")
+}
+
+// ========================= Inventory / warehouse ==========================
+
+/// Append-only — trg_inventory_transactions_append_only (0012) blocks
+/// UPDATE/DELETE at the database level regardless of what Prisma does.
+/// source_type/source_id is a polymorphic pointer, validated by
+/// trg_inventory_validate_source (0012).
+model InventoryTransaction {
+  id                 BigInt             @id @default(autoincrement())
+  itemId             String             @map("item_id") @db.Uuid
+  item               Item               @relation(fields: [itemId], references: [id])
+  direction          InventoryDirection
+  quantity           Decimal            @db.Decimal(14, 3)
+  unitCost           Decimal            @default(0) @map("unit_cost") @db.Decimal(14, 2)
+  sourceType         InventorySource    @map("source_type")
+  sourceId           String?            @map("source_id") @db.Uuid
+  note               String?
+  actorEmployeeId    String?            @map("actor_employee_id") @db.Uuid
+  actor              Employee?          @relation(fields: [actorEmployeeId], references: [id])
+  createdAt          DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("inventory_transactions")
+}
+
+model WarehouseRequisition {
+  id                      String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code                    String                @unique
+  itemId                  String                @map("item_id") @db.Uuid
+  item                    Item                  @relation(fields: [itemId], references: [id])
+  quantity                Decimal               @default(0) @db.Decimal(14, 3)
+  expectedDelivery        DateTime?             @map("expected_delivery") @db.Date
+  priority                Priority              @default(MEDIUM)
+  reason                  String?
+  departmentId            String?               @map("department_id") @db.Uuid
+  department              Department?           @relation(fields: [departmentId], references: [id])
+  requestedByEmployeeId   String?               @map("requested_by_employee_id") @db.Uuid
+  requestedBy             Employee?             @relation(fields: [requestedByEmployeeId], references: [id])
+  status                  RequisitionStatus     @default(PENDING)
+  deletedAt               DateTime?             @map("deleted_at") @db.Timestamptz(6)
+  createdAt               DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime              @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@map("warehouse_requisitions")
+}
+
+// ======================= Production / packaging ==========================
+
+model MaterialRequest {
+  id                      String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code                    String                    @unique
+  requestedByEmployeeId   String?                   @map("requested_by_employee_id") @db.Uuid
+  requestedBy             Employee?                 @relation(fields: [requestedByEmployeeId], references: [id])
+  departmentId            String?                   @map("department_id") @db.Uuid
+  department              Department?               @relation(fields: [departmentId], references: [id])
+  status                  MaterialRequestStatus     @default(PENDING)
+  neededBy                DateTime?                 @map("needed_by") @db.Date
+  deletedAt               DateTime?                 @map("deleted_at") @db.Timestamptz(6)
+  createdAt               DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime                  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  items          MaterialRequestItem[]
+  stockMovements StockMovement[]
+
+  @@map("material_requests")
+}
+
+model MaterialRequestItem {
+  id         String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  requestId  String          @map("request_id") @db.Uuid
+  request    MaterialRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  itemId     String          @map("item_id") @db.Uuid
+  item       Item            @relation(fields: [itemId], references: [id])
+  quantity   Decimal         @db.Decimal(14, 3)
+
+  @@unique([requestId, itemId])
+  @@map("material_request_items")
+}
+
+model StockMovement {
+  id                    BigInt             @id @default(autoincrement())
+  requestId             String?            @map("request_id") @db.Uuid
+  request               MaterialRequest?   @relation(fields: [requestId], references: [id])
+  itemId                String             @map("item_id") @db.Uuid
+  item                  Item               @relation(fields: [itemId], references: [id])
+  quantity              Decimal            @db.Decimal(14, 3)
+  fromLocationId        String?            @map("from_location_id") @db.Uuid
+  fromLocation          WarehouseLocation? @relation("stockMovementFromLocation", fields: [fromLocationId], references: [id])
+  toLocationId          String?            @map("to_location_id") @db.Uuid
+  toLocation            WarehouseLocation? @relation("stockMovementToLocation", fields: [toLocationId], references: [id])
+  movedByEmployeeId     String?            @map("moved_by_employee_id") @db.Uuid
+  movedBy               Employee?          @relation(fields: [movedByEmployeeId], references: [id])
+  movedAt               DateTime           @default(now()) @map("moved_at") @db.Timestamptz(6)
+
+  @@map("stock_movements")
+}
+
+model ProductionBatch {
+  id                    String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code                  String              @unique
+  productItemId         String              @map("product_item_id") @db.Uuid
+  product               Item                @relation(fields: [productItemId], references: [id])
+  lineId                String?             @map("line_id") @db.Uuid
+  line                  ProductionLine?     @relation(fields: [lineId], references: [id])
+  shiftId               String?             @map("shift_id") @db.Uuid
+  shift                 Shift?              @relation(fields: [shiftId], references: [id])
+  operatorEmployeeId    String?             @map("operator_employee_id") @db.Uuid
+  operator              Employee?           @relation(fields: [operatorEmployeeId], references: [id])
+  unitsTarget           Decimal?            @map("units_target") @db.Decimal(14, 2)
+  unitsActual           Decimal?            @map("units_actual") @db.Decimal(14, 2)
+  status                BatchStatus         @default(IN_PROGRESS)
+  waterTreatmentRunId   String?             @map("water_treatment_run_id") @db.Uuid
+  waterTreatmentRun     WaterTreatmentRun?  @relation(fields: [waterTreatmentRunId], references: [id])
+  startedAt             DateTime            @default(now()) @map("started_at") @db.Timestamptz(6)
+  completedAt           DateTime?           @map("completed_at") @db.Timestamptz(6)
+
+  finishedGoods FinishedGood[]
+
+  @@map("production_batches")
+}
+
+model FinishedGood {
+  id                      BigInt           @id @default(autoincrement())
+  batchId                 String           @map("batch_id") @db.Uuid
+  batch                   ProductionBatch  @relation(fields: [batchId], references: [id])
+  itemId                  String           @map("item_id") @db.Uuid
+  item                    Item             @relation(fields: [itemId], references: [id])
+  quantity                Decimal          @db.Decimal(14, 3)
+  packagedByEmployeeId    String?          @map("packaged_by_employee_id") @db.Uuid
+  packagedBy              Employee?        @relation(fields: [packagedByEmployeeId], references: [id])
+  packagedAt              DateTime         @default(now()) @map("packaged_at") @db.Timestamptz(6)
+
+  @@map("finished_goods")
+}
+
+// ============================ Sales / fleet ================================
+
+model SalesOrder {
+  id                 String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code               String        @unique
+  customerId         String        @map("customer_id") @db.Uuid
+  customer           Customer      @relation(fields: [customerId], references: [id])
+  channel            SalesChannel  @default(INVOICE)
+  repEmployeeId      String?       @map("rep_employee_id") @db.Uuid
+  rep                Employee?     @relation(fields: [repEmployeeId], references: [id])
+  status             SalesStatus   @default(PENDING)
+  /// Cached SUM(items.line_total), kept in sync by
+  /// trg_sales_order_items_recalc_total (0012) — never write this directly.
+  totalAmount        Decimal       @default(0) @map("total_amount") @db.Decimal(16, 2)
+  deletedAt          DateTime?     @map("deleted_at") @db.Timestamptz(6)
+  createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime      @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  items         SalesOrderItem[]
+  deliveryRuns  DeliveryRun[]
+
+  @@map("sales_orders")
+}
+
+model SalesOrderItem {
+  id           String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  salesOrderId String     @map("sales_order_id") @db.Uuid
+  salesOrder   SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  itemId       String     @map("item_id") @db.Uuid
+  item         Item       @relation(fields: [itemId], references: [id])
+  quantity     Decimal    @db.Decimal(14, 3)
+  unitPrice    Decimal    @map("unit_price") @db.Decimal(14, 2)
+  /// GENERATED ALWAYS AS (quantity * unit_price) STORED — read-only in Postgres.
+  lineTotal    Decimal    @map("line_total") @db.Decimal(16, 2)
+
+  @@unique([salesOrderId, itemId])
+  @@map("sales_order_items")
+}
+
+model DeliveryRun {
+  id                 String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code               String         @unique
+  salesOrderId       String         @map("sales_order_id") @db.Uuid
+  salesOrder         SalesOrder     @relation(fields: [salesOrderId], references: [id])
+  vehicleId          String         @map("vehicle_id") @db.Uuid
+  vehicle            Vehicle        @relation(fields: [vehicleId], references: [id])
+  driverEmployeeId   String?        @map("driver_employee_id") @db.Uuid
+  driver             Employee?      @relation(fields: [driverEmployeeId], references: [id])
+  route              String?
+  status             DeliveryStatus @default(SCHEDULED)
+  dispatchedAt       DateTime       @default(now()) @map("dispatched_at") @db.Timestamptz(6)
+  deliveredAt        DateTime?      @map("delivered_at") @db.Timestamptz(6)
+
+  @@map("delivery_runs")
+}
+
+// ================================= Finance ===================================
+
+/// Append-only — trg_ledger_entries_append_only (0012). reference_type/
+/// reference_id is a polymorphic pointer validated by
+/// trg_ledger_entries_validate_ref (0012).
+model LedgerEntry {
+  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  entryDate      DateTime         @default(now()) @map("entry_date") @db.Timestamptz(6)
+  accountId      String           @map("account_id") @db.Uuid
+  account        ChartOfAccount   @relation(fields: [accountId], references: [id])
+  debit          Decimal          @default(0) @db.Decimal(16, 2)
+  credit         Decimal          @default(0) @db.Decimal(16, 2)
+  referenceType  FinanceRefType?  @map("reference_type")
+  referenceId    String?          @map("reference_id") @db.Uuid
+  description    String?
+
+  @@map("ledger_entries")
+}
+
+/// counterparty_id/reference_id are polymorphic pointers validated by
+/// trg_payments_validate_counterparty / trg_payments_validate_ref (0012).
+model Payment {
+  id                 String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code               String             @unique
+  counterpartyType   CounterpartyType   @map("counterparty_type")
+  counterpartyId     String?            @map("counterparty_id") @db.Uuid
+  counterpartyLabel  String?            @map("counterparty_label")
+  amount             Decimal            @db.Decimal(16, 2)
+  method             PaymentMethod?
+  referenceType      FinanceRefType?    @map("reference_type")
+  referenceId        String?            @map("reference_id") @db.Uuid
+  status             PaymentStatus      @default(CLEARED)
+  paidAt             DateTime           @default(now()) @map("paid_at") @db.Timestamptz(6)
+
+  @@map("payments")
+}
+
+model Receipt {
+  id                 String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code               String             @unique
+  counterpartyType   CounterpartyType   @map("counterparty_type")
+  counterpartyId     String?            @map("counterparty_id") @db.Uuid
+  counterpartyLabel  String?            @map("counterparty_label")
+  amount             Decimal            @db.Decimal(16, 2)
+  method             PaymentMethod?
+  referenceType      FinanceRefType?    @map("reference_type")
+  referenceId        String?            @map("reference_id") @db.Uuid
+  status             PaymentStatus      @default(CLEARED)
+  receivedAt         DateTime           @default(now()) @map("received_at") @db.Timestamptz(6)
+
+  @@map("receipts")
+}
+
+model PayrollRun {
+  id           String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code         String        @unique
+  employeeId   String        @map("employee_id") @db.Uuid
+  employee     Employee      @relation(fields: [employeeId], references: [id])
+  periodMonth  DateTime      @map("period_month") @db.Date
+  gross        Decimal       @db.Decimal(14, 2)
+  net          Decimal       @db.Decimal(14, 2)
+  status       PayrollStatus @default(SCHEDULED)
+  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([employeeId, periodMonth])
+  @@map("payroll_runs")
+}
+
+// ========================= Reports / audit / deletion ==========================
+
+model Report {
+  id                String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code              String        @unique
+  name              String
+  scope             String?
+  ownerEmployeeId   String?       @map("owner_employee_id") @db.Uuid
+  owner             Employee?     @relation(fields: [ownerEmployeeId], references: [id])
+  status            ReportStatus  @default(COMPLETED)
+  lastRunAt         DateTime      @default(now()) @map("last_run_at") @db.Timestamptz(6)
+
+  @@map("reports")
+}
+
+/// Append-only — trg_activity_log_append_only (0012).
+model ActivityLog {
+  id           BigInt   @id @default(autoincrement())
+  actorUserId  String?  @map("actor_user_id") @db.Uuid
+  actor        User?    @relation(fields: [actorUserId], references: [id])
+  action       String
+  targetType   String?  @map("target_type")
+  targetId     String?  @map("target_id")
+  summary      String?
+  at           DateTime @default(now()) @db.Timestamptz(6)
+
+  @@map("activity_log")
+}
+
+/// entity_type/entity_id is a polymorphic pointer resolved via
+/// deletable_entities and applied by trg_deletion_requests_apply (0012),
+/// which stamps deleted_at on the target row once status -> APPROVED.
+model DeletionRequest {
+  id                  String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  entityType          String          @map("entity_type")
+  entityId            String          @map("entity_id") @db.Uuid
+  entityLabel         String?         @map("entity_label")
+  requestedByUserId   String          @map("requested_by_user_id") @db.Uuid
+  requestedBy         User            @relation("deletionRequestedBy", fields: [requestedByUserId], references: [id])
+  reason              String
+  status              DeletionStatus  @default(PENDING)
+  requestedAt         DateTime        @default(now()) @map("requested_at") @db.Timestamptz(6)
+  reviewedByUserId    String?         @map("reviewed_by_user_id") @db.Uuid
+  reviewedBy          User?           @relation("deletionReviewedBy", fields: [reviewedByUserId], references: [id])
+  reviewedAt          DateTime?       @map("reviewed_at") @db.Timestamptz(6)
+  reviewNote          String?         @map("review_note")
+
+  @@map("deletion_requests")
+}
+
+// =================================== Views ====================================
+// Read-only. `prisma db pull` would mark these @@ignore if unmapped; they're
+// declared here for completeness — query via prisma.vInventoryStatus.findMany()
+// etc. None are writable (no create/update/delete — Prisma enforces this for
+// `view` blocks automatically).
+
+view VInventoryStatus {
+  id            String   @id @db.Uuid
+  code          String
+  name          String
+  category      String
+  type          ItemType
+  uomCode       String   @map("uom_code")
+  reorderPoint  Decimal  @map("reorder_point") @db.Decimal(14, 3)
+  unitCost      Decimal  @map("unit_cost") @db.Decimal(14, 2)
+  onHand        Decimal  @map("on_hand") @db.Decimal
+  status        String
+
+  @@map("v_inventory_status")
+}
+
+view VLowStockAlert {
+  id           String  @id @db.Uuid
+  code         String
+  name         String
+  uomCode      String  @map("uom_code")
+  onHand       Decimal @map("on_hand") @db.Decimal
+  reorderPoint Decimal @map("reorder_point") @db.Decimal(14, 3)
+
+  @@map("v_low_stock_alerts")
+}
+
+view VPurchaseOrderTotal {
+  id           String   @id @db.Uuid
+  code         String
+  supplierId   String   @map("supplier_id") @db.Uuid
+  supplierName String   @map("supplier_name")
+  status       PoStatus
+  totalAmount  Decimal  @map("total_amount") @db.Decimal
+  createdAt    DateTime @map("created_at") @db.Timestamptz(6)
+
+  @@map("v_purchase_order_totals")
+}
+
+view VSalesOrderSummary {
+  id               String       @id @db.Uuid
+  code             String
+  customerId       String       @map("customer_id") @db.Uuid
+  customerName     String       @map("customer_name")
+  customerLocation String?      @map("customer_location")
+  channel          SalesChannel
+  repEmployeeId    String?      @map("rep_employee_id") @db.Uuid
+  repName          String?      @map("rep_name")
+  status           SalesStatus
+  totalAmount      Decimal      @map("total_amount") @db.Decimal(16, 2)
+  createdAt        DateTime     @map("created_at") @db.Timestamptz(6)
+
+  @@map("v_sales_order_summary")
+}
+
+view VCustomerOutstandingBalance {
+  customerId  String  @id @map("customer_id") @db.Uuid
+  code        String
+  name        String
+  outstanding Decimal @db.Decimal
+
+  @@map("v_customer_outstanding_balance")
+}
+
+view VSupplierPayable {
+  supplierId String  @id @map("supplier_id") @db.Uuid
+  code       String
+  name       String
+  payable    Decimal @db.Decimal
+
+  @@map("v_supplier_payables")
+}
+
+view VProductionYield {
+  id          String       @id @db.Uuid
+  code        String
+  productName String       @map("product_name")
+  line        String?
+  shift       String?
+  operator    String?
+  unitsTarget Decimal?     @map("units_target") @db.Decimal(14, 2)
+  unitsActual Decimal?     @map("units_actual") @db.Decimal(14, 2)
+  yieldPct    Decimal?     @map("yield_pct") @db.Decimal
+  status      BatchStatus
+  startedAt   DateTime     @map("started_at") @db.Timestamptz(6)
+  completedAt DateTime?    @map("completed_at") @db.Timestamptz(6)
+
+  @@map("v_production_yield")
+}
+
+view VDeliveryPerformance {
+  id             String         @id @db.Uuid
+  code           String
+  salesOrderCode String         @map("sales_order_code")
+  customerName   String         @map("customer_name")
+  vehicleCode    String         @map("vehicle_code")
+  driverName     String?        @map("driver_name")
+  route          String?
+  status         DeliveryStatus
+  dispatchedAt   DateTime       @map("dispatched_at") @db.Timestamptz(6)
+  deliveredAt    DateTime?      @map("delivered_at") @db.Timestamptz(6)
+
+  @@map("v_delivery_performance")
+}
+
+view VEmployeeDirectory {
+  id         String          @id @db.Uuid
+  code       String
+  fullName   String          @map("full_name")
+  department String?
+  jobTitle   String?         @map("job_title")
+  hireDate   DateTime?       @map("hire_date") @db.Date
+  status     EmployeeStatus
+
+  @@map("v_employee_directory")
+}
+
+view VRoleMemberCount {
+  roleId      String     @id @map("role_id") @db.Uuid
+  name        String
+  description String?
+  scope       String?
+  status      RoleStatus
+  members     BigInt
+
+  @@map("v_role_member_counts")
+}
+
+view VEffectivePageAccess {
+  userId  String @map("user_id") @db.Uuid
+  pageKey String @map("page_key")
+
+  @@id([userId, pageKey])
+  @@map("v_effective_page_access")
+}

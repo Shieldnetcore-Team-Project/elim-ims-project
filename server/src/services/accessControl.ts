@@ -5,6 +5,28 @@ export function isSuperAdminRole(role: string | null | undefined): boolean {
   return role === 'System admin';
 }
 
+/** The one place a server route can look up who a caller actually is —
+ *  everywhere else in this app trusts a free-text `actor` string, but a
+ *  block that names a specific role ("Warehouse Manager only") needs a real
+ *  lookup against the users table, not a self-reported name. */
+export function getUser(userId: string): { id: string; name: string; role: string } | undefined {
+  return db.prepare('SELECT id, name, role FROM users WHERE id = ?').get(userId) as { id: string; name: string; role: string } | undefined;
+}
+
+/** Module 17 reversal gates and every other exact-role-match check in this app
+ *  (Module 5's Warehouse Manager override, Module 13's Sales manager reprint
+ *  approval) share this shape — real server-side role lookup, System admin always
+ *  passes, no other bypass. Centralised here so the 6 new reverse endpoints don't
+ *  each reimplement the same check. */
+export function requireRole(userId: string | undefined, allowedRoles: string[]): { id: string; name: string; role: string } {
+  if (!userId) throw new Error(`Only ${allowedRoles.join(' or ')} (or System admin) can perform this action`);
+  const user = getUser(userId);
+  if (!user || (!allowedRoles.includes(user.role) && !isSuperAdminRole(user.role))) {
+    throw new Error(`Only ${allowedRoles.join(' or ')} (or System admin) can perform this action`);
+  }
+  return user;
+}
+
 export function getAccess(userId: string): string[] {
   return (db.prepare('SELECT page_key FROM user_page_access WHERE user_id = ?').all(userId) as { page_key: string }[])
     .map(r => r.page_key);

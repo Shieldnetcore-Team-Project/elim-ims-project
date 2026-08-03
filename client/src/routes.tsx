@@ -14,6 +14,7 @@ import FleetPage from './pages/Fleet/FleetPage';
 import FinancePage from './pages/Finance/FinancePage';
 import ControlPanelPage from './pages/ControlPanel/ControlPanelPage';
 import DeleteRequestsPage from './pages/DeleteRequests/DeleteRequestsPage';
+import DayClosePage from './pages/DayClose/DayClosePage';
 
 export const router = createBrowserRouter([
   {
@@ -31,6 +32,7 @@ export const router = createBrowserRouter([
       { path: 'pos', element: <SalesPage channel="POS" /> },
       { path: 'fleet', element: <FleetPage /> },
       { path: 'finance', element: <FinancePage /> },
+      { path: 'day-close', element: <DayClosePage /> },
       { path: 'control-panel', element: <ControlPanelPage /> },
       { path: 'delete-requests', element: <DeleteRequestsPage /> },
 

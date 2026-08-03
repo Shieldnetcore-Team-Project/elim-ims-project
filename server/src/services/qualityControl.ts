@@ -1,7 +1,6 @@
 import { db } from '../db/client.js';
 import { nextBusinessId } from '../db/ids.js';
 import * as activityLog from './activityLog.js';
-import * as inventory from './inventory.js';
 import * as receiving from './receiving.js';
 import * as production from './production.js';
 
@@ -13,8 +12,16 @@ export interface QualityControlRecord {
   parameter: string | null; result: string | null; verdict: Verdict; notes: string | null; tested_at: string;
 }
 
-/** The single gate: a goods receipt only posts to inventory once this records a PASS against
- *  it, and a production batch can only be packaged once this records a PASS against it. */
+/** A production batch can only be packaged once this records a PASS against it.
+ *
+ *  GOODS_RECEIVED is accepted here too, purely as a historical/optional quality
+ *  note — it no longer drives goods_received.status or posts inventory. That
+ *  moved to receiving.inspectGoodsReceived(), which reconciles expected/delivered/
+ *  accepted/rejected quantities (a binary pass/fail can't represent "298 of 300
+ *  accepted"). Kept working rather than removed, per backward-compatibility:
+ *  any existing caller of this endpoint still gets a 201, just without the old
+ *  side effects, which would otherwise now double-post inventory alongside
+ *  inspectGoodsReceived. */
 export function recordResult(params: {
   refType: RefType; refId: string; inspector: string; parameter?: string; result?: string;
   verdict: Verdict; notes?: string; actor?: string;
@@ -27,18 +34,7 @@ export function recordResult(params: {
 
   const actor = params.actor ?? params.inspector;
 
-  if (params.refType === 'GOODS_RECEIVED') {
-    receiving.setStatus(params.refId, params.verdict === 'PASS' ? 'PASSED' : 'FAILED', actor);
-    if (params.verdict === 'PASS') {
-      for (const item of receiving.listItemsFor(params.refId)) {
-        inventory.postTransaction({
-          itemId: item.item_id, direction: 'IN', quantity: item.quantity,
-          sourceType: 'PURCHASE', sourceId: params.refId, actor,
-          note: `QC-approved goods receipt ${params.refId}`,
-        });
-      }
-    }
-  } else if (params.verdict === 'FAIL') {
+  if (params.refType === 'PRODUCTION_BATCH' && params.verdict === 'FAIL') {
     production.setStatus(params.refId, 'FAILED', actor);
   }
 

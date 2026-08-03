@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import * as production from '../services/production.js';
 import * as deletionRequests from '../services/deletionRequests.js';
+import * as accessControl from '../services/accessControl.js';
 import { safe } from '../lib/errors.js';
 
 export const productionBatchesRouter = Router();
@@ -15,4 +16,10 @@ productionBatchesRouter.post('/', safe((req, res) => {
     return;
   }
   res.status(201).json(production.recordBatch({ productItemId, line, shift, operator, unitsActual, unitsTarget, waterTreatmentRunId }));
+}));
+
+productionBatchesRouter.post('/:id/reverse', safe((req, res) => {
+  const { reason, userId } = req.body ?? {};
+  const approver = accessControl.requireRole(userId, ['Warehouse Manager']);
+  res.json(production.reverseBatch(req.params.id, { reason, actor: approver.name }));
 }));

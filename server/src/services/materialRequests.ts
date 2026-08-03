@@ -2,6 +2,7 @@ import { db } from '../db/client.js';
 import { nextBusinessId } from '../db/ids.js';
 import * as activityLog from './activityLog.js';
 import * as inventory from './inventory.js';
+import * as reversals from './reversals.js';
 
 export interface MaterialRequest {
   id: string; requested_by: string | null; department: string | null; status: string;
@@ -50,6 +51,40 @@ export function approveAndIssue(id: string, actor = 'System Administrator'): Mat
   db.prepare(`UPDATE material_requests SET status = 'ISSUED' WHERE id = ?`).run(id);
   activityLog.record(actor, 'approved and issued', 'material_request', id, `Material request ${id} issued to ${request.department}`);
   return getRequest(id)!;
+}
+
+/** Module 17 reversal: undoes the inventory OUT approveAndIssue posted — status is
+ *  never mutated (see reversals.ts). Only callable once actually issued. */
+export function reverseIssue(id: string, params: { reason: string; actor: string }): { reversal: reversals.Reversal; request: MaterialRequest } {
+  const request = getRequest(id);
+  if (!request) throw new Error(`Unknown material request ${id}`);
+  if (request.status !== 'ISSUED') throw new Error(`${id} hasn't been issued yet — nothing to reverse`);
+  reversals.assertNotReversed('material_requests', id);
+
+  db.exec('BEGIN');
+  try {
+    for (const it of listRequestItems(id)) {
+      inventory.postTransaction({
+        itemId: it.item_id, direction: 'IN', quantity: it.quantity,
+        sourceType: 'MATERIAL_ISSUE', sourceId: id, actor: params.actor, note: `Reversal of material request ${id}`,
+      });
+    }
+
+    const reversal = reversals.create({
+      entityType: 'material_requests', entityId: id, reversedBy: params.actor, reason: params.reason,
+      oldValue: JSON.stringify({ status: 'ISSUED' }), newValue: JSON.stringify({ status: 'ISSUED_REVERSED' }),
+    });
+    activityLog.record(
+      params.actor, 'reversed', 'material_request', id,
+      `Material request ${id} (issued to ${request.department}) reversed`,
+      { oldValue: reversal.old_value, newValue: reversal.new_value, reason: reversal.reason },
+    );
+    db.exec('COMMIT');
+    return { reversal, request: getRequest(id)! };
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
 }
 
 export function reject(id: string, actor = 'System Administrator'): void {

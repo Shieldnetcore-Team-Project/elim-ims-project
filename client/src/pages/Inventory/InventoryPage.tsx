@@ -12,6 +12,9 @@ import { PrintHeader } from '../../components/ui/PrintHeader';
 import { DeleteButton } from '../../components/ui/DeleteButton';
 import { NumberInput } from '../../components/ui/NumberInput';
 import { usePendingDeletions } from '../../lib/pendingDeletions';
+import { ReportToolbar } from '../../components/ui/ReportToolbar';
+import { inRange, type DateRange } from '../../lib/reportExport';
+import type { CsvColumn } from '../../lib/csv';
 
 interface Balance {
   id: string; name: string; category: string; type: string; uom: string;
@@ -39,6 +42,7 @@ export default function InventoryPage() {
   const [query, setQuery] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
   const [adjustTarget, setAdjustTarget] = useState<Balance | null>(null);
+  const [txnRange, setTxnRange] = useState<DateRange | null>(null);
 
   const refresh = useCallback(() => setReloadKey(k => k + 1), []);
   useRegisterSearchFocus(useCallback(() => document.getElementById('inv-search')?.focus(), []));
@@ -53,6 +57,22 @@ export default function InventoryPage() {
     const q = query.trim().toLowerCase();
     return balances.filter(b => !q || b.name.toLowerCase().includes(q) || b.category.toLowerCase().includes(q) || b.id.toLowerCase().includes(q));
   }, [balances, query]);
+
+  const filteredTransactions = useMemo(() => transactions.filter(t => inRange(t.created_at, txnRange)), [transactions, txnRange]);
+  const txnColumns: CsvColumn<Transaction>[] = useMemo(() => [
+    { label: 'Transaction No.', get: t => t.txn_no },
+    { label: 'Date & Time', get: t => t.created_at },
+    { label: 'Product', get: t => t.item_name },
+    { label: 'Category', get: t => t.category },
+    { label: 'Source', get: t => titleCase(t.source_type) },
+    { label: 'Transaction Type', get: t => t.direction === 'IN' ? 'Stock In' : 'Stock Out' },
+    { label: 'Qty Before', get: t => t.qty_before },
+    { label: 'Qty Changed', get: t => t.direction === 'IN' ? t.quantity : -t.quantity },
+    { label: 'Qty After', get: t => t.qty_after },
+    { label: 'Performed By', get: t => t.actor ?? '' },
+    { label: 'Remarks', get: t => t.note ?? '' },
+    { label: 'Status', get: t => t.status },
+  ], []);
 
   const kpis = useMemo(() => [
     { key: 'total', label: 'Total SKUs', icon: 'box' as const, value: number(balances.length) },
@@ -111,7 +131,8 @@ export default function InventoryPage() {
         },
         {
           key: 'transactions', label: 'Inventory Transactions', content: (
-            <Card title="Inventory Transactions" description={`${transactions.length} transactions posted against the ledger.`}>
+            <Card title="Inventory Transactions" description={`${filteredTransactions.length} of ${transactions.length} transactions shown.`}>
+              <ReportToolbar rows={filteredTransactions} columns={txnColumns} filenameBase="elim-inventory-transactions" onRangeChange={setTxnRange} />
               <div className="table-wrap">
                 <table>
                   <thead>
@@ -122,7 +143,7 @@ export default function InventoryPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {transactions.map(t => {
+                    {filteredTransactions.map(t => {
                       const changed = t.direction === 'IN' ? t.quantity : -t.quantity;
                       return (
                         <tr key={t.id}>
@@ -144,7 +165,7 @@ export default function InventoryPage() {
                   </tbody>
                 </table>
               </div>
-              {transactions.length === 0 && <EmptyState title="No transactions yet" description="Transactions appear once stock moves in or out." onClear={() => {}} />}
+              {filteredTransactions.length === 0 && <EmptyState title="No transactions match that range" description="Transactions appear once stock moves in or out." onClear={() => {}} />}
             </Card>
           ),
         },

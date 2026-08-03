@@ -10,17 +10,13 @@ import { Modal } from '../../components/ui/Modal';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { PrintHeader } from '../../components/ui/PrintHeader';
 
-interface PendingGoodsReceived { id: string; po_id: string; supplier_name: string; received_at: string }
 interface PendingProductionBatch { id: string; product_name: string; line: string; shift: string; units_actual: number; started_at: string }
 interface QcRecord { id: string; ref_type: 'GOODS_RECEIVED' | 'PRODUCTION_BATCH'; ref_id: string; inspector: string; parameter: string | null; result: string | null; verdict: 'PASS' | 'FAIL'; notes: string | null; tested_at: string }
 
-type PendingItem =
-  | { kind: 'GOODS_RECEIVED'; id: string; title: string; subtitle: string }
-  | { kind: 'PRODUCTION_BATCH'; id: string; title: string; subtitle: string };
+type PendingItem = { kind: 'PRODUCTION_BATCH'; id: string; title: string; subtitle: string };
 
 export default function QualityControlPage() {
   const ui = useUi();
-  const [pendingGrn, setPendingGrn] = useState<PendingGoodsReceived[]>([]);
   const [pendingBatch, setPendingBatch] = useState<PendingProductionBatch[]>([]);
   const [history, setHistory] = useState<QcRecord[]>([]);
   const [reloadKey, setReloadKey] = useState(0);
@@ -29,13 +25,12 @@ export default function QualityControlPage() {
   const refresh = useCallback(() => setReloadKey(k => k + 1), []);
 
   useEffect(() => {
-    api<PendingGoodsReceived[]>('/quality-control/pending/goods-received').then(setPendingGrn);
     api<PendingProductionBatch[]>('/quality-control/pending/production-batches').then(setPendingBatch);
     api<QcRecord[]>('/quality-control/history').then(setHistory);
   }, [reloadKey]);
 
   const kpis = [
-    { key: 'pending', label: 'Awaiting a verdict', icon: 'flask' as const, value: number(pendingGrn.length + pendingBatch.length) },
+    { key: 'pending', label: 'Awaiting a verdict', icon: 'flask' as const, value: number(pendingBatch.length) },
     { key: 'pass', label: 'Passed', icon: 'flask' as const, value: number(history.filter(h => h.verdict === 'PASS').length) },
     { key: 'fail', label: 'Failed', icon: 'clock' as const, value: number(history.filter(h => h.verdict === 'FAIL').length) },
   ];
@@ -44,7 +39,7 @@ export default function QualityControlPage() {
     <>
       <PrintHeader />
       <div className="pagehead">
-        <div><h1>Quality control</h1><p className="pagesub">Every goods receipt and production batch passes through here before it can move on.</p></div>
+        <div><h1>Quality control</h1><p className="pagesub">Every production batch passes through here before it's eligible for packaging. (Goods-receipt inspection — accepted/rejected quantities — now lives on the Procurement page, next to Receive.)</p></div>
       </div>
 
       <KpiRow kpis={kpis} />
@@ -53,26 +48,6 @@ export default function QualityControlPage() {
         {
           key: 'pending', label: 'Pending', content: (
             <div style={{ display: 'grid', gap: 20 }}>
-              <Card title="Goods receipts awaiting QC" description="A PASS here is what posts the delivery into inventory.">
-                <div className="table-wrap">
-                  <table>
-                    <thead><tr><th>GRN</th><th>Purchase order</th><th>Supplier</th><th>Received</th><th className="no-print">Action</th></tr></thead>
-                    <tbody>
-                      {pendingGrn.map(g => (
-                        <tr key={g.id}>
-                          <td className="mono" style={{ fontSize: 12, color: 'rgb(var(--aqua-700))' }}>{g.id}</td>
-                          <td className="mono" style={{ fontSize: 12 }}>{g.po_id}</td>
-                          <td>{g.supplier_name}</td>
-                          <td className="sub">{g.received_at}</td>
-                          <td className="no-print"><button className="btn btn-secondary btn-sm" onClick={() => setTarget({ kind: 'GOODS_RECEIVED', id: g.id, title: g.id, subtitle: `${g.po_id} · ${g.supplier_name}` })}>Record result</button></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                {pendingGrn.length === 0 && <EmptyState title="Nothing pending" description="Every goods receipt has a verdict." onClear={() => {}} />}
-              </Card>
-
               <Card title="Production batches awaiting QC" description="A PASS here is what makes a batch eligible for packaging.">
                 <div className="table-wrap">
                   <table>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import { api, apiPost } from '../../lib/apiClient';
+import { api, apiPost, apiPut } from '../../lib/apiClient';
 import { number } from '../../lib/format';
 import { useUi } from '../../lib/uiState';
 import { Card } from '../../components/ui/Card';
@@ -12,8 +12,10 @@ import { EmptyState } from '../../components/ui/EmptyState';
 import { Icon } from '../../components/ui/Icon';
 import { PrintHeader } from '../../components/ui/PrintHeader';
 import { DeleteButton } from '../../components/ui/DeleteButton';
+import { ReverseButton } from '../../components/ui/ReverseButton';
 import { NumberInput } from '../../components/ui/NumberInput';
 import { usePendingDeletions } from '../../lib/pendingDeletions';
+import { useReversedEntities } from '../../lib/reversedEntities';
 import type { ModuleRow, Paginated } from '@shared/types';
 
 interface MaterialRequest { id: string; requested_by: string; department: string; status: string; needed_by: string | null; created_at: string }
@@ -24,6 +26,13 @@ interface ProductionBatch {
 }
 interface FinishedGood { id: string; item_name: string; batch_id: string; quantity: number; packaged_by: string | null; packaged_at: string }
 interface Item { id: string; name: string; type: string }
+interface BomComponent { itemId: string; itemName: string; qtyPerUnit: number }
+interface EmptyBottleRun {
+  id: string; quantity_issued: number; issued_by: string | null; status: 'OPEN' | 'RECONCILED';
+  damaged_quantity: number | null; leaking_quantity: number | null; finished_quantity: number | null; returned_quantity: number | null;
+  actor: string | null; started_at: string; reconciled_at: string | null;
+}
+interface ConditionSummary { goodEmpty: number; damagedEmpty: number; leakingEmpty: number; repairableEmpty: number; scrappedEmpty: number; warehouseFinishedGoods: number }
 
 export default function ProductionPage() {
   const ui = useUi();
@@ -42,8 +51,9 @@ export default function ProductionPage() {
 
   const refresh = useCallback(() => setReloadKey(k => k + 1), []);
   const requestsPending = usePendingDeletions('material_requests', reloadKey);
-  const batchesPending = usePendingDeletions('production_batches', reloadKey);
-  const finishedGoodsPending = usePendingDeletions('finished_goods', reloadKey);
+  const requestsReversed = useReversedEntities('material_requests', reloadKey);
+  const batchesReversed = useReversedEntities('production_batches', reloadKey);
+  const finishedGoodsReversed = useReversedEntities('finished_goods', reloadKey);
 
   useEffect(() => {
     api<MaterialRequest[]>('/material-requests').then(setRequests);
@@ -107,7 +117,11 @@ export default function ProductionPage() {
                           )}
                         </td>
                         <td className="no-print">
-                          <DeleteButton entityType="material_requests" entityId={r.id} entityLabel={r.id} pending={requestsPending.has(r.id)} onRequested={() => { refresh(); ui.toast('Deletion requested — pending admin approval'); }} />
+                          {r.status === 'ISSUED' ? (
+                            <ReverseButton entityType="material_requests" entityId={r.id} entityLabel={r.id} reversed={requestsReversed.has(r.id)} onReversed={() => { refresh(); ui.toast('Material request reversed'); }} />
+                          ) : (
+                            <DeleteButton entityType="material_requests" entityId={r.id} entityLabel={r.id} pending={requestsPending.has(r.id)} onRequested={() => { refresh(); ui.toast('Deletion requested — pending admin approval'); }} />
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -138,7 +152,7 @@ export default function ProductionPage() {
                         <td className="num tnum">{b.packaged_units.toLocaleString('en-NG')}</td>
                         <td className="sub">{b.started_at}</td>
                         <td className="no-print">
-                          <DeleteButton entityType="production_batches" entityId={b.id} entityLabel={b.id} pending={batchesPending.has(b.id)} onRequested={() => { refresh(); ui.toast('Deletion requested — pending admin approval'); }} />
+                          <ReverseButton entityType="production_batches" entityId={b.id} entityLabel={b.id} reversed={batchesReversed.has(b.id)} onReversed={() => { refresh(); ui.toast('Production batch reversed'); }} />
                         </td>
                       </tr>
                     ))}
@@ -187,7 +201,7 @@ export default function ProductionPage() {
                           <td>{f.packaged_by}</td>
                           <td className="sub">{f.packaged_at}</td>
                           <td className="no-print">
-                            <DeleteButton entityType="finished_goods" entityId={f.id} entityLabel={f.id} pending={finishedGoodsPending.has(f.id)} onRequested={() => { refresh(); ui.toast('Deletion requested — pending admin approval'); }} />
+                            <ReverseButton entityType="finished_goods" entityId={f.id} entityLabel={f.id} reversed={finishedGoodsReversed.has(f.id)} onReversed={() => { refresh(); ui.toast('Finished-goods record reversed'); }} />
                           </td>
                         </tr>
                       ))}
@@ -199,6 +213,12 @@ export default function ProductionPage() {
             </div>
           ),
         },
+        {
+          key: 'recipes', label: 'Recipes', content: (
+            <RecipesPanel products={finishedItems} rawItems={rawItems} />
+          ),
+        },
+        { key: 'empty-bottles', label: 'Empty bottles', content: <EmptyBottleTab /> },
       ]} />
 
       {requestOpen && (
@@ -249,8 +269,14 @@ function NewBatch({ products, waterRuns, onClose, onCreated }: { products: Item[
   const [operator, setOperator] = useState('');
   const [unitsActual, setUnitsActual] = useState('10000');
   const [waterTreatmentRunId, setWaterTreatmentRunId] = useState('');
+  const [recipe, setRecipe] = useState<BomComponent[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!productItemId) { setRecipe([]); return; }
+    api<BomComponent[]>(`/bom/${encodeURIComponent(productItemId)}`).then(setRecipe);
+  }, [productItemId]);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -285,6 +311,16 @@ function NewBatch({ products, waterRuns, onClose, onCreated }: { products: Item[
           </select>
         </div>
         <div className="form-row"><label htmlFor="pb-units">Units filled</label><NumberInput id="pb-units" allowDecimal={false} value={unitsActual} onChange={setUnitsActual} required /></div>
+        {recipe.length > 0 && (
+          <div className="form-row">
+            <label>Will consume (from this product's recipe)</label>
+            <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13 }}>
+              {recipe.map(c => (
+                <li key={c.itemId}>{(Number(unitsActual || 0) * c.qtyPerUnit).toLocaleString('en-NG')} × {c.itemName}</li>
+              ))}
+            </ul>
+          </div>
+        )}
         {waterRuns.length > 0 && (
           <div className="form-row">
             <label htmlFor="pb-water">Water source (optional)</label>
@@ -320,6 +356,289 @@ function PackageBatch({ batch, onClose, onPackaged }: { batch: ProductionBatch; 
       <p className="sub" style={{ marginBottom: 14 }}>{batch.product_name} — {batch.units_actual.toLocaleString('en-NG')} units filled, {batch.packaged_units.toLocaleString('en-NG')} cases already packaged.</p>
       <div className="form-row"><label htmlFor="pkg-qty">Cases to package</label><NumberInput id="pkg-qty" allowDecimal={false} value={quantity} onChange={setQuantity} required autoFocus /></div>
       <div className="form-row"><label htmlFor="pkg-by">Packaged by</label><input id="pkg-by" value={packagedBy} onChange={e => setPackagedBy(e.target.value)} required /></div>
+    </Modal>
+  );
+}
+
+/** One recipe per finished product — what recordBatch() (server/src/services/production.ts)
+ *  auto-consumes from raw-material stock when that product's batch output is recorded.
+ *  Empty by default; a product with no rows here gets no auto-consumption. */
+function RecipesPanel({ products, rawItems }: { products: Item[]; rawItems: Item[] }) {
+  const ui = useUi();
+  const [productItemId, setProductItemId] = useState(products[0]?.id ?? '');
+  const [components, setComponentsState] = useState<{ itemId: string; qtyPerUnit: string }[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback((id: string) => {
+    if (!id) { setComponentsState([]); return; }
+    api<BomComponent[]>(`/bom/${encodeURIComponent(id)}`).then(rows =>
+      setComponentsState(rows.map(r => ({ itemId: r.itemId, qtyPerUnit: String(r.qtyPerUnit) }))),
+    );
+  }, []);
+
+  useEffect(() => { load(productItemId); }, [productItemId, load]);
+
+  function updateRow(i: number, patch: Partial<{ itemId: string; qtyPerUnit: string }>) {
+    setComponentsState(cs => cs.map((c, idx) => (idx === i ? { ...c, ...patch } : c)));
+  }
+  function addRow() {
+    setComponentsState(cs => [...cs, { itemId: rawItems[0]?.id ?? '', qtyPerUnit: '1' }]);
+  }
+  function removeRow(i: number) {
+    setComponentsState(cs => cs.filter((_, idx) => idx !== i));
+  }
+
+  async function save() {
+    setSaving(true);
+    try {
+      await apiPut(`/bom/${encodeURIComponent(productItemId)}`, {
+        components: components.filter(c => c.itemId).map(c => ({ itemId: c.itemId, qtyPerUnit: Number(c.qtyPerUnit) || 0 })),
+      });
+      ui.toast('Recipe saved');
+      load(productItemId);
+    } finally { setSaving(false); }
+  }
+
+  return (
+    <Card title="Recipes" description="For one unit of a finished product, how many of each raw material it takes — recording a batch's output auto-deducts this from stock.">
+      <div className="form-row" style={{ maxWidth: 360 }}>
+        <label htmlFor="recipe-product">Product</label>
+        <select id="recipe-product" value={productItemId} onChange={e => setProductItemId(e.target.value)}>
+          {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+      </div>
+
+      {components.map((c, i) => (
+        <div className="lineitem-row" key={i}>
+          <div style={{ flex: 2 }}>
+            <select aria-label="Raw material" value={c.itemId} onChange={e => updateRow(i, { itemId: e.target.value })}>
+              {rawItems.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+            </select>
+          </div>
+          <div style={{ width: 120 }}>
+            <NumberInput ariaLabel="Quantity per unit" value={c.qtyPerUnit} onChange={v => updateRow(i, { qtyPerUnit: v })} required />
+          </div>
+          <button type="button" className="iconbtn" onClick={() => removeRow(i)} aria-label="Remove component">
+            <Icon name="x" size={16} />
+          </button>
+        </div>
+      ))}
+      {components.length === 0 && <p className="sub" style={{ padding: '6px 0' }}>No recipe defined yet — batches of this product won't auto-consume any raw material.</p>}
+
+      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={addRow}><Icon name="plus" size={12} /> Add component</button>
+        <button type="button" className="btn btn-primary btn-sm" onClick={save} disabled={saving || !productItemId}>{saving ? 'Saving…' : 'Save recipe'}</button>
+      </div>
+    </Card>
+  );
+}
+
+function EmptyBottleTab() {
+  const ui = useUi();
+  const [summary, setSummary] = useState<ConditionSummary | null>(null);
+  const [runs, setRuns] = useState<EmptyBottleRun[]>([]);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [startOpen, setStartOpen] = useState(false);
+  const [reconcileTarget, setReconcileTarget] = useState<EmptyBottleRun | null>(null);
+  const [triageOpen, setTriageOpen] = useState(false);
+  const [repairOpen, setRepairOpen] = useState(false);
+  const refresh = useCallback(() => setReloadKey(k => k + 1), []);
+
+  useEffect(() => { api<ConditionSummary>('/empty-bottles/summary').then(setSummary); }, [reloadKey]);
+  useEffect(() => { api<EmptyBottleRun[]>('/empty-bottles/runs').then(setRuns); }, [reloadKey]);
+
+  return (
+    <div style={{ display: 'grid', gap: 20 }}>
+      <Card
+        title="Empty bottle custody" description="Dispenser bottles pulled from the warehouse for production — every bottle issued must reconcile into damaged, leaking, finished, or returned."
+        action={<button className="btn btn-primary no-print" onClick={() => setStartOpen(true)}><Icon name="plus" size={14} /> Start run</button>}
+      >
+        {summary && (
+          <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', padding: '10px 20px 16px' }}>
+            <p className="sub">Good Empty <strong style={{ color: 'rgb(var(--ink))' }}>{number(summary.goodEmpty)}</strong></p>
+            <p className="sub">Damaged Empty <strong style={{ color: 'rgb(var(--ink))' }}>{number(summary.damagedEmpty)}</strong></p>
+            <p className="sub">Leaking Empty <strong style={{ color: 'rgb(var(--ink))' }}>{number(summary.leakingEmpty)}</strong></p>
+            <p className="sub">Repairable Empty <strong style={{ color: 'rgb(var(--ink))' }}>{number(summary.repairableEmpty)}</strong></p>
+            <p className="sub">Scrapped Empty <strong style={{ color: 'rgb(var(--ink))' }}>{number(summary.scrappedEmpty)}</strong></p>
+            <p className="sub">Warehouse Finished Goods <strong style={{ color: 'rgb(var(--ink))' }}>{number(summary.warehouseFinishedGoods)}</strong></p>
+          </div>
+        )}
+        <div className="no-print" style={{ display: 'flex', gap: 8, padding: '0 20px 16px' }}>
+          <button className="btn btn-secondary btn-sm" onClick={() => setTriageOpen(true)} disabled={!summary || (summary.damagedEmpty <= 0 && summary.leakingEmpty <= 0)}>Triage defective</button>
+          <button className="btn btn-secondary btn-sm" onClick={() => setRepairOpen(true)} disabled={!summary || summary.repairableEmpty <= 0}>Complete repair</button>
+        </div>
+      </Card>
+
+      <Card title="Runs" description="Every empty-bottle production pull, most recent first.">
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Run</th><th className="num">Issued</th><th>Status</th><th className="num">Damaged</th><th className="num">Leaking</th><th className="num">Finished</th><th className="num">Returned</th><th>Started</th><th className="no-print">Action</th></tr></thead>
+            <tbody>
+              {runs.map(r => (
+                <tr key={r.id}>
+                  <td className="mono" style={{ fontSize: 12, color: 'rgb(var(--aqua-700))' }}>{r.id}</td>
+                  <td className="num tnum">{number(r.quantity_issued)}</td>
+                  <td><Pill status={r.status} /></td>
+                  <td className="num tnum">{r.damaged_quantity != null ? number(r.damaged_quantity) : '—'}</td>
+                  <td className="num tnum">{r.leaking_quantity != null ? number(r.leaking_quantity) : '—'}</td>
+                  <td className="num tnum">{r.finished_quantity != null ? number(r.finished_quantity) : '—'}</td>
+                  <td className="num tnum">{r.returned_quantity != null ? number(r.returned_quantity) : '—'}</td>
+                  <td className="sub">{r.started_at}</td>
+                  <td className="no-print">
+                    {r.status === 'OPEN' && <button className="btn btn-secondary btn-sm" onClick={() => setReconcileTarget(r)}>Reconcile</button>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {runs.length === 0 && <EmptyState title="No runs yet" description="Start a run to pull empty bottles out for production." onClear={() => {}} />}
+      </Card>
+
+      {startOpen && (
+        <StartEmptyBottleRun onClose={() => setStartOpen(false)} onStarted={() => { setStartOpen(false); refresh(); ui.toast('Run started'); }} />
+      )}
+      {reconcileTarget && (
+        <ReconcileEmptyBottleRun run={reconcileTarget} onClose={() => setReconcileTarget(null)} onReconciled={() => { setReconcileTarget(null); refresh(); ui.toast(`${reconcileTarget.id} reconciled`); }} />
+      )}
+      {triageOpen && summary && (
+        <TriageDefective summary={summary} onClose={() => setTriageOpen(false)} onTriaged={() => { setTriageOpen(false); refresh(); ui.toast('Triaged'); }} />
+      )}
+      {repairOpen && summary && (
+        <CompleteRepair repairable={summary.repairableEmpty} onClose={() => setRepairOpen(false)} onRepaired={() => { setRepairOpen(false); refresh(); ui.toast('Repair completed'); }} />
+      )}
+    </div>
+  );
+}
+
+function StartEmptyBottleRun({ onClose, onStarted }: { onClose: () => void; onStarted: () => void }) {
+  const [quantityIssued, setQuantityIssued] = useState('500');
+  const [issuedBy, setIssuedBy] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setSaving(true); setError(null);
+    try {
+      await apiPost('/empty-bottles/runs', { quantityIssued: Number(quantityIssued), issuedBy });
+      onStarted();
+    } catch (err) { setError(err instanceof Error ? err.message : 'Something went wrong'); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <Modal title="Start empty-bottle run" onClose={onClose} onSubmit={submit} submitLabel="Start" saving={saving} error={error}>
+      <div className="form-row"><label htmlFor="ebr-qty">Total empty bottles</label><NumberInput id="ebr-qty" allowDecimal={false} value={quantityIssued} onChange={setQuantityIssued} required autoFocus /></div>
+      <div className="form-row"><label htmlFor="ebr-by">Issued by</label><input id="ebr-by" value={issuedBy} onChange={e => setIssuedBy(e.target.value)} required /></div>
+      <p className="sub">Pulls this quantity out of the Empty Bottle Warehouse — reconcile the run once inspection and production are done.</p>
+    </Modal>
+  );
+}
+
+function ReconcileEmptyBottleRun({ run, onClose, onReconciled }: { run: EmptyBottleRun; onClose: () => void; onReconciled: () => void }) {
+  const [damaged, setDamaged] = useState('0');
+  const [leaking, setLeaking] = useState('0');
+  const [finishedProduction, setFinishedProduction] = useState('0');
+  const [actor, setActor] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const explained = (Number(damaged) || 0) + (Number(leaking) || 0) + (Number(finishedProduction) || 0);
+  const available = run.quantity_issued - (Number(damaged) || 0) - (Number(leaking) || 0);
+  const returned = Math.max(run.quantity_issued - explained, 0);
+  const overExplained = explained > run.quantity_issued;
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    if (overExplained) { setError(`Cannot account for ${explained} — only ${run.quantity_issued} was issued.`); return; }
+    setSaving(true); setError(null);
+    try {
+      await apiPost(`/empty-bottles/runs/${encodeURIComponent(run.id)}/reconcile`, {
+        damaged: Number(damaged) || 0, leaking: Number(leaking) || 0, finishedProduction: Number(finishedProduction) || 0, actor,
+      });
+      onReconciled();
+    } catch (err) { setError(err instanceof Error ? err.message : 'Something went wrong'); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <Modal title={`Reconcile ${run.id}`} onClose={onClose} onSubmit={submit} submitLabel="Reconcile" saving={saving} error={error} wide>
+      <p className="sub" style={{ marginBottom: 10 }}>{run.quantity_issued.toLocaleString('en-NG')} total empty bottles issued for this run.</p>
+      <div className="form-grid">
+        <div className="form-row"><label htmlFor="ebr-damaged">Damaged (morning inspection)</label><NumberInput id="ebr-damaged" allowDecimal={false} value={damaged} onChange={setDamaged} /></div>
+        <div className="form-row"><label htmlFor="ebr-leaking">Leaking (during production)</label><NumberInput id="ebr-leaking" allowDecimal={false} value={leaking} onChange={setLeaking} /></div>
+        <div className="form-row"><label htmlFor="ebr-finished">Finished production</label><NumberInput id="ebr-finished" allowDecimal={false} value={finishedProduction} onChange={setFinishedProduction} /></div>
+        <div className="form-row"><label htmlFor="ebr-by">Reconciled by</label><input id="ebr-by" value={actor} onChange={e => setActor(e.target.value)} required autoFocus /></div>
+      </div>
+      <p className="sub">Available after inspection: <strong>{Math.max(available, 0).toLocaleString('en-NG')}</strong> · Auto-returned to warehouse (unused): <strong>{returned.toLocaleString('en-NG')}</strong></p>
+      {overExplained && <p className="sub" style={{ fontWeight: 600 }}>⚠ {explained} accounted for, but only {run.quantity_issued} was issued.</p>}
+    </Modal>
+  );
+}
+
+function TriageDefective({ summary, onClose, onTriaged }: { summary: ConditionSummary; onClose: () => void; onTriaged: () => void }) {
+  const [fromState, setFromState] = useState<'DAMAGED' | 'LEAKING'>(summary.damagedEmpty > 0 ? 'DAMAGED' : 'LEAKING');
+  const [repairable, setRepairable] = useState('0');
+  const [scrapped, setScrapped] = useState('0');
+  const [actor, setActor] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const currentUntriaged = fromState === 'DAMAGED' ? summary.damagedEmpty : summary.leakingEmpty;
+  const total = (Number(repairable) || 0) + (Number(scrapped) || 0);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    if (total > currentUntriaged) { setError(`Cannot triage ${total} — only ${currentUntriaged} untriaged.`); return; }
+    setSaving(true); setError(null);
+    try {
+      await apiPost('/empty-bottles/triage', { fromState, repairable: Number(repairable) || 0, scrapped: Number(scrapped) || 0, actor });
+      onTriaged();
+    } catch (err) { setError(err instanceof Error ? err.message : 'Something went wrong'); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <Modal title="Triage defective bottles" onClose={onClose} onSubmit={submit} submitLabel="Triage" saving={saving} error={error}>
+      <div className="form-row">
+        <label htmlFor="ebr-triage-from">From state</label>
+        <select id="ebr-triage-from" value={fromState} onChange={e => setFromState(e.target.value as 'DAMAGED' | 'LEAKING')}>
+          <option value="DAMAGED">Damaged ({summary.damagedEmpty.toLocaleString('en-NG')} untriaged)</option>
+          <option value="LEAKING">Leaking ({summary.leakingEmpty.toLocaleString('en-NG')} untriaged)</option>
+        </select>
+      </div>
+      <div className="form-grid">
+        <div className="form-row"><label htmlFor="ebr-repairable">Repairable</label><NumberInput id="ebr-repairable" allowDecimal={false} value={repairable} onChange={setRepairable} /></div>
+        <div className="form-row"><label htmlFor="ebr-scrapped">Scrapped</label><NumberInput id="ebr-scrapped" allowDecimal={false} value={scrapped} onChange={setScrapped} /></div>
+      </div>
+      <div className="form-row"><label htmlFor="ebr-triage-by">Actor</label><input id="ebr-triage-by" value={actor} onChange={e => setActor(e.target.value)} required autoFocus /></div>
+    </Modal>
+  );
+}
+
+function CompleteRepair({ repairable, onClose, onRepaired }: { repairable: number; onClose: () => void; onRepaired: () => void }) {
+  const [quantity, setQuantity] = useState(String(repairable));
+  const [actor, setActor] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setSaving(true); setError(null);
+    try {
+      await apiPost('/empty-bottles/repair', { quantity: Number(quantity), actor });
+      onRepaired();
+    } catch (err) { setError(err instanceof Error ? err.message : 'Something went wrong'); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <Modal title="Complete repair" onClose={onClose} onSubmit={submit} submitLabel="Repair" saving={saving} error={error}>
+      <p className="sub" style={{ marginBottom: 10 }}>{repairable.toLocaleString('en-NG')} bottles currently repairable.</p>
+      <div className="form-row"><label htmlFor="ebr-repair-qty">Quantity repaired</label><NumberInput id="ebr-repair-qty" allowDecimal={false} value={quantity} onChange={setQuantity} required autoFocus /></div>
+      <div className="form-row"><label htmlFor="ebr-repair-by">Actor</label><input id="ebr-repair-by" value={actor} onChange={e => setActor(e.target.value)} required /></div>
+      <p className="sub">Returns this quantity to the Empty Bottle Warehouse as Good Empty stock.</p>
     </Modal>
   );
 }

@@ -9,6 +9,7 @@ export const DELIVERY_STATUS_OPTIONS: ModuleFilterOption[] = [
 export const RAW_MATERIALS = [
   'PET preforms', 'Bottle caps', 'Labels', 'Shrink wraps', 'Packaging nylon', 'Chemicals',
   'Water treatment consumables', 'Cartons', 'Fuel', 'Generator diesel', 'Lubricants', 'Spare materials',
+  'Empty 20L Dispenser Bottle',
 ];
 
 export const DEPARTMENTS = [
@@ -27,7 +28,7 @@ const USER_ROLES = [
   'Super Admin', 'Admin',
   'Water treatment', 'Production', 'Quality control', 'Inventory', 'Procurement', 'Commercial',
   'Sales', 'Point of sale', 'Finance & people', 'Human resources',
-  'Assets & maintenance',
+  'Assets & maintenance', 'Warehouse Manager', 'Sales manager',
 ];
 
 export const FIELD_OPTIONS: Record<string, Record<string, string[]>> = {
@@ -163,8 +164,8 @@ export const MODULES: ModuleConfig[] = [
     ],
   },
   {
-    key: 'pos', label: 'Point of Sale', group: 'Commercial', icon: 'wallet', moduleNo: 10,
-    subtitle: 'Walk-in and depot till transactions.',
+    key: 'pos', label: 'Retail', group: 'Commercial', icon: 'wallet', moduleNo: 10,
+    subtitle: 'Walk-in and depot retail sales.',
     searchPlaceholder: 'Search receipts or cashier',
     columns: [
       { key: 'id', label: 'Receipt', kind: 'mono' },
@@ -206,6 +207,18 @@ export const MODULES: ModuleConfig[] = [
     statusOptions: [
       { value: 'CLEARED', label: 'Cleared' }, { value: 'PENDING', label: 'Pending' }, { value: 'OVERDUE', label: 'Overdue' },
     ],
+  },
+  {
+    key: 'day-close', label: 'Day Close', group: 'Finance & people', icon: 'scroll', moduleNo: 19,
+    subtitle: 'Close-of-business reconciliation across production, warehouse, and finished goods.',
+    searchPlaceholder: 'Search day closes',
+    columns: [
+      { key: 'id', label: 'Close', kind: 'mono' },
+      { key: 'business_date', label: 'Business date', kind: 'text' },
+      { key: 'checked_by', label: 'Checked by', kind: 'text' },
+      { key: 'status', label: 'Status', kind: 'status' },
+    ],
+    statusOptions: [{ value: 'CLOSED', label: 'Closed' }],
   },
   {
     key: 'hr', label: 'Human Resources', group: 'Finance & people', icon: 'users', moduleNo: 13,
@@ -312,7 +325,13 @@ export const MODULES: ModuleConfig[] = [
     columns: [
       { key: 'action', label: 'Action', kind: 'text' },
       { key: 'actor', label: 'User', kind: 'text' },
+      { key: 'department', label: 'Department', kind: 'text' },
       { key: 'summary', label: 'Detail of activity', kind: 'text' },
+      { key: 'old_value', label: 'Old value', kind: 'mono' },
+      { key: 'new_value', label: 'New value', kind: 'mono' },
+      { key: 'reason', label: 'Reason', kind: 'text' },
+      { key: 'ip_address', label: 'IP Address', kind: 'mono' },
+      { key: 'device', label: 'Device', kind: 'text' },
       { key: 'at', label: 'Timestamp', kind: 'text' },
     ],
     statusOptions: [

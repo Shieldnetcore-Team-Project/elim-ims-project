@@ -16,7 +16,36 @@ export interface DeletionRequest {
   review_note: string | null;
 }
 
+/** Module 17: once an entity has posted a real inventory/ledger movement, it can no
+ *  longer go through this admin-approval delete flow — only a reversal (reversals.ts +
+ *  each entity's own reverse* function) can correct it. Master data and pre-posting
+ *  documents (a DRAFT PO, a PENDING material request, an un-inspected GRN) aren't in
+ *  this map at all and keep working exactly as before. Queried directly by table
+ *  rather than importing sales.ts/receiving.ts/materialRequests.ts, to avoid a
+ *  circular dependency back into this file from theirs. */
+const POSTED_CHECK: Record<string, (id: string) => boolean> = {
+  payments: () => true,
+  receipts: () => true,
+  production_batches: () => true,
+  finished_goods: () => true,
+  sales: (id) => {
+    const row = db.prepare('SELECT status FROM sales WHERE id = ?').get(id) as { status: string } | undefined;
+    return row?.status !== 'AWAITING_APPROVAL';
+  },
+  goods_received: (id) => {
+    const row = db.prepare('SELECT status FROM goods_received WHERE id = ?').get(id) as { status: string } | undefined;
+    return row?.status !== 'PENDING_INSPECTION';
+  },
+  material_requests: (id) => {
+    const row = db.prepare('SELECT status FROM material_requests WHERE id = ?').get(id) as { status: string } | undefined;
+    return row?.status === 'ISSUED';
+  },
+};
+
 export function request(params: { entityType: string; entityId: string; entityLabel?: string; requestedBy: string; reason: string }): DeletionRequest {
+  if (POSTED_CHECK[params.entityType]?.(params.entityId)) {
+    throw new Error(`${params.entityLabel ?? params.entityId} has already posted a real transaction — it cannot be deleted. Use Reverse instead.`);
+  }
   const id = nextBusinessId('deletion_requests', 'DEL-', 5);
   db.prepare(
     `INSERT INTO deletion_requests (id, entity_type, entity_id, entity_label, requested_by, reason) VALUES (?,?,?,?,?,?)`,

@@ -1,11 +1,14 @@
 import { Router } from 'express';
 import * as sales from '../services/sales.js';
 import * as deletionRequests from '../services/deletionRequests.js';
+import * as accessControl from '../services/accessControl.js';
 import { safe } from '../lib/errors.js';
 
 export const salesRouter = Router();
 
 salesRouter.get('/', (req, res) => res.json(deletionRequests.filterDeleted('sales', sales.listOrders(req.query.channel as 'INVOICE' | 'POS' | undefined))));
+
+salesRouter.get('/pending-credit-approval', (_req, res) => res.json(sales.pendingCreditApproval()));
 
 salesRouter.get('/:id', (req, res) => {
   const order = sales.getOrder(req.params.id);
@@ -14,10 +17,24 @@ salesRouter.get('/:id', (req, res) => {
 });
 
 salesRouter.post('/', safe((req, res) => {
-  const { customerId, channel, rep, items } = req.body ?? {};
-  if (!customerId || !channel || !rep || !Array.isArray(items) || items.length === 0) {
-    res.status(400).json({ error: 'customerId, channel, rep and at least one item are required' });
+  const { customerId, channel, rep, paymentTerms, items, branchId, manualInvoiceNumber, payments } = req.body ?? {};
+  if (!channel || !rep || !Array.isArray(items) || items.length === 0) {
+    res.status(400).json({ error: 'channel, rep and at least one item are required' });
     return;
   }
-  res.status(201).json(sales.createOrder({ customerId, channel, rep, items }));
+  res.status(201).json(sales.createOrder({ customerId, channel, rep, paymentTerms, items, branchId, manualInvoiceNumber, payments }));
+}));
+
+salesRouter.post('/:id/approve-credit', safe((req, res) => {
+  res.json(sales.approveCreditSale(req.params.id, req.body?.actor));
+}));
+
+salesRouter.post('/:id/reject-credit', safe((req, res) => {
+  res.json(sales.rejectCreditSale(req.params.id, req.body?.actor));
+}));
+
+salesRouter.post('/:id/reverse', safe((req, res) => {
+  const { reason, userId } = req.body ?? {};
+  const approver = accessControl.requireRole(userId, ['Sales manager']);
+  res.json(sales.reverseOrder(req.params.id, { reason, actor: approver.name }));
 }));

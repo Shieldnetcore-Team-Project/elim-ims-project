@@ -11,20 +11,34 @@ export interface PurchaseOrderItem { id: number; po_id: string; item_id: string;
 export function listSuppliers(): Supplier[] {
   return db.prepare('SELECT * FROM suppliers ORDER BY name').all() as unknown as Supplier[];
 }
+export function getSupplier(id: string): Supplier | undefined {
+  return db.prepare('SELECT * FROM suppliers WHERE id = ?').get(id) as Supplier | undefined;
+}
 export function createSupplier(s: Supplier): void {
   db.prepare('INSERT INTO suppliers (id, name, location) VALUES (?,?,?)').run(s.id, s.name, s.location);
 }
 
+/** Items bought by the bag (manufacturer/grammage variants — see items.pieces_per_bag)
+ *  carry a bagQuantity here instead of a trusted quantity; the piece count is always
+ *  computed server-side from the item's own pieces_per_bag, never taken from the caller,
+ *  so a line can't be posted with a quantity that doesn't match the bags entered. */
+export function resolveQuantity(itemId: string, quantity: number, bagQuantity: number | undefined): number {
+  if (bagQuantity == null) return quantity;
+  const item = db.prepare('SELECT pieces_per_bag FROM items WHERE id = ?').get(itemId) as { pieces_per_bag: number | null } | undefined;
+  if (!item?.pieces_per_bag) return quantity;
+  return bagQuantity * item.pieces_per_bag;
+}
+
 export function createPurchaseOrder(params: {
   supplierId: string; requestedBy: string;
-  items: { itemId: string; quantity: number; unitPrice: number }[];
+  items: { itemId: string; quantity: number; unitPrice: number; bagQuantity?: number }[];
   actor?: string;
 }): PurchaseOrder {
   const id = nextBusinessId('purchase_orders', 'PO-2026-', 5);
   db.prepare('INSERT INTO purchase_orders (id, supplier_id, requested_by, status) VALUES (?,?,?,?)')
     .run(id, params.supplierId, params.requestedBy, 'AWAITING_APPROVAL');
   const insertItem = db.prepare('INSERT INTO purchase_order_items (po_id, item_id, quantity, unit_price) VALUES (?,?,?,?)');
-  for (const it of params.items) insertItem.run(id, it.itemId, it.quantity, it.unitPrice);
+  for (const it of params.items) insertItem.run(id, it.itemId, resolveQuantity(it.itemId, it.quantity, it.bagQuantity), it.unitPrice);
   activityLog.record(params.actor ?? params.requestedBy, 'created', 'purchase_order', id, `Purchase order ${id}, ${params.items.length} item line(s)`);
   return getPurchaseOrder(id)!;
 }

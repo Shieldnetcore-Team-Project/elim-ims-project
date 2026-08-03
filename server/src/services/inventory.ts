@@ -12,6 +12,8 @@ export interface Item {
   uom: string;
   reorder_point: number;
   unit_cost: number;
+  manufacturer_id?: string | null;
+  pieces_per_bag?: number | null;
 }
 
 export interface InventoryBalance extends Item {
@@ -43,8 +45,11 @@ const DEFAULT_BRANCH = 'Idu Central Warehouse';
 
 export function createItem(item: Item): void {
   db.prepare(
-    `INSERT INTO items (id, name, category, type, uom, reorder_point, unit_cost) VALUES (?,?,?,?,?,?,?)`,
-  ).run(item.id, item.name, item.category, item.type, item.uom, item.reorder_point, item.unit_cost);
+    `INSERT INTO items (id, name, category, type, uom, reorder_point, unit_cost, manufacturer_id, pieces_per_bag) VALUES (?,?,?,?,?,?,?,?,?)`,
+  ).run(
+    item.id, item.name, item.category, item.type, item.uom, item.reorder_point, item.unit_cost,
+    item.manufacturer_id ?? null, item.pieces_per_bag ?? null,
+  );
 }
 
 export function listItems(type?: Item['type']): Item[] {

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import * as packaging from '../services/packaging.js';
 import * as deletionRequests from '../services/deletionRequests.js';
+import * as accessControl from '../services/accessControl.js';
 import { safe } from '../lib/errors.js';
 
 export const finishedGoodsRouter = Router();
@@ -14,4 +15,10 @@ finishedGoodsRouter.post('/', safe((req, res) => {
     return;
   }
   res.status(201).json(packaging.packageBatch({ batchId, itemId, quantity, packagedBy }));
+}));
+
+finishedGoodsRouter.post('/:id/reverse', safe((req, res) => {
+  const { reason, userId } = req.body ?? {};
+  const approver = accessControl.requireRole(userId, ['Warehouse Manager']);
+  res.json(packaging.reverseFinishedGoods(req.params.id, { reason, actor: approver.name }));
 }));
