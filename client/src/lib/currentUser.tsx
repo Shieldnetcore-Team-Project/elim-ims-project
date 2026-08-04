@@ -10,10 +10,15 @@ interface CurrentUserState {
   user: AppUser | null;
   users: AppUser[];
   isSuperAdmin: boolean;
+  /** true until the user list has been fetched at least once — distinct from
+   *  `user === null`, which (once loaded) means genuinely signed out. */
+  loading: boolean;
   /** null while access is still loading — treat as "not yet known", not "denied". */
   allowedPages: string[] | null;
   hasAccess: (pageKey: string) => boolean;
   signInAs: (userId: string) => void;
+  /** Clears the stored session — user becomes null and AppShell shows the sign-in gate. */
+  signOut: () => void;
   refreshUsers: () => void;
 }
 
@@ -21,35 +26,55 @@ const Ctx = createContext<CurrentUserState | null>(null);
 
 export function CurrentUserProvider({ children }: { children: ReactNode }) {
   const [users, setUsers] = useState<AppUser[]>([]);
+  const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(() => {
     try { return localStorage.getItem(STORAGE_KEY); } catch { return null; }
   });
   const [allowedPages, setAllowedPages] = useState<string[] | null>(null);
 
-  const refreshUsers = useCallback(() => { api<AppUser[]>('/masters/users').then(setUsers); }, []);
+  const refreshUsers = useCallback(() => {
+    api<AppUser[]>('/masters/users').then(res => { setUsers(res); setLoading(false); });
+  }, []);
   useEffect(() => { refreshUsers(); }, [refreshUsers]);
 
   const user = useMemo<AppUser | null>(() => {
-    if (users.length === 0) return null;
-    const found = userId ? users.find(u => u.id === userId) : undefined;
+    if (loading) return null;
+    // No stored id — never signed in, or explicitly signed out. Show the
+    // sign-in gate rather than silently picking someone, unlike before.
+    if (!userId) return null;
+    const found = users.find(u => u.id === userId);
     if (found) return found;
-    // Stored id missing, deleted, or nothing chosen yet — fall back to a super admin
-    // (the guaranteed seeded one, or any other) so the app never opens fully locked out.
-    return users.find(u => u.role === SUPER_ADMIN_ROLE) ?? users[0];
-  }, [users, userId]);
+    // Stored id no longer matches anyone (e.g. deleted) — fall back to a
+    // super admin (the guaranteed seeded one, or any other) rather than
+    // locking the app open on a dangling reference.
+    return users.find(u => u.role === SUPER_ADMIN_ROLE) ?? users[0] ?? null;
+  }, [users, userId, loading]);
 
   const isSuperAdmin = user?.role === SUPER_ADMIN_ROLE;
 
   useEffect(() => {
     if (!user || isSuperAdmin) { setAllowedPages(null); return; }
     let alive = true;
-    api<{ pages: string[] }>(`/access-control/${encodeURIComponent(user.id)}`).then(res => { if (alive) setAllowedPages(res.pages); });
-    return () => { alive = false; };
+    const fetchAccess = () => {
+      api<{ pages: string[] }>(`/access-control/${encodeURIComponent(user.id)}`).then(res => { if (alive) setAllowedPages(res.pages); });
+    };
+    fetchAccess();
+    // Covers a session that's been open since before an admin granted new
+    // pages elsewhere — refetch whenever the tab regains focus, rather than
+    // only on sign-in, so newly granted pages show up without a manual
+    // sign-out/sign-in.
+    window.addEventListener('focus', fetchAccess);
+    return () => { alive = false; window.removeEventListener('focus', fetchAccess); };
   }, [user, isSuperAdmin]);
 
   const signInAs = useCallback((id: string) => {
     setUserId(id);
     try { localStorage.setItem(STORAGE_KEY, id); } catch { /* private browsing */ }
+  }, []);
+
+  const signOut = useCallback(() => {
+    setUserId(null);
+    try { localStorage.removeItem(STORAGE_KEY); } catch { /* private browsing */ }
   }, []);
 
   const hasAccess = useCallback((pageKey: string): boolean => {
@@ -59,7 +84,7 @@ export function CurrentUserProvider({ children }: { children: ReactNode }) {
     return allowedPages?.includes(pageKey) ?? false;
   }, [user, isSuperAdmin, allowedPages]);
 
-  const value: CurrentUserState = { user, users, isSuperAdmin, allowedPages, hasAccess, signInAs, refreshUsers };
+  const value: CurrentUserState = { user, users, isSuperAdmin, loading, allowedPages, hasAccess, signInAs, signOut, refreshUsers };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

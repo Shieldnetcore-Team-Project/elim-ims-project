@@ -18,9 +18,15 @@ function initials(name: string): string {
 
 export function Topbar() {
   const ui = useUi();
-  const { user } = useCurrentUser();
+  const { user, signOut } = useCurrentUser();
   const [today, setToday] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
+
+  function handleLogOut() {
+    const name = user?.name;
+    signOut();
+    ui.toast(name ? `Signed out of ${name}` : 'Signed out');
+  }
   useEffect(() => { setToday(todayLagos.format(new Date())); }, []);
 
   return (
@@ -74,6 +80,10 @@ export function Topbar() {
             <span style={{ display: 'block', fontSize: 11, color: 'rgb(var(--muted))' }}>{user?.role ?? ''}</span>
           </span>
           <Icon name="switch" size={14} className="muted-icon" />
+        </button>
+
+        <button className="iconbtn" onClick={handleLogOut} aria-label="Log out" title="Log out">
+          <Icon name="lock" size={17} />
         </button>
       </div>
 

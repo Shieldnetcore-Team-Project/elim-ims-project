@@ -16,6 +16,8 @@ import { ReverseButton } from '../../components/ui/ReverseButton';
 import { NumberInput } from '../../components/ui/NumberInput';
 import { usePendingDeletions } from '../../lib/pendingDeletions';
 import { useReversedEntities } from '../../lib/reversedEntities';
+import { refreshPendingCounts } from '../../lib/pendingCounts';
+import { useCurrentUser } from '../../lib/currentUser';
 
 interface PurchaseOrder {
   id: string; supplier_id: string; supplier_name: string; requested_by: string | null;
@@ -46,6 +48,8 @@ interface Item {
 
 export default function ProcurementPage() {
   const ui = useUi();
+  const { user, isSuperAdmin, hasAccess } = useCurrentUser();
+  const canApprove = isSuperAdmin || hasAccess('procurement-approve');
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
   const [receipts, setReceipts] = useState<GoodsReceived[]>([]);
   const [returns, setReturns] = useState<SupplierReturn[]>([]);
@@ -61,7 +65,7 @@ export default function ProcurementPage() {
   const [newMaterialOpen, setNewMaterialOpen] = useState(false);
   const [mastersReloadKey, setMastersReloadKey] = useState(0);
 
-  const refresh = useCallback(() => setReloadKey(k => k + 1), []);
+  const refresh = useCallback(() => { setReloadKey(k => k + 1); refreshPendingCounts(); }, []);
   const refreshMasters = useCallback(() => setMastersReloadKey(k => k + 1), []);
   const poPending = usePendingDeletions('purchase_orders', reloadKey);
   const grnPending = usePendingDeletions('goods_received', reloadKey);
@@ -88,7 +92,7 @@ export default function ProcurementPage() {
   ], [orders, receipts, returns]);
 
   async function approve(id: string, status: string) {
-    await apiPut(`/purchase-orders/${encodeURIComponent(id)}/status`, { status });
+    await apiPut(`/purchase-orders/${encodeURIComponent(id)}/status`, { status, userId: user?.id });
     ui.toast(`${id} → ${status.replace(/_/g, ' ')}`);
     refresh();
   }
@@ -107,7 +111,7 @@ export default function ProcurementPage() {
 
       <Tabs tabs={[
         {
-          key: 'orders', label: 'Purchase orders', content: (
+          key: 'orders', label: 'Purchase orders', badge: orders.filter(o => o.status === 'AWAITING_APPROVAL').length, content: (
             <Card title="Purchase orders" description="Every order raised against a supplier.">
               <div className="table-wrap">
                 <table>
@@ -123,7 +127,7 @@ export default function ProcurementPage() {
                         <td className="sub">{o.created_at}</td>
                         <td><Pill status={o.status} /></td>
                         <td className="no-print">
-                          {o.status === 'AWAITING_APPROVAL' && (
+                          {o.status === 'AWAITING_APPROVAL' && canApprove && (
                             <div style={{ display: 'flex', gap: 6 }}>
                               <button className="btn btn-secondary btn-sm" onClick={() => approve(o.id, 'APPROVED')}>Approve</button>
                               <button className="btn btn-secondary btn-sm" onClick={() => approve(o.id, 'REJECTED')}>Reject</button>
@@ -146,7 +150,7 @@ export default function ProcurementPage() {
           ),
         },
         {
-          key: 'receipts', label: 'Goods received', content: (
+          key: 'receipts', label: 'Goods received', badge: receipts.filter(r => r.status === 'PENDING_INSPECTION').length, content: (
             <Card title="Goods received" description="Deliveries logged against a purchase order — inventory only updates once inspected.">
               <div className="table-wrap">
                 <table>
@@ -183,7 +187,7 @@ export default function ProcurementPage() {
           ),
         },
         {
-          key: 'returns', label: 'Supplier returns', content: (
+          key: 'returns', label: 'Supplier returns', badge: returns.filter(r => r.status === 'PENDING').length, content: (
             <Card title="Supplier returns" description="Rejected quantities from inspection — never posted to inventory, tracked here through to a credit note or pickup.">
               <div className="table-wrap">
                 <table>

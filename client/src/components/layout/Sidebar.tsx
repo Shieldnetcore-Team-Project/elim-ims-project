@@ -3,10 +3,13 @@ import { NAV_GROUPS, ADMIN_ONLY_NAV_KEYS } from '@shared/moduleConfig';
 import { Icon } from '../ui/Icon';
 import { useUi } from '../../lib/uiState';
 import { useCurrentUser } from '../../lib/currentUser';
+import { usePendingCounts } from '../../lib/pendingCounts';
+import logo from '../../images/elim logo.png';
 
 export function Sidebar() {
   const ui = useUi();
   const { isSuperAdmin, hasAccess } = useCurrentUser();
+  const pendingCounts = usePendingCounts();
 
   const visibleGroups = NAV_GROUPS
     .map(g => ({
@@ -18,11 +21,7 @@ export function Sidebar() {
   return (
     <aside className={`rail${ui.drawerOpen ? ' open' : ''}${ui.railCollapsed ? ' collapsed' : ''}`} aria-label="Main navigation">
       <div className="rail-head">
-        <span className="rail-logo"><Icon name="drop" size={20} /></span>
-        <div style={{ minWidth: 0 }}>
-          <p className="rail-name">Elim Table<span style={{ color: 'rgb(var(--aqua-300))' }}> Water</span></p>
-          <p className="rail-sub">Factory Operations</p>
-        </div>
+        <img src={logo} alt="Elim Table Water" className="rail-brand" />
         <button className="rail-close" onClick={ui.closeDrawer} aria-label="Close navigation">
           <Icon name="x" size={16} />
         </button>
@@ -32,19 +31,27 @@ export function Sidebar() {
         {visibleGroups.map(g => (
           <div className="rail-group" key={g.group}>
             <p className="rail-group-label">{g.group}</p>
-            {g.items.map(item => (
-              <NavLink
-                key={item.key}
-                to={item.path}
-                onClick={ui.closeDrawer}
-                end={item.path === '/'}
-                title={item.label}
-                className={({ isActive }) => 'rail-item' + (isActive ? ' active' : '')}
-              >
-                <Icon name={item.icon} />
-                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.label}</span>
-              </NavLink>
-            ))}
+            {g.items.map(item => {
+              const pending = pendingCounts[item.key] ?? 0;
+              return (
+                <NavLink
+                  key={item.key}
+                  to={item.path}
+                  onClick={ui.closeDrawer}
+                  end={item.path === '/'}
+                  title={pending > 0 ? `${item.label} — ${pending} need${pending === 1 ? 's' : ''} attention` : item.label}
+                  className={({ isActive }) => 'rail-item' + (isActive ? ' active' : '')}
+                >
+                  <Icon name={item.icon} />
+                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.label}</span>
+                  {pending > 0 && (
+                    <span className="rail-badge-alert" aria-label={`${pending} action${pending === 1 ? '' : 's'} need attention`}>
+                      {pending > 99 ? '99+' : pending}
+                    </span>
+                  )}
+                </NavLink>
+              );
+            })}
           </div>
         ))}
       </nav>

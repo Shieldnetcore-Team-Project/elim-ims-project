@@ -2,6 +2,7 @@ import { Outlet, useLocation } from 'react-router-dom';
 import { NAV_GROUPS, ADMIN_ONLY_NAV_KEYS } from '@shared/moduleConfig';
 import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
+import { SignInGate } from './SignInGate';
 import { Toasts } from '../ui/Toasts';
 import { CommandPalette } from '../command-palette/CommandPalette';
 import { ShortcutsDialog } from '../shortcuts/ShortcutsDialog';
@@ -26,11 +27,14 @@ function AccessDenied() {
 export function AppShell() {
   const ui = useUi();
   const location = useLocation();
-  const { user, isSuperAdmin, allowedPages, hasAccess } = useCurrentUser();
+  const { user, loading, isSuperAdmin, allowedPages, hasAccess } = useCurrentUser();
 
   const pageKey = ALL_NAV_ITEMS.find(i => i.path === location.pathname)?.key;
   const gated = !!pageKey && pageKey !== 'dashboard';
-  const stillLoading = !user || (gated && !isSuperAdmin && allowedPages === null);
+  const stillCheckingAccess = gated && !isSuperAdmin && allowedPages === null;
+
+  if (loading) return null;
+  if (!user) return <SignInGate />;
 
   let allowed = true;
   if (pageKey && ADMIN_ONLY_NAV_KEYS.includes(pageKey)) allowed = isSuperAdmin;
@@ -48,7 +52,7 @@ export function AppShell() {
         <Topbar />
         <main id="main" tabIndex={-1}>
           <div className="wrap">
-            {stillLoading ? null : allowed ? <Outlet /> : <AccessDenied />}
+            {stillCheckingAccess ? null : allowed ? <Outlet /> : <AccessDenied />}
           </div>
         </main>
       </div>

@@ -1,5 +1,10 @@
 # Elim Water Factory ERP — PostgreSQL database
 
+> **As of 2026-08-03, `supabase/migrations/` (repo root) is the canonical, CLI-managed
+> migration history for this schema.** This directory remains the original hand-authored
+> source and design documentation (ERD/RELATIONSHIPS/NORMALIZATION below) and is not
+> applied directly to any environment going forward — see `supabase/migrations/README.md`.
+
 A complete, normalized PostgreSQL schema for the Elim Water ERP domain
 (procurement, receiving, QC, inventory, production, packaging, sales,
 fleet/delivery, finance, payroll, HR/access control, audit, reports). This is

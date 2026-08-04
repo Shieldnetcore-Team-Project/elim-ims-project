@@ -17,6 +17,7 @@ import { NumberInput } from '../../components/ui/NumberInput';
 import { usePendingDeletions } from '../../lib/pendingDeletions';
 import { useReversedEntities } from '../../lib/reversedEntities';
 import { useCurrentUser } from '../../lib/currentUser';
+import { refreshPendingCounts, usePendingCounts } from '../../lib/pendingCounts';
 import { CustomersTab } from './CustomersTab';
 import { DistributorBranchesTab } from './DistributorBranchesTab';
 import { PosReceiptModal } from './PosReceiptModal';
@@ -63,6 +64,8 @@ const COPY: Record<'INVOICE' | 'POS', { title: string; subtitle: string; newLabe
 export default function SalesPage({ channel }: { channel: 'INVOICE' | 'POS' }) {
   const ui = useUi();
   const copy = COPY[channel];
+  const { user, isSuperAdmin, hasAccess } = useCurrentUser();
+  const canApprove = isSuperAdmin || hasAccess('sales-approve');
   const [orders, setOrders] = useState<SalesOrder[]>([]);
   const [returns, setReturns] = useState<SalesReturn[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -75,8 +78,14 @@ export default function SalesPage({ channel }: { channel: 'INVOICE' | 'POS' }) {
   const [newCustomerOpen, setNewCustomerOpen] = useState(false);
   const [newReturnOpen, setNewReturnOpen] = useState(false);
   const [inspectReturnFor, setInspectReturnFor] = useState<SalesReturn | null>(null);
+  const [marketerPendingCount, setMarketerPendingCount] = useState(0);
 
-  const refresh = useCallback(() => setReloadKey(k => k + 1), []);
+  const refresh = useCallback(() => { setReloadKey(k => k + 1); refreshPendingCounts(); }, []);
+  const globalPendingCounts = usePendingCounts();
+  useEffect(() => {
+    if (channel !== 'INVOICE') return;
+    api<MarketerReturn[]>('/marketer-stock/returns').then(rows => setMarketerPendingCount(rows.filter(r => r.status === 'PENDING_VERIFICATION').length));
+  }, [channel, reloadKey, globalPendingCounts.sales]);
   const refreshMasters = useCallback(() => setMastersReloadKey(k => k + 1), []);
   const pendingDeletions = usePendingDeletions('sales', reloadKey);
   const reversedOrders = useReversedEntities('sales', reloadKey);
@@ -104,12 +113,12 @@ export default function SalesPage({ channel }: { channel: 'INVOICE' | 'POS' }) {
   }, [orders, query]);
 
   async function approveCredit(id: string) {
-    await apiPost(`/sales/${encodeURIComponent(id)}/approve-credit`, {});
+    await apiPost(`/sales/${encodeURIComponent(id)}/approve-credit`, { userId: user?.id });
     ui.toast(`${id} credit approved`);
     refresh();
   }
   async function rejectCredit(id: string) {
-    await apiPost(`/sales/${encodeURIComponent(id)}/reject-credit`, {});
+    await apiPost(`/sales/${encodeURIComponent(id)}/reject-credit`, { userId: user?.id });
     ui.toast(`${id} credit rejected`);
     refresh();
   }
@@ -153,7 +162,7 @@ export default function SalesPage({ channel }: { channel: 'INVOICE' | 'POS' }) {
                   <td className="sub">{o.created_at}</td>
                   <td><Pill status={o.status} /></td>
                   <td className="no-print">
-                    {o.status === 'AWAITING_APPROVAL' && (
+                    {o.status === 'AWAITING_APPROVAL' && canApprove && (
                       <div style={{ display: 'flex', gap: 6 }}>
                         <button className="btn btn-secondary btn-sm" onClick={() => approveCredit(o.id)}>Approve</button>
                         <button className="btn btn-secondary btn-sm" onClick={() => rejectCredit(o.id)}>Reject</button>
@@ -190,9 +199,9 @@ export default function SalesPage({ channel }: { channel: 'INVOICE' | 'POS' }) {
 
       {channel === 'INVOICE' ? (
         <Tabs tabs={[
-          { key: 'orders', label: 'Orders', content: ordersTable },
+          { key: 'orders', label: 'Orders', badge: orders.filter(o => o.status === 'AWAITING_APPROVAL').length, content: ordersTable },
           {
-            key: 'returns', label: 'Returns', content: (
+            key: 'returns', label: 'Returns', badge: returns.filter(r => r.status === 'PENDING_INSPECTION').length, content: (
               <Card
                 title="Returned goods" description="Unsold stock a Marketer has brought back — only the accepted quantity re-enters inventory."
                 action={<button className="btn btn-primary btn-sm no-print" onClick={() => setNewReturnOpen(true)}><Icon name="plus" size={14} /> New return</button>}
@@ -220,7 +229,7 @@ export default function SalesPage({ channel }: { channel: 'INVOICE' | 'POS' }) {
               </Card>
             ),
           },
-          { key: 'marketer-stock', label: 'Marketer stock', content: <MarketerStockTab customers={customers} items={items} /> },
+          { key: 'marketer-stock', label: 'Marketer stock', badge: marketerPendingCount, content: <MarketerStockTab customers={customers} items={items} /> },
           { key: 'bottle-tracking', label: 'Bottle tracking', content: <BottleTrackingTab customers={customers} /> },
           { key: 'customers', label: 'Customers', content: <CustomersTab customers={customers} /> },
           { key: 'distributor-branches', label: 'Distributor branches', content: <DistributorBranchesTab customers={customers} /> },
@@ -572,7 +581,7 @@ function MarketerStockTab({ customers, items }: { customers: Customer[]; items: 
   const [returnOpen, setReturnOpen] = useState(false);
   const [saleOpen, setSaleOpen] = useState(false);
   const [verifyTarget, setVerifyTarget] = useState<MarketerReturn | null>(null);
-  const refresh = useCallback(() => setReloadKey(k => k + 1), []);
+  const refresh = useCallback(() => { setReloadKey(k => k + 1); refreshPendingCounts(); }, []);
 
   useEffect(() => {
     if (!marketerId && marketers[0]) setMarketerId(marketers[0].id);
@@ -924,7 +933,7 @@ function BottleTrackingTab({ customers }: { customers: Customer[] }) {
   const [customerWise, setCustomerWise] = useState<CustomerWiseRow[]>([]);
   const [movement, setMovement] = useState<MovementRow[]>([]);
   const [bucket, setBucket] = useState<'day' | 'week' | 'month'>('day');
-  const refresh = useCallback(() => setReloadKey(k => k + 1), []);
+  const refresh = useCallback(() => { setReloadKey(k => k + 1); refreshPendingCounts(); }, []);
 
   useEffect(() => { api<ReturnableItem[]>('/dispenser-bottles/items').then(setReturnableItems); }, [reloadKey]);
   useEffect(() => { if (!marketerId && marketers[0]) setMarketerId(marketers[0].id); }, [marketers, marketerId]);

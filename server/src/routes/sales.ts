@@ -25,11 +25,16 @@ salesRouter.post('/', safe((req, res) => {
   res.status(201).json(sales.createOrder({ customerId, channel, rep, paymentTerms, items, branchId, manualInvoiceNumber, payments }));
 }));
 
+// Requires the separate "sales-approve" capability, distinct from ordinary
+// sales page access, so the rep who raised the credit order can't also
+// approve their own.
 salesRouter.post('/:id/approve-credit', safe((req, res) => {
+  accessControl.requirePageAccess(req.body?.userId, 'sales-approve', 'Sales approvals');
   res.json(sales.approveCreditSale(req.params.id, req.body?.actor));
 }));
 
 salesRouter.post('/:id/reject-credit', safe((req, res) => {
+  accessControl.requirePageAccess(req.body?.userId, 'sales-approve', 'Sales approvals');
   res.json(sales.rejectCreditSale(req.params.id, req.body?.actor));
 }));
 

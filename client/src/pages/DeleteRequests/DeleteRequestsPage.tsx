@@ -3,6 +3,7 @@ import { api, apiPost } from '../../lib/apiClient';
 import { useCurrentUser } from '../../lib/currentUser';
 import { useUi } from '../../lib/uiState';
 import type { DeletionRequestRow } from '../../lib/pendingDeletions';
+import { refreshPendingCounts } from '../../lib/pendingCounts';
 import { Card } from '../../components/ui/Card';
 import { Modal } from '../../components/ui/Modal';
 import { Pill } from '../../components/ui/Pill';
@@ -64,7 +65,7 @@ export default function DeleteRequestsPage() {
           <ReviewDeletion
             request={reviewing}
             onClose={() => setReviewing(null)}
-            onReviewed={() => { setReviewing(null); setReloadKey(k => k + 1); }}
+            onReviewed={() => { setReviewing(null); setReloadKey(k => k + 1); refreshPendingCounts(); }}
           />
         )}
       </Card>

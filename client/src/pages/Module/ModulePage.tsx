@@ -19,6 +19,7 @@ import { EmptyState } from '../../components/ui/EmptyState';
 import { ExportMenu } from '../../components/ui/ExportMenu';
 import { PrintHeader } from '../../components/ui/PrintHeader';
 import { RecordForm } from '../../components/ui/RecordForm';
+import { ChangePasswordCard } from '../../components/ui/ChangePasswordCard';
 import { Icon } from '../../components/ui/Icon';
 import { NotFoundPage } from '../NotFound';
 
@@ -112,6 +113,8 @@ export function ModulePage({ moduleKey, embedded }: { moduleKey: string; embedde
       <Chips chips={chips} onRemove={removeChip} onClearAll={clearFilters} />
 
       <KpiRow kpis={kpis} />
+
+      {moduleKey === 'settings' && <ChangePasswordCard />}
 
       <section className="card" style={{ marginTop: 24 }}>
         <div className="card-head">

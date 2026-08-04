@@ -32,6 +32,25 @@ export function getAccess(userId: string): string[] {
     .map(r => r.page_key);
 }
 
+/** Dual-control gate: a capability key (e.g. 'procurement-approve') granted
+ *  the same way as ordinary page access, but never rendered as a sidebar nav
+ *  item — it only unlocks an approve/reject action within a page the
+ *  requester and the approver can both otherwise see. System admin always
+ *  passes, same as every other access check in this app. */
+export function hasPageAccess(userId: string | undefined, pageKey: string): boolean {
+  if (!userId) return false;
+  const user = getUser(userId);
+  if (!user) return false;
+  if (isSuperAdminRole(user.role)) return true;
+  return getAccess(userId).includes(pageKey);
+}
+
+export function requirePageAccess(userId: string | undefined, pageKey: string, actionLabel: string): void {
+  if (!hasPageAccess(userId, pageKey)) {
+    throw new Error(`Only a System admin or someone granted "${actionLabel}" access can do this`);
+  }
+}
+
 export function setAccess(userId: string, pageKeys: string[], actor: string): string[] {
   db.prepare('DELETE FROM user_page_access WHERE user_id = ?').run(userId);
   const insert = db.prepare('INSERT INTO user_page_access (user_id, page_key) VALUES (?,?)');

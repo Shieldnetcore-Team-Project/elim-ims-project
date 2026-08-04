@@ -115,6 +115,7 @@ html.dark .overlay{background:rgb(0 0 0/.6)}
   position:sticky;top:64px;z-index:15;background:rgb(var(--surface))}
 .tab{padding:10px 2px;font-size:13px;font-weight:500;color:rgb(var(--muted));border-bottom:2px solid transparent;margin-bottom:-1px}
 .tab.active{color:rgb(var(--ink-900));border-bottom-color:rgb(var(--aqua-500));font-weight:600}
+.tab-badge{display:inline-block;margin-left:6px;background:rgb(var(--stop));color:#fff;font-family:"IBM Plex Mono";font-size:10px;font-weight:600;line-height:1.4;padding:1px 6px;border-radius:999px;min-width:18px;text-align:center}
 .tab:hover{color:rgb(var(--ink-900))}
 .lineitem-row{display:flex;gap:8px;align-items:flex-end;margin-bottom:10px}
 .menu{position:absolute;right:0;top:calc(100% + 6px);z-index:30;width:224px;background:rgb(var(--raised));

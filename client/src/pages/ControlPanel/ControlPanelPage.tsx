@@ -13,6 +13,17 @@ const ASSIGNABLE_GROUPS = NAV_GROUPS
   .map(g => ({ group: g.group, items: g.items.filter(i => i.key !== 'dashboard' && !ADMIN_ONLY_NAV_KEYS.includes(i.key)) }))
   .filter(g => g.items.length > 0);
 
+/** Not page-access — these gate the Approve/Reject action inside a page the
+ *  requester and approver can both otherwise see (procurement, sales). Kept
+ *  as separate grants (same user_page_access table, just page keys with no
+ *  nav item) so a Procurement Officer can be given the "procurement" page
+ *  without also being able to approve their own purchase orders — dual
+ *  control, enforced server-side too (see requirePageAccess). */
+const APPROVAL_CAPABILITIES: { key: string; label: string; description: string }[] = [
+  { key: 'procurement-approve', label: 'Procurement approvals', description: 'Approve or reject purchase orders. Leave this off for whoever raises the PO.' },
+  { key: 'sales-approve', label: 'Sales approvals', description: 'Approve or reject credit sales orders. Leave this off for the rep who created the order.' },
+];
+
 export default function ControlPanelPage() {
   return (
     <>
@@ -98,6 +109,29 @@ function AccessControlTab() {
                 </div>
               ))}
             </div>
+            <div>
+              <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase', color: 'rgb(var(--muted))', marginBottom: 4 }}>
+                Approvals — dual control
+              </p>
+              <p className="sub" style={{ marginBottom: 10 }}>
+                Separate from page access above, so the person who requests something isn't also the one who approves it.
+              </p>
+              <div style={{ display: 'grid', gap: 8, maxWidth: 480 }}>
+                {APPROVAL_CAPABILITIES.map(cap => (
+                  <label
+                    key={cap.key}
+                    style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 10px', border: '1px solid rgb(var(--line))', borderRadius: 8, cursor: 'pointer' }}
+                  >
+                    <input type="checkbox" checked={checked.has(cap.key)} onChange={() => toggle(cap.key)} style={{ marginTop: 2 }} />
+                    <span>
+                      <span style={{ display: 'block', fontSize: 13, fontWeight: 500 }}>{cap.label}</span>
+                      <span className="sub">{cap.description}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
             <div>
               <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving…' : `Save access for ${selectedUser.name}`}</button>
             </div>

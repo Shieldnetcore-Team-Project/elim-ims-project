@@ -33,6 +33,7 @@ export function RecordForm({ cfg, mode, initial, onClose, onSaved }: {
   const idColumn = cfg.columns.find(c => c.key === 'id');
   const showIdField = !!idColumn && (mode === 'edit' || cfg.idInput === 'text');
   const idEditable = mode === 'create' && cfg.idInput === 'text';
+  const isUserCreate = cfg.key === 'users' && mode === 'create';
 
   const [idValue, setIdValue] = useState(initial?.id ?? '');
   const [status, setStatus] = useState(initial?.status ?? cfg.statusOptions[0]?.value ?? '');
@@ -41,6 +42,7 @@ export function RecordForm({ cfg, mode, initial, onClose, onSaved }: {
     for (const f of fields) init[f.key] = initial ? String(initial.fields[f.key] ?? '') : (f.options?.[0] ?? '');
     return init;
   });
+  const [password, setPassword] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -50,7 +52,8 @@ export function RecordForm({ cfg, mode, initial, onClose, onSaved }: {
     setError(null);
     const fieldValues: Record<string, string | number> = {};
     for (const f of fields) fieldValues[f.key] = f.kind === 'num' ? Number(values[f.key] || 0) : values[f.key];
-    const body = { id: idValue, status, fields: fieldValues };
+    const body: Record<string, unknown> = { id: idValue, status, fields: fieldValues };
+    if (isUserCreate) body.password = password;
     try {
       const row = mode === 'create'
         ? await apiPost<ModuleRow>(`/modules/${cfg.key}`, body)
@@ -122,6 +125,17 @@ export function RecordForm({ cfg, mode, initial, onClose, onSaved }: {
                 </div>
               ))}
             </div>
+
+            {isUserCreate && (
+              <div className="form-row">
+                <label htmlFor="f-password">Password</label>
+                <input
+                  id="f-password" type="password" value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  minLength={6} required autoComplete="new-password"
+                />
+              </div>
+            )}
 
             <div className="form-row">
               <label htmlFor="f-status">Status</label>

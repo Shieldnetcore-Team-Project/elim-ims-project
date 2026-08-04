@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import * as procurement from '../services/procurement.js';
 import * as deletionRequests from '../services/deletionRequests.js';
+import * as accessControl from '../services/accessControl.js';
 import { safe } from '../lib/errors.js';
 
 export const purchaseOrdersRouter = Router();
@@ -23,8 +24,18 @@ purchaseOrdersRouter.post('/', safe((req, res) => {
   res.status(201).json(procurement.createPurchaseOrder({ supplierId, requestedBy, items }));
 }));
 
+// The only two statuses ever set through this endpoint (see ProcurementPage's
+// approve()) — both are the approval decision, so both require the separate
+// "procurement-approve" capability, distinct from ordinary procurement page
+// access, so the person who raised the PO can't also approve their own.
+const APPROVAL_STATUSES = new Set(['APPROVED', 'REJECTED']);
+
 purchaseOrdersRouter.put('/:id/status', safe((req, res) => {
-  const updated = procurement.setStatus(req.params.id, req.body?.status, req.body?.actor);
+  const { status, actor, userId } = req.body ?? {};
+  if (APPROVAL_STATUSES.has(status)) {
+    accessControl.requirePageAccess(userId, 'procurement-approve', 'Procurement approvals');
+  }
+  const updated = procurement.setStatus(req.params.id, status, actor);
   if (!updated) { res.status(404).json({ error: 'Not found' }); return; }
   res.json(updated);
 }));

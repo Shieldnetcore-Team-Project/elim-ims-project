@@ -1,0 +1,145 @@
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background: #0a2540;
+  color: #0f1a24;
+}
+
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 380px;
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 32px 28px;
+  box-shadow: 0 20px 60px rgb(0 0 0 / 0.35);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.login-logo {
+  height: 64px;
+  width: auto;
+  border-radius: 10px;
+  margin-bottom: 18px;
+}
+
+.login-card h1 {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0 0 6px;
+  color: #0a2540;
+}
+
+.login-sub {
+  font-size: 13px;
+  color: #5b6b7a;
+  margin: 0 0 22px;
+  line-height: 1.5;
+}
+
+.login-form {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.login-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+}
+
+.login-field span {
+  font-size: 12px;
+  font-weight: 600;
+  color: #334;
+}
+
+.login-field input {
+  font-size: 14px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #d5dbe1;
+  outline: none;
+  font-family: inherit;
+}
+
+.login-field input:focus {
+  border-color: #0e7490;
+  box-shadow: 0 0 0 3px rgb(14 116 144 / 0.15);
+}
+
+.login-error {
+  font-size: 13px;
+  color: #b3261e;
+  background: #fdecea;
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin: 0;
+}
+
+.login-submit {
+  margin-top: 4px;
+  padding: 11px;
+  border-radius: 8px;
+  border: none;
+  background: #0e7490;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.login-submit:hover { background: #0b5d73; }
+.login-submit:disabled { opacity: 0.6; cursor: default; }
+
+.login-link {
+  margin-top: 18px;
+  background: none;
+  border: none;
+  color: #0e7490;
+  font-size: 13px;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+}
+
+.login-notice h1 { margin-bottom: 10px; }
+.login-notice p { font-size: 13px; color: #5b6b7a; line-height: 1.6; }
+
+.authed-profile {
+  width: 100%;
+  margin: 4px 0 20px;
+  border-top: 1px solid #e7ebef;
+  border-bottom: 1px solid #e7ebef;
+  padding: 14px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.authed-profile p {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  margin: 0;
+  color: #0a2540;
+}
+
+.authed-profile p span {
+  color: #5b6b7a;
+  font-weight: 600;
+}

@@ -5,12 +5,13 @@
   "workspaces": [
     "shared",
     "server",
-    "client"
+    "client",
+    "supabase-client"
   ],
   "scripts": {
     "dev": "concurrently -k -n SERVER,CLIENT -c blue,green \"npm run dev -w server\" \"npm run dev -w client\"",
     "build": "npm run build -w server && npm run build -w client",
-    "typecheck": "npm run typecheck -w shared && npm run typecheck -w server && npm run typecheck -w client",
+    "typecheck": "npm run typecheck -w shared && npm run typecheck -w server && npm run typecheck -w client && npm run typecheck -w supabase-client",
     "test": "npm run test -w server"
   },
   "devDependencies": {

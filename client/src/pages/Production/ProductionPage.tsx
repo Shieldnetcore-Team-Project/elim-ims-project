@@ -16,6 +16,7 @@ import { ReverseButton } from '../../components/ui/ReverseButton';
 import { NumberInput } from '../../components/ui/NumberInput';
 import { usePendingDeletions } from '../../lib/pendingDeletions';
 import { useReversedEntities } from '../../lib/reversedEntities';
+import { refreshPendingCounts } from '../../lib/pendingCounts';
 import type { ModuleRow, Paginated } from '@shared/types';
 
 interface MaterialRequest { id: string; requested_by: string; department: string; status: string; needed_by: string | null; created_at: string }
@@ -49,7 +50,7 @@ export default function ProductionPage() {
   const [batchOpen, setBatchOpen] = useState(false);
   const [packageTarget, setPackageTarget] = useState<ProductionBatch | null>(null);
 
-  const refresh = useCallback(() => setReloadKey(k => k + 1), []);
+  const refresh = useCallback(() => { setReloadKey(k => k + 1); refreshPendingCounts(); }, []);
   const requestsPending = usePendingDeletions('material_requests', reloadKey);
   const requestsReversed = useReversedEntities('material_requests', reloadKey);
   const batchesReversed = useReversedEntities('production_batches', reloadKey);
@@ -92,7 +93,7 @@ export default function ProductionPage() {
 
       <Tabs tabs={[
         {
-          key: 'requests', label: 'Material requests', content: (
+          key: 'requests', label: 'Material requests', badge: requests.filter(r => r.status === 'PENDING').length, content: (
             <Card
               title="Material requests" description="Raw materials drawn from the warehouse to the production floor."
               action={<button className="btn btn-primary no-print" onClick={() => setRequestOpen(true)}><Icon name="plus" size={14} /> New request</button>}
@@ -442,7 +443,7 @@ function EmptyBottleTab() {
   const [reconcileTarget, setReconcileTarget] = useState<EmptyBottleRun | null>(null);
   const [triageOpen, setTriageOpen] = useState(false);
   const [repairOpen, setRepairOpen] = useState(false);
-  const refresh = useCallback(() => setReloadKey(k => k + 1), []);
+  const refresh = useCallback(() => { setReloadKey(k => k + 1); refreshPendingCounts(); }, []);
 
   useEffect(() => { api<ConditionSummary>('/empty-bottles/summary').then(setSummary); }, [reloadKey]);
   useEffect(() => { api<EmptyBottleRun[]>('/empty-bottles/runs').then(setRuns); }, [reloadKey]);

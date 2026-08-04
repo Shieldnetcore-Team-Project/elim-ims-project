@@ -3,8 +3,11 @@ import cors from 'cors';
 import { migrate } from './db/migrate.js';
 import { seed } from './db/seed.js';
 import { requestContextMiddleware } from './lib/requestContext.js';
+import { ensureDefaultPasswords } from './services/auth.js';
 
 import { dashboardRouter } from './routes/dashboard.js';
+import { authRouter } from './routes/auth.js';
+import { pendingCountsRouter } from './routes/pendingCounts.js';
 import { modulesRouter } from './routes/modules.js';
 import { mastersRouter } from './routes/masters.js';
 import { purchaseOrdersRouter } from './routes/purchaseOrders.js';
@@ -33,6 +36,7 @@ import { reversalsRouter } from './routes/reversals.js';
 
 migrate();
 seed();
+ensureDefaultPasswords();
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 4000);
@@ -44,6 +48,8 @@ app.use(requestContextMiddleware);
 app.get('/api/health', (_req, res) => res.json({ ok: true, service: 'elim-erp-api' }));
 
 app.use('/api/dashboard', dashboardRouter);
+app.use('/api/auth', authRouter);
+app.use('/api/pending-counts', pendingCountsRouter);
 app.use('/api/modules', modulesRouter);
 app.use('/api/masters', mastersRouter);
 app.use('/api/purchase-orders', purchaseOrdersRouter);

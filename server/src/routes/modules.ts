@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import * as peripheral from '../services/peripheral.js';
 import * as deletionRequests from '../services/deletionRequests.js';
+import * as auth from '../services/auth.js';
 import { filterModuleRows } from '../lib/filters.js';
 import { paginate } from '../lib/pagination.js';
 import { moduleByKey } from '../../../shared/src/moduleConfig.js';
@@ -29,12 +30,16 @@ modulesRouter.post('/:key', (req, res) => {
   const cfg = moduleByKey(req.params.key);
   if (cfg?.readOnly) return res.status(403).json({ error: `"${cfg.label}" is a read-only audit trail and cannot be edited` });
 
-  const { status, fields, id, actor } = req.body ?? {};
+  const { status, fields, id, actor, password } = req.body ?? {};
   if (typeof status !== 'string' || typeof fields !== 'object' || fields === null) {
     return res.status(400).json({ error: '"status" and "fields" are required' });
   }
+  if (req.params.key === 'users' && (typeof password !== 'string' || password.length < 6)) {
+    return res.status(400).json({ error: 'A password of at least 6 characters is required' });
+  }
   const row = peripheral.create(req.params.key, actor ?? 'System Administrator', id, status, fields);
   if (!row) return res.status(404).json({ error: `Unknown module "${req.params.key}"` });
+  if (req.params.key === 'users') auth.setPassword(row.id, password);
   res.status(201).json(row);
 });
 
