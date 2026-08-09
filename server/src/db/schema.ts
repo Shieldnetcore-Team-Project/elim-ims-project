@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS customers (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   location TEXT,
+  phone TEXT,
   customer_type TEXT NOT NULL DEFAULT 'MARKETER',
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -55,6 +56,7 @@ CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   email TEXT,
+  phone TEXT,
   role TEXT,
   status TEXT NOT NULL DEFAULT 'ACTIVE',
   last_active TEXT,
@@ -589,6 +591,40 @@ CREATE TABLE IF NOT EXISTS bottle_custody_events (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_bottle_custody_marketer ON bottle_custody_events(marketer_id, item_id);
+
+-- ===================== Retail stock =====================
+-- Retail's own bounded stock, issued out of the central warehouse (see
+-- services/retailStock.ts) — mirrors marketer_stock_transactions above but
+-- scoped to the single Retail unit, so no per-marketer column is needed.
+-- Append-only; balance = SUM(IN)-SUM(OUT) per item_id, same convention as
+-- inventory_transactions/marketer_stock_transactions.
+CREATE TABLE IF NOT EXISTS retail_stock_transactions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  item_id TEXT NOT NULL REFERENCES items(id),
+  direction TEXT NOT NULL CHECK (direction IN ('IN','OUT')),
+  quantity REAL NOT NULL,
+  unit_cost REAL NOT NULL DEFAULT 0,
+  source_type TEXT NOT NULL CHECK (source_type IN ('INTAKE','SOLD','ADJUSTMENT')),
+  source_id TEXT,
+  actor TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_retail_stock_txn_item ON retail_stock_transactions(item_id);
+
+CREATE TABLE IF NOT EXISTS retail_intakes (
+  id TEXT PRIMARY KEY,
+  issued_by TEXT,
+  actor TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS retail_intake_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  intake_id TEXT NOT NULL REFERENCES retail_intakes(id),
+  item_id TEXT NOT NULL REFERENCES items(id),
+  quantity REAL NOT NULL,
+  unit_cost REAL NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_retail_intake_items_intake ON retail_intake_items(intake_id);
 
 -- ===================== Fleet & delivery =====================
 CREATE TABLE IF NOT EXISTS delivery_runs (

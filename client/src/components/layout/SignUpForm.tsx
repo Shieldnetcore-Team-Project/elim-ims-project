@@ -1,10 +1,12 @@
 import { useState, type FormEvent } from 'react';
 import { signUp } from '../../lib/authApi';
 
-/** The "Create account" half of SignInGate. A brand new account starts with
- *  the Viewer role and no page grants, so it only sees the Dashboard until a
- *  System admin grants specific pages — see auth.createAccount server-side. */
-export function SignUpForm({ onSignedUp }: { onSignedUp: (userId: string, name: string) => void }) {
+/** The "Create account" half of SignInGate. A brand new account starts
+ *  PENDING_APPROVAL and can't sign in at all until a System admin approves it
+ *  from Admin Panel > Users (see auth.createAccount / loginBlockReason
+ *  server-side) — so unlike a normal form submit, success here does not sign
+ *  the user in, it just reports back to SignInGate that the request went in. */
+export function SignUpForm({ onSignedUp }: { onSignedUp: (name: string) => void }) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -19,7 +21,7 @@ export function SignUpForm({ onSignedUp }: { onSignedUp: (userId: string, name: 
     setSaving(true);
     try {
       const user = await signUp(name.trim(), email.trim(), password);
-      onSignedUp(user.id, user.name);
+      onSignedUp(user.name);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong');
     } finally {

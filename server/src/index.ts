@@ -33,6 +33,7 @@ import { marketerCustomersRouter } from './routes/marketerCustomers.js';
 import { distributorBranchesRouter } from './routes/distributorBranches.js';
 import { posReceiptsRouter } from './routes/posReceipts.js';
 import { reversalsRouter } from './routes/reversals.js';
+import { retailStockRouter } from './routes/retailStock.js';
 
 migrate();
 seed();
@@ -75,6 +76,7 @@ app.use('/api/marketer-customers', marketerCustomersRouter);
 app.use('/api/distributor-branches', distributorBranchesRouter);
 app.use('/api/pos-receipts', posReceiptsRouter);
 app.use('/api/reversals', reversalsRouter);
+app.use('/api/retail-stock', retailStockRouter);
 
 app.use((_req, res) => res.status(404).json({ error: 'Not found' }));
 

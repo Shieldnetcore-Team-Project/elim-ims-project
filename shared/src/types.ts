@@ -14,11 +14,11 @@ export const STATUS_TONE: Record<string, Tone> = {
   IN_STOCK: 'ok', RESOLVED: 'ok', ACTIVE: 'ok', CLEARED: 'ok', ACCEPTED: 'ok', RETURNED: 'ok',
   IN_TRANSIT: 'live', RUNNING: 'live', IN_PROGRESS: 'live', ONLINE: 'live', PROCESSING: 'live',
   PENDING: 'wait', ON_HOLD: 'wait', SCHEDULED: 'wait', DRAFT: 'wait', OPEN: 'wait',
-  LOW_STOCK: 'wait', INVITED: 'wait', AWAITING_APPROVAL: 'wait',
+  LOW_STOCK: 'wait', INVITED: 'wait', AWAITING_APPROVAL: 'wait', PENDING_APPROVAL: 'wait',
   PENDING_INSPECTION: 'wait', PARTIALLY_ACCEPTED: 'wait', PENDING_VERIFICATION: 'wait', VERIFIED: 'ok', RECONCILED: 'ok',
   DUE_SOON: 'wait', NO_DUE_DATE: 'wait', ON_TRACK: 'ok',
   REJECTED: 'stop', OVERDUE: 'stop', FAILED: 'stop', FAIL: 'stop',
-  OUT_OF_STOCK: 'stop', SUSPENDED: 'stop', INACTIVE: 'stop', CANCELLED: 'stop',
+  OUT_OF_STOCK: 'stop', SUSPENDED: 'stop', INACTIVE: 'stop', CANCELLED: 'stop', FOLLOW_UP_DUE: 'stop',
 };
 export const toneOf = (status: string): Tone => STATUS_TONE[status] ?? 'live';
 

@@ -62,8 +62,8 @@ export function Sidebar() {
           RO, UV and ozone stages nominal. Last QC pass 06:12.
         </p>
         <p style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ width: 6, height: 6, borderRadius: 999, background: 'rgb(var(--aqua-300))', display: 'block', animation: 'pulse 2s infinite' }} />
-          <span className="mono" style={{ fontSize: 11, color: 'rgb(var(--aqua-300))' }}>TR-4471</span>
+          <span style={{ width: 6, height: 6, borderRadius: 999, background: 'rgb(var(--aqua-500))', display: 'block', animation: 'pulse 2s infinite' }} />
+          <span className="mono" style={{ fontSize: 11, color: 'rgb(var(--aqua-700))' }}>TR-4471</span>
         </p>
       </div>
 

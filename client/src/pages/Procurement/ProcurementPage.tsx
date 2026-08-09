@@ -29,6 +29,7 @@ interface GoodsReceived {
   delivery_date: string | null; invoice_number: string | null; waybill_number: string | null;
   inspection_officer: string | null; status: string; received_at: string;
 }
+interface PurchaseOrderItem { po_id: string; item_id: string; quantity: number; unit_price: number }
 interface GoodsReceivedItem {
   item_id: string; expected_quantity: number | null; quantity: number;
   accepted_quantity: number | null; rejected_quantity: number | null;
@@ -112,35 +113,22 @@ export default function ProcurementPage() {
       <Tabs tabs={[
         {
           key: 'orders', label: 'Purchase orders', badge: orders.filter(o => o.status === 'AWAITING_APPROVAL').length, content: (
-            <Card title="Purchase orders" description="Every order raised against a supplier.">
+            <Card title="Purchase orders" description="Every order raised against a supplier. Click a row to see its line items.">
               <div className="table-wrap">
                 <table>
                   <thead><tr><th>PO</th><th>Supplier</th><th className="num">Items</th><th className="num">Amount</th><th>Requested by</th><th>Created</th><th>Status</th><th className="no-print">Action</th><th className="no-print" /></tr></thead>
                   <tbody>
                     {orders.map(o => (
-                      <tr key={o.id}>
-                        <td><span className="mono" style={{ fontSize: 12, color: 'rgb(var(--aqua-700))' }}>{o.id}</span></td>
-                        <td>{o.supplier_name}</td>
-                        <td className="num tnum">{o.item_count}</td>
-                        <td className="num tnum">{naira(o.total_amount)}</td>
-                        <td>{o.requested_by}</td>
-                        <td className="sub">{o.created_at}</td>
-                        <td><Pill status={o.status} /></td>
-                        <td className="no-print">
-                          {o.status === 'AWAITING_APPROVAL' && canApprove && (
-                            <div style={{ display: 'flex', gap: 6 }}>
-                              <button className="btn btn-secondary btn-sm" onClick={() => approve(o.id, 'APPROVED')}>Approve</button>
-                              <button className="btn btn-secondary btn-sm" onClick={() => approve(o.id, 'REJECTED')}>Reject</button>
-                            </div>
-                          )}
-                          {o.status === 'APPROVED' && (
-                            <button className="btn btn-secondary btn-sm" onClick={() => setReceiveFor(o)}>Receive</button>
-                          )}
-                        </td>
-                        <td className="no-print">
-                          <DeleteButton entityType="purchase_orders" entityId={o.id} entityLabel={o.id} pending={poPending.has(o.id)} onRequested={() => { refresh(); ui.toast('Deletion requested — pending admin approval'); }} />
-                        </td>
-                      </tr>
+                      <PurchaseOrderRow
+                        key={o.id}
+                        order={o}
+                        items={items}
+                        canApprove={canApprove}
+                        pending={poPending.has(o.id)}
+                        onApprove={approve}
+                        onReceive={setReceiveFor}
+                        onDeleteRequested={() => { refresh(); ui.toast('Deletion requested — pending admin approval'); }}
+                      />
                     ))}
                   </tbody>
                 </table>
@@ -507,6 +495,73 @@ function InspectGoodsReceived({ grn, onClose, onInspected }: { grn: GoodsReceive
       </div>
       <p className="sub">Only the accepted quantity posts to inventory. Any rejected quantity raises a linked supplier return.</p>
     </Modal>
+  );
+}
+
+function PurchaseOrderRow({ order, items, canApprove, pending, onApprove, onReceive, onDeleteRequested }: {
+  order: PurchaseOrder; items: Item[]; canApprove: boolean; pending: boolean;
+  onApprove: (id: string, status: string) => void;
+  onReceive: (order: PurchaseOrder) => void;
+  onDeleteRequested: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [lines, setLines] = useState<PurchaseOrderItem[] | null>(null);
+
+  async function toggle() {
+    if (!open && lines === null) {
+      const full = await api<{ items: PurchaseOrderItem[] }>(`/purchase-orders/${encodeURIComponent(order.id)}`);
+      setLines(full.items);
+    }
+    setOpen(o => !o);
+  }
+
+  return (
+    <>
+      <tr onClick={toggle} style={{ cursor: 'pointer' }}>
+        <td><span className="mono" style={{ fontSize: 12, color: 'rgb(var(--aqua-700))' }}>{order.id}</span></td>
+        <td>{order.supplier_name}</td>
+        <td className="num tnum">{order.item_count}</td>
+        <td className="num tnum">{naira(order.total_amount)}</td>
+        <td>{order.requested_by}</td>
+        <td className="sub">{order.created_at}</td>
+        <td><Pill status={order.status} /></td>
+        <td className="no-print" onClick={e => e.stopPropagation()}>
+          {order.status === 'AWAITING_APPROVAL' && canApprove && (
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button className="btn btn-secondary btn-sm" onClick={() => onApprove(order.id, 'APPROVED')}>Approve</button>
+              <button className="btn btn-secondary btn-sm" onClick={() => onApprove(order.id, 'REJECTED')}>Reject</button>
+            </div>
+          )}
+          {order.status === 'APPROVED' && (
+            <button className="btn btn-secondary btn-sm" onClick={() => onReceive(order)}>Receive</button>
+          )}
+        </td>
+        <td className="no-print" onClick={e => e.stopPropagation()}>
+          <DeleteButton entityType="purchase_orders" entityId={order.id} entityLabel={order.id} pending={pending} onRequested={onDeleteRequested} />
+        </td>
+      </tr>
+      {open && (
+        <tr>
+          <td colSpan={9}>
+            <div style={{ padding: '4px 0 10px 20px' }}>
+              {lines === null && <p className="sub" style={{ fontSize: 12 }}>Loading items…</p>}
+              {lines?.map((l, i) => (
+                <p key={l.item_id} className="sub" style={{ fontSize: 12 }}>
+                  {i + 1}. {l.quantity.toLocaleString('en-NG')} × {items.find(it => it.id === l.item_id)?.name ?? l.item_id}
+                  {' '}@ {naira(l.unit_price)} = {naira(l.quantity * l.unit_price)}
+                </p>
+              ))}
+              {lines?.length === 0 && <p className="sub" style={{ fontSize: 12 }}>No line items.</p>}
+              {lines && lines.length > 0 && (
+                <p style={{ fontSize: 12, fontWeight: 600, marginTop: 6, paddingTop: 6, borderTop: '1px solid rgb(var(--border))' }}>
+                  Total: {naira(lines.reduce((sum, l) => sum + l.quantity * l.unit_price, 0))}
+                </p>
+              )}
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
   );
 }
 

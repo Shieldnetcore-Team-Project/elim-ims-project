@@ -35,7 +35,15 @@ export function CurrentUserProvider({ children }: { children: ReactNode }) {
   const refreshUsers = useCallback(() => {
     api<AppUser[]>('/masters/users').then(res => { setUsers(res); setLoading(false); });
   }, []);
-  useEffect(() => { refreshUsers(); }, [refreshUsers]);
+  // Refetch on focus too — someone sitting on the sign-in gate waiting for a
+  // System admin to approve their account (or flip PENDING_APPROVAL to
+  // Active elsewhere) has no push channel to know it happened, so switching
+  // back to this tab is what picks up the change.
+  useEffect(() => {
+    refreshUsers();
+    window.addEventListener('focus', refreshUsers);
+    return () => window.removeEventListener('focus', refreshUsers);
+  }, [refreshUsers]);
 
   const user = useMemo<AppUser | null>(() => {
     if (loading) return null;
@@ -51,6 +59,15 @@ export function CurrentUserProvider({ children }: { children: ReactNode }) {
   }, [users, userId, loading]);
 
   const isSuperAdmin = user?.role === SUPER_ADMIN_ROLE;
+
+  // Also poll while sitting on the sign-in gate — a newly-approved account
+  // should appear in the picker without the person needing to know to
+  // switch tabs and back or hit refresh. Not needed once signed in.
+  useEffect(() => {
+    if (loading || user) return;
+    const interval = setInterval(refreshUsers, 15_000);
+    return () => clearInterval(interval);
+  }, [loading, user, refreshUsers]);
 
   useEffect(() => {
     if (!user || isSuperAdmin) { setAllowedPages(null); return; }

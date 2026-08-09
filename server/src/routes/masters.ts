@@ -57,11 +57,11 @@ mastersRouter.get('/customers', (_req, res) => res.json(sales.listCustomers()));
 // services/sales.ts. Retail doesn't require a profile at all to sell to, but
 // can still optionally have one (e.g. for a repeat walk-in worth naming).
 mastersRouter.post('/customers', safe((req, res) => {
-  const { name, location, customerType } = req.body ?? {};
+  const { name, location, phone, customerType } = req.body ?? {};
   if (!name) { res.status(400).json({ error: 'name is required' }); return; }
   const type = ['RETAIL', 'MARKETER', 'DISTRIBUTOR'].includes(customerType) ? customerType : 'MARKETER';
   const id = nextBusinessId('customers', 'CUS-', 2);
-  sales.createCustomer({ id, name, location: location || null, customer_type: type });
+  sales.createCustomer({ id, name, location: location || null, phone: phone || null, customer_type: type });
   res.status(201).json(sales.getCustomer(id));
 }));
 mastersRouter.get('/vehicles', (_req, res) => res.json(fleet.listVehicles()));

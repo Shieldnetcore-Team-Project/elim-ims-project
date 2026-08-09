@@ -25,10 +25,10 @@ export const PRIORITY_LEVELS = ['Low', 'Medium', 'High', 'Urgent'];
 /** Per-module, per-field pick-lists — a field with an entry here renders as a <select> in
  *  RecordForm and is drawn from here in mock data generation, instead of being free text. */
 const USER_ROLES = [
-  'Super Admin', 'Admin',
+  'System admin',
   'Water treatment', 'Production', 'Quality control', 'Inventory', 'Procurement', 'Commercial',
   'Sales', 'Point of sale', 'Finance & people', 'Human resources',
-  'Assets & maintenance', 'Warehouse Manager', 'Sales manager',
+  'Assets & maintenance', 'Warehouse Manager', 'Sales manager', 'Viewer',
 ];
 
 export const FIELD_OPTIONS: Record<string, Record<string, string[]>> = {
@@ -291,13 +291,15 @@ export const MODULES: ModuleConfig[] = [
     columns: [
       { key: 'id', label: 'User ID', kind: 'mono' },
       { key: 'name', label: 'Name & email', kind: 'text', subKey: 'email' },
+      { key: 'phone', label: 'Phone', kind: 'text' },
       { key: 'role', label: 'Role', kind: 'text' },
       { key: 'last_active', label: 'Last active', kind: 'text' },
       { key: 'created_at', label: 'Created', kind: 'text', readOnly: true },
       { key: 'status', label: 'Status', kind: 'status' },
     ],
     statusOptions: [
-      { value: 'ACTIVE', label: 'Active' }, { value: 'INVITED', label: 'Invited' }, { value: 'SUSPENDED', label: 'Suspended' },
+      { value: 'ACTIVE', label: 'Active' }, { value: 'PENDING_APPROVAL', label: 'Pending approval' },
+      { value: 'INVITED', label: 'Invited' }, { value: 'SUSPENDED', label: 'Suspended' },
     ],
   },
   {

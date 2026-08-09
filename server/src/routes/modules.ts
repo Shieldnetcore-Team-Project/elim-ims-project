@@ -47,11 +47,20 @@ modulesRouter.put('/:key/:id', (req, res) => {
   const cfg = moduleByKey(req.params.key);
   if (cfg?.readOnly) return res.status(403).json({ error: `"${cfg.label}" is a read-only audit trail and cannot be edited` });
 
-  const { status, fields, actor } = req.body ?? {};
+  const { status, fields, actor, password } = req.body ?? {};
   if (typeof status !== 'string' || typeof fields !== 'object' || fields === null) {
     return res.status(400).json({ error: '"status" and "fields" are required' });
   }
+  // Optional on edit (unlike creation, where it's required) — blank means
+  // "leave the current password alone"; a System admin resetting it types a
+  // new one here instead of the user going through self-service change-password.
+  if (req.params.key === 'users' && typeof password === 'string' && password.length > 0 && password.length < 6) {
+    return res.status(400).json({ error: 'A password of at least 6 characters is required' });
+  }
   const row = peripheral.update(req.params.key, req.params.id, actor ?? 'System Administrator', status, fields);
   if (!row) return res.status(404).json({ error: `Unknown record "${req.params.id}" in module "${req.params.key}"` });
+  if (req.params.key === 'users' && typeof password === 'string' && password.length > 0) {
+    auth.adminSetPassword(row.id, password, actor ?? 'System Administrator');
+  }
   res.json(row);
 });

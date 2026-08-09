@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import { db } from '../db/client.js';
 import * as peripheral from './peripheral.js';
+import * as activityLog from './activityLog.js';
 
 const SALT_ROUNDS = 10;
 
@@ -10,6 +11,14 @@ const SALT_ROUNDS = 10;
 // sign-up sees only the Dashboard until a System admin grants specific pages
 // via Admin Panel > Access Control.
 const SELF_SIGNUP_ROLE = 'Viewer';
+
+// Exact string checked everywhere else in this app (accessControl.isSuperAdminRole,
+// client's currentUser.tsx SUPER_ADMIN_ROLE) to grant full, ungated access.
+const SUPER_ADMIN_ROLE = 'System admin';
+
+function userCount(): number {
+  return (db.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n;
+}
 
 // Applied once to any user row that predates password auth (every account
 // seeded before this module existed) so the app stays usable without every
@@ -24,15 +33,29 @@ export function setPassword(userId: string, plain: string): void {
   db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(plain), userId);
 }
 
+/** A System admin resetting someone else's password from Admin Panel > Users
+ *  (distinct from authRouter's change-password, which is self-service and
+ *  requires the current password) — logged since it's a security-relevant
+ *  action, without ever writing the password itself into the audit trail. */
+export function adminSetPassword(userId: string, plain: string, actor: string): void {
+  setPassword(userId, plain);
+  activityLog.record(actor, 'reset password for', 'users', userId, `Password reset for ${userId} by ${actor}`);
+}
+
 export function verifyPassword(userId: string, plain: string): boolean {
   const row = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(userId) as { password_hash: string | null } | undefined;
   if (!row?.password_hash) return false;
   return bcrypt.compareSync(plain, row.password_hash);
 }
 
-export function isSuspended(userId: string): boolean {
+/** Blocks sign-in for a self-registered account until a System admin flips its
+ *  status to ACTIVE from Admin Panel > Users. Returns a user-facing message if
+ *  login should be refused, or null if the account is clear to sign in. */
+export function loginBlockReason(userId: string): string | null {
   const row = db.prepare('SELECT status FROM users WHERE id = ?').get(userId) as { status: string } | undefined;
-  return row?.status === 'SUSPENDED';
+  if (row?.status === 'SUSPENDED') return 'This account has been suspended';
+  if (row?.status === 'PENDING_APPROVAL') return 'Your account is awaiting admin approval before you can sign in';
+  return null;
 }
 
 export interface PublicUser { id: string; name: string; email: string; role: string; status: string }
@@ -44,15 +67,22 @@ export function emailExists(email: string): boolean {
 /** Self-service account creation from the sign-up form — reuses peripheral.create
  *  (same ID generation + activity log as an admin creating a user from the Users
  *  module) rather than a bespoke insert, so a self-registered account is exactly
- *  as auditable as an admin-created one. */
+ *  as auditable as an admin-created one. Starts PENDING_APPROVAL rather than
+ *  ACTIVE — a System admin must flip it to Active from Admin Panel > Users
+ *  before the account can sign in (see loginBlockReason) — except for the very
+ *  first account on an empty users table, which bootstraps straight to System
+ *  admin/ACTIVE since there is no admin yet to approve it. */
 export function createAccount(name: string, email: string, password: string): PublicUser {
   if (emailExists(email)) throw new Error('An account with that email already exists');
-  const row = peripheral.create('users', `${name} (self sign-up)`, undefined, 'ACTIVE', {
-    name, email, role: SELF_SIGNUP_ROLE, last_active: new Date().toISOString(),
+  const isFirstAccount = userCount() === 0;
+  const role = isFirstAccount ? SUPER_ADMIN_ROLE : SELF_SIGNUP_ROLE;
+  const status = isFirstAccount ? 'ACTIVE' : 'PENDING_APPROVAL';
+  const row = peripheral.create('users', isFirstAccount ? `${name} (self sign-up, bootstrap admin)` : `${name} (self sign-up)`, undefined, status, {
+    name, email, role, last_active: new Date().toISOString(),
   });
   if (!row) throw new Error('Could not create account');
   setPassword(row.id, password);
-  return { id: row.id, name, email, role: SELF_SIGNUP_ROLE, status: 'ACTIVE' };
+  return { id: row.id, name, email, role, status };
 }
 
 /** Fresh SQLite installs have historically shipped ~16 pre-seeded accounts with

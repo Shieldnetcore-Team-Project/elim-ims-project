@@ -10,8 +10,9 @@ authRouter.post('/login', safe((req, res) => {
     res.status(400).json({ error: '"userId" and "password" are required' });
     return;
   }
-  if (auth.isSuspended(userId)) {
-    res.status(403).json({ error: 'This account has been suspended' });
+  const blockReason = auth.loginBlockReason(userId);
+  if (blockReason) {
+    res.status(403).json({ error: blockReason });
     return;
   }
   if (!auth.verifyPassword(userId, password)) {

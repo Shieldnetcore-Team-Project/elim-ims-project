@@ -10,6 +10,8 @@ salesRouter.get('/', (req, res) => res.json(deletionRequests.filterDeleted('sale
 
 salesRouter.get('/pending-credit-approval', (_req, res) => res.json(sales.pendingCreditApproval()));
 
+salesRouter.get('/retail-customers', (_req, res) => res.json(sales.retailCustomerActivity()));
+
 salesRouter.get('/:id', (req, res) => {
   const order = sales.getOrder(req.params.id);
   if (!order) return res.status(404).json({ error: 'Not found' });

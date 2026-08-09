@@ -52,10 +52,8 @@ function seedMasters() {
     procurement.createSupplier({ id: `SUP-${String(i + 1).padStart(2, '0')}`, name: businessName(rng), location: pick(rng, LOCATIONS) });
   }
   for (let i = 0; i < 9; i++) {
-    // Registered customers are Marketers or Distributors — Retail POS needs
-    // no profile at all, so there's nothing to seed for that category here.
     sales.createCustomer({
-      id: `CUS-${String(i + 1).padStart(2, '0')}`, name: businessName(rng), location: pick(rng, LOCATIONS),
+      id: `CUS-${String(i + 1).padStart(2, '0')}`, name: businessName(rng), location: pick(rng, LOCATIONS), phone: null,
       customer_type: i < 6 ? 'MARKETER' : 'DISTRIBUTOR',
     });
   }

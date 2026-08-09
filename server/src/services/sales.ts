@@ -4,11 +4,15 @@ import * as activityLog from './activityLog.js';
 import * as inventory from './inventory.js';
 import * as finance from './finance.js';
 import * as reversals from './reversals.js';
+import * as retailStock from './retailStock.js';
 
 export type CustomerType = 'RETAIL' | 'MARKETER' | 'DISTRIBUTOR';
 export type PaymentTerms = 'CASH' | 'ADVANCE' | 'CREDIT';
 
-export interface Customer { id: string; name: string; location: string | null; customer_type: CustomerType }
+/** How long since a Retail customer's last purchase before they're flagged for follow-up. */
+const RETAIL_FOLLOW_UP_DAYS = 30;
+
+export interface Customer { id: string; name: string; location: string | null; phone: string | null; customer_type: CustomerType }
 export interface SalesOrder {
   id: string; customer_id: string | null; channel: 'INVOICE' | 'POS'; rep: string | null;
   status: string; payment_terms: PaymentTerms; approved_by: string | null; approved_at: string | null;
@@ -23,13 +27,33 @@ export function getCustomer(id: string): Customer | undefined {
   return db.prepare('SELECT * FROM customers WHERE id = ?').get(id) as Customer | undefined;
 }
 export function createCustomer(c: Customer): void {
-  db.prepare('INSERT INTO customers (id, name, location, customer_type) VALUES (?,?,?,?)').run(c.id, c.name, c.location, c.customer_type);
+  db.prepare('INSERT INTO customers (id, name, location, phone, customer_type) VALUES (?,?,?,?,?)').run(c.id, c.name, c.location, c.phone, c.customer_type);
+}
+
+/** One row per customer with any Retail (POS) purchase history, live-aggregated —
+ *  drives the Retail "Customers" tab and its follow-up flag. needs_follow_up mirrors
+ *  the same threshold routes/pendingCounts.ts uses for the sidebar badge. */
+export interface RetailCustomerActivity {
+  id: string; name: string; location: string | null; phone: string | null;
+  purchase_count: number; total_spent: number; last_purchase_at: string; needs_follow_up: 0 | 1;
+}
+export function retailCustomerActivity(): RetailCustomerActivity[] {
+  return db.prepare(`
+    SELECT c.id, c.name, c.location, c.phone,
+      COUNT(s.id) AS purchase_count, COALESCE(SUM(s.total_amount), 0) AS total_spent,
+      MAX(s.created_at) AS last_purchase_at,
+      CASE WHEN julianday('now') - julianday(MAX(s.created_at)) > ? THEN 1 ELSE 0 END AS needs_follow_up
+    FROM customers c
+    JOIN sales s ON s.customer_id = c.id AND s.channel = 'POS'
+    GROUP BY c.id
+    ORDER BY last_purchase_at DESC
+  `).all(RETAIL_FOLLOW_UP_DAYS) as unknown as RetailCustomerActivity[];
 }
 
 /** Three customer categories, three different workflows:
- *  - RETAIL (no customerId, or a customer whose type is RETAIL): always cash,
- *    settles immediately — unchanged from today's POS behavior, just no
- *    longer requires a registered customer.
+ *  - RETAIL: always cash, settles immediately. Every Retail (POS) sale must
+ *    carry a real customerId now (Module 20) — createOrder rejects a POS
+ *    sale with none, so purchase history/follow-up can actually be tracked.
  *  - MARKETER: sells on credit exactly like today's INVOICE flow, no gate.
  *  - DISTRIBUTOR on CREDIT terms: requires approval before anything posts to
  *    inventory or the ledger (see approveCreditSale/rejectCreditSale below) —
@@ -42,6 +66,11 @@ export function createOrder(params: {
   items: { itemId: string; quantity: number; unitPrice: number }[]; actor?: string;
   branchId?: string; manualInvoiceNumber?: string; payments?: { method: PosPaymentMethod; amount: number }[];
 }): SalesOrder {
+  // Every Retail sale needs a real customer record now — the one hard rule
+  // the spec states outright rather than leaving to caller discretion.
+  if (params.channel === 'POS' && !params.customerId) {
+    throw new Error('A customer is required for every retail sale');
+  }
   const customerType: CustomerType = params.customerId ? (getCustomer(params.customerId)?.customer_type ?? 'RETAIL') : 'RETAIL';
   // Retail POS is always cash, regardless of what's sent — the one hard rule
   // the spec states outright rather than leaving to caller discretion.
@@ -53,6 +82,17 @@ export function createOrder(params: {
     const branch = db.prepare('SELECT company_id FROM distributor_branches WHERE id = ?').get(params.branchId) as { company_id: string } | undefined;
     if (!branch) throw new Error(`Unknown branch ${params.branchId}`);
     if (branch.company_id !== params.customerId) throw new Error(`${params.branchId} does not belong to ${params.customerId}`);
+  }
+
+  // POS sells out of Retail's own bounded stock (already transferred in from
+  // the central warehouse at intake time — see services/retailStock.ts), not
+  // the shared central ledger, so the constraint here is what Retail itself
+  // is holding.
+  if (params.channel === 'POS') {
+    for (const it of params.items) {
+      const onHand = retailStock.getBalance(it.itemId);
+      if (it.quantity > onHand) throw new Error(`Only ${onHand} of ${it.itemId} available in Retail stock — post an intake from the warehouse first`);
+    }
   }
 
   const id = nextBusinessId('sales', 'SO-2026-', 5);
@@ -95,10 +135,14 @@ export function createOrder(params: {
   }
 
   for (const it of params.items) {
-    inventory.postTransaction({
-      itemId: it.itemId, direction: 'OUT', quantity: it.quantity, unitCost: it.unitPrice,
-      sourceType: 'SALES', sourceId: id, actor, note: `Sold on ${id}`,
-    });
+    if (params.channel === 'POS') {
+      retailStock.postSale({ itemId: it.itemId, quantity: it.quantity, unitCost: it.unitPrice, salesId: id, actor });
+    } else {
+      inventory.postTransaction({
+        itemId: it.itemId, direction: 'OUT', quantity: it.quantity, unitCost: it.unitPrice,
+        sourceType: 'SALES', sourceId: id, actor, note: `Sold on ${id}`,
+      });
+    }
   }
   finance.postLedger({ account: 'Accounts receivable', debit: total, credit: 0, referenceType: 'sales', referenceId: id, description: `Sales order ${id}`, actor, customerId: params.customerId, branchId: params.branchId });
   finance.postLedger({ account: 'Sales revenue', debit: 0, credit: total, referenceType: 'sales', referenceId: id, description: `Sales order ${id}`, actor });
@@ -174,10 +218,14 @@ export function reverseOrder(salesId: string, params: { reason: string; actor: s
   db.exec('BEGIN');
   try {
     for (const it of listItemsFor(salesId)) {
-      inventory.postTransaction({
-        itemId: it.item_id, direction: 'IN', quantity: it.quantity, unitCost: it.unit_price,
-        sourceType: 'SALES', sourceId: salesId, actor: params.actor, note: `Reversal of ${salesId}`,
-      });
+      if (order.channel === 'POS') {
+        retailStock.reverseSale({ itemId: it.item_id, quantity: it.quantity, unitCost: it.unit_price, salesId, actor: params.actor });
+      } else {
+        inventory.postTransaction({
+          itemId: it.item_id, direction: 'IN', quantity: it.quantity, unitCost: it.unit_price,
+          sourceType: 'SALES', sourceId: salesId, actor: params.actor, note: `Reversal of ${salesId}`,
+        });
+      }
     }
     finance.postLedger({ account: 'Accounts receivable', debit: 0, credit: order.total_amount, referenceType: 'sales_reversal', referenceId: salesId, description: `Reversal of sales order ${salesId}`, actor: params.actor, customerId: order.customer_id ?? undefined, branchId: order.branch_id ?? undefined });
     finance.postLedger({ account: 'Sales revenue', debit: order.total_amount, credit: 0, referenceType: 'sales_reversal', referenceId: salesId, description: `Reversal of sales order ${salesId}`, actor: params.actor });

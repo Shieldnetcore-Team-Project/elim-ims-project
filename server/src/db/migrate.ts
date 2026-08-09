@@ -28,6 +28,8 @@ export function migrate(): void {
   ensureColumn('activity_log', 'ip_address', 'TEXT');
   ensureColumn('activity_log', 'device', 'TEXT');
   ensureColumn('users', 'password_hash', 'TEXT');
+  ensureColumn('customers', 'phone', 'TEXT');
+  ensureColumn('users', 'phone', 'TEXT');
   // Backfill existing payroll rows created before staff_name existed.
   db.exec(`UPDATE payroll_runs SET staff_name = (SELECT name FROM employees WHERE employees.id = payroll_runs.staff_id) WHERE staff_name IS NULL`);
   // The only returnable-asset SKU today — dispenser bottles are company

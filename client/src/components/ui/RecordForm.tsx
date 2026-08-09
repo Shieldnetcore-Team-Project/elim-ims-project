@@ -33,7 +33,7 @@ export function RecordForm({ cfg, mode, initial, onClose, onSaved }: {
   const idColumn = cfg.columns.find(c => c.key === 'id');
   const showIdField = !!idColumn && (mode === 'edit' || cfg.idInput === 'text');
   const idEditable = mode === 'create' && cfg.idInput === 'text';
-  const isUserCreate = cfg.key === 'users' && mode === 'create';
+  const isUsers = cfg.key === 'users';
 
   const [idValue, setIdValue] = useState(initial?.id ?? '');
   const [status, setStatus] = useState(initial?.status ?? cfg.statusOptions[0]?.value ?? '');
@@ -53,7 +53,9 @@ export function RecordForm({ cfg, mode, initial, onClose, onSaved }: {
     const fieldValues: Record<string, string | number> = {};
     for (const f of fields) fieldValues[f.key] = f.kind === 'num' ? Number(values[f.key] || 0) : values[f.key];
     const body: Record<string, unknown> = { id: idValue, status, fields: fieldValues };
-    if (isUserCreate) body.password = password;
+    // Required on create; on edit, only sent if the admin actually typed a new
+    // one — blank means "leave the current password alone".
+    if (isUsers && (mode === 'create' || password)) body.password = password;
     try {
       const row = mode === 'create'
         ? await apiPost<ModuleRow>(`/modules/${cfg.key}`, body)
@@ -71,7 +73,9 @@ export function RecordForm({ cfg, mode, initial, onClose, onSaved }: {
       <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="recordFormTitle" style={{ maxWidth: 560 }}>
         <div className="dialog-head">
           <h2 id="recordFormTitle" className="card-title">
-            {mode === 'create' ? `New ${singularLabel(cfg.label)}` : `Edit ${idColumn?.label.toLowerCase() ?? 'record'}`}
+            {mode === 'create'
+              ? `New ${singularLabel(cfg.label)}`
+              : isUsers ? 'Edit user' : `Edit ${idColumn?.label.toLowerCase() ?? 'record'}`}
           </h2>
           <button className="iconbtn" onClick={onClose} aria-label="Close" style={{ width: 28, height: 28 }}>
             <Icon name="x" size={16} />
@@ -126,13 +130,13 @@ export function RecordForm({ cfg, mode, initial, onClose, onSaved }: {
               ))}
             </div>
 
-            {isUserCreate && (
+            {isUsers && (
               <div className="form-row">
-                <label htmlFor="f-password">Password</label>
+                <label htmlFor="f-password">{mode === 'create' ? 'Password' : 'New password (leave blank to keep current)'}</label>
                 <input
                   id="f-password" type="password" value={password}
                   onChange={e => setPassword(e.target.value)}
-                  minLength={6} required autoComplete="new-password"
+                  minLength={6} required={mode === 'create'} autoComplete="new-password"
                 />
               </div>
             )}

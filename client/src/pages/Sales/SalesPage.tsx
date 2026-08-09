@@ -21,6 +21,9 @@ import { refreshPendingCounts, usePendingCounts } from '../../lib/pendingCounts'
 import { CustomersTab } from './CustomersTab';
 import { DistributorBranchesTab } from './DistributorBranchesTab';
 import { PosReceiptModal } from './PosReceiptModal';
+import { RetailIntakeTab } from './RetailIntakeTab';
+import { RetailCustomersTab } from './RetailCustomersTab';
+import { RetailReconciliationTab } from './RetailReconciliationTab';
 
 type CustomerType = 'RETAIL' | 'MARKETER' | 'DISTRIBUTOR';
 type PaymentTerms = 'CASH' | 'ADVANCE' | 'CREDIT';
@@ -32,7 +35,7 @@ interface SalesOrder {
   channel: 'INVOICE' | 'POS'; rep: string; status: string; payment_terms: PaymentTerms; total_amount: number; created_at: string;
   branch_id: string | null; manual_invoice_number: string | null;
 }
-interface Customer { id: string; name: string; location: string | null; customer_type: CustomerType }
+interface Customer { id: string; name: string; location: string | null; phone: string | null; customer_type: CustomerType }
 interface Item { id: string; name: string; type: string; unit_cost: number }
 interface SalesItem { id: number; sales_id: string; item_id: string; quantity: number; unit_price: number; line_total: number }
 interface SalesReturn {
@@ -58,7 +61,7 @@ interface MovementRow { period: string; returned: number; sold_with_bottle: numb
 
 const COPY: Record<'INVOICE' | 'POS', { title: string; subtitle: string; newLabel: string; empty: string }> = {
   INVOICE: { title: 'Sales', subtitle: 'Customer orders invoiced for delivery — Marketers on credit, Distributors cash/advance/credit-with-approval.', newLabel: 'New sales order', empty: 'No sales orders yet' },
-  POS: { title: 'Retail', subtitle: 'Walk-in and depot till transactions — cash, paid immediately, no customer profile required.', newLabel: 'New POS sale', empty: 'No till transactions yet' },
+  POS: { title: 'Retail', subtitle: 'Walk-in and depot till transactions — cash, paid immediately, every sale tied to a customer.', newLabel: 'New POS sale', empty: 'No till transactions yet' },
 };
 
 export default function SalesPage({ channel }: { channel: 'INVOICE' | 'POS' }) {
@@ -234,7 +237,14 @@ export default function SalesPage({ channel }: { channel: 'INVOICE' | 'POS' }) {
           { key: 'customers', label: 'Customers', content: <CustomersTab customers={customers} /> },
           { key: 'distributor-branches', label: 'Distributor branches', content: <DistributorBranchesTab customers={customers} /> },
         ]} />
-      ) : ordersTable}
+      ) : (
+        <Tabs tabs={[
+          { key: 'orders', label: 'Orders', content: ordersTable },
+          { key: 'retail-stock', label: 'Retail stock', content: <RetailIntakeTab items={items} /> },
+          { key: 'customers', label: 'Customers', badge: globalPendingCounts.pos, content: <RetailCustomersTab reloadKey={reloadKey} /> },
+          { key: 'reconciliation', label: 'Daily reconciliation', content: <RetailReconciliationTab /> },
+        ]} />
+      )}
 
       {createOpen && (
         <NewOrder
@@ -245,6 +255,7 @@ export default function SalesPage({ channel }: { channel: 'INVOICE' | 'POS' }) {
       )}
       {newCustomerOpen && (
         <NewCustomer
+          defaultType={channel === 'POS' ? 'RETAIL' : 'MARKETER'}
           onClose={() => setNewCustomerOpen(false)}
           onCreated={() => { setNewCustomerOpen(false); refreshMasters(); ui.toast('Customer added'); }}
         />
@@ -271,7 +282,7 @@ export default function SalesPage({ channel }: { channel: 'INVOICE' | 'POS' }) {
 function NewOrder({ channel, customers, items, onClose, onCreated }: {
   channel: 'INVOICE' | 'POS'; customers: Customer[]; items: Item[]; onClose: () => void; onCreated: () => void;
 }) {
-  const [customerId, setCustomerId] = useState(channel === 'POS' ? '' : (customers[0]?.id ?? ''));
+  const [customerId, setCustomerId] = useState(customers[0]?.id ?? '');
   const [paymentTerms, setPaymentTerms] = useState<PaymentTerms>('CREDIT');
   const [rep, setRep] = useState('');
   const [lines, setLines] = useState<LineItemValue[]>([{ itemId: items[0]?.id ?? '', quantity: '10', unitPrice: String(items[0]?.unit_cost ?? 0) }]);
@@ -305,6 +316,10 @@ function NewOrder({ channel, customers, items, onClose, onCreated }: {
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    if (channel === 'POS' && !customerId) {
+      setError('Select or add a customer — every retail sale needs one');
+      return;
+    }
     if (channel === 'POS' && payLines.length > 1 && Math.abs(payTotal - orderTotal) > 0.01) {
       setError(`Payment lines total ${naira(payTotal)} — must equal the order total ${naira(orderTotal)}`);
       return;
@@ -331,8 +346,8 @@ function NewOrder({ channel, customers, items, onClose, onCreated }: {
       <div className="form-grid">
         <div className="form-row">
           <label htmlFor="so-customer">Customer</label>
-          <select id="so-customer" value={customerId} onChange={e => setCustomerId(e.target.value)}>
-            {channel === 'POS' && <option value="">Walk-in / no profile</option>}
+          <select id="so-customer" value={customerId} onChange={e => setCustomerId(e.target.value)} required={channel === 'POS'}>
+            {customers.length === 0 && <option value="" disabled>No customers yet — add one first</option>}
             {customers.map(c => <option key={c.id} value={c.id}>{c.name} ({c.customer_type.toLowerCase()})</option>)}
           </select>
         </div>
@@ -401,17 +416,18 @@ function NewOrder({ channel, customers, items, onClose, onCreated }: {
   );
 }
 
-function NewCustomer({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+function NewCustomer({ defaultType, onClose, onCreated }: { defaultType?: CustomerType; onClose: () => void; onCreated: () => void }) {
   const [name, setName] = useState('');
   const [location, setLocation] = useState('');
-  const [customerType, setCustomerType] = useState<CustomerType>('MARKETER');
+  const [phone, setPhone] = useState('');
+  const [customerType, setCustomerType] = useState<CustomerType>(defaultType ?? 'MARKETER');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
     setSaving(true); setError(null);
-    try { await apiPost('/masters/customers', { name, location: location || undefined, customerType }); onCreated(); }
+    try { await apiPost('/masters/customers', { name, location: location || undefined, phone: phone || undefined, customerType }); onCreated(); }
     catch (err) { setError(err instanceof Error ? err.message : 'Something went wrong'); }
     finally { setSaving(false); }
   }
@@ -421,12 +437,13 @@ function NewCustomer({ onClose, onCreated }: { onClose: () => void; onCreated: (
       <div className="form-row"><label htmlFor="cust-name">Name</label><input id="cust-name" value={name} onChange={e => setName(e.target.value)} required autoFocus /></div>
       <div className="form-grid">
         <div className="form-row"><label htmlFor="cust-location">Location (optional)</label><input id="cust-location" value={location} onChange={e => setLocation(e.target.value)} /></div>
+        <div className="form-row"><label htmlFor="cust-phone">Phone (optional)</label><input id="cust-phone" value={phone} onChange={e => setPhone(e.target.value)} /></div>
         <div className="form-row">
           <label htmlFor="cust-type">Category</label>
           <select id="cust-type" value={customerType} onChange={e => setCustomerType(e.target.value as CustomerType)}>
             <option value="MARKETER">Marketer — carries stock to market, may sell on credit, may return unsold goods</option>
             <option value="DISTRIBUTOR">Major distributor — cash, advance, or credit with approval</option>
-            <option value="RETAIL">Retail — optional profile for an otherwise walk-in customer</option>
+            <option value="RETAIL">Retail — a real customer profile, required for every retail sale</option>
           </select>
         </div>
       </div>

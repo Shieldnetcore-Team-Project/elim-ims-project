@@ -15,10 +15,10 @@ export function SignInGate() {
   const ui = useUi();
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
 
-  function handleSignedUp(userId: string, name: string) {
+  function handleSignedUp(name: string) {
     refreshUsers();
-    signInAs(userId);
-    ui.toast(`Welcome, ${name}!`);
+    setMode('signin');
+    ui.toast(`Account created for ${name}. An admin must approve it before you can sign in.`);
   }
 
   return (
@@ -54,7 +54,8 @@ export function SignInGate() {
           <>
             <SignUpForm onSignedUp={handleSignedUp} />
             <p className="signin-gate-note">
-              New accounts can see the dashboard only, until an admin grants access to specific pages.
+              An admin must approve your account before you can sign in. Once approved, you'll see the
+              dashboard only until the admin grants access to specific pages.
             </p>
           </>
         )}

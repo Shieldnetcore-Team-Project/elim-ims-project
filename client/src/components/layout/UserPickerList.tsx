@@ -14,10 +14,11 @@ function initials(name: string): string {
  *  only fires once the server has verified it. */
 export function UserPickerList({ onPick }: { onPick: (userId: string) => void }) {
   const { users: allUsers, user } = useCurrentUser();
-  // A suspended account shouldn't be sign-in-able at all — filtered out here
-  // rather than merely disabled, so the list stays a clean picture of who
-  // can actually use the app. The server enforces this too (see /auth/login).
-  const users = allUsers.filter(u => u.status !== 'SUSPENDED');
+  // A suspended or not-yet-approved account shouldn't be sign-in-able at all —
+  // filtered out here rather than merely disabled, so the list stays a clean
+  // picture of who can actually use the app. The server enforces this too
+  // (see /auth/login's loginBlockReason).
+  const users = allUsers.filter(u => u.status !== 'SUSPENDED' && u.status !== 'PENDING_APPROVAL');
   const [pending, setPending] = useState<{ id: string; name: string } | null>(null);
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
