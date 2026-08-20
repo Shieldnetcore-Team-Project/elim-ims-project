@@ -23,3 +23,12 @@ productionBatchesRouter.post('/:id/reverse', safe((req, res) => {
   const approver = accessControl.requireRole(userId, ['Warehouse Manager']);
   res.json(production.reverseBatch(req.params.id, { reason, actor: approver.name }));
 }));
+
+productionBatchesRouter.post('/:id/close', safe((req, res) => {
+  const { rejectedQuantity, wastedQuantity, actor } = req.body ?? {};
+  if (typeof rejectedQuantity !== 'number' || typeof wastedQuantity !== 'number' || !actor) {
+    res.status(400).json({ error: 'rejectedQuantity, wastedQuantity and actor are required' });
+    return;
+  }
+  res.json(production.closeBatch(req.params.id, { rejectedQuantity, wastedQuantity, actor }));
+}));

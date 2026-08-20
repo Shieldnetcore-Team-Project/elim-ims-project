@@ -14,7 +14,8 @@ import { NumberInput } from '../../components/ui/NumberInput';
 import { usePendingDeletions } from '../../lib/pendingDeletions';
 import { ReportToolbar } from '../../components/ui/ReportToolbar';
 import { inRange, type DateRange } from '../../lib/reportExport';
-import type { CsvColumn } from '../../lib/csv';
+import { exportCsv, type CsvColumn } from '../../lib/csv';
+import { Icon } from '../../components/ui/Icon';
 
 interface Balance {
   id: string; name: string; category: string; type: string; uom: string;
@@ -22,9 +23,15 @@ interface Balance {
 }
 
 interface Transaction {
-  id: number; txn_no: string; item_name: string; category: string; branch: string;
+  id: number; txn_no: string; item_name: string; category: string; unit: string; branch: string;
   source_type: string; direction: 'IN' | 'OUT'; quantity: number; qty_before: number; qty_after: number;
+  from_location: string | null; to_location: string | null;
   actor: string | null; note: string | null; status: string; created_at: string;
+}
+
+interface StockPositionLine {
+  item_id: string; item_name: string; category: string; unit: string;
+  physical_stock: number; assigned_stock: number; pending_return: number; available_stock: number;
 }
 
 function statusFor(b: Balance): string {
@@ -39,6 +46,7 @@ export default function InventoryPage() {
   const ui = useUi();
   const [balances, setBalances] = useState<Balance[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [stockPosition, setStockPosition] = useState<StockPositionLine[]>([]);
   const [query, setQuery] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
   const [adjustTarget, setAdjustTarget] = useState<Balance | null>(null);
@@ -51,7 +59,25 @@ export default function InventoryPage() {
   useEffect(() => {
     api<Balance[]>('/inventory/balances').then(setBalances);
     api<Transaction[]>('/inventory/transactions').then(setTransactions);
+    api<StockPositionLine[]>('/inventory/stock-position').then(setStockPosition);
   }, [reloadKey]);
+
+  const stockPositionTotals = useMemo(() => stockPosition.reduce((s, l) => ({
+    physical_stock: s.physical_stock + l.physical_stock,
+    assigned_stock: s.assigned_stock + l.assigned_stock,
+    pending_return: s.pending_return + l.pending_return,
+    available_stock: s.available_stock + l.available_stock,
+  }), { physical_stock: 0, assigned_stock: 0, pending_return: 0, available_stock: 0 }), [stockPosition]);
+
+  const stockPositionColumns: CsvColumn<StockPositionLine>[] = useMemo(() => [
+    { label: 'Item', get: l => l.item_name },
+    { label: 'Category', get: l => l.category },
+    { label: 'Unit', get: l => l.unit },
+    { label: 'Physical Stock', get: l => l.physical_stock },
+    { label: 'Assigned Stock', get: l => l.assigned_stock },
+    { label: 'Pending Return', get: l => l.pending_return },
+    { label: 'Available Stock', get: l => l.available_stock },
+  ], []);
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -64,8 +90,11 @@ export default function InventoryPage() {
     { label: 'Date & Time', get: t => t.created_at },
     { label: 'Product', get: t => t.item_name },
     { label: 'Category', get: t => t.category },
-    { label: 'Source', get: t => titleCase(t.source_type) },
+    { label: 'Unit', get: t => t.unit },
+    { label: 'Type', get: t => titleCase(t.source_type) },
     { label: 'Transaction Type', get: t => t.direction === 'IN' ? 'Stock In' : 'Stock Out' },
+    { label: 'From', get: t => t.from_location ?? '' },
+    { label: 'To', get: t => t.to_location ?? '' },
     { label: 'Qty Before', get: t => t.qty_before },
     { label: 'Qty Changed', get: t => t.direction === 'IN' ? t.quantity : -t.quantity },
     { label: 'Qty After', get: t => t.qty_after },
@@ -130,6 +159,56 @@ export default function InventoryPage() {
           ),
         },
         {
+          key: 'stock-position', label: 'Stock Position', content: (
+            <Card
+              title="Stock Position"
+              description="Physical, Assigned, Pending Return and Available stock for every finished good — kept as four separate figures, never collapsed into one balance, so it's clear why physical stock and system availability can temporarily differ (e.g. a marketer return claimed but not yet physically received)."
+            >
+              <div className="no-print" style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => exportCsv('elim-stock-position.csv', stockPositionColumns, stockPosition)}>
+                  <Icon name="table" size={14} /> CSV
+                </button>
+              </div>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Item</th><th>Category</th><th>Unit</th>
+                      <th className="num">Physical Stock</th><th className="num">Assigned Stock</th>
+                      <th className="num">Pending Return</th><th className="num">Available Stock</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stockPosition.map(l => (
+                      <tr key={l.item_id}>
+                        <td style={{ fontWeight: 500 }}>{l.item_name}</td>
+                        <td className="sub">{l.category}</td>
+                        <td className="sub">{l.unit}</td>
+                        <td className="num tnum">{l.physical_stock.toLocaleString('en-NG')}</td>
+                        <td className="num tnum">{l.assigned_stock.toLocaleString('en-NG')}</td>
+                        <td className="num tnum">{l.pending_return > 0 ? l.pending_return.toLocaleString('en-NG') : '—'}</td>
+                        <td className="num tnum">{l.available_stock.toLocaleString('en-NG')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  {stockPosition.length > 0 && (
+                    <tfoot>
+                      <tr>
+                        <td colSpan={3} style={{ fontWeight: 600 }}>Total</td>
+                        <td className="num tnum" style={{ fontWeight: 600 }}>{stockPositionTotals.physical_stock.toLocaleString('en-NG')}</td>
+                        <td className="num tnum" style={{ fontWeight: 600 }}>{stockPositionTotals.assigned_stock.toLocaleString('en-NG')}</td>
+                        <td className="num tnum" style={{ fontWeight: 600 }}>{stockPositionTotals.pending_return.toLocaleString('en-NG')}</td>
+                        <td className="num tnum" style={{ fontWeight: 600 }}>{stockPositionTotals.available_stock.toLocaleString('en-NG')}</td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+              {stockPosition.length === 0 && <EmptyState title="No finished goods yet" description="Stock position tracks finished goods once they exist as items." onClear={() => {}} />}
+            </Card>
+          ),
+        },
+        {
           key: 'transactions', label: 'Inventory Transactions', content: (
             <Card title="Inventory Transactions" description={`${filteredTransactions.length} of ${transactions.length} transactions shown.`}>
               <ReportToolbar rows={filteredTransactions} columns={txnColumns} filenameBase="elim-inventory-transactions" onRangeChange={setTxnRange} />
@@ -137,8 +216,8 @@ export default function InventoryPage() {
                 <table>
                   <thead>
                     <tr>
-                      <th>Transaction No.</th><th>Date &amp; Time</th><th>Product</th><th>Category</th>
-                      <th>Source</th><th>Transaction Type</th><th className="num">Qty Before</th><th className="num">Qty Changed</th>
+                      <th>Transaction No.</th><th>Date &amp; Time</th><th>Product</th><th>Category</th><th>Unit</th>
+                      <th>Type</th><th>Transaction Type</th><th>From</th><th>To</th><th className="num">Qty Before</th><th className="num">Qty Changed</th>
                       <th className="num">Qty After</th><th>Performed By</th><th>Remarks</th><th>Status</th>
                     </tr>
                   </thead>
@@ -151,8 +230,11 @@ export default function InventoryPage() {
                           <td className="sub">{t.created_at}</td>
                           <td style={{ fontWeight: 500 }}>{t.item_name}</td>
                           <td className="sub">{t.category}</td>
+                          <td className="sub">{t.unit}</td>
                           <td className="sub">{titleCase(t.source_type)}</td>
                           <td>{t.direction === 'IN' ? 'Stock In' : 'Stock Out'}</td>
+                          <td className="sub">{t.from_location ?? '—'}</td>
+                          <td className="sub">{t.to_location ?? '—'}</td>
                           <td className="num tnum">{t.qty_before.toLocaleString('en-NG')}</td>
                           <td className="num tnum">{changed > 0 ? '+' : ''}{changed.toLocaleString('en-NG')}</td>
                           <td className="num tnum">{t.qty_after.toLocaleString('en-NG')}</td>

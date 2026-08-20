@@ -17,6 +17,29 @@ deliveriesRouter.post('/', safe((req, res) => {
   res.status(201).json(fleet.dispatchDelivery({ salesId, vehicleId, driver, route }));
 }));
 
+deliveriesRouter.post('/:id/start-transit', safe((req, res) => {
+  const { actor } = req.body ?? {};
+  if (!actor) { res.status(400).json({ error: 'actor is required' }); return; }
+  res.json(fleet.startTransit(req.params.id, actor));
+}));
+
 deliveriesRouter.post('/:id/delivered', safe((req, res) => {
-  res.json(fleet.markDelivered(req.params.id, req.body?.actor));
+  const { authorizedByUserId, deliveredBy, actor } = req.body ?? {};
+  if (!authorizedByUserId || !deliveredBy) {
+    res.status(400).json({ error: 'authorizedByUserId and deliveredBy are required' });
+    return;
+  }
+  res.json(fleet.markDelivered(req.params.id, { authorizedByUserId, deliveredBy, actor }));
+}));
+
+deliveriesRouter.post('/:id/cancel', safe((req, res) => {
+  const { reason, actor } = req.body ?? {};
+  if (!reason || !actor) { res.status(400).json({ error: 'reason and actor are required' }); return; }
+  res.json(fleet.cancelDelivery(req.params.id, { reason, actor }));
+}));
+
+deliveriesRouter.post('/:id/return', safe((req, res) => {
+  const { reason, actor } = req.body ?? {};
+  if (!reason || !actor) { res.status(400).json({ error: 'reason and actor are required' }); return; }
+  res.json(fleet.returnDelivery(req.params.id, { reason, actor }));
 }));

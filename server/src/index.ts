@@ -34,6 +34,17 @@ import { distributorBranchesRouter } from './routes/distributorBranches.js';
 import { posReceiptsRouter } from './routes/posReceipts.js';
 import { reversalsRouter } from './routes/reversals.js';
 import { retailStockRouter } from './routes/retailStock.js';
+import { retailExchangesRouter } from './routes/retailExchanges.js';
+import { marketerReconciliationRouter } from './routes/marketerReconciliation.js';
+import { marketerPerformanceRouter } from './routes/marketerPerformance.js';
+import { tillCloseRouter } from './routes/tillClose.js';
+import { payrollRouter } from './routes/payroll.js';
+import { assetsRouter } from './routes/assets.js';
+import { maintenanceRouter } from './routes/maintenance.js';
+import { fuelRecordsRouter } from './routes/fuelRecords.js';
+import { vehicleDocumentsRouter } from './routes/vehicleDocuments.js';
+import { driverPerformanceRouter } from './routes/driverPerformance.js';
+import { maintenanceReportsRouter } from './routes/maintenanceReports.js';
 
 migrate();
 seed();
@@ -77,6 +88,17 @@ app.use('/api/distributor-branches', distributorBranchesRouter);
 app.use('/api/pos-receipts', posReceiptsRouter);
 app.use('/api/reversals', reversalsRouter);
 app.use('/api/retail-stock', retailStockRouter);
+app.use('/api/retail-exchanges', retailExchangesRouter);
+app.use('/api/marketer-reconciliation', marketerReconciliationRouter);
+app.use('/api/marketer-performance', marketerPerformanceRouter);
+app.use('/api/till-close', tillCloseRouter);
+app.use('/api/payroll', payrollRouter);
+app.use('/api/assets', assetsRouter);
+app.use('/api/maintenance', maintenanceRouter);
+app.use('/api/fuel-records', fuelRecordsRouter);
+app.use('/api/vehicle-documents', vehicleDocumentsRouter);
+app.use('/api/driver-performance', driverPerformanceRouter);
+app.use('/api/maintenance-reports', maintenanceReportsRouter);
 
 app.use((_req, res) => res.status(404).json({ error: 'Not found' }));
 

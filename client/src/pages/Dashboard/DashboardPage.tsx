@@ -22,6 +22,7 @@ import { EmptyState } from '../../components/ui/EmptyState';
 import { ExportMenu } from '../../components/ui/ExportMenu';
 import { PrintHeader } from '../../components/ui/PrintHeader';
 import { BatchTrace } from './BatchTrace';
+import { useDocumentExpiryAlerts } from '../../components/layout/NotificationCenter';
 
 interface DeliveryRun {
   id: string; sales_id: string; customer_name: string; customer_location: string;
@@ -44,6 +45,7 @@ export function DashboardPage() {
   const debouncedQuery = useDebouncedValue(query, 250);
   const [selectedDelivery, setSelectedDelivery] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const expiryAlerts = useDocumentExpiryAlerts();
 
   useEffect(() => {
     api<KpiMetric[]>('/dashboard/kpis').then(setKpis);
@@ -197,6 +199,30 @@ export function DashboardPage() {
           )}
         </ChartCard>
       </div>
+
+      {expiryAlerts.length > 0 && (
+        <Card
+          title="Document expiry alerts"
+          description="Vehicle documents expired or due to expire soon."
+          action={<Link to="/fleet" className="sub no-print">View in Fleet &amp; delivery →</Link>}
+        >
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Vehicle</th><th>Document</th><th>Expiry</th><th>Status</th></tr></thead>
+              <tbody>
+                {expiryAlerts.map(a => (
+                  <tr key={a.id}>
+                    <td className="mono" style={{ fontSize: 12 }}>{a.vehicle_plate_number ?? a.vehicle_id}</td>
+                    <td>{a.document_type}</td>
+                    <td className="sub">{a.expiry_date}</td>
+                    <td><Pill status={a.expired ? 'EXPIRED' : 'DUE_SOON'} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
 
       {selectedDelivery && <BatchTrace deliveryId={selectedDelivery} onClose={() => setSelectedDelivery(null)} />}
 

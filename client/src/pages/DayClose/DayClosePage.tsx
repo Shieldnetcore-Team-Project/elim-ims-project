@@ -11,7 +11,10 @@ import { Icon } from '../../components/ui/Icon';
 import { PrintHeader } from '../../components/ui/PrintHeader';
 
 interface DiscrepancyRecord { id: string; detail: string }
-interface DiscrepancyCheck { category: string; description: string; count: number; records: DiscrepancyRecord[] }
+// blocking is absent on the plain /day-close/check and CloseResult shapes
+// (every check there blocks, by definition) and present on the richer
+// /day-close/attention-list response — missing is treated as blocking.
+interface DiscrepancyCheck { category: string; description: string; count: number; records: DiscrepancyRecord[]; blocking?: boolean }
 interface DiscrepancyReport { balanced: boolean; checks: DiscrepancyCheck[] }
 interface DayCloseRow { id: string; business_date: string; status: string; checked_by: string | null; actor: string | null; closed_at: string }
 interface CloseResult { alreadyClosed: boolean; balanced: boolean; dayClose?: DayCloseRow; checks?: DiscrepancyCheck[] }
@@ -24,22 +27,24 @@ export default function DayClosePage() {
   const [closeOpen, setCloseOpen] = useState(false);
   const refresh = useCallback(() => setReloadKey(k => k + 1), []);
 
-  useEffect(() => { api<DiscrepancyReport>('/day-close/check').then(setReport); }, [reloadKey]);
+  useEffect(() => { api<DiscrepancyReport>('/day-close/attention-list').then(setReport); }, [reloadKey]);
   useEffect(() => { api<DayCloseRow[]>('/day-close/history').then(setHistory); }, [reloadKey]);
 
-  const openCount = useMemo(() => report?.checks.reduce((s, c) => s + c.count, 0) ?? 0, [report]);
+  const blockingOpenCount = useMemo(() => report?.checks.filter(c => c.blocking !== false).reduce((s, c) => s + c.count, 0) ?? 0, [report]);
+  const attentionOpenCount = useMemo(() => report?.checks.filter(c => c.blocking === false).reduce((s, c) => s + c.count, 0) ?? 0, [report]);
   const statusIcon: 'shield' | 'clock' = report?.balanced ? 'shield' : 'clock';
   const kpis = useMemo(() => [
     { key: 'status', label: 'Status', icon: statusIcon, value: report ? (report.balanced ? 'Balanced' : 'Discrepancies found') : 'Loading…' },
-    { key: 'open', label: 'Open items', icon: 'clock' as const, value: number(openCount) },
+    { key: 'blocking', label: 'Blocking close', icon: 'clock' as const, value: number(blockingOpenCount) },
+    { key: 'attention', label: 'Needs attention (non-blocking)', icon: 'clock' as const, value: number(attentionOpenCount) },
     { key: 'closes', label: 'Days closed', icon: 'scroll' as const, value: number(history.length) },
-  ], [report, openCount, history, statusIcon]);
+  ], [report, blockingOpenCount, attentionOpenCount, history, statusIcon]);
 
   return (
     <>
       <PrintHeader />
       <div className="pagehead">
-        <div><h1>Day Close</h1><p className="pagesub">Close-of-business reconciliation — every open record across production, warehouse and finished goods must be resolved before today can close.</p></div>
+        <div><h1>Day Close</h1><p className="pagesub">The business reconciliation dashboard — what requires attention before today can close. Every open record across production, warehouse and finished goods must be resolved to close; approvals and deliveries are shown for visibility but don't block it.</p></div>
         <div className="no-print"><button className="btn btn-primary" onClick={() => setCloseOpen(true)} disabled={!report}><Icon name="lock" size={14} /> Close today</button></div>
       </div>
 
@@ -51,13 +56,14 @@ export default function DayClosePage() {
       >
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Category</th><th>Description</th><th className="num">Open</th><th>Status</th></tr></thead>
+            <thead><tr><th>Category</th><th>Description</th><th className="num">Open</th><th>Blocks closing?</th><th>Status</th></tr></thead>
             <tbody>
               {report?.checks.map(c => (
                 <tr key={c.category}>
                   <td style={{ fontWeight: 500 }}>{c.category}</td>
                   <td className="sub">{c.description}</td>
                   <td className="num tnum">{number(c.count)}</td>
+                  <td className="sub">{c.blocking === false ? 'No' : 'Yes'}</td>
                   <td><Pill status={c.count === 0 ? 'RESOLVED' : 'PENDING'} /></td>
                 </tr>
               ))}

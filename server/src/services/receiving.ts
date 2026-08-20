@@ -105,6 +105,7 @@ export function inspectGoodsReceived(grnId: string, params: {
         inventory.postTransaction({
           itemId: line.itemId, direction: 'IN', quantity: line.acceptedQuantity,
           sourceType: 'PURCHASE', sourceId: grnId, actor,
+          fromLocation: 'Supplier', toLocation: 'Raw Material Store',
           note: `Accepted at inspection of ${grnId}`,
         });
         const unitPrice = (priceFor.get(grn.po_id, line.itemId) as { unit_price: number } | undefined)?.unit_price ?? 0;
@@ -164,7 +165,9 @@ export function reverseGoodsReceived(grnId: string, params: { reason: string; ac
       if (!item.accepted_quantity || item.accepted_quantity <= 0) continue;
       inventory.postTransaction({
         itemId: item.item_id, direction: 'OUT', quantity: item.accepted_quantity,
-        sourceType: 'PURCHASE', sourceId: grnId, actor: params.actor, note: `Reversal of ${grnId}`,
+        sourceType: 'PURCHASE', sourceId: grnId, actor: params.actor,
+        fromLocation: 'Raw Material Store', toLocation: 'Supplier',
+        note: `Reversal of ${grnId}`,
       });
       const unitPrice = (priceFor.get(grn.po_id, item.item_id) as { unit_price: number } | undefined)?.unit_price ?? 0;
       acceptedValue += item.accepted_quantity * unitPrice;

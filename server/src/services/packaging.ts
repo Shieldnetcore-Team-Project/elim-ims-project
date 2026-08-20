@@ -24,6 +24,7 @@ export function packageBatch(params: {
   inventory.postTransaction({
     itemId: params.itemId, direction: 'IN', quantity: params.quantity,
     sourceType: 'PRODUCTION', sourceId: params.batchId, actor: params.actor ?? params.packagedBy,
+    fromLocation: 'Production Floor', toLocation: 'Finished Goods Warehouse',
     note: `Packaged from batch ${params.batchId}`,
   });
   activityLog.record(params.actor ?? params.packagedBy, 'packaged', 'finished_goods', id, `${params.quantity} × ${params.itemId} packaged from batch ${params.batchId}`);
@@ -42,7 +43,9 @@ export function reverseFinishedGoods(fgId: string, params: { reason: string; act
   try {
     inventory.postTransaction({
       itemId: record.item_id, direction: 'OUT', quantity: record.quantity,
-      sourceType: 'PRODUCTION', sourceId: record.batch_id, actor: params.actor, note: `Reversal of finished-goods record ${fgId}`,
+      sourceType: 'PRODUCTION', sourceId: record.batch_id, actor: params.actor,
+      fromLocation: 'Finished Goods Warehouse', toLocation: 'Production Floor',
+      note: `Reversal of finished-goods record ${fgId}`,
     });
 
     const reversal = reversals.create({

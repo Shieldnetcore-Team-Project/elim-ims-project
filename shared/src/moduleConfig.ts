@@ -84,8 +84,8 @@ export const MODULES: ModuleConfig[] = [
     ],
   },
   {
-    key: 'warehouse', label: 'Warehouse', group: 'Operations', icon: 'warehouse', moduleNo: 17,
-    subtitle: 'Stock requisitions raised against the warehouse.',
+    key: 'warehouse', label: 'Stock Requisitions', group: 'Operations', icon: 'warehouse', moduleNo: 17,
+    subtitle: 'Departments requesting stock from the Raw Material Store and Finished Goods Warehouse.',
     searchPlaceholder: 'Search requisitions or item',
     columns: [
       { key: 'id', label: 'Requisition', kind: 'mono' },
@@ -210,7 +210,7 @@ export const MODULES: ModuleConfig[] = [
   },
   {
     key: 'day-close', label: 'Day Close', group: 'Finance & people', icon: 'scroll', moduleNo: 19,
-    subtitle: 'Close-of-business reconciliation across production, warehouse, and finished goods.',
+    subtitle: 'Business reconciliation dashboard — what needs attention before today can close.',
     searchPlaceholder: 'Search day closes',
     columns: [
       { key: 'id', label: 'Close', kind: 'mono' },
@@ -227,13 +227,26 @@ export const MODULES: ModuleConfig[] = [
     columns: [
       { key: 'id', label: 'Staff ID', kind: 'mono' },
       { key: 'name', label: 'Name & department', kind: 'text', subKey: 'department' },
-      { key: 'role', label: 'Role', kind: 'text' },
-      { key: 'tenure', label: 'Tenure', kind: 'text' },
+      { key: 'role', label: 'Position', kind: 'text' },
+      { key: 'date_engaged', label: 'Date engaged', kind: 'text' },
+      { key: 'date_disengaged', label: 'Date disengaged', kind: 'text' },
+      { key: 'exit_reason', label: 'Exit reason', kind: 'text' },
+      { key: 'notes', label: 'Notes', kind: 'text' },
+      // Never a form input (see RecordForm's fieldsFor, which skips readOnly
+      // columns) — always computed server-side from date_engaged/
+      // date_disengaged by peripheral.ts, per Section 25: "do not use Tenure
+      // as a manually maintained field."
+      { key: 'tenure', label: 'Tenure', kind: 'text', readOnly: true },
       { key: 'created_at', label: 'Added', kind: 'text', readOnly: true },
       { key: 'status', label: 'Status', kind: 'status' },
     ],
+    // Fallback shape only — the live list is configurable (Settings ->
+    // "Employee status options") and fetched at runtime; see
+    // client/src/pages/Module/ModulePage.tsx's hrStatusOptions override.
     statusOptions: [
-      { value: 'ACTIVE', label: 'Active' }, { value: 'INVITED', label: 'Invited' }, { value: 'INACTIVE', label: 'Inactive' },
+      { value: 'ACTIVE', label: 'Active' }, { value: 'INACTIVE', label: 'Inactive' }, { value: 'ON_LEAVE', label: 'On Leave' },
+      { value: 'RESIGNED', label: 'Resigned' }, { value: 'TERMINATED', label: 'Terminated' },
+      { value: 'DISENGAGED', label: 'Disengaged' }, { value: 'ABSCONDED', label: 'Absconded' },
     ],
   },
   {
@@ -393,7 +406,7 @@ export const moduleByKey = (key: string): ModuleConfig | undefined => MODULES.fi
  *  Of these 9, users/roles/activity-log (see CONTROL_PANEL_TAB_KEYS) are embedded in
  *  the Control Panel instead of being routed on their own. */
 export const GENERIC_MODULE_KEYS = [
-  'water-treatment', 'warehouse', 'hr', 'payroll', 'assets', 'reports', 'users', 'roles', 'activity-log', 'settings',
+  'water-treatment', 'warehouse', 'hr', 'reports', 'users', 'roles', 'activity-log', 'settings',
 ];
 export const GENERIC_MODULES: ModuleConfig[] = MODULES.filter(m => GENERIC_MODULE_KEYS.includes(m.key));
 export const ROUTED_GENERIC_MODULE_KEYS = GENERIC_MODULE_KEYS.filter(k => !CONTROL_PANEL_TAB_KEYS.includes(k));

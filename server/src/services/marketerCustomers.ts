@@ -306,6 +306,46 @@ export function collectionsReport(): CollectionRow[] {
   return rows.sort((a, b) => (a.due_date ?? '9999-99-99').localeCompare(b.due_date ?? '9999-99-99'));
 }
 
+export type RecoveryStatus = 'CREDIT' | 'PARTIALLY_PAID' | 'FULLY_PAID' | 'OVERDUE';
+export interface CreditTransaction extends InvoiceFollowUp {
+  customer_name: string; marketer_id: string; marketer_name: string;
+  credit_limit: number; amount_paid: number; recovery_status: RecoveryStatus;
+}
+
+/** Section 15: every credit transaction ever raised against a marketer's
+ *  field customer, tracked as its own row — unlike collectionsReport() below
+ *  (built for the reminders queue, so it only lists what's still
+ *  outstanding), this keeps a FULLY_PAID invoice visible too, since "tracked
+ *  separately" means the whole lifecycle, not just what's still owed.
+ *  recovery_status: OVERDUE takes precedence over a partial payment (an
+ *  invoice can be both partially paid and overdue at once — overdue is the
+ *  more actionable fact); CREDIT means nothing has been recovered yet and
+ *  it isn't overdue. */
+export function creditTransactions(): CreditTransaction[] {
+  const customers = db.prepare(`SELECT id, name, marketer_id, credit_limit FROM marketer_customers`).all() as
+    { id: string; name: string; marketer_id: string; credit_limit: number }[];
+  const now = Date.now();
+  const rows: CreditTransaction[] = [];
+
+  for (const c of customers) {
+    const marketer = sales.getCustomer(c.marketer_id);
+    for (const inv of invoiceFollowUps(c.id)) {
+      const amountPaid = inv.amount - inv.balance;
+      let status: RecoveryStatus;
+      if (inv.balance <= 0) status = 'FULLY_PAID';
+      else if (inv.due_date && new Date(inv.due_date).getTime() < now) status = 'OVERDUE';
+      else if (amountPaid > 0) status = 'PARTIALLY_PAID';
+      else status = 'CREDIT';
+
+      rows.push({
+        ...inv, customer_name: c.name, marketer_id: c.marketer_id, marketer_name: marketer?.name ?? c.marketer_id,
+        credit_limit: c.credit_limit, amount_paid: amountPaid, recovery_status: status,
+      });
+    }
+  }
+  return rows.sort((a, b) => b.created_at.localeCompare(a.created_at));
+}
+
 /** Same FIFO cash-application-by-invoice-age algorithm as finance.agingReport,
  *  over marketer_customers/marketer_customer_ledger instead of suppliers/ledger. */
 export function agingReport() {

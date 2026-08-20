@@ -5,6 +5,7 @@ import { useCurrentUser } from '../../lib/currentUser';
 import { todayLagos } from '../../lib/format';
 import type { ThemePref } from '../../lib/theme';
 import { SignInAsPicker } from './SignInAsPicker';
+import { NotificationCenter, useDocumentExpiryAlerts } from './NotificationCenter';
 
 const THEME_OPTIONS: { value: ThemePref; icon: 'sun' | 'moon' | 'monitor'; label: string }[] = [
   { value: 'light', icon: 'sun', label: 'Light' },
@@ -21,6 +22,8 @@ export function Topbar() {
   const { user, signOut } = useCurrentUser();
   const [today, setToday] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const alerts = useDocumentExpiryAlerts();
 
   function handleLogOut() {
     const name = user?.name;
@@ -58,11 +61,13 @@ export function Topbar() {
         </div>
 
         <button
-          className="iconbtn" style={{ position: 'relative' }} aria-label="3 unread notifications"
-          onClick={() => ui.toast('Notifications arrive in a future module.')}
+          className="iconbtn" style={{ position: 'relative' }} aria-label={`${alerts.length} notification${alerts.length === 1 ? '' : 's'}`}
+          onClick={() => setNotificationsOpen(true)}
         >
           <Icon name="bell" size={18} />
-          <span style={{ position: 'absolute', right: 7, top: 7, width: 8, height: 8, borderRadius: 999, background: 'rgb(var(--stop))', boxShadow: '0 0 0 2px rgb(var(--card))' }} />
+          {alerts.length > 0 && (
+            <span style={{ position: 'absolute', right: 7, top: 7, width: 8, height: 8, borderRadius: 999, background: 'rgb(var(--stop))', boxShadow: '0 0 0 2px rgb(var(--card))' }} />
+          )}
         </button>
 
         <div style={{ width: 1, height: 24, background: 'rgb(var(--line))' }} />
@@ -88,6 +93,7 @@ export function Topbar() {
       </div>
 
       {pickerOpen && <SignInAsPicker onClose={() => setPickerOpen(false)} />}
+      {notificationsOpen && <NotificationCenter onClose={() => setNotificationsOpen(false)} />}
     </header>
   );
 }

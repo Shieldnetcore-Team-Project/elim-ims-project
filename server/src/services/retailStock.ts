@@ -76,7 +76,9 @@ export function postIntake(params: { issuedBy: string; items: { itemId: string; 
       insertItem.run(id, it.itemId, it.quantity, it.unitCost);
       inventory.postTransaction({
         itemId: it.itemId, direction: 'OUT', quantity: it.quantity, unitCost: it.unitCost,
-        sourceType: 'MATERIAL_ISSUE', sourceId: id, actor, note: `Issued to Retail on ${id}`,
+        sourceType: 'MATERIAL_ISSUE', sourceId: id, actor,
+        fromLocation: 'Finished Goods Warehouse', toLocation: 'Retail Stock',
+        note: `Issued to Retail on ${id}`,
       });
       postRetailTransaction({ itemId: it.itemId, direction: 'IN', quantity: it.quantity, unitCost: it.unitCost, sourceType: 'INTAKE', sourceId: id, actor });
     }
@@ -138,13 +140,15 @@ export function dailyReport(date?: string): DailyReport {
     GROUP BY t.item_id ORDER BY i.name
   `).all(d) as unknown as DailyReportLine[];
 
+  // PAID only — excludes a CANCELLED (reversed/voided) retail sale, which
+  // never had its receipt or stock deduction reinstated.
   const salesByCategoryAndPayment = db.prepare(`
     SELECT i.category AS category, COALESCE(r.method, 'Unspecified') AS payment_method, SUM(si.line_total) AS amount
     FROM sales s
     JOIN sales_items si ON si.sales_id = s.id
     JOIN items i ON i.id = si.item_id
     LEFT JOIN receipts r ON r.reference_type = 'sales' AND r.reference_id = s.id
-    WHERE s.channel = 'POS' AND date(s.created_at) = ?
+    WHERE s.channel = 'POS' AND s.status = 'PAID' AND date(s.created_at) = ?
     GROUP BY i.category, payment_method ORDER BY i.category, payment_method
   `).all(d) as unknown as CategoryPaymentLine[];
 

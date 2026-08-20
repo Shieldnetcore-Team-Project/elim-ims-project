@@ -93,6 +93,7 @@ export function inspectReturn(returnId: string, params: {
         inventory.postTransaction({
           itemId: line.itemId, direction: 'IN', quantity: line.acceptedQuantity,
           sourceType: 'SALES', sourceId: returnId, actor,
+          fromLocation: 'Customer', toLocation: 'Finished Goods Warehouse',
           note: `Accepted at inspection of return ${returnId}`,
         });
       }

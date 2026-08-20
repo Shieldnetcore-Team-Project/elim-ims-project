@@ -19,6 +19,7 @@ export interface SalesOrder {
   total_amount: number; created_at: string; branch_id: string | null; manual_invoice_number: string | null;
 }
 export interface SalesItem { id: number; sales_id: string; item_id: string; quantity: number; unit_price: number; line_total: number }
+export interface SalesPayment { id: number; sales_id: string; method: PosPaymentMethod; amount: number }
 
 export function listCustomers(): Customer[] {
   return db.prepare('SELECT * FROM customers ORDER BY name').all() as unknown as Customer[];
@@ -32,7 +33,9 @@ export function createCustomer(c: Customer): void {
 
 /** One row per customer with any Retail (POS) purchase history, live-aggregated —
  *  drives the Retail "Customers" tab and its follow-up flag. needs_follow_up mirrors
- *  the same threshold routes/pendingCounts.ts uses for the sidebar badge. */
+ *  the same threshold routes/pendingCounts.ts uses for the sidebar badge.
+ *  Only PAID sales count — a CANCELLED retail sale (a reversed/voided
+ *  transaction) shouldn't reset a customer's follow-up clock or inflate spend. */
 export interface RetailCustomerActivity {
   id: string; name: string; location: string | null; phone: string | null;
   purchase_count: number; total_spent: number; last_purchase_at: string; needs_follow_up: 0 | 1;
@@ -44,16 +47,19 @@ export function retailCustomerActivity(): RetailCustomerActivity[] {
       MAX(s.created_at) AS last_purchase_at,
       CASE WHEN julianday('now') - julianday(MAX(s.created_at)) > ? THEN 1 ELSE 0 END AS needs_follow_up
     FROM customers c
-    JOIN sales s ON s.customer_id = c.id AND s.channel = 'POS'
+    JOIN sales s ON s.customer_id = c.id AND s.channel = 'POS' AND s.status = 'PAID'
     GROUP BY c.id
     ORDER BY last_purchase_at DESC
   `).all(RETAIL_FOLLOW_UP_DAYS) as unknown as RetailCustomerActivity[];
 }
 
 /** Three customer categories, three different workflows:
- *  - RETAIL: always cash, settles immediately. Every Retail (POS) sale must
- *    carry a real customerId now (Module 20) — createOrder rejects a POS
- *    sale with none, so purchase history/follow-up can actually be tracked.
+ *  - RETAIL (POS channel): always cash, and posts immediately — select
+ *    product, sell, receive payment, stock and the ledger update in the same
+ *    call, no approval step (Section 9: "Retail sales should support
+ *    immediate transaction posting"). Every Retail (POS) sale must still
+ *    carry a real customerId (Module 20) — createOrder rejects a POS sale
+ *    with none, so purchase history/follow-up can actually be tracked.
  *  - MARKETER: sells on credit exactly like today's INVOICE flow, no gate.
  *  - DISTRIBUTOR on CREDIT terms: requires approval before anything posts to
  *    inventory or the ledger (see approveCreditSale/rejectCreditSale below) —
@@ -126,6 +132,14 @@ export function createOrder(params: {
   const insertItem = db.prepare('INSERT INTO sales_items (sales_id, item_id, quantity, unit_price, line_total) VALUES (?,?,?,?,?)');
   for (const it of params.items) insertItem.run(id, it.itemId, it.quantity, it.unitPrice, it.quantity * it.unitPrice);
 
+  // Payment lines (Module 13) — kept as an audit trail of exactly what the
+  // cashier collected regardless of channel, even though POS's own receipt
+  // below is what actually settles the ledger.
+  if (params.payments) {
+    const insertPayment = db.prepare('INSERT INTO sales_payments (sales_id, method, amount) VALUES (?,?,?)');
+    for (const p of params.payments) insertPayment.run(id, p.method, p.amount);
+  }
+
   if (requiresApproval) {
     // Deferred: what was ordered is recorded (sales_items above), but nothing
     // touches inventory_transactions or the ledger until approveCreditSale —
@@ -134,13 +148,18 @@ export function createOrder(params: {
     return getOrder(id)!;
   }
 
+  // POS sells straight out of Retail's own bounded stock (see
+  // services/retailStock.ts); every other channel posts against the central
+  // Finished Goods Warehouse ledger.
   for (const it of params.items) {
     if (params.channel === 'POS') {
       retailStock.postSale({ itemId: it.itemId, quantity: it.quantity, unitCost: it.unitPrice, salesId: id, actor });
     } else {
       inventory.postTransaction({
         itemId: it.itemId, direction: 'OUT', quantity: it.quantity, unitCost: it.unitPrice,
-        sourceType: 'SALES', sourceId: id, actor, note: `Sold on ${id}`,
+        sourceType: 'SALES', sourceId: id, actor,
+        fromLocation: 'Finished Goods Warehouse', toLocation: 'Customer',
+        note: `Sold on ${id}`,
       });
     }
   }
@@ -157,7 +176,7 @@ export function createOrder(params: {
     } else {
       finance.recordReceipt({
         receivedFrom: params.customerId ?? 'Walk-in customer', amount: total,
-        method: params.channel === 'POS' ? 'POS card' : paymentTerms === 'ADVANCE' ? 'Advance payment' : 'Cash',
+        method: params.channel === 'POS' ? 'Cash' : paymentTerms === 'ADVANCE' ? 'Advance payment' : 'Cash',
         referenceType: 'sales', referenceId: id, actor,
       });
     }
@@ -166,9 +185,11 @@ export function createOrder(params: {
   return getOrder(id)!;
 }
 
-/** Posts the inventory/ledger effect createOrder deferred for a Distributor
- *  credit order, then hands it back into the normal PENDING lifecycle —
- *  mirrors receiving.inspectGoodsReceived's transaction shape. */
+/** Posts the inventory/ledger effect createOrder deferred for an
+ *  AWAITING_APPROVAL Distributor credit order, then hands it back into the
+ *  normal PENDING lifecycle — mirrors receiving.inspectGoodsReceived's
+ *  transaction shape. Retail (POS) never reaches AWAITING_APPROVAL (Section
+ *  9: posts immediately), so this is Distributor-credit-only. */
 export function approveCreditSale(salesId: string, actor = 'System Administrator'): SalesOrder {
   const order = getOrder(salesId);
   if (!order) throw new Error(`Unknown sales order ${salesId}`);
@@ -179,7 +200,9 @@ export function approveCreditSale(salesId: string, actor = 'System Administrator
     for (const it of listItemsFor(salesId)) {
       inventory.postTransaction({
         itemId: it.item_id, direction: 'OUT', quantity: it.quantity, unitCost: it.unit_price,
-        sourceType: 'SALES', sourceId: salesId, actor, note: `Sold on ${salesId} (credit approved)`,
+        sourceType: 'SALES', sourceId: salesId, actor,
+        fromLocation: 'Finished Goods Warehouse', toLocation: 'Customer',
+        note: `Sold on ${salesId} (credit approved)`,
       });
     }
     finance.postLedger({ account: 'Accounts receivable', debit: order.total_amount, credit: 0, referenceType: 'sales', referenceId: salesId, description: `Sales order ${salesId}`, actor, customerId: order.customer_id ?? undefined, branchId: order.branch_id ?? undefined });
@@ -223,7 +246,9 @@ export function reverseOrder(salesId: string, params: { reason: string; actor: s
       } else {
         inventory.postTransaction({
           itemId: it.item_id, direction: 'IN', quantity: it.quantity, unitCost: it.unit_price,
-          sourceType: 'SALES', sourceId: salesId, actor: params.actor, note: `Reversal of ${salesId}`,
+          sourceType: 'SALES', sourceId: salesId, actor: params.actor,
+          fromLocation: 'Customer', toLocation: 'Finished Goods Warehouse',
+          note: `Reversal of ${salesId}`,
         });
       }
     }
@@ -268,6 +293,10 @@ export function getOrder(id: string): SalesOrder | undefined {
 
 export function listItemsFor(salesId: string): SalesItem[] {
   return db.prepare('SELECT * FROM sales_items WHERE sales_id = ?').all(salesId) as unknown as SalesItem[];
+}
+
+export function listPaymentsFor(salesId: string): SalesPayment[] {
+  return db.prepare('SELECT * FROM sales_payments WHERE sales_id = ?').all(salesId) as unknown as SalesPayment[];
 }
 
 export function listOrders(channel?: 'INVOICE' | 'POS') {

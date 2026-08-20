@@ -20,7 +20,7 @@ export function kpis(): KpiMetric[] {
 
   const awaiting = (db.prepare(`
     SELECT COUNT(*) AS v FROM sales
-    WHERE channel = 'INVOICE' AND status IN ('PENDING','PROCESSING') AND id NOT IN (SELECT sales_id FROM delivery_runs)
+    WHERE channel = 'INVOICE' AND status IN ('PENDING','PROCESSING') AND id NOT IN (SELECT sales_id FROM delivery_runs WHERE status NOT IN ('CANCELLED','RETURNED'))
   `).get() as { v: number }).v;
 
   const revenue = (db.prepare(`SELECT COALESCE(SUM(total_amount), 0) AS v FROM sales WHERE created_at >= datetime('now', '-7 days')`).get() as { v: number }).v;

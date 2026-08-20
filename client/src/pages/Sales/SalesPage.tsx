@@ -13,6 +13,7 @@ import { Icon } from '../../components/ui/Icon';
 import { PrintHeader } from '../../components/ui/PrintHeader';
 import { DeleteButton } from '../../components/ui/DeleteButton';
 import { ReverseButton } from '../../components/ui/ReverseButton';
+import { DispatchButton } from '../../components/ui/DispatchButton';
 import { NumberInput } from '../../components/ui/NumberInput';
 import { usePendingDeletions } from '../../lib/pendingDeletions';
 import { useReversedEntities } from '../../lib/reversedEntities';
@@ -21,6 +22,12 @@ import { refreshPendingCounts, usePendingCounts } from '../../lib/pendingCounts'
 import { CustomersTab } from './CustomersTab';
 import { DistributorBranchesTab } from './DistributorBranchesTab';
 import { PosReceiptModal } from './PosReceiptModal';
+import { PosInvoiceModal } from './PosInvoiceModal';
+import { RetailExchangeModal } from './RetailExchangeModal';
+import { RetailExchangesTab } from './RetailExchangesTab';
+import { MarketerReconciliationTab } from './MarketerReconciliationTab';
+import { CreditSalesTab } from './CreditSalesTab';
+import { MarketerPerformanceTab } from './MarketerPerformanceTab';
 import { RetailIntakeTab } from './RetailIntakeTab';
 import { RetailCustomersTab } from './RetailCustomersTab';
 import { RetailReconciliationTab } from './RetailReconciliationTab';
@@ -50,6 +57,10 @@ interface MarketerReturn {
 }
 interface MarketerReturnItem { item_id: string; item_name: string; quantity: number; unit_price: number; verified_quantity: number | null }
 interface PendingVerification { item_id: string; item_name: string; pending_quantity: number }
+interface StockAssignment {
+  id: string; marketer_id: string; issued_by: string | null; status: 'ASSIGNED' | 'VERIFIED';
+  verified_by: string | null; verified_at: string | null; issued_at: string;
+}
 interface ReturnableItem { id: string; name: string; uom: string }
 interface CustodyBalance { expected: number; returned: number; outstanding: number; explainedMissing: number; unexplainedMissing: number }
 interface MarketerWiseRow {
@@ -61,7 +72,7 @@ interface MovementRow { period: string; returned: number; sold_with_bottle: numb
 
 const COPY: Record<'INVOICE' | 'POS', { title: string; subtitle: string; newLabel: string; empty: string }> = {
   INVOICE: { title: 'Sales', subtitle: 'Customer orders invoiced for delivery — Marketers on credit, Distributors cash/advance/credit-with-approval.', newLabel: 'New sales order', empty: 'No sales orders yet' },
-  POS: { title: 'Retail', subtitle: 'Walk-in and depot till transactions — cash, paid immediately, every sale tied to a customer.', newLabel: 'New POS sale', empty: 'No till transactions yet' },
+  POS: { title: 'Retail', subtitle: 'Walk-in and depot till transactions — cash, every sale tied to a customer, posts to stock and the ledger immediately.', newLabel: 'New retail sale', empty: 'No till transactions yet' },
 };
 
 export default function SalesPage({ channel }: { channel: 'INVOICE' | 'POS' }) {
@@ -77,6 +88,8 @@ export default function SalesPage({ channel }: { channel: 'INVOICE' | 'POS' }) {
   const [mastersReloadKey, setMastersReloadKey] = useState(0);
   const [query, setQuery] = useState('');
   const [receiptFor, setReceiptFor] = useState<string | null>(null);
+  const [invoiceFor, setInvoiceFor] = useState<string | null>(null);
+  const [exchangeFor, setExchangeFor] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [newCustomerOpen, setNewCustomerOpen] = useState(false);
   const [newReturnOpen, setNewReturnOpen] = useState(false);
@@ -126,17 +139,12 @@ export default function SalesPage({ channel }: { channel: 'INVOICE' | 'POS' }) {
     refresh();
   }
 
-  const kpis = useMemo(() => {
-    const base = [
-      { key: 'orders', label: `Total ${channel === 'POS' ? 'transactions' : 'orders'}`, icon: channel === 'POS' ? 'wallet' as const : 'cart' as const, value: number(orders.length) },
-      { key: 'revenue', label: 'Revenue', icon: 'chart' as const, value: naira(orders.reduce((s, o) => s + o.total_amount, 0)) },
-      { key: 'pending', label: channel === 'POS' ? 'Paid' : 'Pending', icon: 'clock' as const, value: number(orders.filter(o => o.status === (channel === 'POS' ? 'PAID' : 'PENDING')).length) },
-    ];
-    if (channel === 'INVOICE') {
-      base.push({ key: 'approval', label: 'Awaiting approval', icon: 'clock' as const, value: number(orders.filter(o => o.status === 'AWAITING_APPROVAL').length) });
-    }
-    return base;
-  }, [orders, channel]);
+  const kpis = useMemo(() => [
+    { key: 'orders', label: `Total ${channel === 'POS' ? 'transactions' : 'orders'}`, icon: channel === 'POS' ? 'wallet' as const : 'cart' as const, value: number(orders.length) },
+    { key: 'revenue', label: 'Revenue', icon: 'chart' as const, value: naira(orders.reduce((s, o) => s + o.total_amount, 0)) },
+    { key: 'pending', label: channel === 'POS' ? 'Paid' : 'Pending', icon: 'clock' as const, value: number(orders.filter(o => o.status === (channel === 'POS' ? 'PAID' : 'PENDING')).length) },
+    { key: 'approval', label: 'Awaiting approval', icon: 'clock' as const, value: number(orders.filter(o => o.status === 'AWAITING_APPROVAL').length) },
+  ], [orders, channel]);
 
   const ordersTable = (
     <>
@@ -171,7 +179,19 @@ export default function SalesPage({ channel }: { channel: 'INVOICE' | 'POS' }) {
                         <button className="btn btn-secondary btn-sm" onClick={() => rejectCredit(o.id)}>Reject</button>
                       </div>
                     )}
-                    {channel === 'POS' && <button className="btn btn-secondary btn-sm" onClick={() => setReceiptFor(o.id)}>Receipt</button>}
+                    {channel === 'POS' && o.status === 'PAID' && (
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button className="btn btn-secondary btn-sm" onClick={() => setReceiptFor(o.id)}>Receipt</button>
+                        <button className="btn btn-secondary btn-sm" onClick={() => setInvoiceFor(o.id)}>Invoice</button>
+                        <button className="btn btn-secondary btn-sm" onClick={() => setExchangeFor(o.id)}>Return/Exchange</button>
+                      </div>
+                    )}
+                    {channel === 'INVOICE' && o.status === 'PENDING' && (
+                      <DispatchButton
+                        salesId={o.id} customerName={o.customer_name} customerLocation={o.customer_location}
+                        onDispatched={() => { refresh(); ui.toast(`${o.id} dispatched`); }}
+                      />
+                    )}
                   </td>
                   <td className="no-print">
                     {o.status === 'AWAITING_APPROVAL' ? (
@@ -233,14 +253,18 @@ export default function SalesPage({ channel }: { channel: 'INVOICE' | 'POS' }) {
             ),
           },
           { key: 'marketer-stock', label: 'Marketer stock', badge: marketerPendingCount, content: <MarketerStockTab customers={customers} items={items} /> },
+          { key: 'marketer-reconciliation', label: 'Reconciliation', content: <MarketerReconciliationTab reloadKey={reloadKey} /> },
+          { key: 'credit-sales', label: 'Credit sales', content: <CreditSalesTab reloadKey={reloadKey} /> },
+          { key: 'marketer-performance', label: 'Performance & commission', content: <MarketerPerformanceTab reloadKey={reloadKey} /> },
           { key: 'bottle-tracking', label: 'Bottle tracking', content: <BottleTrackingTab customers={customers} /> },
           { key: 'customers', label: 'Customers', content: <CustomersTab customers={customers} /> },
           { key: 'distributor-branches', label: 'Distributor branches', content: <DistributorBranchesTab customers={customers} /> },
         ]} />
       ) : (
         <Tabs tabs={[
-          { key: 'orders', label: 'Orders', content: ordersTable },
+          { key: 'orders', label: 'Orders', badge: orders.filter(o => o.status === 'AWAITING_APPROVAL').length, content: ordersTable },
           { key: 'retail-stock', label: 'Retail stock', content: <RetailIntakeTab items={items} /> },
+          { key: 'returns-exchanges', label: 'Returns & exchanges', content: <RetailExchangesTab reloadKey={reloadKey} /> },
           { key: 'customers', label: 'Customers', badge: globalPendingCounts.pos, content: <RetailCustomersTab reloadKey={reloadKey} /> },
           { key: 'reconciliation', label: 'Daily reconciliation', content: <RetailReconciliationTab /> },
         ]} />
@@ -275,6 +299,22 @@ export default function SalesPage({ channel }: { channel: 'INVOICE' | 'POS' }) {
         />
       )}
       {receiptFor && <PosReceiptModal salesId={receiptFor} onClose={() => setReceiptFor(null)} />}
+      {invoiceFor && (
+        <PosInvoiceModal
+          salesId={invoiceFor}
+          customerName={orders.find(o => o.id === invoiceFor)?.customer_name ?? 'Walk-in customer'}
+          customerLocation={orders.find(o => o.id === invoiceFor)?.customer_location ?? null}
+          onClose={() => setInvoiceFor(null)}
+        />
+      )}
+      {exchangeFor && (
+        <RetailExchangeModal
+          salesId={exchangeFor}
+          customerName={orders.find(o => o.id === exchangeFor)?.customer_name ?? 'Walk-in customer'}
+          onClose={() => setExchangeFor(null)}
+          onCompleted={() => { setExchangeFor(null); refresh(); ui.toast('Return/exchange recorded'); }}
+        />
+      )}
     </>
   );
 }
@@ -342,7 +382,7 @@ function NewOrder({ channel, customers, items, onClose, onCreated }: {
   }
 
   return (
-    <Modal title={channel === 'POS' ? 'New POS sale' : 'New sales order'} onClose={onClose} onSubmit={submit} submitLabel="Create" saving={saving} error={error} wide>
+    <Modal title={channel === 'POS' ? 'New retail sale' : 'New sales order'} onClose={onClose} onSubmit={submit} submitLabel="Create" saving={saving} error={error} wide>
       <div className="form-grid">
         <div className="form-row">
           <label htmlFor="so-customer">Customer</label>
@@ -407,10 +447,11 @@ function NewOrder({ channel, customers, items, onClose, onCreated }: {
               {naira(payTotal)} of {naira(orderTotal)} allocated{Math.abs(payTotal - orderTotal) > 0.01 ? ' — must equal the order total' : ''}
             </p>
           ) : (
-            <p className="sub" style={{ marginTop: 4 }}>Paid in full via the method above ({naira(orderTotal)}) — marked paid immediately, a receipt is posted automatically.</p>
+            <p className="sub" style={{ marginTop: 4 }}>Collected in full via the method above ({naira(orderTotal)}).</p>
           )}
         </div>
       )}
+      {channel === 'POS' && <p className="sub">Posts immediately — stock and the ledger update as soon as this sale is created.</p>}
       {isDistributor && paymentTerms === 'CREDIT' && <p className="sub">This will be created as Awaiting approval — nothing posts to inventory until it's approved.</p>}
     </Modal>
   );
@@ -587,11 +628,13 @@ function InspectReturn({ ret, onClose, onInspected }: { ret: SalesReturn; onClos
 
 function MarketerStockTab({ customers, items }: { customers: Customer[]; items: Item[] }) {
   const ui = useUi();
+  const { user } = useCurrentUser();
   const marketers = useMemo(() => customers.filter(c => c.customer_type === 'MARKETER'), [customers]);
   const [marketerId, setMarketerId] = useState('');
   const [balances, setBalances] = useState<MarketerBalance[]>([]);
   const [statement, setStatement] = useState<MarketerStatement | null>(null);
   const [pending, setPending] = useState<PendingVerification[]>([]);
+  const [assignments, setAssignments] = useState<StockAssignment[]>([]);
   const [returns, setReturns] = useState<MarketerReturn[]>([]);
   const [reloadKey, setReloadKey] = useState(0);
   const [issueOpen, setIssueOpen] = useState(false);
@@ -605,10 +648,11 @@ function MarketerStockTab({ customers, items }: { customers: Customer[]; items: 
   }, [marketers, marketerId]);
 
   useEffect(() => {
-    if (!marketerId) { setBalances([]); setStatement(null); setPending([]); return; }
+    if (!marketerId) { setBalances([]); setStatement(null); setPending([]); setAssignments([]); return; }
     api<MarketerBalance[]>(`/marketer-stock/${encodeURIComponent(marketerId)}/balances`).then(setBalances);
     api<MarketerStatement>(`/marketer-stock/${encodeURIComponent(marketerId)}/statement`).then(setStatement);
     api<PendingVerification[]>(`/marketer-stock/${encodeURIComponent(marketerId)}/pending-verification`).then(setPending);
+    api<StockAssignment[]>(`/marketer-stock/${encodeURIComponent(marketerId)}/assignments`).then(setAssignments);
   }, [marketerId, reloadKey]);
 
   useEffect(() => {
@@ -616,9 +660,41 @@ function MarketerStockTab({ customers, items }: { customers: Customer[]; items: 
   }, [reloadKey]);
 
   const marketer = marketers.find(m => m.id === marketerId) ?? null;
+  const unverifiedAssignments = assignments.filter(a => a.status === 'ASSIGNED');
+
+  async function confirmReceipt(assignmentId: string) {
+    try {
+      await apiPost(`/marketer-stock/assignments/${encodeURIComponent(assignmentId)}/verify`, { verifiedBy: user?.name ?? marketer?.name ?? 'Marketer' });
+      refresh();
+      ui.toast(`${assignmentId} confirmed received`);
+    } catch (err) { ui.toast(err instanceof Error ? err.message : 'Something went wrong'); }
+  }
 
   return (
     <>
+      {marketer && unverifiedAssignments.length > 0 && (
+        <Card
+          title={`Assigned to ${marketer.name} — awaiting confirmation`}
+          description="Posted by the warehouse and already physically out — but not yet this marketer's held stock until they confirm what arrived."
+        >
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Reference</th><th>Posted by</th><th>Date</th><th className="no-print">Action</th></tr></thead>
+              <tbody>
+                {unverifiedAssignments.map(a => (
+                  <tr key={a.id}>
+                    <td className="mono" style={{ fontSize: 12, color: 'rgb(var(--aqua-700))' }}>{a.id}</td>
+                    <td>{a.issued_by ?? '—'}</td>
+                    <td className="sub">{a.issued_at}</td>
+                    <td className="no-print"><button className="btn btn-primary btn-sm" onClick={() => confirmReceipt(a.id)}>Confirm receipt</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
       <Card title="Pending warehouse verification" description="A marketer's claimed return doesn't count as warehouse stock until it's been physically verified — sometimes goods never arrive.">
         <div className="table-wrap">
           <table>
@@ -697,7 +773,7 @@ function MarketerStockTab({ customers, items }: { customers: Customer[]; items: 
           <IssueMarketerStock
             marketers={marketers} items={items} defaultMarketerId={marketerId} pending={pending}
             onClose={() => setIssueOpen(false)}
-            onIssued={() => { setIssueOpen(false); refresh(); ui.toast('Stock issued to marketer'); }}
+            onIssued={() => { setIssueOpen(false); refresh(); ui.toast('Stock assigned — awaiting the marketer\'s confirmation'); }}
           />
         )}
         {returnOpen && marketer && (
@@ -769,7 +845,7 @@ function IssueMarketerStock({ marketers, items, defaultMarketerId, pending, onCl
   }
 
   return (
-    <Modal title="Issue stock to marketer" onClose={onClose} onSubmit={submit} submitLabel="Issue" saving={saving} error={error} wide>
+    <Modal title="Assign stock to marketer" onClose={onClose} onSubmit={submit} submitLabel="Assign" saving={saving} error={error} wide>
       <div className="form-grid">
         <div className="form-row">
           <label htmlFor="mkt-issue-marketer">Marketer</label>

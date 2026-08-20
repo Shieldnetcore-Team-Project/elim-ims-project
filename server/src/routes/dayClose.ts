@@ -8,6 +8,12 @@ dayCloseRouter.get('/check', safe((_req, res) => {
   res.json(dayClose.runDiscrepancyChecks());
 }));
 
+// Section 22: the Business Reconciliation dashboard — every check above,
+// plus categories that inform without blocking the close-day gate.
+dayCloseRouter.get('/attention-list', safe((_req, res) => {
+  res.json(dayClose.attentionList());
+}));
+
 dayCloseRouter.get('/history', safe((_req, res) => {
   res.json(dayClose.listDayCloses());
 }));

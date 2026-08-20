@@ -9,6 +9,6 @@ posReceiptsRouter.get('/:salesId', safe((req, res) => {
 }));
 
 posReceiptsRouter.post('/:salesId/print', safe((req, res) => {
-  const { actor, overrideUserId, reason } = req.body ?? {};
-  res.status(201).json(posReceipts.recordPrint({ salesId: req.params.salesId, actor: actor ?? 'System Administrator', overrideUserId, reason }));
+  const { actor, documentType, overrideUserId, reason } = req.body ?? {};
+  res.status(201).json(posReceipts.recordPrint({ salesId: req.params.salesId, actor: actor ?? 'System Administrator', documentType, overrideUserId, reason }));
 }));

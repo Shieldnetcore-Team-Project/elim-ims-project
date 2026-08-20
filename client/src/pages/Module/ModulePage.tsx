@@ -26,7 +26,21 @@ import { NotFoundPage } from '../NotFound';
 const PAGE_SIZE = 8;
 
 export function ModulePage({ moduleKey, embedded }: { moduleKey: string; embedded?: boolean }) {
-  const cfg = moduleByKey(moduleKey);
+  const baseCfg = moduleByKey(moduleKey);
+
+  // Section 25: employee status values are configurable (Settings -> "Employee
+  // status options"), not the static fallback list baked into moduleConfig.ts —
+  // fetched once per module key and layered on top of the shared cfg object
+  // rather than touching FilterBar/RecordForm/DataTable, none of which need to
+  // know this one module's options are dynamic.
+  const [hrStatusOptions, setHrStatusOptions] = useState<{ value: string; label: string }[] | null>(null);
+  useEffect(() => {
+    if (moduleKey !== 'hr') { setHrStatusOptions(null); return; }
+    api<{ value: string; label: string }[]>('/masters/employee-statuses').then(setHrStatusOptions);
+  }, [moduleKey]);
+  const cfg = baseCfg && moduleKey === 'hr' && hrStatusOptions && hrStatusOptions.length > 0
+    ? { ...baseCfg, statusOptions: hrStatusOptions }
+    : baseCfg;
 
   const [kpis, setKpis] = useState<KpiMetric[]>([]);
   const [data, setData] = useState<Paginated<ModuleRow> | null>(null);

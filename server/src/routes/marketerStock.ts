@@ -17,6 +17,29 @@ marketerStockRouter.get('/:marketerId/pending-verification', safe((req, res) => 
   res.json(marketerStock.pendingVerification(req.params.marketerId));
 }));
 
+marketerStockRouter.get('/:marketerId/pending-assignments', safe((req, res) => {
+  res.json(marketerStock.pendingAssignments(req.params.marketerId));
+}));
+
+marketerStockRouter.get('/:marketerId/assignments', safe((req, res) => {
+  res.json(marketerStock.listAssignments(req.params.marketerId));
+}));
+
+marketerStockRouter.get('/assignments/:id', safe((req, res) => {
+  const a = marketerStock.getAssignment(req.params.id);
+  if (!a) return res.status(404).json({ error: 'Not found' });
+  res.json({ ...a, items: marketerStock.listAssignmentItems(req.params.id) });
+}));
+
+marketerStockRouter.post('/assignments/:id/verify', safe((req, res) => {
+  const { verifiedBy, actor } = req.body ?? {};
+  if (!verifiedBy) {
+    res.status(400).json({ error: 'verifiedBy is required' });
+    return;
+  }
+  res.json(marketerStock.verifyAssignment(req.params.id, { verifiedBy, actor }));
+}));
+
 marketerStockRouter.get('/returns', safe((_req, res) => {
   res.json(marketerStock.listReturns());
 }));

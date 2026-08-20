@@ -18,11 +18,17 @@ import * as salesReturns from '../services/salesReturns.js';
 import * as fleet from '../services/fleet.js';
 import * as finance from '../services/finance.js';
 import * as marketerStock from '../services/marketerStock.js';
+import * as retailStock from '../services/retailStock.js';
 import * as dispenserBottles from '../services/dispenserBottles.js';
 import * as emptyBottleManagement from '../services/emptyBottleManagement.js';
 import * as marketerCustomers from '../services/marketerCustomers.js';
 import * as distributorBranches from '../services/distributorBranches.js';
 import * as peripheral from '../services/peripheral.js';
+import * as payroll from '../services/payroll.js';
+import * as assets from '../services/assets.js';
+import * as maintenance from '../services/maintenance.js';
+import * as fuelRecords from '../services/fuelRecords.js';
+import * as vehicleDocuments from '../services/vehicleDocuments.js';
 
 const rng = mulberry32(20260727);
 
@@ -47,6 +53,10 @@ function seedMasters() {
       type: 'FINISHED_GOOD', uom: 'case', reorder_point: int(rng, 100, 400), unit_cost: int(rng, 800, 4200),
     });
   });
+  // migrate.ts backfills is_returnable_asset on the 20L Dispenser for existing
+  // installs, but that runs before this item exists on a fresh one — flag it
+  // here too so dispenserBottles' custody tracking works from a clean DB.
+  db.prepare(`UPDATE items SET is_returnable_asset = 1 WHERE name = '20L Dispenser'`).run();
 
   for (let i = 0; i < 5; i++) {
     procurement.createSupplier({ id: `SUP-${String(i + 1).padStart(2, '0')}`, name: businessName(rng), location: pick(rng, LOCATIONS) });
@@ -58,7 +68,25 @@ function seedMasters() {
     });
   }
   const drivers = ['Abe Ojuma', 'Samuel Oke', 'Bimpe Musa', 'Akingba Musa', 'Samiolu Agbo'];
-  drivers.forEach((driver, i) => fleet.createVehicle({ id: `FLT-${String(i + 1).padStart(2, '0')}`, driver, status: 'ACTIVE', odometer: `${int(rng, 20000, 140000).toLocaleString('en-NG')} km` }));
+  const vehicleTypes: [string, 'COMMERCIAL' | 'PRIVATE'][] = [
+    ['Truck', 'COMMERCIAL'], ['Truck', 'COMMERCIAL'], ['Van', 'COMMERCIAL'], ['Van', 'COMMERCIAL'], ['Sedan', 'PRIVATE'],
+  ];
+  drivers.forEach((driver, i) => {
+    const [vehicleType, category] = vehicleTypes[i];
+    const vehicle = fleet.createVehicle({
+      id: `FLT-${String(i + 1).padStart(2, '0')}`, driver, status: 'ACTIVE', odometer: `${int(rng, 20000, 140000).toLocaleString('en-NG')} km`,
+      plateNumber: `ABJ-${100 + i}-KJA`, vehicleType, category, acquisitionDate: `202${int(rng, 2, 5)}-0${int(rng, 1, 9)}-15`,
+    });
+    for (const docType of vehicleDocuments.documentTypesFor(category)) {
+      // Most documents valid for a year; one per vehicle deliberately expires soon to exercise the notification center on a fresh install.
+      const expiryDate = i === 0 && docType === vehicleDocuments.documentTypesFor(category)[0]
+        ? new Date(Date.now() + 5 * 86400000).toISOString().slice(0, 10)
+        : new Date(Date.now() + int(rng, 60, 300) * 86400000).toISOString().slice(0, 10);
+      vehicleDocuments.addDocument({ vehicleId: vehicle.id, documentType: docType, documentNumber: `${docType.slice(0, 3).toUpperCase()}-${1000 + i}`, issueDate: '2026-01-15', expiryDate, actor: 'System Administrator' });
+    }
+    fuelRecords.recordFuel({ vehicleId: vehicle.id, driver, department: 'Distribution', fuelType: 'Diesel', quantity: int(rng, 30, 80), unitCost: 950, odometer: int(rng, 20000, 140000), vendor: 'NNPC Idu', actor: 'System Administrator' });
+    maintenance.recordExpense({ refType: 'VEHICLE', refId: vehicle.id, category: 'Tyres', vendor: 'AutoCare Ltd', amount: int(rng, 15000, 60000), performedBy: 'Fleet Mechanic', approvedBy: 'Fleet Manager', actor: 'System Administrator' });
+  });
 }
 
 const ITEM_IDS = RAW_MATERIALS.map((_, i) => `RM-${String(i + 1).padStart(2, '0')}`);
@@ -70,9 +98,18 @@ const VEHICLE_IDS = Array.from({ length: 5 }, (_, i) => `FLT-${String(i + 1).pad
 /** Procurement → Receiving → Quality Control → Inventory */
 function seedProcurementChain() {
   for (let i = 0; i < 16; i++) {
+    // Distinct items per line — a PO listing the same item twice would collapse
+    // to one line by the time it's inspected (receiving.ts groups GRN lines by
+    // item_id), so picking without replacement keeps this seed data coherent.
+    const lineCount = int(rng, 1, 3);
+    const lineItems: string[] = [];
+    while (lineItems.length < lineCount) {
+      const candidate = pick(rng, ITEM_IDS);
+      if (!lineItems.includes(candidate)) lineItems.push(candidate);
+    }
     const po = procurement.createPurchaseOrder({
       supplierId: pick(rng, SUPPLIER_IDS), requestedBy: fullName(rng),
-      items: Array.from({ length: int(rng, 1, 3) }, () => ({ itemId: pick(rng, ITEM_IDS), quantity: int(rng, 100, 1200), unitPrice: int(rng, 150, 4500) })),
+      items: lineItems.map(itemId => ({ itemId, quantity: int(rng, 100, 1200), unitPrice: int(rng, 150, 4500) })),
     });
 
     const roll = rng();
@@ -169,16 +206,26 @@ function seedSalesAndFleet() {
   const reps = ['Tunde Bakare', 'Grace Effiong', 'Ifeanyi Ude', 'Halima Oke'];
   const orders: { id: string; channel: string; status: string }[] = [];
 
+  // POS sells out of Retail's own bounded stock, not the central warehouse
+  // ledger (see services/retailStock.ts) — an intake has to move stock across
+  // first, same as a real Retail department receiving from the warehouse.
+  const retailIntakeItems = FG_IDS
+    .map(itemId => ({ itemId, quantity: Math.floor(inventory.getBalance(itemId) * 0.3), unitCost: inventory.getItem(itemId)?.unit_cost ?? 0 }))
+    .filter(it => it.quantity > 0);
+  if (retailIntakeItems.length > 0) {
+    retailStock.postIntake({ issuedBy: 'Warehouse Manager', items: retailIntakeItems });
+  }
+
   for (let i = 0; i < 22; i++) {
     const channel = rng() < 0.7 ? 'INVOICE' : 'POS';
     const itemId = pick(rng, FG_IDS);
-    const available = Math.floor(inventory.getBalance(itemId));
+    const available = Math.floor(channel === 'POS' ? retailStock.getBalance(itemId) : inventory.getBalance(itemId));
     if (available < 5) continue;
     const quantity = Math.min(available, int(rng, 5, 120));
 
     if (channel === 'POS') {
-      // Retail POS: about 40% true walk-ins with no customer profile at all.
-      const customerId = rng() < 0.6 ? pick(rng, CUSTOMER_IDS) : undefined;
+      // Every retail sale requires a real customer record (sales.createOrder rejects a POS sale without one).
+      const customerId = pick(rng, CUSTOMER_IDS);
       const unitPrice = int(rng, 800, 4200);
       const total = quantity * unitPrice;
       // Module 13: about 1 in 4 POS sales is a split payment (Cash+Transfer
@@ -217,12 +264,17 @@ function seedSalesAndFleet() {
     else if (roll < 0.85) sales.rejectCreditSale(pending.id);
   }
 
+  // Section 37: marking a delivery Delivered requires a real Sales manager
+  // (or System admin) userId — the same guaranteed Sales manager account
+  // seeded above for the receipt-reprint gate doubles as this one.
+  const salesManager = db.prepare(`SELECT id FROM users WHERE role = 'Sales manager' LIMIT 1`).get() as { id: string } | undefined;
+
   const invoiceOrders = orders.filter(o => o.channel === 'INVOICE');
   for (const order of invoiceOrders) {
     if (sales.getOrder(order.id)?.status !== 'PENDING') continue; // AWAITING_APPROVAL/CANCELLED can't dispatch
     if (rng() < 0.65) {
       const run = fleet.dispatchDelivery({ salesId: order.id, vehicleId: pick(rng, VEHICLE_IDS), driver: fullName(rng), route: pick(rng, LOCATIONS) });
-      if (rng() < 0.6) fleet.markDelivered(run.id);
+      if (salesManager && rng() < 0.6) fleet.markDelivered(run.id, { authorizedByUserId: salesManager.id, deliveredBy: run.driver ?? 'Driver' });
     }
   }
 
@@ -265,10 +317,11 @@ function seedSalesAndFleet() {
     if (available < 20) continue;
     const issueQty = Math.min(available, int(rng, 50, 120));
     const unitPrice = int(rng, 800, 4200);
-    marketerStock.issueStock({
+    const issue = marketerStock.issueStock({
       marketerId, issuedBy: pick(rng, reps), actor: 'System Administrator',
       items: [{ itemId, quantity: issueQty, unitPrice }],
     });
+    marketerStock.verifyAssignment(issue.id, { verifiedBy: pick(rng, reps), actor: 'System Administrator' });
 
     const returnQty = Math.round(issueQty * (0.05 + rng() * 0.1));
     if (returnQty > 0) {
@@ -297,10 +350,11 @@ function seedSalesAndFleet() {
     const available = Math.floor(inventory.getBalance(dispenserItemId));
     const issueQty = Math.min(available, 100);
     if (issueQty >= 20) {
-      marketerStock.issueStock({
+      const issue = marketerStock.issueStock({
         marketerId: dispenserMarketerId, issuedBy: pick(rng, reps), actor: 'System Administrator',
         items: [{ itemId: dispenserItemId, quantity: issueQty }],
       });
+      marketerStock.verifyAssignment(issue.id, { verifiedBy: pick(rng, reps), actor: 'System Administrator' });
       const returnQty = Math.round(issueQty * 0.9);
       const soldWithBottleQty = issueQty - returnQty;
       const soldWithBottle = soldWithBottleQty > 0
@@ -326,10 +380,11 @@ function seedSalesAndFleet() {
     const available = Math.floor(inventory.getBalance(itemId));
     if (available < 20) continue;
     const issueQty = Math.min(available, 30);
-    marketerStock.issueStock({
+    const issue = marketerStock.issueStock({
       marketerId, issuedBy: pick(rng, reps), actor: 'System Administrator',
       items: [{ itemId, quantity: issueQty }],
     });
+    marketerStock.verifyAssignment(issue.id, { verifiedBy: pick(rng, reps), actor: 'System Administrator' });
     const unitPrice = marketerStock.listBalances(marketerId).find(b => b.item_id === itemId)?.unit_price ?? 0;
 
     const creditCustomer = marketerCustomers.createCustomer({
@@ -429,13 +484,26 @@ function seedPeripherals() {
     if (row) employees.push({ id: row.id, name });
   }
 
-  for (let i = 0; i < 12; i++) {
+  // Two staff get an active loan and a compulsory savings plan, so Payroll's
+  // Loans/Savings tabs aren't empty on a fresh install, and their automatic
+  // deductions show up in the payroll runs seeded below.
+  payroll.createLoan({ employeeId: employees[0].id, principal: 100000, monthlyRepayment: 20000, repaymentSchedule: '5 months', actor: 'Finance officer' });
+  payroll.setSavingsPlan({ employeeId: employees[1].id, monthlyContribution: 5000, startDate: '2026-01-01', actor: 'Finance officer' });
+  payroll.setSavingsPlan({ employeeId: employees[2].id, monthlyContribution: 8000, startDate: '2026-01-01', actor: 'Finance officer' });
+
+  // One payroll run per employee (staffId+period must be unique) walked
+  // through a realistic mix of workflow stages — most disbursed, a few still
+  // mid-approval — so the Runs tab shows the full lifecycle on a fresh install.
+  const payrollRuns = employees.slice(0, 12).map((staff, i) => {
     const gross = int(rng, 120000, 650000);
-    const staff = pick(rng, employees);
-    peripheral.create('payroll', 'Finance officer', undefined, pick(rng, ['PAID', 'PAID', 'SCHEDULED', 'ON_HOLD']), {
-      staff_id: staff.id, staff_name: staff.name, period: pick(rng, ['Jun 2026', 'Jul 2026']), gross, net: Math.round(gross * 0.82),
-    });
-  }
+    const period = i % 2 === 0 ? '2026-06' : '2026-07';
+    return payroll.prepareRun({ staffId: staff.id, period, gross, preparedBy: 'HR Manager', actor: 'HR Manager' });
+  });
+  payrollRuns.forEach((run, i) => {
+    if (i < 8) payroll.reviewRun(run.id, { reviewedBy: 'Payroll Reviewer' });
+    if (i < 6) payroll.approveRun(run.id, { approvedBy: 'Chairman' });
+    if (i < 4) payroll.disburseRun(run.id, { disbursedBy: 'Accounts Officer' });
+  });
 
   const roles: [string, string, number, string, string][] = [
     ['System administrator', 'Full access to every module and setting', 2, 'Global', 'ACTIVE'],
@@ -484,13 +552,24 @@ function seedPeripherals() {
     });
   }
 
-  const equipment = ['RO membrane unit 2', 'UV steriliser 1', 'Ozone generator', 'Bottling line A', 'Bottling line B',
-    'Sachet sealer 3', 'Forklift FLT-04', 'Generator 500kVA', 'Air compressor 2', 'Boiler unit 1', 'Cold room 1', 'Palletiser 1'];
-  for (const eq of equipment) {
-    peripheral.create('assets', 'System Administrator', undefined, pick(rng, ['ACTIVE', 'ACTIVE', 'SCHEDULED', 'SUSPENDED']), {
-      equipment: eq, location: pick(rng, ['Treatment plant', 'Line A', 'Line B', 'Warehouse', 'Yard']),
-      last_service: 'Recently', next_due: 'Upcoming',
+  const equipment: [string, string][] = [
+    ['RO membrane unit 2', 'Machines'], ['UV steriliser 1', 'Machines'], ['Ozone generator', 'Generators'],
+    ['Bottling line A', 'Machines'], ['Bottling line B', 'Machines'], ['Sachet sealer 3', 'Machines'],
+    ['Forklift FLT-04', 'Equipment'], ['Generator 500kVA', 'Generators'], ['Air compressor 2', 'Equipment'],
+    ['Boiler unit 1', 'Equipment'], ['Cold room 1', 'Building'], ['Palletiser 1', 'Machines'],
+  ];
+  for (const [eq, category] of equipment) {
+    const asset = assets.createAsset({
+      name: eq, category, location: pick(rng, ['Treatment plant', 'Line A', 'Line B', 'Warehouse', 'Yard']),
+      assignedDepartment: pick(rng, DEPARTMENTS), serviceIntervalDays: pick(rng, [30, 60, 90, 180]), actor: 'System Administrator',
     });
+    const status = pick(rng, ['ACTIVE', 'ACTIVE', 'SCHEDULED', 'SUSPENDED']);
+    if (status !== 'ACTIVE') assets.updateAsset(asset.id, { status }, 'System Administrator');
+    if (pick(rng, [true, true, false])) {
+      const serviceDate = new Date(Date.now() - int(rng, 5, 60) * 86400000).toISOString().slice(0, 10);
+      const nextDue = new Date(Date.now() + int(rng, 5, 90) * 86400000).toISOString().slice(0, 10);
+      assets.recordService(asset.id, { serviceDate, nextDue });
+    }
   }
 
   const reportNames = ['Weekly production summary', 'Monthly revenue report', 'QC exceptions', 'Fleet utilisation',

@@ -6,14 +6,21 @@ import * as qualityControl from './qualityControl.js';
 import * as dispenserBottles from './dispenserBottles.js';
 import * as marketerCustomers from './marketerCustomers.js';
 import * as finance from './finance.js';
+import * as tillClose from './tillClose.js';
 
 export interface DiscrepancyRecord { id: string; detail: string }
 export interface DiscrepancyCheck { category: string; description: string; count: number; records: DiscrepancyRecord[] }
 export interface DiscrepancyReport { balanced: boolean; checks: DiscrepancyCheck[] }
+export interface AttentionCheck extends DiscrepancyCheck { blocking: boolean }
+export interface AttentionReport { balanced: boolean; checks: AttentionCheck[] }
 export interface DayClose { id: string; business_date: string; status: 'CLOSED'; checked_by: string | null; actor: string | null; closed_at: string }
 
 function check(category: string, description: string, records: DiscrepancyRecord[]): DiscrepancyCheck {
   return { category, description, count: records.length, records };
+}
+
+function attentionCheck(category: string, description: string, records: DiscrepancyRecord[], blocking: boolean): AttentionCheck {
+  return { ...check(category, description, records), blocking };
 }
 
 /** Every check reads current state, live — nothing is scoped to "today"
@@ -119,6 +126,63 @@ export function runDiscrepancyChecks(): DiscrepancyReport {
   ];
 
   return { balanced: checks.every(c => c.count === 0), checks };
+}
+
+/** Section 22: "what requires attention before we close the day?" — every
+ *  check runDiscrepancyChecks() already enforces as a hard gate on closing
+ *  (blocking: true), plus categories that are worth surfacing but
+ *  deliberately don't block the close-day gate itself (blocking: false) —
+ *  approvals and deliveries are normal, ongoing business-in-progress, not a
+ *  reconciliation failure, so requiring them at zero would make closing the
+ *  day impossible on any day with an order still moving through the
+ *  pipeline. Nothing here is stored; both halves are computed live, same as
+ *  runDiscrepancyChecks(). */
+export function attentionList(): AttentionReport {
+  const core = runDiscrepancyChecks();
+  const blockingChecks: AttentionCheck[] = core.checks.map(c => ({ ...c, blocking: true }));
+
+  const pendingApprovalPOs = db.prepare(`SELECT id, created_at FROM purchase_orders WHERE status = 'AWAITING_APPROVAL'`).all() as { id: string; created_at: string }[];
+  const pendingApprovalSales = db.prepare(`SELECT id, created_at FROM sales WHERE status = 'AWAITING_APPROVAL'`).all() as { id: string; created_at: string }[];
+  const pendingApprovalUsers = db.prepare(`SELECT id, name FROM users WHERE status = 'PENDING_APPROVAL'`).all() as { id: string; name: string }[];
+  const pendingDeletions = db.prepare(`SELECT id, entity_type, entity_label FROM deletion_requests WHERE status = 'PENDING'`).all() as { id: string; entity_type: string; entity_label: string | null }[];
+
+  const undeliveredPOs = db.prepare(`
+    SELECT po.id, s.name AS supplier_name FROM purchase_orders po JOIN suppliers s ON s.id = po.supplier_id WHERE po.status = 'APPROVED'
+  `).all() as { id: string; supplier_name: string }[];
+  const undeliveredRuns = db.prepare(`
+    SELECT id, sales_id, status FROM delivery_runs WHERE status IN ('DISPATCHED', 'ACTIVE')
+  `).all() as { id: string; sales_id: string; status: string }[];
+
+  // Always 0 today — nothing in this app currently posts a payment/receipt
+  // with any status other than the schema default 'CLEARED' — kept as a real
+  // check (not hard-coded to always pass) so it's meaningful the moment
+  // anything ever does introduce an uncleared/pending state.
+  const uncleared = db.prepare(`SELECT id, 'payment' AS kind FROM payments WHERE status != 'CLEARED' UNION ALL SELECT id, 'receipt' FROM receipts WHERE status != 'CLEARED'`).all() as { id: string; kind: string }[];
+
+  const businessDate = today();
+  const tillPending = tillClose.isTillClosed(undefined, businessDate) ? [] : [{ id: businessDate, detail: 'Retail Till not yet closed for today' }];
+
+  const companyWideAgedCustomers = finance.customerAgingReport().filter(r => r.d90plus > 0);
+
+  const informational: AttentionCheck[] = [
+    attentionCheck('Pending Approvals', 'Purchase orders, sales, user accounts and deletion requests awaiting a decision', [
+      ...pendingApprovalPOs.map(r => ({ id: r.id, detail: `purchase order, raised ${r.created_at}` })),
+      ...pendingApprovalSales.map(r => ({ id: r.id, detail: `sales order, raised ${r.created_at}` })),
+      ...pendingApprovalUsers.map(r => ({ id: r.id, detail: `user account, ${r.name}` })),
+      ...pendingDeletions.map(r => ({ id: r.id, detail: `deletion request, ${r.entity_type} ${r.entity_label ?? ''}`.trim() })),
+    ], false),
+    attentionCheck('Pending Deliveries', 'Approved purchase orders not yet received, and dispatched sales not yet delivered', [
+      ...undeliveredPOs.map(r => ({ id: r.id, detail: `approved, awaiting receipt from ${r.supplier_name}` })),
+      ...undeliveredRuns.map(r => ({ id: r.id, detail: `delivery for ${r.sales_id}, ${r.status.toLowerCase()}` })),
+    ], false),
+    attentionCheck('Pending Payments', 'Payments or receipts recorded but not yet cleared', uncleared.map(r => ({ id: r.id, detail: `${r.kind}, not cleared` })), false),
+    attentionCheck('Pending Till Close', "Today's till not yet closed", tillPending, false),
+    attentionCheck('Outstanding Customer Balances (company-wide)', 'Any customer’s Accounts receivable aged 90+ days, across every channel', companyWideAgedCustomers.map(r => ({
+      id: r.customerId, detail: `${r.customerName} (${r.customerType}), ₦${r.d90plus.toLocaleString('en-NG')} aged 90+ days`,
+    })), false),
+  ];
+
+  return { balanced: core.balanced, checks: [...blockingChecks, ...informational] };
 }
 
 export function listDayCloses(): DayClose[] {

@@ -47,3 +47,10 @@ financeRouter.get('/payables', (_req, res) => res.json(finance.payablesReport())
 financeRouter.get('/aging', (_req, res) => res.json(finance.agingReport()));
 financeRouter.get('/suppliers/:id/balance', (req, res) => res.json(finance.supplierBalance(req.params.id)));
 financeRouter.get('/suppliers/:id/statement', (req, res) => res.json(finance.supplierStatement(req.params.id)));
+financeRouter.get('/suppliers/:id/invoices', (req, res) => res.json(finance.supplierInvoices(req.params.id)));
+
+// Customer accounting — the mirror of the supplier routes above, Section 16/17.
+financeRouter.get('/receivables', (_req, res) => res.json(finance.receivablesReport()));
+financeRouter.get('/customer-aging', (_req, res) => res.json(finance.customerAgingReport()));
+financeRouter.get('/customers/:id/balance', (req, res) => res.json(finance.customerBalance(req.params.id)));
+financeRouter.get('/customers/:id/statement', (req, res) => res.json(finance.customerStatement(req.params.id)));

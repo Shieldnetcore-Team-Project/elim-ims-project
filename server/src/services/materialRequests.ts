@@ -42,10 +42,12 @@ export function approveAndIssue(id: string, actor = 'System Administrator'): Mat
     `INSERT INTO stock_movements (request_id, item_id, quantity, from_location, to_location, moved_by) VALUES (?,?,?,?,?,?)`,
   );
   for (const it of items) {
-    insertMovement.run(id, it.item_id, it.quantity, 'Warehouse', request.department ?? 'Production floor', actor);
+    insertMovement.run(id, it.item_id, it.quantity, 'Raw Material Store', request.department ?? 'Production Floor', actor);
     inventory.postTransaction({
       itemId: it.item_id, direction: 'OUT', quantity: it.quantity,
-      sourceType: 'MATERIAL_ISSUE', sourceId: id, actor, note: `Issued against material request ${id}`,
+      sourceType: 'MATERIAL_ISSUE', sourceId: id, actor,
+      fromLocation: 'Raw Material Store', toLocation: request.department ?? 'Production Floor',
+      note: `Issued against material request ${id}`,
     });
   }
   db.prepare(`UPDATE material_requests SET status = 'ISSUED' WHERE id = ?`).run(id);
@@ -66,7 +68,9 @@ export function reverseIssue(id: string, params: { reason: string; actor: string
     for (const it of listRequestItems(id)) {
       inventory.postTransaction({
         itemId: it.item_id, direction: 'IN', quantity: it.quantity,
-        sourceType: 'MATERIAL_ISSUE', sourceId: id, actor: params.actor, note: `Reversal of material request ${id}`,
+        sourceType: 'MATERIAL_ISSUE', sourceId: id, actor: params.actor,
+        fromLocation: request.department ?? 'Production Floor', toLocation: 'Raw Material Store',
+        note: `Reversal of material request ${id}`,
       });
     }
 

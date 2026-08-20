@@ -15,6 +15,8 @@ import FinancePage from './pages/Finance/FinancePage';
 import ControlPanelPage from './pages/ControlPanel/ControlPanelPage';
 import DeleteRequestsPage from './pages/DeleteRequests/DeleteRequestsPage';
 import DayClosePage from './pages/DayClose/DayClosePage';
+import PayrollPage from './pages/Payroll/PayrollPage';
+import AssetsPage from './pages/Assets/AssetsPage';
 
 export const router = createBrowserRouter([
   {
@@ -33,6 +35,8 @@ export const router = createBrowserRouter([
       { path: 'fleet', element: <FleetPage /> },
       { path: 'finance', element: <FinancePage /> },
       { path: 'day-close', element: <DayClosePage /> },
+      { path: 'payroll', element: <PayrollPage /> },
+      { path: 'assets', element: <AssetsPage /> },
       { path: 'control-panel', element: <ControlPanelPage /> },
       { path: 'delete-requests', element: <DeleteRequestsPage /> },
 

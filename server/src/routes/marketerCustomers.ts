@@ -43,6 +43,10 @@ marketerCustomersRouter.get('/reports/collections', safe((_req, res) => {
   res.json(marketerCustomers.collectionsReport());
 }));
 
+marketerCustomersRouter.get('/reports/credit-transactions', safe((_req, res) => {
+  res.json(marketerCustomers.creditTransactions());
+}));
+
 marketerCustomersRouter.put('/sales/:saleId/follow-up', safe((req, res) => {
   const { dueDate, collector, actor } = req.body ?? {};
   marketerCustomers.assignFollowUp(req.params.saleId, { dueDate, collector, actor });

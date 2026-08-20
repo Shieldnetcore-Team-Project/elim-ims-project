@@ -23,6 +23,8 @@ interface MaterialRequest { id: string; requested_by: string; department: string
 interface ProductionBatch {
   id: string; product_item_id: string; product_name: string; line: string; shift: string; operator: string;
   units_target: number; units_actual: number; status: string; qc_verdict: 'PASS' | 'FAIL' | null; packaged_units: number;
+  not_yet_packaged: number; packaging_status: 'NOT_STARTED' | 'PARTIAL' | 'COMPLETE';
+  rejected_quantity: number; wasted_quantity: number; closed_by: string | null; closed_at: string | null;
   started_at: string;
 }
 interface FinishedGood { id: string; item_name: string; batch_id: string; quantity: number; packaged_by: string | null; packaged_at: string }
@@ -49,6 +51,7 @@ export default function ProductionPage() {
   const [requestOpen, setRequestOpen] = useState(false);
   const [batchOpen, setBatchOpen] = useState(false);
   const [packageTarget, setPackageTarget] = useState<ProductionBatch | null>(null);
+  const [closeTarget, setCloseTarget] = useState<ProductionBatch | null>(null);
 
   const refresh = useCallback(() => { setReloadKey(k => k + 1); refreshPendingCounts(); }, []);
   const requestsPending = usePendingDeletions('material_requests', reloadKey);
@@ -141,7 +144,13 @@ export default function ProductionPage() {
             >
               <div className="table-wrap">
                 <table>
-                  <thead><tr><th>Batch</th><th>Product</th><th>Line / shift</th><th className="num">Units</th><th>QC</th><th className="num">Packaged</th><th>Started</th><th className="no-print" /></tr></thead>
+                  <thead>
+                    <tr>
+                      <th>Batch</th><th>Product</th><th>Line / shift</th><th className="num">Produced</th><th>QC</th>
+                      <th className="num">Packaged</th><th className="num">Not yet packaged</th><th className="num">Rejected</th><th className="num">Wasted</th>
+                      <th>Started</th><th>Closed</th><th className="no-print" />
+                    </tr>
+                  </thead>
                   <tbody>
                     {batches.map(b => (
                       <tr key={b.id}>
@@ -151,7 +160,17 @@ export default function ProductionPage() {
                         <td className="num tnum">{b.units_actual.toLocaleString('en-NG')}</td>
                         <td>{b.qc_verdict ? <Pill status={b.qc_verdict} /> : <span className="sub">Pending</span>}</td>
                         <td className="num tnum">{b.packaged_units.toLocaleString('en-NG')}</td>
+                        <td className="num tnum">{b.not_yet_packaged.toLocaleString('en-NG')}</td>
+                        <td className="num tnum">{b.rejected_quantity.toLocaleString('en-NG')}</td>
+                        <td className="num tnum">{b.wasted_quantity.toLocaleString('en-NG')}</td>
                         <td className="sub">{b.started_at}</td>
+                        <td>
+                          {b.closed_at ? <Pill status="COMPLETE" /> : (
+                            b.status === 'COMPLETED' && (
+                              <button className="btn btn-secondary btn-sm no-print" onClick={() => setCloseTarget(b)}>Close batch</button>
+                            )
+                          )}
+                        </td>
                         <td className="no-print">
                           <ReverseButton entityType="production_batches" entityId={b.id} entityLabel={b.id} reversed={batchesReversed.has(b.id)} onReversed={() => { refresh(); ui.toast('Production batch reversed'); }} />
                         </td>
@@ -231,7 +250,53 @@ export default function ProductionPage() {
       {packageTarget && (
         <PackageBatch batch={packageTarget} onClose={() => setPackageTarget(null)} onPackaged={() => { setPackageTarget(null); refresh(); ui.toast(`${packageTarget.id} packaged`); }} />
       )}
+      {closeTarget && (
+        <CloseBatch batch={closeTarget} onClose={() => setCloseTarget(null)} onClosed={() => { setCloseTarget(null); refresh(); ui.toast(`${closeTarget.id} closed`); }} />
+      )}
     </>
+  );
+}
+
+function CloseBatch({ batch, onClose, onClosed }: { batch: ProductionBatch; onClose: () => void; onClosed: () => void }) {
+  const [rejected, setRejected] = useState('0');
+  const [wasted, setWasted] = useState(String(batch.not_yet_packaged));
+  const [closedBy, setClosedBy] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const accounted = batch.packaged_units + (Number(rejected) || 0) + (Number(wasted) || 0);
+  const remainder = batch.units_actual - accounted;
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setSaving(true); setError(null);
+    try {
+      await apiPost(`/production-batches/${encodeURIComponent(batch.id)}/close`, {
+        rejectedQuantity: Number(rejected), wastedQuantity: Number(wasted), actor: closedBy,
+      });
+      onClosed();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong');
+    } finally { setSaving(false); }
+  }
+
+  return (
+    <Modal title={`Close ${batch.id}`} onClose={onClose} onSubmit={submit} submitLabel="Close batch" saving={saving} error={error}>
+      <p className="sub" style={{ marginBottom: 14 }}>
+        {batch.product_name} — {batch.units_actual.toLocaleString('en-NG')} produced, {batch.packaged_units.toLocaleString('en-NG')} already packaged.
+        Every unit must be accounted for (packaged + rejected + wasted) before this batch can close.
+      </p>
+      <div className="form-grid">
+        <div className="form-row"><label htmlFor="close-rejected">Rejected</label><NumberInput id="close-rejected" allowDecimal={false} value={rejected} onChange={setRejected} required /></div>
+        <div className="form-row"><label htmlFor="close-wasted">Wasted</label><NumberInput id="close-wasted" allowDecimal={false} value={wasted} onChange={setWasted} required /></div>
+      </div>
+      <div className="form-row"><label htmlFor="close-by">Closed by</label><input id="close-by" value={closedBy} onChange={e => setClosedBy(e.target.value)} required autoFocus /></div>
+      <p className="sub" style={{ color: remainder === 0 ? undefined : 'rgb(var(--stop))' }}>
+        {remainder === 0
+          ? `Fully accounted: ${batch.packaged_units.toLocaleString('en-NG')} packaged + ${(Number(rejected) || 0).toLocaleString('en-NG')} rejected + ${(Number(wasted) || 0).toLocaleString('en-NG')} wasted = ${batch.units_actual.toLocaleString('en-NG')} produced.`
+          : `${Math.abs(remainder).toLocaleString('en-NG')} units ${remainder > 0 ? 'still unaccounted for' : 'over-accounted for'} — adjust rejected/wasted to match ${batch.units_actual.toLocaleString('en-NG')} produced.`}
+      </p>
+    </Modal>
   );
 }
 

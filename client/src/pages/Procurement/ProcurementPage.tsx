@@ -20,7 +20,7 @@ import { refreshPendingCounts } from '../../lib/pendingCounts';
 import { useCurrentUser } from '../../lib/currentUser';
 
 interface PurchaseOrder {
-  id: string; supplier_id: string; supplier_name: string; requested_by: string | null;
+  id: string; supplier_id: string; supplier_name: string; requested_by: string | null; requested_by_user_id: string | null;
   status: string; item_count: number; total_amount: number; created_at: string;
 }
 interface GoodsReceived {
@@ -43,7 +43,7 @@ interface SupplierReturnItem { item_id: string; item_name: string; quantity: num
 interface PayableRow { supplier_id: string; invoiced: number; paid: number; outstanding: number }
 interface Supplier { id: string; name: string; location?: string | null }
 interface Item {
-  id: string; name: string; type: string; unit_cost: number;
+  id: string; name: string; category: string; type: string; unit_cost: number;
   manufacturer_id?: string | null; pieces_per_bag?: number | null;
 }
 
@@ -93,9 +93,13 @@ export default function ProcurementPage() {
   ], [orders, receipts, returns]);
 
   async function approve(id: string, status: string) {
-    await apiPut(`/purchase-orders/${encodeURIComponent(id)}/status`, { status, userId: user?.id });
-    ui.toast(`${id} → ${status.replace(/_/g, ' ')}`);
-    refresh();
+    try {
+      await apiPut(`/purchase-orders/${encodeURIComponent(id)}/status`, { status, userId: user?.id });
+      ui.toast(`${id} → ${status.replace(/_/g, ' ')}`);
+      refresh();
+    } catch (err) {
+      ui.toast(err instanceof Error ? err.message : 'Something went wrong');
+    }
   }
 
   return (
@@ -128,6 +132,7 @@ export default function ProcurementPage() {
                         onApprove={approve}
                         onReceive={setReceiveFor}
                         onDeleteRequested={() => { refresh(); ui.toast('Deletion requested — pending admin approval'); }}
+                        onPriceAdjusted={refresh}
                       />
                     ))}
                   </tbody>
@@ -283,8 +288,9 @@ export default function ProcurementPage() {
 function CreatePurchaseOrder({ suppliers, items, onClose, onCreated }: {
   suppliers: Supplier[]; items: Item[]; onClose: () => void; onCreated: () => void;
 }) {
+  const { user } = useCurrentUser();
   const [supplierId, setSupplierId] = useState(suppliers[0]?.id ?? '');
-  const [requestedBy, setRequestedBy] = useState('');
+  const [requestedBy, setRequestedBy] = useState(user?.name ?? '');
   const [lines, setLines] = useState<LineItemValue[]>([{ itemId: items[0]?.id ?? '', quantity: '100', unitPrice: String(items[0]?.unit_cost ?? 0) }]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -294,7 +300,7 @@ function CreatePurchaseOrder({ suppliers, items, onClose, onCreated }: {
     setSaving(true); setError(null);
     try {
       await apiPost('/purchase-orders', {
-        supplierId, requestedBy,
+        supplierId, requestedBy, requestedByUserId: user?.id,
         items: lines.map(l => ({
           itemId: l.itemId, quantity: Number(l.quantity), unitPrice: Number(l.unitPrice),
           bagQuantity: l.bagQuantity ? Number(l.bagQuantity) : undefined,
@@ -498,14 +504,20 @@ function InspectGoodsReceived({ grn, onClose, onInspected }: { grn: GoodsReceive
   );
 }
 
-function PurchaseOrderRow({ order, items, canApprove, pending, onApprove, onReceive, onDeleteRequested }: {
+function PurchaseOrderRow({ order, items, canApprove, pending, onApprove, onReceive, onDeleteRequested, onPriceAdjusted }: {
   order: PurchaseOrder; items: Item[]; canApprove: boolean; pending: boolean;
   onApprove: (id: string, status: string) => void;
   onReceive: (order: PurchaseOrder) => void;
   onDeleteRequested: () => void;
+  onPriceAdjusted: () => void;
 }) {
+  const { user } = useCurrentUser();
+  const ui = useUi();
   const [open, setOpen] = useState(false);
   const [lines, setLines] = useState<PurchaseOrderItem[] | null>(null);
+  const [adjustingItemId, setAdjustingItemId] = useState<string | null>(null);
+
+  const canAdjustPrice = canApprove && order.status === 'AWAITING_APPROVAL';
 
   async function toggle() {
     if (!open && lines === null) {
@@ -513,6 +525,12 @@ function PurchaseOrderRow({ order, items, canApprove, pending, onApprove, onRece
       setLines(full.items);
     }
     setOpen(o => !o);
+  }
+
+  async function reload() {
+    const full = await api<{ items: PurchaseOrderItem[] }>(`/purchase-orders/${encodeURIComponent(order.id)}`);
+    setLines(full.items);
+    onPriceAdjusted();
   }
 
   return (
@@ -545,12 +563,38 @@ function PurchaseOrderRow({ order, items, canApprove, pending, onApprove, onRece
           <td colSpan={9}>
             <div style={{ padding: '4px 0 10px 20px' }}>
               {lines === null && <p className="sub" style={{ fontSize: 12 }}>Loading items…</p>}
-              {lines?.map((l, i) => (
-                <p key={l.item_id} className="sub" style={{ fontSize: 12 }}>
-                  {i + 1}. {l.quantity.toLocaleString('en-NG')} × {items.find(it => it.id === l.item_id)?.name ?? l.item_id}
-                  {' '}@ {naira(l.unit_price)} = {naira(l.quantity * l.unit_price)}
-                </p>
-              ))}
+              {lines?.map((l, i) => {
+                const item = items.find(it => it.id === l.item_id);
+                return (
+                  <div key={l.item_id} style={{ marginBottom: 4 }}>
+                    <p className="sub" style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span>
+                        {i + 1}. {l.quantity.toLocaleString('en-NG')} × {item?.name ?? l.item_id}
+                        {item?.category ? ` (${item.category})` : ''}
+                        {' '}@ {naira(l.unit_price)} = {naira(l.quantity * l.unit_price)}
+                      </span>
+                      {canAdjustPrice && adjustingItemId !== l.item_id && (
+                        <button
+                          type="button" className="btn btn-secondary btn-sm no-print"
+                          onClick={e => { e.stopPropagation(); setAdjustingItemId(l.item_id); }}
+                        >
+                          Adjust price
+                        </button>
+                      )}
+                    </p>
+                    {adjustingItemId === l.item_id && (
+                      <div onClick={e => e.stopPropagation()}>
+                        <PriceAdjustForm
+                          poId={order.id} itemId={l.item_id} currentPrice={l.unit_price} actor={user?.name ?? 'System Administrator'} userId={user?.id}
+                          onCancel={() => setAdjustingItemId(null)}
+                          onAdjusted={async () => { setAdjustingItemId(null); await reload(); ui.toast('Price adjusted'); }}
+                          onError={msg => ui.toast(msg)}
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
               {lines?.length === 0 && <p className="sub" style={{ fontSize: 12 }}>No line items.</p>}
               {lines && lines.length > 0 && (
                 <p style={{ fontSize: 12, fontWeight: 600, marginTop: 6, paddingTop: 6, borderTop: '1px solid rgb(var(--border))' }}>
@@ -562,6 +606,39 @@ function PurchaseOrderRow({ order, items, canApprove, pending, onApprove, onRece
         </tr>
       )}
     </>
+  );
+}
+
+function PriceAdjustForm({ poId, itemId, currentPrice, actor, userId, onCancel, onAdjusted, onError }: {
+  poId: string; itemId: string; currentPrice: number; actor: string; userId?: string;
+  onCancel: () => void; onAdjusted: () => void; onError: (message: string) => void;
+}) {
+  const [unitPrice, setUnitPrice] = useState(String(currentPrice));
+  const [reason, setReason] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  async function submit() {
+    if (!reason.trim()) { onError('A reason is required to adjust a price'); return; }
+    setSaving(true);
+    try {
+      await apiPut(`/purchase-orders/${encodeURIComponent(poId)}/items/${encodeURIComponent(itemId)}/price`, {
+        unitPrice: Number(unitPrice), reason, actor, userId,
+      });
+      onAdjusted();
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Something went wrong');
+    } finally { setSaving(false); }
+  }
+
+  return (
+    <div className="lineitem-row" style={{ marginTop: 4, marginBottom: 8 }}>
+      <div style={{ width: 110 }}>
+        <NumberInput ariaLabel="New unit price" value={unitPrice} onChange={setUnitPrice} />
+      </div>
+      <input aria-label="Reason for price adjustment" placeholder="Reason (e.g. supplier renegotiated)" value={reason} onChange={e => setReason(e.target.value)} style={{ flex: 1 }} />
+      <button type="button" className="btn btn-primary btn-sm" disabled={saving} onClick={submit}>Save</button>
+      <button type="button" className="btn btn-secondary btn-sm" disabled={saving} onClick={onCancel}>Cancel</button>
+    </div>
   );
 }
 
@@ -645,7 +722,9 @@ function NewManufacturer({ onClose, onCreated }: { onClose: () => void; onCreate
 
 function NewMaterialVariant({ suppliers, onClose, onCreated }: { suppliers: Supplier[]; onClose: () => void; onCreated: () => void }) {
   const [name, setName] = useState('');
-  const [category, setCategory] = useState('Raw material');
+  const [categories, setCategories] = useState<string[]>([]);
+  const [category, setCategory] = useState('');
+  const [customCategory, setCustomCategory] = useState('');
   const [type, setType] = useState<'RAW_MATERIAL' | 'PACKAGING' | 'CONSUMABLE'>('RAW_MATERIAL');
   const [manufacturerId, setManufacturerId] = useState(suppliers[0]?.id ?? '');
   const [piecesPerBag, setPiecesPerBag] = useState('1000');
@@ -654,12 +733,16 @@ function NewMaterialVariant({ suppliers, onClose, onCreated }: { suppliers: Supp
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    api<string[]>('/masters/item-categories').then(rows => { setCategories(rows); setCategory(rows[0] ?? 'Other'); });
+  }, []);
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true); setError(null);
     try {
       await apiPost('/masters/items', {
-        name, category, type, uom: 'unit',
+        name, category: category === 'Other' && customCategory.trim() ? customCategory.trim() : category, type, uom: 'unit',
         reorderPoint: Number(reorderPoint), unitCost: Number(unitCost),
         manufacturerId: manufacturerId || undefined, piecesPerBag: Number(piecesPerBag),
       });
@@ -684,8 +767,16 @@ function NewMaterialVariant({ suppliers, onClose, onCreated }: { suppliers: Supp
         </div>
         <div className="form-row">
           <label htmlFor="mat-category">Category</label>
-          <input id="mat-category" value={category} onChange={e => setCategory(e.target.value)} required />
+          <select id="mat-category" value={category} onChange={e => setCategory(e.target.value)}>
+            {categories.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
         </div>
+        {category === 'Other' && (
+          <div className="form-row">
+            <label htmlFor="mat-category-other">Other category name</label>
+            <input id="mat-category-other" value={customCategory} onChange={e => setCustomCategory(e.target.value)} placeholder="e.g. Solvents" required />
+          </div>
+        )}
         <div className="form-row">
           <label htmlFor="mat-type">Type</label>
           <select id="mat-type" value={type} onChange={e => setType(e.target.value as typeof type)}>

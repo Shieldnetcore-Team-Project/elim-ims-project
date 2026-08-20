@@ -26,11 +26,14 @@ export interface InventoryTransaction {
   item_id: string;
   item_name: string;
   category: string;
+  unit: string;
   direction: Direction;
   quantity: number;
   unit_cost: number;
   source_type: SourceType;
   source_id: string | null;
+  from_location: string | null;
+  to_location: string | null;
   note: string | null;
   actor: string | null;
   branch: string;
@@ -61,7 +64,26 @@ export function getItem(id: string): Item | undefined {
   return db.prepare('SELECT * FROM items WHERE id = ?').get(id) as Item | undefined;
 }
 
-/** The only function in the whole app allowed to write inventory_transactions. */
+/** Configurable item categories (Procurement) — read from the Settings
+ *  module's "Item categories" row rather than a fixed list, so an admin can
+ *  add/remove one without a code change. items.category itself stays free
+ *  text (an existing item keeps whatever category it already has even if
+ *  later dropped from this list) — this only drives what the create-item
+ *  picker offers. */
+export function listCategories(): string[] {
+  const row = db.prepare(`SELECT value FROM settings WHERE id = 'Item categories'`).get() as { value: string } | undefined;
+  const fallback = ['Chemicals', 'Labels', 'Bottle Caps', 'Raw Materials', 'Packaging', 'Other'];
+  if (!row) return fallback;
+  const parsed = row.value.split(',').map(s => s.trim()).filter(Boolean);
+  return parsed.length > 0 ? parsed : fallback;
+}
+
+/** The only function in the whole app allowed to write inventory_transactions.
+ *  fromLocation/toLocation are the physical Source/Destination of the move (e.g.
+ *  'Production Floor' -> 'Finished Goods Warehouse') — each call site states its
+ *  own, the same way it already states its own note/actor, since source_type
+ *  alone can't disambiguate (PRODUCTION covers both raw-material consumption
+ *  and finished-goods intake). Left null for callers that don't pass one. */
 export function postTransaction(params: {
   itemId: string;
   direction: Direction;
@@ -69,15 +91,18 @@ export function postTransaction(params: {
   unitCost?: number;
   sourceType: SourceType;
   sourceId?: string;
+  fromLocation?: string;
+  toLocation?: string;
   note?: string;
   actor?: string;
 }): void {
   db.prepare(
-    `INSERT INTO inventory_transactions (item_id, direction, quantity, unit_cost, source_type, source_id, note, actor)
-     VALUES (?,?,?,?,?,?,?,?)`,
+    `INSERT INTO inventory_transactions (item_id, direction, quantity, unit_cost, source_type, source_id, from_location, to_location, note, actor)
+     VALUES (?,?,?,?,?,?,?,?,?,?)`,
   ).run(
     params.itemId, params.direction, params.quantity, params.unitCost ?? 0,
-    params.sourceType, params.sourceId ?? null, params.note ?? null, params.actor ?? null,
+    params.sourceType, params.sourceId ?? null, params.fromLocation ?? null, params.toLocation ?? null,
+    params.note ?? null, params.actor ?? null,
   );
   activityLog.record(
     params.actor ?? 'System', params.direction === 'IN' ? 'received stock for' : 'issued stock for',
@@ -107,8 +132,8 @@ export function adjustStock(itemId: string, delta: number, note: string, actor =
 
 export function listTransactions(itemId?: string, limit = 300): InventoryTransaction[] {
   const query = `
-    SELECT t.id, t.item_id, i.name AS item_name, i.category, t.direction, t.quantity, t.unit_cost,
-           t.source_type, t.source_id, t.note, t.actor, t.created_at,
+    SELECT t.id, t.item_id, i.name AS item_name, i.category, i.uom AS unit, t.direction, t.quantity, t.unit_cost,
+           t.source_type, t.source_id, t.from_location, t.to_location, t.note, t.actor, t.created_at,
            SUM(CASE WHEN t.direction = 'IN' THEN t.quantity ELSE -t.quantity END)
              OVER (PARTITION BY t.item_id ORDER BY t.id) AS running_total
     FROM inventory_transactions t

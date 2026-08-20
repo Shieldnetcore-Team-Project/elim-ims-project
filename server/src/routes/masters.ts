@@ -7,6 +7,7 @@ import * as procurement from '../services/procurement.js';
 import * as sales from '../services/sales.js';
 import * as fleet from '../services/fleet.js';
 import * as deletionRequests from '../services/deletionRequests.js';
+import * as peripheral from '../services/peripheral.js';
 
 export const mastersRouter = Router();
 
@@ -14,6 +15,10 @@ mastersRouter.get('/items', (req, res) => {
   const type = req.query.type as Parameters<typeof inventory.listItems>[0];
   res.json(deletionRequests.filterDeleted('items', inventory.listItems(type)));
 });
+
+mastersRouter.get('/item-categories', (_req, res) => res.json(inventory.listCategories()));
+mastersRouter.get('/employee-statuses', (_req, res) => res.json(peripheral.employeeStatusOptions()));
+mastersRouter.get('/employees', (_req, res) => res.json(db.prepare('SELECT id, name, status FROM employees ORDER BY name').all()));
 
 // Self-serve material creation — e.g. a manufacturer/grammage variant
 // ("PET Preform 16g — Prima") with its own pieces-per-bag conversion.
@@ -65,6 +70,15 @@ mastersRouter.post('/customers', safe((req, res) => {
   res.status(201).json(sales.getCustomer(id));
 }));
 mastersRouter.get('/vehicles', (_req, res) => res.json(fleet.listVehicles()));
+mastersRouter.post('/vehicles', safe((req, res) => {
+  const { driver, status, odometer, plateNumber, vehicleType, category, acquisitionDate } = req.body ?? {};
+  if (category && category !== 'COMMERCIAL' && category !== 'PRIVATE') {
+    res.status(400).json({ error: 'category must be COMMERCIAL or PRIVATE' });
+    return;
+  }
+  const id = nextBusinessId('vehicles', 'FLT-', 2);
+  res.status(201).json(fleet.createVehicle({ id, driver: driver ?? null, status, odometer, plateNumber, vehicleType, category, acquisitionDate }));
+}));
 
 // Flat user rows (not the generic ModuleRow wrapper) — used for the sign-in-as
 // picker and the Admin panel's user selector.

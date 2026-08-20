@@ -71,7 +71,9 @@ export function startRun(params: { quantityIssued: number; issuedBy: string; act
   try {
     inventory.postTransaction({
       itemId: item.id, direction: 'OUT', quantity: params.quantityIssued, unitCost: item.unit_cost,
-      sourceType: 'MATERIAL_ISSUE', sourceId: id, actor, note: `Issued to production run ${id}`,
+      sourceType: 'MATERIAL_ISSUE', sourceId: id, actor,
+      fromLocation: 'Finished Goods Warehouse', toLocation: 'Production Floor',
+      note: `Issued to production run ${id}`,
     });
     db.prepare('INSERT INTO empty_bottle_runs (id, quantity_issued, issued_by, actor) VALUES (?,?,?,?)').run(id, params.quantityIssued, params.issuedBy, actor);
     activityLog.record(actor, 'started empty-bottle run', 'empty_bottle_run', id, `${params.quantityIssued} ${item.name} issued to production`);
@@ -115,13 +117,17 @@ export function reconcileRun(runId: string, params: { damaged: number; leaking: 
     if (returned > 0) {
       inventory.postTransaction({
         itemId: emptyItem.id, direction: 'IN', quantity: returned, unitCost: emptyItem.unit_cost,
-        sourceType: 'PRODUCTION', sourceId: runId, actor: params.actor, note: `Unused, returned from production run ${runId}`,
+        sourceType: 'PRODUCTION', sourceId: runId, actor: params.actor,
+        fromLocation: 'Production Floor', toLocation: 'Finished Goods Warehouse',
+        note: `Unused, returned from production run ${runId}`,
       });
     }
     if (params.finishedProduction > 0) {
       inventory.postTransaction({
         itemId: filledItem.id, direction: 'IN', quantity: params.finishedProduction, unitCost: filledItem.unit_cost,
-        sourceType: 'PRODUCTION', sourceId: runId, actor: params.actor, note: `Finished production from empty-bottle run ${runId}`,
+        sourceType: 'PRODUCTION', sourceId: runId, actor: params.actor,
+        fromLocation: 'Production Floor', toLocation: 'Finished Goods Warehouse',
+        note: `Finished production from empty-bottle run ${runId}`,
       });
     }
     db.prepare(`
@@ -189,7 +195,9 @@ export function completeRepair(params: { quantity: number; actor: string }): voi
       .run(item.id, params.quantity, params.actor);
     inventory.postTransaction({
       itemId: item.id, direction: 'IN', quantity: params.quantity, unitCost: item.unit_cost,
-      sourceType: 'ADJUSTMENT', actor: params.actor, note: 'Repaired, returned to warehouse',
+      sourceType: 'ADJUSTMENT', actor: params.actor,
+      fromLocation: 'Repair', toLocation: 'Finished Goods Warehouse',
+      note: 'Repaired, returned to warehouse',
     });
     activityLog.record(params.actor, 'completed repair for', 'item', item.id, `${params.quantity} bottles repaired and returned to stock`);
     db.exec('COMMIT');

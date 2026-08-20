@@ -21,6 +21,11 @@ export interface MarketerReturnItem {
   item_id: string; item_name: string; quantity: number; unit_price: number; verified_quantity: number | null;
 }
 export interface PendingVerification { item_id: string; item_name: string; pending_quantity: number }
+export interface PendingAssignment { item_id: string; item_name: string; assigned_quantity: number }
+export interface StockAssignment {
+  id: string; marketer_id: string; issued_by: string | null; status: string;
+  verified_by: string | null; verified_at: string | null; issued_at: string;
+}
 
 export function assertMarketer(marketerId: string) {
   const customer = sales.getCustomer(marketerId);
@@ -77,9 +82,49 @@ export function pendingVerification(marketerId: string): PendingVerification[] {
   `).all(marketerId) as unknown as PendingVerification[];
 }
 
-/** Warehouse -> marketer transfer. Not a sale — nothing posts to the ledger
- *  here, only inventory moves (out of the warehouse, into the marketer's
- *  mobile balance). Only finished goods make sense to hand a marketer.
+/** Assigned-but-not-yet-verified quantity for one marketer, grouped by item —
+ *  what Section 12 means by "Jerry sees: Assigned: 200": physically posted
+ *  out of the warehouse (see issueStock), but not yet in the marketer's own
+ *  held balance (marketer_stock_transactions) until verifyAssignment runs. */
+export function pendingAssignments(marketerId: string): PendingAssignment[] {
+  return db.prepare(`
+    SELECT msii.item_id AS item_id, i.name AS item_name, SUM(msii.quantity) AS assigned_quantity
+    FROM marketer_stock_issue_items msii
+    JOIN marketer_stock_issues msi ON msi.id = msii.issue_id
+    JOIN items i ON i.id = msii.item_id
+    WHERE msi.marketer_id = ? AND msi.status = 'ASSIGNED'
+    GROUP BY msii.item_id, i.name
+    HAVING assigned_quantity > 0
+  `).all(marketerId) as unknown as PendingAssignment[];
+}
+
+export function listAssignments(marketerId?: string): (StockAssignment & { marketer_name: string })[] {
+  const base = `
+    SELECT msi.*, c.name AS marketer_name
+    FROM marketer_stock_issues msi JOIN customers c ON c.id = msi.marketer_id
+  `;
+  if (marketerId) return db.prepare(`${base} WHERE msi.marketer_id = ? ORDER BY msi.id DESC`).all(marketerId) as unknown as (StockAssignment & { marketer_name: string })[];
+  return db.prepare(`${base} ORDER BY msi.id DESC`).all() as unknown as (StockAssignment & { marketer_name: string })[];
+}
+
+export function getAssignment(id: string): StockAssignment | undefined {
+  return db.prepare('SELECT * FROM marketer_stock_issues WHERE id = ?').get(id) as StockAssignment | undefined;
+}
+
+export function listAssignmentItems(issueId: string): { item_id: string; item_name: string; quantity: number; unit_price: number }[] {
+  return db.prepare(`
+    SELECT msii.item_id, i.name AS item_name, msii.quantity, msii.unit_price
+    FROM marketer_stock_issue_items msii JOIN items i ON i.id = msii.item_id
+    WHERE msii.issue_id = ?
+  `).all(issueId) as unknown as { item_id: string; item_name: string; quantity: number; unit_price: number }[];
+}
+
+/** Warehouse -> marketer transfer, step one of two (Section 12: Warehouse/Stock
+ *  -> Stock Assignment -> Marketer Verification -> Marketer Holds Stock). Not a
+ *  sale — nothing posts to the ledger here, and the physical inventory move
+ *  (out of the warehouse) happens now, but the marketer's own held balance
+ *  (marketer_stock_transactions) does NOT update until they verify receipt —
+ *  see verifyAssignment. Only finished goods make sense to hand a marketer.
  *  Blocked while the marketer has any unverified return outstanding for an
  *  item being issued — a Warehouse Manager (a real users.role, looked up
  *  server-side, not a trusted free-text field) can override. */
@@ -120,19 +165,23 @@ export function issueStock(params: {
   const id = nextBusinessId('marketer_stock_issues', 'MSI-', 4);
   db.exec('BEGIN');
   try {
-    db.prepare('INSERT INTO marketer_stock_issues (id, marketer_id, issued_by) VALUES (?,?,?)').run(id, params.marketerId, params.issuedBy);
+    db.prepare(`INSERT INTO marketer_stock_issues (id, marketer_id, issued_by, status) VALUES (?,?,?,'ASSIGNED')`).run(id, params.marketerId, params.issuedBy);
     const insertItem = db.prepare('INSERT INTO marketer_stock_issue_items (issue_id, item_id, quantity, unit_price) VALUES (?,?,?,?)');
-    const insertTxn = db.prepare('INSERT INTO marketer_stock_transactions (marketer_id, item_id, direction, quantity, unit_price, source_type, source_id, actor) VALUES (?,?,?,?,?,?,?,?)');
     for (const it of params.items) {
       const unitPrice = it.unitPrice ?? itemRows.get(it.itemId)!.unit_cost;
       insertItem.run(id, it.itemId, it.quantity, unitPrice);
+      // Physically leaves the Finished Goods Warehouse now — that part is a
+      // fact, regardless of when (or whether) the marketer gets around to
+      // confirming it. Their own held balance (marketer_stock_transactions)
+      // is deliberately NOT posted here — see verifyAssignment.
       inventory.postTransaction({
         itemId: it.itemId, direction: 'OUT', quantity: it.quantity, unitCost: unitPrice,
-        sourceType: 'MATERIAL_ISSUE', sourceId: id, actor, note: `Issued to marketer ${params.marketerId} on ${id}`,
+        sourceType: 'MATERIAL_ISSUE', sourceId: id, actor,
+        fromLocation: 'Finished Goods Warehouse', toLocation: 'Marketer Field Stock',
+        note: `Issued to marketer ${params.marketerId} on ${id}`,
       });
-      insertTxn.run(params.marketerId, it.itemId, 'IN', it.quantity, unitPrice, 'ISSUE', id, actor);
     }
-    activityLog.record(actor, 'issued stock to', 'marketer', params.marketerId, `${id}: ${params.items.length} line(s) issued`);
+    activityLog.record(actor, 'assigned stock to', 'marketer', params.marketerId, `${id}: ${params.items.length} line(s) assigned, awaiting the marketer's confirmation`);
     if (overrideBy) {
       activityLog.record(overrideBy.name, 'overrode pending-verification block for', 'marketer', params.marketerId,
         `${id}: ${blocked.map(b => `${b.itemName} (${b.pendingQty} pending)`).join(', ')}`);
@@ -143,6 +192,37 @@ export function issueStock(params: {
     throw err;
   }
   return { id };
+}
+
+/** Step two: the marketer's own confirmation of what was posted to them —
+ *  "the purpose of verification is confirmation and reconciliation, not
+ *  unnecessary managerial approval," so this needs no role/override check,
+ *  unlike issueStock's Warehouse Manager gate above. Only now does the
+ *  assignment become the marketer's held stock (marketer_stock_transactions),
+ *  matching Section 12's Posted By / Verified By / Date / Time / Quantity /
+ *  Product / Reference record — all already on marketer_stock_issues(_items). */
+export function verifyAssignment(issueId: string, params: { verifiedBy: string; actor?: string }): StockAssignment {
+  const assignment = getAssignment(issueId);
+  if (!assignment) throw new Error(`Unknown stock assignment ${issueId}`);
+  if (assignment.status !== 'ASSIGNED') throw new Error(`${issueId} is already ${assignment.status}`);
+  const actor = params.actor ?? params.verifiedBy;
+  const items = listAssignmentItems(issueId);
+
+  db.exec('BEGIN');
+  try {
+    const insertTxn = db.prepare('INSERT INTO marketer_stock_transactions (marketer_id, item_id, direction, quantity, unit_price, source_type, source_id, actor) VALUES (?,?,?,?,?,?,?,?)');
+    for (const it of items) {
+      insertTxn.run(assignment.marketer_id, it.item_id, 'IN', it.quantity, it.unit_price, 'ISSUE', issueId, actor);
+    }
+    db.prepare(`UPDATE marketer_stock_issues SET status = 'VERIFIED', verified_by = ?, verified_at = datetime('now') WHERE id = ?`).run(params.verifiedBy, issueId);
+    activityLog.record(actor, 'verified stock receipt for', 'marketer', assignment.marketer_id,
+      `${issueId}: ${items.length} line(s) confirmed received by ${params.verifiedBy}`);
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+  return getAssignment(issueId)!;
 }
 
 /** The marketer's claim that goods are coming back. Immediately shrinks
@@ -206,11 +286,14 @@ export function listReturnItems(returnId: string): MarketerReturnItem[] {
   `).all(returnId) as unknown as MarketerReturnItem[];
 }
 
-/** The Warehouse's action: physically count what came back. Only the
- *  verified quantity (which can be less than claimed — a shortage) posts to
- *  warehouse inventory; a shortfall is recorded for visibility but nothing
- *  auto-adjusts the marketer's own balance (no inventory adjustment by
- *  editing records — that would need a separate, deliberate follow-up). */
+/** The Warehouse's action: physically count what came back. The verified
+ *  quantity — which can differ from claimed either way, a shortage (less) or
+ *  an over-count (more, e.g. extra stock mixed in from another route) — is
+ *  what posts to warehouse inventory; only that verified figure is ever
+ *  trusted, never the claim. Either direction of mismatch feeds
+ *  reconciliation.ts's Short/Excess status. Nothing auto-adjusts the
+ *  marketer's own balance (no inventory adjustment by editing records — that
+ *  would need a separate, deliberate follow-up). */
 export function verifyReturn(returnId: string, params: {
   verifiedBy: string; lines: { itemId: string; verifiedQuantity: number }[]; actor?: string;
 }): { id: string } {
@@ -222,8 +305,8 @@ export function verifyReturn(returnId: string, params: {
   for (const line of params.lines) {
     const claimedLine = claimed.find(c => c.item_id === line.itemId);
     if (!claimedLine) throw new Error(`${line.itemId} is not part of ${returnId}`);
-    if (line.verifiedQuantity < 0 || line.verifiedQuantity > claimedLine.quantity) {
-      throw new Error(`${line.itemId}: verified quantity must be between 0 and the claimed ${claimedLine.quantity}`);
+    if (line.verifiedQuantity < 0) {
+      throw new Error(`${line.itemId}: verified quantity cannot be negative`);
     }
   }
 
@@ -237,7 +320,9 @@ export function verifyReturn(returnId: string, params: {
       if (line.verifiedQuantity > 0) {
         inventory.postTransaction({
           itemId: line.itemId, direction: 'IN', quantity: line.verifiedQuantity, unitCost: claimedLine.unit_price,
-          sourceType: 'SALES', sourceId: returnId, actor, note: `Verified return from marketer ${ret.marketer_id} on ${returnId}`,
+          sourceType: 'SALES', sourceId: returnId, actor,
+          fromLocation: 'Marketer Field Stock', toLocation: 'Finished Goods Warehouse',
+          note: `Verified return from marketer ${ret.marketer_id} on ${returnId}`,
         });
       }
     }
@@ -245,8 +330,9 @@ export function verifyReturn(returnId: string, params: {
 
     const totalClaimed = claimed.reduce((s, c) => s + c.quantity, 0);
     const totalVerified = params.lines.reduce((s, l) => s + l.verifiedQuantity, 0);
-    const shortageNote = totalVerified < totalClaimed ? ` — shortage of ${totalClaimed - totalVerified}` : '';
-    activityLog.record(actor, 'verified return from', 'marketer', ret.marketer_id, `${returnId}: ${totalVerified}/${totalClaimed} verified${shortageNote}`);
+    const mismatchNote = totalVerified < totalClaimed ? ` — shortage of ${totalClaimed - totalVerified}`
+      : totalVerified > totalClaimed ? ` — excess of ${totalVerified - totalClaimed}` : '';
+    activityLog.record(actor, 'verified return from', 'marketer', ret.marketer_id, `${returnId}: ${totalVerified}/${totalClaimed} verified${mismatchNote}`);
     db.exec('COMMIT');
   } catch (err) {
     db.exec('ROLLBACK');

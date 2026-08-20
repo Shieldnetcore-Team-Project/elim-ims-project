@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import * as inventory from '../services/inventory.js';
+import * as stockPosition from '../services/stockPosition.js';
 import * as deletionRequests from '../services/deletionRequests.js';
 import { safe } from '../lib/errors.js';
 
@@ -7,6 +8,7 @@ export const inventoryRouter = Router();
 
 inventoryRouter.get('/balances', (_req, res) => res.json(deletionRequests.filterDeleted('items', inventory.getBalances())));
 inventoryRouter.get('/transactions', (req, res) => res.json(inventory.listTransactions(req.query.itemId as string | undefined)));
+inventoryRouter.get('/stock-position', (_req, res) => res.json(stockPosition.getStockPosition()));
 
 inventoryRouter.post('/adjust', safe((req, res) => {
   const { itemId, delta, note } = req.body ?? {};

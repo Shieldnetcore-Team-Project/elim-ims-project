@@ -247,6 +247,170 @@ export function payablesReport() {
   `).all(AP_ACCOUNT) as { supplier_id: string; supplier_name: string; invoiced: number; paid: number; outstanding: number }[];
 }
 
+export interface SupplierInvoicePayment { payment_id: string; date: string; amount_applied: number; method: string | null }
+export interface SupplierInvoice {
+  id: string; invoice_number: string | null; po_id: string; date: string;
+  total: number; paid: number; outstanding: number; status: 'UNPAID' | 'PARTIALLY_PAID' | 'FULLY_PAID';
+  payment_history: SupplierInvoicePayment[];
+}
+
+/** Section 21: per-invoice Total/Paid/Outstanding/Payment History — the
+ *  drill-down "open an invoice and see..." view. Each invoice is one GRN's
+ *  accepted-value posting (postSupplierInvoice, tagged reference_id=grnId);
+ *  payments are never targeted at a specific invoice when recorded (the
+ *  RecordPayment form only ever picks a supplier), so — same as
+ *  agingReport()'s bucketing — they're applied oldest-invoice-first here,
+ *  each payment split across however many invoices it reaches. That FIFO
+ *  application is exactly what makes "15 invoices fully paid, running
+ *  balance reaches zero" and "one invoice partially paid stays outstanding"
+ *  fall out correctly on their own: a payment that fully covers the oldest
+ *  invoices and only partially reaches the next leaves that one, and only
+ *  that one, with a nonzero outstanding balance. */
+export function supplierInvoices(supplierId: string): SupplierInvoice[] {
+  const invoiceRows = db.prepare(`
+    SELECT l.id AS ledger_id, l.reference_id AS grn_id, l.entry_date, l.credit AS total, gr.invoice_number, gr.po_id
+    FROM ledger l JOIN goods_received gr ON gr.id = l.reference_id
+    WHERE l.supplier_id = ? AND l.account = ? AND l.reference_type = 'goods_received' AND l.credit > 0
+    ORDER BY l.entry_date, l.id
+  `).all(supplierId, AP_ACCOUNT) as { ledger_id: string; grn_id: string; entry_date: string; total: number; invoice_number: string | null; po_id: string }[];
+
+  const payments = db.prepare(`
+    SELECT id, amount, method, paid_at FROM payments WHERE supplier_id = ? ORDER BY paid_at, id
+  `).all(supplierId) as { id: string; amount: number; method: string | null; paid_at: string }[];
+
+  const invoices = invoiceRows.map(inv => ({ ...inv, remaining: inv.total, paymentHistory: [] as SupplierInvoicePayment[] }));
+
+  for (const payment of payments) {
+    let remainingPayment = payment.amount;
+    for (const inv of invoices) {
+      if (remainingPayment <= 0) break;
+      if (inv.remaining <= 0) continue;
+      const applied = Math.min(inv.remaining, remainingPayment);
+      inv.remaining -= applied;
+      remainingPayment -= applied;
+      inv.paymentHistory.push({ payment_id: payment.id, date: payment.paid_at, amount_applied: applied, method: payment.method });
+    }
+  }
+
+  return invoices.map(inv => {
+    const paid = inv.total - inv.remaining;
+    const status: SupplierInvoice['status'] = inv.remaining <= 0 ? 'FULLY_PAID' : paid > 0 ? 'PARTIALLY_PAID' : 'UNPAID';
+    return {
+      id: inv.grn_id, invoice_number: inv.invoice_number, po_id: inv.po_id, date: inv.entry_date,
+      total: inv.total, paid, outstanding: inv.remaining, status, payment_history: inv.paymentHistory,
+    };
+  });
+}
+
+/** The customer-side mirror of payablesReport — invoiced/paid/outstanding for
+ *  every customer (Marketer, Distributor or Retail) with any Accounts
+ *  receivable activity, the "customer accounts" list Section 16's statement
+ *  view is opened from. */
+export function receivablesReport() {
+  return db.prepare(`
+    SELECT c.id AS customer_id, c.name AS customer_name, c.customer_type,
+      COALESCE(SUM(l.debit), 0) AS invoiced, COALESCE(SUM(l.credit), 0) AS paid,
+      COALESCE(SUM(l.debit), 0) - COALESCE(SUM(l.credit), 0) AS outstanding
+    FROM ledger l JOIN customers c ON c.id = l.customer_id
+    WHERE l.account = 'Accounts receivable'
+    GROUP BY c.id, c.name, c.customer_type
+    HAVING invoiced <> 0 OR paid <> 0
+    ORDER BY outstanding DESC
+  `).all() as { customer_id: string; customer_name: string; customer_type: string; invoiced: number; paid: number; outstanding: number }[];
+}
+
+/** The customer-side mirror of supplierStatement (Section 16: Customer
+ *  Account Statement) — every Accounts receivable movement for this
+ *  customer, oldest first, with a running balance. Every kind of movement
+ *  the spec lists (Invoice, Payment, Credit, Return, Adjustment) already
+ *  lands here as a plain debit/credit row via postLedger/recordReceipt — a
+ *  sale debits, a receipt/return credit note credits — so nothing new needs
+ *  to be tagged; the running balance itself is never stored, only computed,
+ *  so every past movement is retained exactly as posted (Do NOT calculate
+ *  only a final total). */
+export function customerStatement(customerId: string) {
+  return db.prepare(`
+    SELECT id, entry_date, debit, credit, description, reference_type, reference_id,
+      SUM(debit - credit) OVER (ORDER BY entry_date, id) AS running_balance
+    FROM ledger
+    WHERE customer_id = ? AND account = 'Accounts receivable'
+    ORDER BY entry_date, id
+  `).all(customerId);
+}
+
+/** Section 17: configurable AR aging bucket boundaries, in days —
+ *  [breakpoint1, breakpoint2, ...] where age<=breakpoint1 is "Current" and
+ *  each subsequent breakpoint closes the next bucket, the last one left
+ *  open-ended as "90+". Stored as a comma-separated Settings row (module 18's
+ *  existing generic CRUD, so no new admin UI is needed to change it) —
+ *  defaults to the spec's own Current/1-30/31-40/41-50/51-60/61-90/90+ shape
+ *  if unset or malformed. */
+const DEFAULT_AGING_BOUNDARIES = [0, 30, 40, 50, 60, 90];
+const AGING_SETTING_ID = 'AR aging buckets (days)';
+
+function agingBoundaries(): number[] {
+  const row = db.prepare('SELECT value FROM settings WHERE id = ?').get(AGING_SETTING_ID) as { value: string } | undefined;
+  if (!row) return DEFAULT_AGING_BOUNDARIES;
+  const parsed = row.value.split(',').map(s => Number(s.trim())).filter(n => Number.isFinite(n));
+  return parsed.length >= 2 ? parsed : DEFAULT_AGING_BOUNDARIES;
+}
+
+function bucketOf(ageDays: number, boundaries: number[]): number {
+  for (let i = 0; i < boundaries.length; i++) if (ageDays <= boundaries[i]) return i;
+  return boundaries.length;
+}
+
+export interface CustomerAgingRow {
+  customerId: string; customerName: string; customerType: string;
+  current: number; d1to30: number; d31to40: number; d41to50: number; d51to60: number; d61to90: number; d90plus: number; total: number;
+}
+
+/** Customer Aging (Section 17) — the customer-side counterpart to
+ *  agingReport() above, same FIFO cash-application algorithm, bucketed
+ *  against the configurable boundaries instead of the supplier report's
+ *  fixed 4-bucket shape. Used for performance monitoring and debt recovery,
+ *  same as the spec asks. */
+export function customerAgingReport(): CustomerAgingRow[] {
+  const boundaries = agingBoundaries();
+  const customers = db.prepare(
+    `SELECT DISTINCT c.id, c.name, c.customer_type FROM customers c JOIN ledger l ON l.customer_id = c.id WHERE l.account = 'Accounts receivable'`,
+  ).all() as { id: string; name: string; customer_type: string }[];
+  const now = Date.now();
+  const DAY = 24 * 60 * 60 * 1000;
+
+  return customers.map(c => {
+    const invoices = (db.prepare(
+      `SELECT entry_date, debit AS amount FROM ledger WHERE customer_id = ? AND account = 'Accounts receivable' AND debit > 0 ORDER BY entry_date, id`,
+    ).all(c.id) as { entry_date: string; amount: number }[]).map(inv => ({ ...inv, remaining: inv.amount }));
+    const payments = db.prepare(
+      `SELECT credit AS amount FROM ledger WHERE customer_id = ? AND account = 'Accounts receivable' AND credit > 0 ORDER BY entry_date, id`,
+    ).all(c.id) as { amount: number }[];
+
+    for (const payment of payments) {
+      let remainingPayment = payment.amount;
+      for (const inv of invoices) {
+        if (remainingPayment <= 0) break;
+        const applied = Math.min(inv.remaining, remainingPayment);
+        inv.remaining -= applied;
+        remainingPayment -= applied;
+      }
+    }
+
+    const amounts = new Array(boundaries.length + 1).fill(0);
+    for (const inv of invoices) {
+      if (inv.remaining <= 0) continue;
+      // Floored to whole days: without this, an invoice raised moments ago
+      // (fractionally > 0 days old by the time this query runs) would miss
+      // the boundaries[0]=0 "Current" cutoff and fall straight into "1-30".
+      const ageDays = Math.floor((now - new Date(inv.entry_date).getTime()) / DAY);
+      amounts[bucketOf(ageDays, boundaries)] += inv.remaining;
+    }
+    const [current, d1to30, d31to40, d41to50, d51to60, d61to90, d90plus] = amounts;
+    const total = amounts.reduce((s, v) => s + v, 0);
+    return { customerId: c.id, customerName: c.name, customerType: c.customer_type, current, d1to30, d31to40, d41to50, d51to60, d61to90, d90plus, total };
+  }).filter(row => row.total > 0);
+}
+
 /** Supplier Aging — payments applied oldest-invoice-first (standard FIFO cash
  *  application) to bucket outstanding balances by how old the invoice they're
  *  still sitting against is. A pure computation over ledger rows; nothing stored. */
