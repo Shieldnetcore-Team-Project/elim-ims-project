@@ -45,6 +45,7 @@ import { fuelRecordsRouter } from './routes/fuelRecords.js';
 import { vehicleDocumentsRouter } from './routes/vehicleDocuments.js';
 import { driverPerformanceRouter } from './routes/driverPerformance.js';
 import { maintenanceReportsRouter } from './routes/maintenanceReports.js';
+import { notificationsRouter } from './routes/notifications.js';
 
 migrate();
 seed();
@@ -99,6 +100,7 @@ app.use('/api/fuel-records', fuelRecordsRouter);
 app.use('/api/vehicle-documents', vehicleDocumentsRouter);
 app.use('/api/driver-performance', driverPerformanceRouter);
 app.use('/api/maintenance-reports', maintenanceReportsRouter);
+app.use('/api/notifications', notificationsRouter);
 
 app.use((_req, res) => res.status(404).json({ error: 'Not found' }));
 

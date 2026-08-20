@@ -25,6 +25,7 @@ export const STATUS_TONE: Record<string, Tone> = {
   ON_LEAVE: 'wait', RESIGNED: 'stop', TERMINATED: 'stop', DISENGAGED: 'stop', ABSCONDED: 'stop',
   UNPAID: 'stop', REVIEWED: 'ok', NOT_STARTED: 'wait', PARTIAL: 'wait', COMPLETE: 'ok',
   PENDING_REVIEW: 'wait', DISBURSED: 'ok', PAID_OFF: 'ok', COMMERCIAL: 'live', PRIVATE: 'live', EXPIRED: 'stop',
+  CRITICAL: 'stop', WARNING: 'wait', INFO: 'live',
 };
 export const toneOf = (status: string): Tone => STATUS_TONE[status] ?? 'live';
 

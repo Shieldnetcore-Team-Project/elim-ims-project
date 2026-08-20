@@ -5,7 +5,7 @@ import { useCurrentUser } from '../../lib/currentUser';
 import { todayLagos } from '../../lib/format';
 import type { ThemePref } from '../../lib/theme';
 import { SignInAsPicker } from './SignInAsPicker';
-import { NotificationCenter, useDocumentExpiryAlerts } from './NotificationCenter';
+import { NotificationCenter, useNotifications } from './NotificationCenter';
 
 const THEME_OPTIONS: { value: ThemePref; icon: 'sun' | 'moon' | 'monitor'; label: string }[] = [
   { value: 'light', icon: 'sun', label: 'Light' },
@@ -23,7 +23,7 @@ export function Topbar() {
   const [today, setToday] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
-  const alerts = useDocumentExpiryAlerts();
+  const alerts = useNotifications();
 
   function handleLogOut() {
     const name = user?.name;
