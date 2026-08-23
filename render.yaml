@@ -27,7 +27,10 @@ services:
     name: elim-erp-api
     runtime: node
     rootDir: server
-    plan: free
+    # NOTE: Render Disks require a paid instance, so this is "starter", not
+    # "free". Downgrade to free only if you accept ephemeral (reset-on-restart)
+    # data, and remove the `disks:` block below.
+    plan: starter
     buildCommand: npm install && npm run build
     # node:sqlite needs the --experimental-sqlite flag on Node 22.x.
     startCommand: node --experimental-sqlite dist/index.js
@@ -35,3 +38,12 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "22"
+      # Persist SQLite on the attached disk (see `disks:` below).
+      - key: ELIM_DB_PATH
+        value: /data/elim.db
+    # Persistent disk so the SQLite DB survives deploys/restarts. Mounted at
+    # /data; ELIM_DB_PATH points the DB file there.
+    disks:
+      - name: elim-api-data
+        mountPath: /data
+        sizeGB: 1
