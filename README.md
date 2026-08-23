@@ -33,7 +33,7 @@ The client is a Vite app that builds to **`client/dist`** (not repo-root
 `dist`). Configure the Render Static Site as follows:
 
 - **Build Command:** `npm install && npm run build -w client`
-- **Publish Directory:** `client/dist`
+- **Publish Directory:** `dist` (Vite is configured to output to the repo-root `dist`)
 - **Root Directory:** repo root
 
 A `render.yaml` with these settings is included — connect the repo in Render

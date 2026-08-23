@@ -8,6 +8,6 @@ services:
     runtime: static
     # Repo root is the workspace root; build only the client workspace.
     buildCommand: npm install && npm run build -w client
-    # Vite outputs to client/dist (not repo-root dist).
-    staticPublishPath: client/dist
+    # Vite is configured to output to repo-root dist.
+    staticPublishPath: dist
     pullRequestPreviews: true

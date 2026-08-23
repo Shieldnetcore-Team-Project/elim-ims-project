@@ -19,4 +19,9 @@ export default defineConfig({
       '/api': { target: 'http://localhost:4000', changeOrigin: true },
     },
   },
+  build: {
+    // Output to repo-root dist so Render's default Publish Directory (`dist`) works.
+    outDir: '../dist',
+    emptyOutDir: true,
+  },
 });
