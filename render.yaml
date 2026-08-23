@@ -13,6 +13,12 @@ services:
     # Vite is configured to output to repo-root dist.
     staticPublishPath: dist
     pullRequestPreviews: true
+    # Set this to the deployed API URL (e.g. https://elim-erp-api.onrender.com)
+    # in the Render dashboard after the API service is live. Vite inlines it
+    # at build time, so update + redeploy the static site when it changes.
+    envVars:
+      - key: VITE_API_URL
+        sync: false
 
   # --- Backend API (web service) ---
   # Self-contained Express API using Node's built-in SQLite (node:sqlite).
