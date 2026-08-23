@@ -1,8 +1,10 @@
-# Render deployment config for the static frontend (client/).
-# Deploy: connect this repo in Render and it will use these settings,
-# or create a "Static Site" manually with the same values.
+# Render Blueprint: deploys both the static frontend and the Express API.
+# Deploy: in Render, New -> Blueprint -> connect this repo. It will create
+# both services from this file. (Manual services ignore render.yaml, so use
+# the Blueprint flow or set the values below by hand in each service.)
 
 services:
+  # --- Frontend (static site) ---
   - type: web
     name: elim-ims-project
     runtime: static
@@ -11,3 +13,19 @@ services:
     # Vite is configured to output to repo-root dist.
     staticPublishPath: dist
     pullRequestPreviews: true
+
+  # --- Backend API (web service) ---
+  # Self-contained Express API using Node's built-in SQLite (node:sqlite).
+  # It migrates + seeds its own DB at boot, so no external database is needed.
+  - type: web
+    name: elim-erp-api
+    runtime: node
+    rootDir: server
+    plan: free
+    buildCommand: npm install && npm run build
+    # node:sqlite needs the --experimental-sqlite flag on Node 22.x.
+    startCommand: node --experimental-sqlite dist/index.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
