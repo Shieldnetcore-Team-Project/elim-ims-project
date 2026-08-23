@@ -4,7 +4,7 @@
 
 services:
   - type: web
-    name: elim-include-project
+    name: elim-ims-project
     runtime: static
     # Repo root is the workspace root; build only the client workspace.
     buildCommand: npm install && npm run build -w client
