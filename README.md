@@ -26,4 +26,17 @@ the server, so just open the client URL).
 ```
 npm run build
 ```
+
+## Deploy (Render, static frontend)
+
+The client is a Vite app that builds to **`client/dist`** (not repo-root
+`dist`). Configure the Render Static Site as follows:
+
+- **Build Command:** `npm install && npm run build -w client`
+- **Publish Directory:** `client/dist`
+- **Root Directory:** repo root
+
+A `render.yaml` with these settings is included — connect the repo in Render
+and it will be picked up automatically. The chunk-size warning during build is
+advisory only and does not block deploys.
 # Elim-ims-project

@@ -1,0 +1,13 @@
+# Render deployment config for the static frontend (client/).
+# Deploy: connect this repo in Render and it will use these settings,
+# or create a "Static Site" manually with the same values.
+
+services:
+  - type: web
+    name: elim-include-project
+    runtime: static
+    # Repo root is the workspace root; build only the client workspace.
+    buildCommand: npm install && npm run build -w client
+    # Vite outputs to client/dist (not repo-root dist).
+    staticPublishPath: client/dist
+    pullRequestPreviews: true
