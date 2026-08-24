@@ -1,30 +1,63 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useActiveFactoryCode } from "@/lib/factory-store";
 import { getFactoryIdByCode } from "@/lib/factories";
+import { useTheme } from "@/lib/theme";
+import { RequireAccess } from "@/components/layout/require-access";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { Loader2 } from "lucide-react";
+import { Loader2, Sun, Moon, Download, Upload, AlertTriangle, Plus } from "lucide-react";
+import { usePermissions } from "@/lib/permissions";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
 
 export const Route = createFileRoute("/_app/settings")({
   head: () => ({ meta: [{ title: "Settings — FMIS" }, { name: "robots", content: "noindex" }] }),
-  component: SettingsPage,
+  component: () => (
+    <RequireAccess module="settings">
+      <SettingsPage />
+    </RequireAccess>
+  ),
 });
+
+const BACKUP_TABLES = [
+  "settings", "product_categories", "products", "raw_materials",
+  "expense_categories", "customers", "suppliers", "employees",
+] as const;
 
 function SettingsPage() {
   const code = useActiveFactoryCode();
+  const { theme, setTheme } = useTheme();
+  const qc = useQueryClient();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [factoryId, setFactoryId] = useState<string>("");
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [logoFile, setLogoFile] = useState<File | null>(null);
   const [form, setForm] = useState({
     company_name: "", address: "", phone: "", email: "",
     vat_rate: "7.5", currency: "NGN",
     invoice_prefix: "INV", receipt_prefix: "RCP",
     production_prefix: "PRD", employee_prefix: "EMP",
+  });
+
+  const factories = useQuery({
+    queryKey: ["factories-all"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("factories").select("id,code,name").order("name");
+      if (error) throw error;
+      return data ?? [];
+    },
   });
 
   useEffect(() => {
@@ -35,6 +68,7 @@ function SettingsPage() {
       const { data } = await supabase.from("settings").select("*").eq("factory_id", fid).maybeSingle();
       if (cancelled) return;
       setFactoryId(fid);
+      setLogoUrl(data?.logo_url ?? null);
       if (data) {
         setForm({
           company_name: data.company_name ?? "",
@@ -57,6 +91,13 @@ function SettingsPage() {
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
+    let finalLogoUrl = logoUrl;
+    if (logoFile) {
+      const path = `${factoryId}/${Date.now()}-${logoFile.name}`;
+      const { error: uploadError } = await supabase.storage.from("company-logos").upload(path, logoFile, { upsert: true });
+      if (uploadError) { setSaving(false); toast.error(uploadError.message); return; }
+      finalLogoUrl = supabase.storage.from("company-logos").getPublicUrl(path).data.publicUrl;
+    }
     const { error } = await supabase
       .from("settings")
       .update({
@@ -70,10 +111,13 @@ function SettingsPage() {
         receipt_prefix: form.receipt_prefix,
         production_prefix: form.production_prefix,
         employee_prefix: form.employee_prefix,
+        logo_url: finalLogoUrl,
       })
       .eq("factory_id", factoryId);
     setSaving(false);
     if (error) return toast.error(error.message);
+    setLogoUrl(finalLogoUrl);
+    setLogoFile(null);
     toast.success("Settings saved");
   };
 
@@ -86,7 +130,7 @@ function SettingsPage() {
     <div className="space-y-6 max-w-3xl">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
-        <p className="text-sm text-muted-foreground">These settings apply only to the currently selected factory.</p>
+        <p className="text-sm text-muted-foreground">Company, tax, and factory settings apply to the currently selected factory.</p>
       </div>
 
       {loading ? (
@@ -96,6 +140,13 @@ function SettingsPage() {
           <Card className="rounded-2xl">
             <CardHeader><CardTitle>Company</CardTitle></CardHeader>
             <CardContent className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2 md:col-span-2">
+                <Label>Company logo</Label>
+                <div className="flex items-center gap-3">
+                  {logoUrl && <img src={logoUrl} alt="Company logo" className="h-12 w-12 rounded-md border object-contain bg-white" />}
+                  <Input type="file" accept="image/*" onChange={(e) => setLogoFile(e.target.files?.[0] ?? null)} />
+                </div>
+              </div>
               <div className="space-y-2"><Label>Company name</Label><Input {...field("company_name")} /></div>
               <div className="space-y-2"><Label>Phone</Label><Input {...field("phone")} /></div>
               <div className="space-y-2 md:col-span-2"><Label>Address</Label><Input {...field("address")} /></div>
@@ -107,7 +158,7 @@ function SettingsPage() {
           <Card className="rounded-2xl">
             <CardHeader><CardTitle>Tax & numbering</CardTitle></CardHeader>
             <CardContent className="grid gap-4 md:grid-cols-3">
-              <div className="space-y-2"><Label>VAT rate (%)</Label><Input type="number" step="0.01" {...field("vat_rate")} /></div>
+              <div className="space-y-2"><Label>VAT / Tax rate (%)</Label><Input type="number" step="0.01" {...field("vat_rate")} /></div>
               <div className="space-y-2"><Label>Invoice prefix</Label><Input {...field("invoice_prefix")} /></div>
               <div className="space-y-2"><Label>Receipt prefix</Label><Input {...field("receipt_prefix")} /></div>
               <div className="space-y-2"><Label>Production prefix</Label><Input {...field("production_prefix")} /></div>
@@ -123,6 +174,339 @@ function SettingsPage() {
           </div>
         </form>
       )}
+
+      <Card className="rounded-2xl">
+        <CardHeader><CardTitle>Factory Management</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">Rename the two factories. Each keeps fully separate data — Water and Nylon can't be merged or removed here.</p>
+          {(factories.data ?? []).map((f) => (
+            <FactoryRow key={f.id} id={f.id} code={f.code} name={f.name} onSaved={() => qc.invalidateQueries({ queryKey: ["factories-all"] })} />
+          ))}
+        </CardContent>
+      </Card>
+
+      <ProductionTypesCard />
+      <UnitsOfMeasureCard />
+
+      <Card className="rounded-2xl">
+        <CardHeader><CardTitle>Theme</CardTitle></CardHeader>
+        <CardContent className="flex gap-2">
+          <Button variant={theme === "light" ? "default" : "outline"} className="gap-2" onClick={() => setTheme("light")}>
+            <Sun className="h-4 w-4" /> Light Mode
+          </Button>
+          <Button variant={theme === "dark" ? "default" : "outline"} className="gap-2" onClick={() => setTheme("dark")}>
+            <Moon className="h-4 w-4" /> Dark Mode
+          </Button>
+        </CardContent>
+      </Card>
+
+      <BackupRestoreCard factoryId={factoryId} />
     </div>
+  );
+}
+
+function FactoryRow({ id, code, name, onSaved }: { id: string; code: string; name: string; onSaved: () => void }) {
+  const [value, setValue] = useState(name);
+  const [saving, setSaving] = useState(false);
+  const dirty = value !== name;
+
+  const save = async () => {
+    setSaving(true);
+    const { error } = await supabase.from("factories").update({ name: value }).eq("id", id);
+    setSaving(false);
+    if (error) return toast.error(error.message);
+    toast.success("Factory updated");
+    onSaved();
+  };
+
+  return (
+    <div className="flex items-center gap-2">
+      <span className="w-20 shrink-0 text-xs uppercase tracking-wide text-muted-foreground">{code}</span>
+      <Input value={value} onChange={(e) => setValue(e.target.value)} className="max-w-xs" />
+      <Button size="sm" variant="outline" disabled={!dirty || saving} onClick={save}>
+        {saving ? "Saving…" : "Save"}
+      </Button>
+    </div>
+  );
+}
+
+function BackupRestoreCard({ factoryId }: { factoryId: string }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [restoring, setRestoring] = useState(false);
+  const [confirmText, setConfirmText] = useState("");
+
+  const runBackup = async () => {
+    if (!factoryId) return;
+    const snapshot: Record<string, unknown[]> = {};
+    for (const table of BACKUP_TABLES) {
+      const { data, error } = await supabase.from(table).select("*").eq("factory_id", factoryId);
+      if (error) { toast.error(`${table}: ${error.message}`); return; }
+      snapshot[table] = data ?? [];
+    }
+    const blob = new Blob([JSON.stringify({ factory_id: factoryId, exported_at: new Date().toISOString(), tables: snapshot }, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `fmis-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("Backup downloaded");
+  };
+
+  const runRestore = async () => {
+    if (!file) return;
+    setRestoring(true);
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text) as { tables?: Record<string, any[]> };
+      if (!parsed.tables) throw new Error("This file doesn't look like an FMIS backup");
+      for (const table of BACKUP_TABLES) {
+        const rows = parsed.tables[table];
+        if (!rows || rows.length === 0) continue;
+        const { error } = await supabase.from(table).upsert(rows, { onConflict: "id" });
+        if (error) throw new Error(`${table}: ${error.message}`);
+      }
+      toast.success("Restore complete. Records from the file were re-applied.");
+      setFile(null);
+      setConfirmText("");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Restore failed");
+    } finally {
+      setRestoring(false);
+    }
+  };
+
+  return (
+    <Card className="rounded-2xl">
+      <CardHeader><CardTitle>Backup & Restore</CardTitle></CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center justify-between rounded-lg border p-3">
+          <div>
+            <div className="font-medium text-sm">Backup</div>
+            <div className="text-xs text-muted-foreground">Download a snapshot of this factory's master data as JSON.</div>
+          </div>
+          <Button variant="outline" className="gap-2" onClick={runBackup}>
+            <Download className="h-4 w-4" /> Backup
+          </Button>
+        </div>
+
+        <div className="rounded-lg border p-3 space-y-2">
+          <div className="font-medium text-sm">Restore</div>
+          <p className="text-xs text-muted-foreground">
+            Re-applies records from a backup file. Matching records (same ID) are overwritten; records not in the file are left untouched — this does not delete anything.
+          </p>
+          <Input type="file" accept="application/json" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+          <AlertDialog onOpenChange={(v) => !v && setConfirmText("")}>
+            <AlertDialogTrigger asChild>
+              <Button variant="outline" className="gap-2" disabled={!file}>
+                <Upload className="h-4 w-4" /> Restore
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle className="flex items-center gap-2"><AlertTriangle className="h-5 w-5 text-warning" /> Confirm restore</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will overwrite any current record whose ID matches one in the backup file. Type RESTORE to confirm.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <Input value={confirmText} onChange={(e) => setConfirmText(e.target.value)} placeholder="RESTORE" />
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction disabled={confirmText !== "RESTORE" || restoring} onClick={runRestore}>
+                  {restoring ? "Restoring…" : "Restore data"}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+type ProductionTypeRow = {
+  id: string; name: string; code: string; department: string | null;
+  production_scope: string; unit_of_measure: string | null; active: boolean;
+};
+
+// Configurable production types (spec §5): Production's "type" dropdown reads
+// straight from this table, so adding "NYLON ROPE" next quarter is a data
+// entry here, never a code change or deploy.
+function ProductionTypesCard() {
+  const qc = useQueryClient();
+  const { canWrite } = usePermissions();
+  const write = canWrite("settings");
+  const [name, setName] = useState("");
+  const [code, setCode] = useState("");
+  const [department, setDepartment] = useState("Production");
+  const [scope, setScope] = useState<"NYLON" | "WATER" | "BOTH">("BOTH");
+  const [uom, setUom] = useState("");
+
+  const types = useQuery({
+    queryKey: ["production-types-all"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("production_types").select("id,name,code,department,production_scope,unit_of_measure,active").order("name");
+      if (error) throw error;
+      return (data ?? []) as ProductionTypeRow[];
+    },
+  });
+
+  const invalidate = () => qc.invalidateQueries({ queryKey: ["production-types-all"] });
+
+  const add = useMutation({
+    mutationFn: async () => {
+      if (!name.trim()) throw new Error("Name is required");
+      if (!code.trim()) throw new Error("Code is required");
+      const { error } = await supabase.from("production_types").insert({
+        name: name.trim(), code: code.trim().toUpperCase().replace(/\s+/g, "_"),
+        department: department || null, production_scope: scope, unit_of_measure: uom || null,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => { toast.success("Production type added"); setName(""); setCode(""); setUom(""); invalidate(); },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const toggleActive = useMutation({
+    mutationFn: async (t: ProductionTypeRow) => {
+      const { error } = await supabase.from("production_types").update({ active: !t.active }).eq("id", t.id);
+      if (error) throw error;
+    },
+    onSuccess: invalidate,
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return (
+    <Card className="rounded-2xl">
+      <CardHeader><CardTitle>Production Types</CardTitle></CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">Configurable list Production picks from when recording a new batch — add a type here instead of changing code.</p>
+        <Table>
+          <TableHeader>
+            <TableRow><TableHead>Name</TableHead><TableHead>Code</TableHead><TableHead>Scope</TableHead><TableHead>Unit</TableHead><TableHead>Status</TableHead>{write && <TableHead></TableHead>}</TableRow>
+          </TableHeader>
+          <TableBody>
+            {(types.data ?? []).map((t) => (
+              <TableRow key={t.id}>
+                <TableCell className="font-medium">{t.name}</TableCell>
+                <TableCell className="font-mono text-xs">{t.code}</TableCell>
+                <TableCell><Badge variant="outline" className="capitalize">{t.production_scope.toLowerCase()}</Badge></TableCell>
+                <TableCell>{t.unit_of_measure ?? "—"}</TableCell>
+                <TableCell><Badge variant={t.active ? "secondary" : "outline"}>{t.active ? "Active" : "Inactive"}</Badge></TableCell>
+                {write && (
+                  <TableCell className="text-right">
+                    <Button variant="ghost" size="sm" onClick={() => toggleActive.mutate(t)}>{t.active ? "Deactivate" : "Activate"}</Button>
+                  </TableCell>
+                )}
+              </TableRow>
+            ))}
+            {(types.data ?? []).length === 0 && (
+              <TableRow><TableCell colSpan={write ? 6 : 5} className="text-center text-muted-foreground py-6">No production types configured yet.</TableCell></TableRow>
+            )}
+          </TableBody>
+        </Table>
+
+        {write && (
+          <div className="grid grid-cols-2 gap-3 border-t pt-4 md:grid-cols-5 md:items-end">
+            <div><Label>Name</Label><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Nylon Bag" /></div>
+            <div><Label>Code</Label><Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="e.g. NYLON_BAG" /></div>
+            <div>
+              <Label>Scope</Label>
+              <Select value={scope} onValueChange={(v) => setScope(v as typeof scope)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="BOTH">Both</SelectItem>
+                  <SelectItem value="NYLON">Nylon</SelectItem>
+                  <SelectItem value="WATER">Water</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div><Label>Department</Label><Input value={department} onChange={(e) => setDepartment(e.target.value)} /></div>
+            <div className="flex gap-2">
+              <Input value={uom} onChange={(e) => setUom(e.target.value)} placeholder="Unit (optional)" />
+              <Button size="sm" disabled={add.isPending} onClick={() => add.mutate()} className="shrink-0 gap-1"><Plus className="h-4 w-4" /> Add</Button>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+type UnitOfMeasureRow = { id: string; name: string; code: string; active: boolean };
+
+// Configurable units of measure (spec §20): Raw Materials / Finished Goods /
+// Production unit pickers all read from this table (src/lib/units.ts'
+// useUnitsOfMeasure()) instead of a hard-coded list — adding "Drum" or
+// "Gallon" is a row here, never a code change.
+function UnitsOfMeasureCard() {
+  const qc = useQueryClient();
+  const { canWrite } = usePermissions();
+  const write = canWrite("settings");
+  const [name, setName] = useState("");
+  const [code, setCode] = useState("");
+
+  const units = useQuery({
+    queryKey: ["units-of-measure-all"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("units_of_measure").select("id,name,code,active").order("name");
+      if (error) throw error;
+      return (data ?? []) as UnitOfMeasureRow[];
+    },
+  });
+
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ["units-of-measure-all"] });
+    qc.invalidateQueries({ queryKey: ["units-of-measure"] });
+  };
+
+  const add = useMutation({
+    mutationFn: async () => {
+      if (!name.trim()) throw new Error("Name is required");
+      const { error } = await supabase.from("units_of_measure").insert({
+        name: name.trim(), code: (code.trim() || name.trim()).toUpperCase().replace(/\s+/g, "_"),
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => { toast.success("Unit added"); setName(""); setCode(""); invalidate(); },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const toggleActive = useMutation({
+    mutationFn: async (u: UnitOfMeasureRow) => {
+      const { error } = await supabase.from("units_of_measure").update({ active: !u.active }).eq("id", u.id);
+      if (error) throw error;
+    },
+    onSuccess: invalidate,
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return (
+    <Card className="rounded-2xl">
+      <CardHeader><CardTitle>Units of Measure</CardTitle></CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">Every unit picker in Raw Materials, Finished Goods, and Production reads from this list — add a unit here instead of changing code.</p>
+        <div className="flex flex-wrap gap-2">
+          {(units.data ?? []).map((u) => (
+            <Badge key={u.id} variant={u.active ? "secondary" : "outline"} className="gap-1">
+              {u.name}
+              {write && (
+                <button onClick={() => toggleActive.mutate(u)} className="ml-1 text-[10px] uppercase hover:text-destructive">
+                  {u.active ? "hide" : "show"}
+                </button>
+              )}
+            </Badge>
+          ))}
+          {(units.data ?? []).length === 0 && <span className="text-xs text-muted-foreground">No units configured yet.</span>}
+        </div>
+        {write && (
+          <div className="flex gap-2 border-t pt-4">
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Gallon" className="max-w-xs" />
+            <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="Code (optional)" className="max-w-xs" />
+            <Button size="sm" disabled={add.isPending} onClick={() => add.mutate()} className="gap-1"><Plus className="h-4 w-4" /> Add</Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

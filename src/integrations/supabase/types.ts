@@ -10,7 +10,32 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.5"
+    PostgrestVersion: "14.15"
+  }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
   }
   public: {
     Tables: {
@@ -61,6 +86,235 @@ export type Database = {
           },
         ]
       }
+      cash_transactions: {
+        Row: {
+          amount: number
+          category: string
+          created_at: string
+          description: string | null
+          factory_id: string
+          id: string
+          payer_payee: string | null
+          payment_method: Database["public"]["Enums"]["payment_method"]
+          recorded_by: string | null
+          recorded_by_name: string
+          related_reference: string | null
+          transaction_date: string
+          transaction_number: string
+          transaction_type: string
+        }
+        Insert: {
+          amount: number
+          category: string
+          created_at?: string
+          description?: string | null
+          factory_id: string
+          id?: string
+          payer_payee?: string | null
+          payment_method?: Database["public"]["Enums"]["payment_method"]
+          recorded_by?: string | null
+          recorded_by_name: string
+          related_reference?: string | null
+          transaction_date?: string
+          transaction_number: string
+          transaction_type: string
+        }
+        Update: {
+          amount?: number
+          category?: string
+          created_at?: string
+          description?: string | null
+          factory_id?: string
+          id?: string
+          payer_payee?: string | null
+          payment_method?: Database["public"]["Enums"]["payment_method"]
+          recorded_by?: string | null
+          recorded_by_name?: string
+          related_reference?: string | null
+          transaction_date?: string
+          transaction_number?: string
+          transaction_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cash_transactions_factory_id_fkey"
+            columns: ["factory_id"]
+            isOneToOne: false
+            referencedRelation: "factories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      costing_price_options: {
+        Row: {
+          created_at: string
+          id: string
+          margin: number
+          margin_percent: number
+          proposed_price: number
+          sheet_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          margin: number
+          margin_percent: number
+          proposed_price: number
+          sheet_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          margin?: number
+          margin_percent?: number
+          proposed_price?: number
+          sheet_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "costing_price_options_sheet_id_fkey"
+            columns: ["sheet_id"]
+            isOneToOne: false
+            referencedRelation: "costing_sheets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      costing_sheet_items: {
+        Row: {
+          id: string
+          line_total: number
+          material_id: string
+          quantity: number
+          sheet_id: string
+          unit_cost: number
+        }
+        Insert: {
+          id?: string
+          line_total: number
+          material_id: string
+          quantity: number
+          sheet_id: string
+          unit_cost: number
+        }
+        Update: {
+          id?: string
+          line_total?: number
+          material_id?: string
+          quantity?: number
+          sheet_id?: string
+          unit_cost?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "costing_sheet_items_material_id_fkey"
+            columns: ["material_id"]
+            isOneToOne: false
+            referencedRelation: "raw_materials"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "costing_sheet_items_sheet_id_fkey"
+            columns: ["sheet_id"]
+            isOneToOne: false
+            referencedRelation: "costing_sheets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      costing_sheets: {
+        Row: {
+          apply_to_product: boolean
+          approved_at: string | null
+          approved_by: string | null
+          cost_per_pack: number
+          created_at: string
+          created_by: string | null
+          factory_id: string
+          id: string
+          is_applied: boolean | null
+          labor_cost: number
+          material_cost: number
+          notes: string | null
+          overhead_cost: number
+          overhead_percent: number | null
+          pack_cost: number
+          pack_quantity: number
+          product_id: string
+          reject_reason: string | null
+          sheet_number: string
+          status: string
+          total_cost: number
+          unit_cost: number
+          yield_quantity: number
+        }
+        Insert: {
+          apply_to_product?: boolean
+          approved_at?: string | null
+          approved_by?: string | null
+          cost_per_pack?: number
+          created_at?: string
+          created_by?: string | null
+          factory_id: string
+          id?: string
+          is_applied?: boolean | null
+          labor_cost?: number
+          material_cost?: number
+          notes?: string | null
+          overhead_cost?: number
+          overhead_percent?: number | null
+          pack_cost?: number
+          pack_quantity?: number
+          product_id: string
+          reject_reason?: string | null
+          sheet_number: string
+          status?: string
+          total_cost?: number
+          unit_cost?: number
+          yield_quantity: number
+        }
+        Update: {
+          apply_to_product?: boolean
+          approved_at?: string | null
+          approved_by?: string | null
+          cost_per_pack?: number
+          created_at?: string
+          created_by?: string | null
+          factory_id?: string
+          id?: string
+          is_applied?: boolean | null
+          labor_cost?: number
+          material_cost?: number
+          notes?: string | null
+          overhead_cost?: number
+          overhead_percent?: number | null
+          pack_cost?: number
+          pack_quantity?: number
+          product_id?: string
+          reject_reason?: string | null
+          sheet_number?: string
+          status?: string
+          total_cost?: number
+          unit_cost?: number
+          yield_quantity?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "costing_sheets_factory_id_fkey"
+            columns: ["factory_id"]
+            isOneToOne: false
+            referencedRelation: "factories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "costing_sheets_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       customers: {
         Row: {
           address: string | null
@@ -104,6 +358,82 @@ export type Database = {
             columns: ["factory_id"]
             isOneToOne: false
             referencedRelation: "factories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      damage_records: {
+        Row: {
+          approved_by: string | null
+          created_at: string
+          factory_id: string
+          id: string
+          material_id: string | null
+          product_id: string | null
+          quantity: number
+          reason: string | null
+          reference_number: string
+          reported_by: string
+          source_reference: string | null
+          source_type: string
+          status: string
+          unit: string | null
+          updated_at: string
+        }
+        Insert: {
+          approved_by?: string | null
+          created_at?: string
+          factory_id: string
+          id?: string
+          material_id?: string | null
+          product_id?: string | null
+          quantity: number
+          reason?: string | null
+          reference_number: string
+          reported_by: string
+          source_reference?: string | null
+          source_type: string
+          status?: string
+          unit?: string | null
+          updated_at?: string
+        }
+        Update: {
+          approved_by?: string | null
+          created_at?: string
+          factory_id?: string
+          id?: string
+          material_id?: string | null
+          product_id?: string | null
+          quantity?: number
+          reason?: string | null
+          reference_number?: string
+          reported_by?: string
+          source_reference?: string | null
+          source_type?: string
+          status?: string
+          unit?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "damage_records_factory_id_fkey"
+            columns: ["factory_id"]
+            isOneToOne: false
+            referencedRelation: "factories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "damage_records_material_id_fkey"
+            columns: ["material_id"]
+            isOneToOne: false
+            referencedRelation: "raw_materials"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "damage_records_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
             referencedColumns: ["id"]
           },
         ]
@@ -161,6 +491,14 @@ export type Database = {
           status: Database["public"]["Enums"]["debt_status"]
           total_amount: number
           updated_at: string
+          writeoff_amount: number | null
+          writeoff_reason: string | null
+          writeoff_reject_reason: string | null
+          writeoff_requested_at: string | null
+          writeoff_requested_by: string | null
+          writeoff_reviewed_at: string | null
+          writeoff_reviewed_by: string | null
+          writeoff_status: string | null
         }
         Insert: {
           amount_paid?: number
@@ -173,6 +511,14 @@ export type Database = {
           status?: Database["public"]["Enums"]["debt_status"]
           total_amount: number
           updated_at?: string
+          writeoff_amount?: number | null
+          writeoff_reason?: string | null
+          writeoff_reject_reason?: string | null
+          writeoff_requested_at?: string | null
+          writeoff_requested_by?: string | null
+          writeoff_reviewed_at?: string | null
+          writeoff_reviewed_by?: string | null
+          writeoff_status?: string | null
         }
         Update: {
           amount_paid?: number
@@ -185,6 +531,14 @@ export type Database = {
           status?: Database["public"]["Enums"]["debt_status"]
           total_amount?: number
           updated_at?: string
+          writeoff_amount?: number | null
+          writeoff_reason?: string | null
+          writeoff_reject_reason?: string | null
+          writeoff_requested_at?: string | null
+          writeoff_requested_by?: string | null
+          writeoff_reviewed_at?: string | null
+          writeoff_reviewed_by?: string | null
+          writeoff_status?: string | null
         }
         Relationships: [
           {
@@ -206,6 +560,214 @@ export type Database = {
             columns: ["sale_id"]
             isOneToOne: false
             referencedRelation: "sales"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      deliveries: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          delivered_at: string | null
+          delivery_number: string
+          departed_at: string | null
+          destination: string | null
+          driver_id: string | null
+          factory_id: string
+          id: string
+          notes: string | null
+          route_id: string | null
+          sale_id: string | null
+          scheduled_date: string
+          status: string
+          vehicle_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          delivered_at?: string | null
+          delivery_number: string
+          departed_at?: string | null
+          destination?: string | null
+          driver_id?: string | null
+          factory_id: string
+          id?: string
+          notes?: string | null
+          route_id?: string | null
+          sale_id?: string | null
+          scheduled_date?: string
+          status?: string
+          vehicle_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          delivered_at?: string | null
+          delivery_number?: string
+          departed_at?: string | null
+          destination?: string | null
+          driver_id?: string | null
+          factory_id?: string
+          id?: string
+          notes?: string | null
+          route_id?: string | null
+          sale_id?: string | null
+          scheduled_date?: string
+          status?: string
+          vehicle_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "deliveries_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "deliveries_factory_id_fkey"
+            columns: ["factory_id"]
+            isOneToOne: false
+            referencedRelation: "factories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "deliveries_route_id_fkey"
+            columns: ["route_id"]
+            isOneToOne: false
+            referencedRelation: "delivery_routes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "deliveries_sale_id_fkey"
+            columns: ["sale_id"]
+            isOneToOne: false
+            referencedRelation: "sales"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "deliveries_vehicle_id_fkey"
+            columns: ["vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "vehicles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      delivery_routes: {
+        Row: {
+          created_at: string
+          description: string | null
+          factory_id: string
+          id: string
+          name: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          factory_id: string
+          id?: string
+          name: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          factory_id?: string
+          id?: string
+          name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "delivery_routes_factory_id_fkey"
+            columns: ["factory_id"]
+            isOneToOne: false
+            referencedRelation: "factories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      drivers: {
+        Row: {
+          created_at: string
+          factory_id: string
+          full_name: string
+          id: string
+          license_number: string | null
+          phone: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          factory_id: string
+          full_name: string
+          id?: string
+          license_number?: string | null
+          phone?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          factory_id?: string
+          full_name?: string
+          id?: string
+          license_number?: string | null
+          phone?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "drivers_factory_id_fkey"
+            columns: ["factory_id"]
+            isOneToOne: false
+            referencedRelation: "factories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      employee_documents: {
+        Row: {
+          created_at: string
+          employee_id: string
+          factory_id: string
+          file_name: string
+          file_path: string
+          id: string
+          uploaded_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          employee_id: string
+          factory_id: string
+          file_name: string
+          file_path: string
+          id?: string
+          uploaded_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          employee_id?: string
+          factory_id?: string
+          file_name?: string
+          file_path?: string
+          id?: string
+          uploaded_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "employee_documents_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employee_documents_factory_id_fkey"
+            columns: ["factory_id"]
+            isOneToOne: false
+            referencedRelation: "factories"
             referencedColumns: ["id"]
           },
         ]
@@ -331,6 +893,8 @@ export type Database = {
       expenses: {
         Row: {
           amount: number
+          approval_status: string
+          approved_at: string | null
           approved_by: string | null
           attachment_url: string | null
           category_id: string | null
@@ -343,10 +907,17 @@ export type Database = {
           receipt_number: string | null
           recorded_by: string | null
           remarks: string | null
+          requested_by_name: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string
+          submitted_by: string | null
           vendor: string | null
         }
         Insert: {
           amount: number
+          approval_status?: string
+          approved_at?: string | null
           approved_by?: string | null
           attachment_url?: string | null
           category_id?: string | null
@@ -359,10 +930,17 @@ export type Database = {
           receipt_number?: string | null
           recorded_by?: string | null
           remarks?: string | null
+          requested_by_name?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          submitted_by?: string | null
           vendor?: string | null
         }
         Update: {
           amount?: number
+          approval_status?: string
+          approved_at?: string | null
           approved_by?: string | null
           attachment_url?: string | null
           category_id?: string | null
@@ -375,6 +953,11 @@ export type Database = {
           receipt_number?: string | null
           recorded_by?: string | null
           remarks?: string | null
+          requested_by_name?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          submitted_by?: string | null
           vendor?: string | null
         }
         Relationships: [
@@ -415,6 +998,105 @@ export type Database = {
         }
         Relationships: []
       }
+      goods_receipts: {
+        Row: {
+          confirmed_at: string | null
+          confirmed_by: string | null
+          delivery_reference: string | null
+          factory_id: string
+          id: string
+          material_id: string
+          purchase_order_id: string | null
+          purchase_request_id: string | null
+          quantity: number
+          receipt_number: string
+          reject_reason: string | null
+          remarks: string | null
+          status: string
+          submitted_at: string
+          submitted_by: string
+          supplier_id: string | null
+          unit: string | null
+          unit_cost: number | null
+        }
+        Insert: {
+          confirmed_at?: string | null
+          confirmed_by?: string | null
+          delivery_reference?: string | null
+          factory_id: string
+          id?: string
+          material_id: string
+          purchase_order_id?: string | null
+          purchase_request_id?: string | null
+          quantity: number
+          receipt_number: string
+          reject_reason?: string | null
+          remarks?: string | null
+          status?: string
+          submitted_at?: string
+          submitted_by: string
+          supplier_id?: string | null
+          unit?: string | null
+          unit_cost?: number | null
+        }
+        Update: {
+          confirmed_at?: string | null
+          confirmed_by?: string | null
+          delivery_reference?: string | null
+          factory_id?: string
+          id?: string
+          material_id?: string
+          purchase_order_id?: string | null
+          purchase_request_id?: string | null
+          quantity?: number
+          receipt_number?: string
+          reject_reason?: string | null
+          remarks?: string | null
+          status?: string
+          submitted_at?: string
+          submitted_by?: string
+          supplier_id?: string | null
+          unit?: string | null
+          unit_cost?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "goods_receipts_factory_id_fkey"
+            columns: ["factory_id"]
+            isOneToOne: false
+            referencedRelation: "factories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "goods_receipts_material_id_fkey"
+            columns: ["material_id"]
+            isOneToOne: false
+            referencedRelation: "raw_materials"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "goods_receipts_purchase_order_id_fkey"
+            columns: ["purchase_order_id"]
+            isOneToOne: false
+            referencedRelation: "purchase_orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "goods_receipts_purchase_request_id_fkey"
+            columns: ["purchase_request_id"]
+            isOneToOne: false
+            referencedRelation: "production_requests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "goods_receipts_supplier_id_fkey"
+            columns: ["supplier_id"]
+            isOneToOne: false
+            referencedRelation: "suppliers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       inventory_movements: {
         Row: {
           created_at: string
@@ -423,6 +1105,8 @@ export type Database = {
           movement_type: Database["public"]["Enums"]["movement_type"]
           product_id: string
           quantity: number
+          quantity_after: number | null
+          quantity_before: number | null
           reason: string | null
           reference: string | null
           user_id: string | null
@@ -434,6 +1118,8 @@ export type Database = {
           movement_type: Database["public"]["Enums"]["movement_type"]
           product_id: string
           quantity: number
+          quantity_after?: number | null
+          quantity_before?: number | null
           reason?: string | null
           reference?: string | null
           user_id?: string | null
@@ -445,6 +1131,8 @@ export type Database = {
           movement_type?: Database["public"]["Enums"]["movement_type"]
           product_id?: string
           quantity?: number
+          quantity_after?: number | null
+          quantity_before?: number | null
           reason?: string | null
           reference?: string | null
           user_id?: string | null
@@ -462,6 +1150,38 @@ export type Database = {
             columns: ["product_id"]
             isOneToOne: false
             referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      material_categories: {
+        Row: {
+          created_at: string
+          description: string | null
+          factory_id: string
+          id: string
+          name: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          factory_id: string
+          id?: string
+          name: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          factory_id?: string
+          id?: string
+          name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "material_categories_factory_id_fkey"
+            columns: ["factory_id"]
+            isOneToOne: false
+            referencedRelation: "factories"
             referencedColumns: ["id"]
           },
         ]
@@ -516,7 +1236,12 @@ export type Database = {
           receipt_number: string
           received_by: string | null
           remarks: string | null
+          review_note: string | null
+          review_status: string
+          reviewed_at: string | null
+          reviewed_by: string | null
           sale_id: string | null
+          status: string
         }
         Insert: {
           amount: number
@@ -529,7 +1254,12 @@ export type Database = {
           receipt_number: string
           received_by?: string | null
           remarks?: string | null
+          review_note?: string | null
+          review_status?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
           sale_id?: string | null
+          status?: string
         }
         Update: {
           amount?: number
@@ -542,7 +1272,12 @@ export type Database = {
           receipt_number?: string
           received_by?: string | null
           remarks?: string | null
+          review_note?: string | null
+          review_status?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
           sale_id?: string | null
+          status?: string
         }
         Relationships: [
           {
@@ -570,16 +1305,21 @@ export type Database = {
       }
       payroll: {
         Row: {
+          account_number: string | null
           advance: number
-          allowances: number
+          bank_name: string | null
           basic_salary: number
           created_at: string
           employee_id: string
           factory_id: string
           gross_salary: number
+          housing_allowance: number
           id: string
           loans: number
+          meal_allowance: number
+          medical_allowance: number
           net_salary: number
+          other_allowances: number
           other_deductions: number
           overtime: number
           paye: number
@@ -588,19 +1328,30 @@ export type Database = {
           pension: number
           period_month: number
           period_year: number
-          status: string | null
+          review_reason: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string
+          submitted_at: string
+          submitted_by: string | null
+          transport_allowance: number
         }
         Insert: {
+          account_number?: string | null
           advance?: number
-          allowances?: number
+          bank_name?: string | null
           basic_salary?: number
           created_at?: string
           employee_id: string
           factory_id: string
           gross_salary?: number
+          housing_allowance?: number
           id?: string
           loans?: number
+          meal_allowance?: number
+          medical_allowance?: number
           net_salary?: number
+          other_allowances?: number
           other_deductions?: number
           overtime?: number
           paye?: number
@@ -609,19 +1360,30 @@ export type Database = {
           pension?: number
           period_month: number
           period_year: number
-          status?: string | null
+          review_reason?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          submitted_at?: string
+          submitted_by?: string | null
+          transport_allowance?: number
         }
         Update: {
+          account_number?: string | null
           advance?: number
-          allowances?: number
+          bank_name?: string | null
           basic_salary?: number
           created_at?: string
           employee_id?: string
           factory_id?: string
           gross_salary?: number
+          housing_allowance?: number
           id?: string
           loans?: number
+          meal_allowance?: number
+          medical_allowance?: number
           net_salary?: number
+          other_allowances?: number
           other_deductions?: number
           overtime?: number
           paye?: number
@@ -630,7 +1392,13 @@ export type Database = {
           pension?: number
           period_month?: number
           period_year?: number
-          status?: string | null
+          review_reason?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          submitted_at?: string
+          submitted_by?: string | null
+          transport_allowance?: number
         }
         Relationships: [
           {
@@ -648,6 +1416,33 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      permission_overrides: {
+        Row: {
+          action: string
+          granted: boolean
+          granted_at: string
+          granted_by: string | null
+          module: string
+          user_id: string
+        }
+        Insert: {
+          action: string
+          granted: boolean
+          granted_at?: string
+          granted_by?: string | null
+          module: string
+          user_id: string
+        }
+        Update: {
+          action?: string
+          granted?: boolean
+          granted_at?: string
+          granted_by?: string | null
+          module?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       product_categories: {
         Row: {
@@ -681,49 +1476,132 @@ export type Database = {
           },
         ]
       }
+      product_units: {
+        Row: {
+          active: boolean
+          base_unit: string
+          conversion_factor: number
+          created_at: string
+          id: string
+          packaging_unit: string
+          product_id: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          base_unit: string
+          conversion_factor: number
+          created_at?: string
+          id?: string
+          packaging_unit: string
+          product_id: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          base_unit?: string
+          conversion_factor?: number
+          created_at?: string
+          id?: string
+          packaging_unit?: string
+          product_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_units_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       production: {
         Row: {
+          accepted_quantity: number | null
+          actual_quantity_received: number | null
           batch_number: string | null
+          confirmed_at: string | null
+          confirmed_by: string | null
           created_at: string
           created_by: string | null
+          damaged_quantity: number
+          department: string | null
           factory_id: string
           id: string
+          packaging_quantity: number | null
+          packaging_unit: string | null
           product_id: string
           production_cost: number | null
           production_date: string
           production_number: string
+          production_request_id: string | null
+          production_scope: string | null
+          production_type_id: string | null
           quantity_produced: number
+          reject_reason: string | null
+          rejected_quantity: number
           remarks: string | null
+          status: string
           supervisor: string | null
           unit: string | null
         }
         Insert: {
+          accepted_quantity?: number | null
+          actual_quantity_received?: number | null
           batch_number?: string | null
+          confirmed_at?: string | null
+          confirmed_by?: string | null
           created_at?: string
           created_by?: string | null
+          damaged_quantity?: number
+          department?: string | null
           factory_id: string
           id?: string
+          packaging_quantity?: number | null
+          packaging_unit?: string | null
           product_id: string
           production_cost?: number | null
           production_date?: string
           production_number: string
+          production_request_id?: string | null
+          production_scope?: string | null
+          production_type_id?: string | null
           quantity_produced: number
+          reject_reason?: string | null
+          rejected_quantity?: number
           remarks?: string | null
+          status?: string
           supervisor?: string | null
           unit?: string | null
         }
         Update: {
+          accepted_quantity?: number | null
+          actual_quantity_received?: number | null
           batch_number?: string | null
+          confirmed_at?: string | null
+          confirmed_by?: string | null
           created_at?: string
           created_by?: string | null
+          damaged_quantity?: number
+          department?: string | null
           factory_id?: string
           id?: string
+          packaging_quantity?: number | null
+          packaging_unit?: string | null
           product_id?: string
           production_cost?: number | null
           production_date?: string
           production_number?: string
+          production_request_id?: string | null
+          production_scope?: string | null
+          production_type_id?: string | null
           quantity_produced?: number
+          reject_reason?: string | null
+          rejected_quantity?: number
           remarks?: string | null
+          status?: string
           supervisor?: string | null
           unit?: string | null
         }
@@ -742,7 +1620,222 @@ export type Database = {
             referencedRelation: "products"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "production_production_request_id_fkey"
+            columns: ["production_request_id"]
+            isOneToOne: false
+            referencedRelation: "production_requests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "production_production_type_id_fkey"
+            columns: ["production_type_id"]
+            isOneToOne: false
+            referencedRelation: "production_types"
+            referencedColumns: ["id"]
+          },
         ]
+      }
+      production_request_items: {
+        Row: {
+          created_at: string
+          id: string
+          material_id: string
+          quantity_issued: number
+          quantity_requested: number
+          request_id: string
+          unit: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          material_id: string
+          quantity_issued?: number
+          quantity_requested: number
+          request_id: string
+          unit?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          material_id?: string
+          quantity_issued?: number
+          quantity_requested?: number
+          request_id?: string
+          unit?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "production_request_items_material_id_fkey"
+            columns: ["material_id"]
+            isOneToOne: false
+            referencedRelation: "raw_materials"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "production_request_items_request_id_fkey"
+            columns: ["request_id"]
+            isOneToOne: false
+            referencedRelation: "production_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      production_requests: {
+        Row: {
+          approval_date: string | null
+          approval_status: string
+          approved_by_name: string | null
+          created_at: string
+          department: string | null
+          factory_id: string
+          id: string
+          issued_at: string | null
+          issued_by_name: string | null
+          material_id: string | null
+          materials_issued: boolean
+          po_number: string | null
+          product_id: string | null
+          production_id: string | null
+          production_status: string
+          quantity_requested: number
+          remarks: string | null
+          request_date: string
+          request_number: string
+          request_type: string
+          requested_by: string | null
+          requested_by_name: string
+          supplier_id: string | null
+          unit: string | null
+        }
+        Insert: {
+          approval_date?: string | null
+          approval_status?: string
+          approved_by_name?: string | null
+          created_at?: string
+          department?: string | null
+          factory_id: string
+          id?: string
+          issued_at?: string | null
+          issued_by_name?: string | null
+          material_id?: string | null
+          materials_issued?: boolean
+          po_number?: string | null
+          product_id?: string | null
+          production_id?: string | null
+          production_status?: string
+          quantity_requested: number
+          remarks?: string | null
+          request_date?: string
+          request_number: string
+          request_type?: string
+          requested_by?: string | null
+          requested_by_name: string
+          supplier_id?: string | null
+          unit?: string | null
+        }
+        Update: {
+          approval_date?: string | null
+          approval_status?: string
+          approved_by_name?: string | null
+          created_at?: string
+          department?: string | null
+          factory_id?: string
+          id?: string
+          issued_at?: string | null
+          issued_by_name?: string | null
+          material_id?: string | null
+          materials_issued?: boolean
+          po_number?: string | null
+          product_id?: string | null
+          production_id?: string | null
+          production_status?: string
+          quantity_requested?: number
+          remarks?: string | null
+          request_date?: string
+          request_number?: string
+          request_type?: string
+          requested_by?: string | null
+          requested_by_name?: string
+          supplier_id?: string | null
+          unit?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "production_requests_factory_id_fkey"
+            columns: ["factory_id"]
+            isOneToOne: false
+            referencedRelation: "factories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "production_requests_material_id_fkey"
+            columns: ["material_id"]
+            isOneToOne: false
+            referencedRelation: "raw_materials"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "production_requests_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "production_requests_production_id_fkey"
+            columns: ["production_id"]
+            isOneToOne: false
+            referencedRelation: "production"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "production_requests_supplier_id_fkey"
+            columns: ["supplier_id"]
+            isOneToOne: false
+            referencedRelation: "suppliers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      production_types: {
+        Row: {
+          active: boolean
+          code: string
+          created_at: string
+          created_by: string | null
+          department: string | null
+          id: string
+          name: string
+          production_scope: string
+          unit_of_measure: string | null
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          code: string
+          created_at?: string
+          created_by?: string | null
+          department?: string | null
+          id?: string
+          name: string
+          production_scope?: string
+          unit_of_measure?: string | null
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          code?: string
+          created_at?: string
+          created_by?: string | null
+          department?: string | null
+          id?: string
+          name?: string
+          production_scope?: string
+          unit_of_measure?: string | null
+          updated_at?: string
+        }
+        Relationships: []
       }
       products: {
         Row: {
@@ -755,6 +1848,7 @@ export type Database = {
           factory_id: string
           id: string
           name: string
+          product_type: string
           reorder_level: number | null
           sku: string | null
           unit: string
@@ -771,6 +1865,7 @@ export type Database = {
           factory_id: string
           id?: string
           name: string
+          product_type?: string
           reorder_level?: number | null
           sku?: string | null
           unit?: string
@@ -787,6 +1882,7 @@ export type Database = {
           factory_id?: string
           id?: string
           name?: string
+          product_type?: string
           reorder_level?: number | null
           sku?: string | null
           unit?: string
@@ -813,33 +1909,69 @@ export type Database = {
       profiles: {
         Row: {
           active_factory_id: string | null
+          approved_at: string | null
+          approved_by: string | null
           avatar_url: string | null
           created_at: string
+          created_by: string | null
+          department: string | null
           email: string | null
           full_name: string | null
           id: string
           phone: string | null
+          production_scope: string
+          rejected_at: string | null
+          rejected_by: string | null
+          rejected_reason: string | null
+          requested_factory_id: string | null
+          role_requested: string | null
+          status: string
           updated_at: string
+          username: string | null
         }
         Insert: {
           active_factory_id?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
           avatar_url?: string | null
           created_at?: string
+          created_by?: string | null
+          department?: string | null
           email?: string | null
           full_name?: string | null
           id: string
           phone?: string | null
+          production_scope?: string
+          rejected_at?: string | null
+          rejected_by?: string | null
+          rejected_reason?: string | null
+          requested_factory_id?: string | null
+          role_requested?: string | null
+          status?: string
           updated_at?: string
+          username?: string | null
         }
         Update: {
           active_factory_id?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
           avatar_url?: string | null
           created_at?: string
+          created_by?: string | null
+          department?: string | null
           email?: string | null
           full_name?: string | null
           id?: string
           phone?: string | null
+          production_scope?: string
+          rejected_at?: string | null
+          rejected_by?: string | null
+          rejected_reason?: string | null
+          requested_factory_id?: string | null
+          role_requested?: string | null
+          status?: string
           updated_at?: string
+          username?: string | null
         }
         Relationships: [
           {
@@ -847,6 +1979,121 @@ export type Database = {
             columns: ["active_factory_id"]
             isOneToOne: false
             referencedRelation: "factories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profiles_requested_factory_id_fkey"
+            columns: ["requested_factory_id"]
+            isOneToOne: false
+            referencedRelation: "factories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "profiles_role_requested_fkey"
+            columns: ["role_requested"]
+            isOneToOne: false
+            referencedRelation: "roles"
+            referencedColumns: ["slug"]
+          },
+        ]
+      }
+      purchase_orders: {
+        Row: {
+          approved_by_name: string | null
+          cancel_reason: string | null
+          cancelled_at: string | null
+          created_at: string
+          expected_delivery_date: string | null
+          factory_id: string
+          id: string
+          issued_at: string
+          issued_by: string | null
+          issued_by_name: string
+          material_id: string
+          notes: string | null
+          po_number: string
+          purchase_request_id: string
+          quantity_ordered: number
+          quantity_received: number
+          status: string
+          supplier_id: string | null
+          total_amount: number | null
+          unit: string | null
+          unit_cost: number | null
+        }
+        Insert: {
+          approved_by_name?: string | null
+          cancel_reason?: string | null
+          cancelled_at?: string | null
+          created_at?: string
+          expected_delivery_date?: string | null
+          factory_id: string
+          id?: string
+          issued_at?: string
+          issued_by?: string | null
+          issued_by_name: string
+          material_id: string
+          notes?: string | null
+          po_number: string
+          purchase_request_id: string
+          quantity_ordered: number
+          quantity_received?: number
+          status?: string
+          supplier_id?: string | null
+          total_amount?: number | null
+          unit?: string | null
+          unit_cost?: number | null
+        }
+        Update: {
+          approved_by_name?: string | null
+          cancel_reason?: string | null
+          cancelled_at?: string | null
+          created_at?: string
+          expected_delivery_date?: string | null
+          factory_id?: string
+          id?: string
+          issued_at?: string
+          issued_by?: string | null
+          issued_by_name?: string
+          material_id?: string
+          notes?: string | null
+          po_number?: string
+          purchase_request_id?: string
+          quantity_ordered?: number
+          quantity_received?: number
+          status?: string
+          supplier_id?: string | null
+          total_amount?: number | null
+          unit?: string | null
+          unit_cost?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "purchase_orders_factory_id_fkey"
+            columns: ["factory_id"]
+            isOneToOne: false
+            referencedRelation: "factories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "purchase_orders_material_id_fkey"
+            columns: ["material_id"]
+            isOneToOne: false
+            referencedRelation: "raw_materials"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "purchase_orders_purchase_request_id_fkey"
+            columns: ["purchase_request_id"]
+            isOneToOne: true
+            referencedRelation: "production_requests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "purchase_orders_supplier_id_fkey"
+            columns: ["supplier_id"]
+            isOneToOne: false
+            referencedRelation: "suppliers"
             referencedColumns: ["id"]
           },
         ]
@@ -859,6 +2106,8 @@ export type Database = {
           material_id: string
           movement_type: Database["public"]["Enums"]["movement_type"]
           quantity: number
+          quantity_after: number | null
+          quantity_before: number | null
           reason: string | null
           reference: string | null
           unit_cost: number | null
@@ -871,6 +2120,8 @@ export type Database = {
           material_id: string
           movement_type: Database["public"]["Enums"]["movement_type"]
           quantity: number
+          quantity_after?: number | null
+          quantity_before?: number | null
           reason?: string | null
           reference?: string | null
           unit_cost?: number | null
@@ -883,6 +2134,8 @@ export type Database = {
           material_id?: string
           movement_type?: Database["public"]["Enums"]["movement_type"]
           quantity?: number
+          quantity_after?: number | null
+          quantity_before?: number | null
           reason?: string | null
           reference?: string | null
           unit_cost?: number | null
@@ -907,11 +2160,16 @@ export type Database = {
       }
       raw_materials: {
         Row: {
+          active: boolean
+          approval_status: string
           category: string | null
+          category_id: string | null
           created_at: string
+          created_by: string | null
           current_stock: number
           factory_id: string
           id: string
+          minimum_stock: number | null
           name: string
           opening_stock: number
           remarks: string | null
@@ -922,11 +2180,16 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          active?: boolean
+          approval_status?: string
           category?: string | null
+          category_id?: string | null
           created_at?: string
+          created_by?: string | null
           current_stock?: number
           factory_id: string
           id?: string
+          minimum_stock?: number | null
           name: string
           opening_stock?: number
           remarks?: string | null
@@ -937,11 +2200,16 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          active?: boolean
+          approval_status?: string
           category?: string | null
+          category_id?: string | null
           created_at?: string
+          created_by?: string | null
           current_stock?: number
           factory_id?: string
           id?: string
+          minimum_stock?: number | null
           name?: string
           opening_stock?: number
           remarks?: string | null
@@ -952,6 +2220,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "raw_materials_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "material_categories"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "raw_materials_factory_id_fkey"
             columns: ["factory_id"]
@@ -967,6 +2242,115 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      role_grant_requests: {
+        Row: {
+          action: string
+          factory_id: string | null
+          id: string
+          requested_at: string
+          requested_by: string
+          review_reason: string | null
+          review_status: string
+          reviewed_at: string | null
+          reviewed_by: string | null
+          role: string
+          status: string
+          target_user_id: string
+        }
+        Insert: {
+          action?: string
+          factory_id?: string | null
+          id?: string
+          requested_at?: string
+          requested_by: string
+          review_reason?: string | null
+          review_status?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          role: string
+          status?: string
+          target_user_id: string
+        }
+        Update: {
+          action?: string
+          factory_id?: string | null
+          id?: string
+          requested_at?: string
+          requested_by?: string
+          review_reason?: string | null
+          review_status?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          role?: string
+          status?: string
+          target_user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "role_grant_requests_factory_id_fkey"
+            columns: ["factory_id"]
+            isOneToOne: false
+            referencedRelation: "factories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      role_permissions: {
+        Row: {
+          action: string
+          module: string
+          role: string
+        }
+        Insert: {
+          action: string
+          module: string
+          role: string
+        }
+        Update: {
+          action?: string
+          module?: string
+          role?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "role_permissions_role_fkey"
+            columns: ["role"]
+            isOneToOne: false
+            referencedRelation: "roles"
+            referencedColumns: ["slug"]
+          },
+        ]
+      }
+      roles: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          description: string | null
+          is_system: boolean
+          label: string
+          slug: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          is_system?: boolean
+          label: string
+          slug: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          is_system?: boolean
+          label?: string
+          slug?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       sale_items: {
         Row: {
@@ -1091,6 +2475,101 @@ export type Database = {
           },
         ]
       }
+      sales_returns: {
+        Row: {
+          accepted_quantity: number | null
+          created_at: string
+          customer_id: string | null
+          damaged_quantity: number
+          factory_id: string
+          id: string
+          inspected_at: string | null
+          inspected_by: string | null
+          notes: string | null
+          product_id: string
+          quantity_returned: number
+          reason: string | null
+          received_at: string
+          received_by: string
+          rejected_quantity: number
+          return_number: string
+          sale_id: string | null
+          status: string
+          unit: string | null
+        }
+        Insert: {
+          accepted_quantity?: number | null
+          created_at?: string
+          customer_id?: string | null
+          damaged_quantity?: number
+          factory_id: string
+          id?: string
+          inspected_at?: string | null
+          inspected_by?: string | null
+          notes?: string | null
+          product_id: string
+          quantity_returned: number
+          reason?: string | null
+          received_at?: string
+          received_by: string
+          rejected_quantity?: number
+          return_number: string
+          sale_id?: string | null
+          status?: string
+          unit?: string | null
+        }
+        Update: {
+          accepted_quantity?: number | null
+          created_at?: string
+          customer_id?: string | null
+          damaged_quantity?: number
+          factory_id?: string
+          id?: string
+          inspected_at?: string | null
+          inspected_by?: string | null
+          notes?: string | null
+          product_id?: string
+          quantity_returned?: number
+          reason?: string | null
+          received_at?: string
+          received_by?: string
+          rejected_quantity?: number
+          return_number?: string
+          sale_id?: string | null
+          status?: string
+          unit?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sales_returns_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sales_returns_factory_id_fkey"
+            columns: ["factory_id"]
+            isOneToOne: false
+            referencedRelation: "factories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sales_returns_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sales_returns_sale_id_fkey"
+            columns: ["sale_id"]
+            isOneToOne: false
+            referencedRelation: "sales"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       settings: {
         Row: {
           address: string | null
@@ -1153,41 +2632,141 @@ export type Database = {
           },
         ]
       }
+      stock_adjustment_requests: {
+        Row: {
+          entity_type: string
+          factory_id: string
+          id: string
+          material_id: string | null
+          movement_type: string
+          product_id: string | null
+          quantity_delta: number
+          reason: string | null
+          review_reason: string | null
+          review_status: string
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string
+          submitted_at: string
+          submitted_by: string
+        }
+        Insert: {
+          entity_type: string
+          factory_id: string
+          id?: string
+          material_id?: string | null
+          movement_type?: string
+          product_id?: string | null
+          quantity_delta: number
+          reason?: string | null
+          review_reason?: string | null
+          review_status?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          submitted_at?: string
+          submitted_by: string
+        }
+        Update: {
+          entity_type?: string
+          factory_id?: string
+          id?: string
+          material_id?: string | null
+          movement_type?: string
+          product_id?: string | null
+          quantity_delta?: number
+          reason?: string | null
+          review_reason?: string | null
+          review_status?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          submitted_at?: string
+          submitted_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stock_adjustment_requests_factory_id_fkey"
+            columns: ["factory_id"]
+            isOneToOne: false
+            referencedRelation: "factories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stock_adjustment_requests_material_id_fkey"
+            columns: ["material_id"]
+            isOneToOne: false
+            referencedRelation: "raw_materials"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stock_adjustment_requests_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       suppliers: {
         Row: {
           address: string | null
+          bank_account_name: string | null
+          bank_account_number: string | null
+          bank_name: string | null
+          category: string | null
+          contact_person: string | null
           created_at: string
+          created_by: string | null
           email: string | null
           factory_id: string
           id: string
           materials_supplied: string | null
           name: string
+          notes: string | null
           outstanding_balance: number
           phone: string | null
+          status: string
           updated_at: string
         }
         Insert: {
           address?: string | null
+          bank_account_name?: string | null
+          bank_account_number?: string | null
+          bank_name?: string | null
+          category?: string | null
+          contact_person?: string | null
           created_at?: string
+          created_by?: string | null
           email?: string | null
           factory_id: string
           id?: string
           materials_supplied?: string | null
           name: string
+          notes?: string | null
           outstanding_balance?: number
           phone?: string | null
+          status?: string
           updated_at?: string
         }
         Update: {
           address?: string | null
+          bank_account_name?: string | null
+          bank_account_number?: string | null
+          bank_name?: string | null
+          category?: string | null
+          contact_person?: string | null
           created_at?: string
+          created_by?: string | null
           email?: string | null
           factory_id?: string
           id?: string
           materials_supplied?: string | null
           name?: string
+          notes?: string | null
           outstanding_balance?: number
           phone?: string | null
+          status?: string
           updated_at?: string
         }
         Relationships: [
@@ -1200,26 +2779,56 @@ export type Database = {
           },
         ]
       }
+      units_of_measure: {
+        Row: {
+          active: boolean
+          code: string
+          created_at: string
+          created_by: string | null
+          id: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          code: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          code?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           created_at: string
           factory_id: string | null
           id: string
-          role: Database["public"]["Enums"]["app_role"]
+          role: string
           user_id: string
         }
         Insert: {
           created_at?: string
           factory_id?: string | null
           id?: string
-          role: Database["public"]["Enums"]["app_role"]
+          role: string
           user_id: string
         }
         Update: {
           created_at?: string
           factory_id?: string | null
           id?: string
-          role?: Database["public"]["Enums"]["app_role"]
+          role?: string
           user_id?: string
         }
         Relationships: [
@@ -1230,39 +2839,464 @@ export type Database = {
             referencedRelation: "factories"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "user_roles_role_fkey"
+            columns: ["role"]
+            isOneToOne: false
+            referencedRelation: "roles"
+            referencedColumns: ["slug"]
+          },
         ]
+      }
+      vehicles: {
+        Row: {
+          capacity: string | null
+          created_at: string
+          factory_id: string
+          id: string
+          make_model: string | null
+          plate_number: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          capacity?: string | null
+          created_at?: string
+          factory_id: string
+          id?: string
+          make_model?: string | null
+          plate_number: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          capacity?: string | null
+          created_at?: string
+          factory_id?: string
+          id?: string
+          make_model?: string | null
+          plate_number?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vehicles_factory_id_fkey"
+            columns: ["factory_id"]
+            isOneToOne: false
+            referencedRelation: "factories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workflow_approval_history: {
+        Row: {
+          action: string
+          actor: string
+          comment: string | null
+          created_at: string
+          entity_id: string
+          from_status: string | null
+          id: string
+          module: string
+          to_status: string
+          transaction_type: string
+        }
+        Insert: {
+          action: string
+          actor: string
+          comment?: string | null
+          created_at?: string
+          entity_id: string
+          from_status?: string | null
+          id?: string
+          module: string
+          to_status: string
+          transaction_type: string
+        }
+        Update: {
+          action?: string
+          actor?: string
+          comment?: string | null
+          created_at?: string
+          entity_id?: string
+          from_status?: string | null
+          id?: string
+          module?: string
+          to_status?: string
+          transaction_type?: string
+        }
+        Relationships: []
+      }
+      workflow_configs: {
+        Row: {
+          checker_label: string
+          description: string | null
+          final_status: string
+          maker_label: string
+          module: string
+          required_approvals: number
+          transaction_type: string
+        }
+        Insert: {
+          checker_label: string
+          description?: string | null
+          final_status: string
+          maker_label: string
+          module: string
+          required_approvals?: number
+          transaction_type: string
+        }
+        Update: {
+          checker_label?: string
+          description?: string | null
+          final_status?: string
+          maker_label?: string
+          module?: string
+          required_approvals?: number
+          transaction_type?: string
+        }
+        Relationships: []
+      }
+      workflow_transitions: {
+        Row: {
+          from_status: string
+          to_status: string
+        }
+        Insert: {
+          from_status: string
+          to_status: string
+        }
+        Update: {
+          from_status?: string
+          to_status?: string
+        }
+        Relationships: []
       }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      create_sale: { Args: { payload: Json }; Returns: Json }
-      has_role: {
+      adjust_finished_stock: { Args: { payload: Json }; Returns: Json }
+      adjust_raw_material: { Args: { payload: Json }; Returns: Json }
+      approve_costing_sheet: {
+        Args: { p_comment?: string; p_id: string }
+        Returns: Json
+      }
+      approve_debt_writeoff: {
+        Args: { p_comment?: string; p_debt_id: string }
+        Returns: Json
+      }
+      approve_expense: {
+        Args: { p_comment?: string; p_id: string }
+        Returns: Json
+      }
+      approve_new_material: {
+        Args: { p_comment?: string; p_id: string }
+        Returns: Json
+      }
+      approve_payroll: {
+        Args: { p_comment?: string; p_id: string }
+        Returns: Json
+      }
+      approve_production_request: {
+        Args: { p_approver_name: string; p_id: string }
+        Returns: Json
+      }
+      approve_role_grant: {
+        Args: { p_comment?: string; p_request_id: string }
+        Returns: Json
+      }
+      approve_stock_adjustment: {
+        Args: { p_comment?: string; p_id: string }
+        Returns: Json
+      }
+      approve_user: {
         Args: {
-          _role: Database["public"]["Enums"]["app_role"]
-          _user_id: string
+          granted_role?: string
+          p_department?: string
+          target_id: string
         }
+        Returns: Json
+      }
+      assert_valid_transition: {
+        Args: { p_from: unknown; p_to: unknown }
+        Returns: undefined
+      }
+      cancel_costing_sheet: {
+        Args: { p_id: string; p_reason?: string }
+        Returns: Json
+      }
+      cancel_debt_writeoff: {
+        Args: { p_debt_id: string; p_reason?: string }
+        Returns: Json
+      }
+      cancel_expense: {
+        Args: { p_id: string; p_reason?: string }
+        Returns: Json
+      }
+      cancel_goods_receipt: {
+        Args: { p_id: string; p_reason?: string }
+        Returns: Json
+      }
+      cancel_payroll: {
+        Args: { p_id: string; p_reason?: string }
+        Returns: Json
+      }
+      cancel_production: {
+        Args: { p_id: string; p_reason?: string }
+        Returns: Json
+      }
+      cancel_purchase_order: {
+        Args: { p_id: string; p_reason?: string }
+        Returns: Json
+      }
+      cancel_role_grant: {
+        Args: { p_reason?: string; p_request_id: string }
+        Returns: Json
+      }
+      cancel_sales_return: {
+        Args: { p_id: string; p_reason?: string }
+        Returns: Json
+      }
+      cancel_stock_adjustment: {
+        Args: { p_id: string; p_reason?: string }
+        Returns: Json
+      }
+      close_debt: {
+        Args: { p_debt_id: string; p_reason?: string }
+        Returns: Json
+      }
+      confirm_goods_receipt: {
+        Args: { p_comment?: string; p_id: string }
+        Returns: Json
+      }
+      confirm_payment: {
+        Args: { p_id: string; p_note?: string }
+        Returns: Json
+      }
+      confirm_production_batch: {
+        Args: {
+          p_actual_received: number
+          p_comment?: string
+          p_damaged: number
+          p_id: string
+          p_rejected: number
+        }
+        Returns: Json
+      }
+      create_cash_transaction: { Args: { payload: Json }; Returns: Json }
+      create_costing_sheet: { Args: { payload: Json }; Returns: Json }
+      create_delivery: { Args: { payload: Json }; Returns: Json }
+      create_production: { Args: { payload: Json }; Returns: Json }
+      create_production_request: { Args: { payload: Json }; Returns: Json }
+      create_purchase_order: { Args: { payload: Json }; Returns: Json }
+      create_sale: { Args: { payload: Json }; Returns: Json }
+      create_sales_return: { Args: { payload: Json }; Returns: Json }
+      delete_production: { Args: { p_id: string }; Returns: Json }
+      delete_user_account: { Args: { target_id: string }; Returns: Json }
+      flag_payment: { Args: { p_id: string; p_reason: string }; Returns: Json }
+      get_all_users_last_login: {
+        Args: never
+        Returns: {
+          id: string
+          last_sign_in_at: string
+        }[]
+      }
+      get_my_permissions: {
+        Args: never
+        Returns: {
+          action: unknown
+          module: unknown
+        }[]
+      }
+      has_permission:
+        | {
+            Args: { _action?: unknown; _module: unknown; _user_id: string }
+            Returns: boolean
+          }
+        | {
+            Args: { _level?: unknown; _module: unknown; _user_id: string }
+            Returns: boolean
+          }
+      has_production_scope_access: {
+        Args: { _factory_id: string; _user_id: string }
         Returns: boolean
       }
+      has_role: { Args: { _role: string; _user_id: string }; Returns: boolean }
+      inspect_sales_return: {
+        Args: {
+          p_accepted: number
+          p_damaged: number
+          p_id: string
+          p_notes?: string
+          p_rejected: number
+        }
+        Returns: Json
+      }
       is_admin: { Args: { _user_id: string }; Returns: boolean }
+      issue_production_request_materials: {
+        Args: { payload: Json }
+        Returns: Json
+      }
+      issue_raw_material: { Args: { payload: Json }; Returns: Json }
+      post_debt_writeoff: {
+        Args: { p_comment?: string; p_debt_id: string }
+        Returns: Json
+      }
+      post_expense: {
+        Args: { p_comment?: string; p_id: string }
+        Returns: Json
+      }
+      post_payroll: {
+        Args: { p_comment?: string; p_id: string; p_payment_date?: string }
+        Returns: Json
+      }
+      post_role_grant: {
+        Args: { p_comment?: string; p_request_id: string }
+        Returns: Json
+      }
+      post_stock_adjustment: {
+        Args: { p_comment?: string; p_id: string }
+        Returns: Json
+      }
+      process_payroll: { Args: { payload: Json }; Returns: Json }
+      receive_raw_material: { Args: { payload: Json }; Returns: Json }
       record_payment: { Args: { payload: Json }; Returns: Json }
+      record_workflow_action: {
+        Args: {
+          p_action: unknown
+          p_comment?: string
+          p_entity_id: string
+          p_from_status: unknown
+          p_module: unknown
+          p_to_status: unknown
+        }
+        Returns: string
+      }
+      reject_costing_sheet: {
+        Args: { p_id: string; p_reason: string }
+        Returns: Json
+      }
+      reject_debt_writeoff: {
+        Args: { p_debt_id: string; p_reason?: string }
+        Returns: Json
+      }
+      reject_expense: {
+        Args: { p_id: string; p_reason?: string }
+        Returns: Json
+      }
+      reject_goods_receipt: {
+        Args: { p_id: string; p_reason: string }
+        Returns: Json
+      }
+      reject_new_material: {
+        Args: { p_id: string; p_reason?: string }
+        Returns: Json
+      }
+      reject_payment: {
+        Args: { p_id: string; p_reason: string }
+        Returns: Json
+      }
+      reject_payroll: {
+        Args: { p_id: string; p_reason?: string }
+        Returns: Json
+      }
+      reject_production_batch: {
+        Args: { p_id: string; p_reason: string }
+        Returns: Json
+      }
+      reject_production_request: {
+        Args: { p_approver_name: string; p_id: string; p_reason?: string }
+        Returns: Json
+      }
+      reject_role_grant: {
+        Args: { p_reason?: string; p_request_id: string }
+        Returns: Json
+      }
+      reject_stock_adjustment: {
+        Args: { p_id: string; p_reason?: string }
+        Returns: Json
+      }
+      reject_user: {
+        Args: { reason: string; target_id: string }
+        Returns: Json
+      }
+      request_debt_writeoff: {
+        Args: { p_debt_id: string; p_reason?: string }
+        Returns: Json
+      }
+      request_new_material: { Args: { payload: Json }; Returns: Json }
+      request_role_grant: {
+        Args: {
+          p_factory_id?: string
+          p_role: string
+          p_target_user_id: string
+        }
+        Returns: Json
+      }
+      request_role_revoke: {
+        Args: { p_factory_id?: string; p_role: string; p_user_id: string }
+        Returns: Json
+      }
+      request_stock_adjustment: { Args: { payload: Json }; Returns: Json }
+      reverse_debt_writeoff: {
+        Args: { p_debt_id: string; p_reason: string }
+        Returns: Json
+      }
+      reverse_expense: {
+        Args: { p_id: string; p_reason: string }
+        Returns: Json
+      }
+      reverse_payment: {
+        Args: { p_id: string; p_reason: string }
+        Returns: Json
+      }
+      reverse_payroll: {
+        Args: { p_id: string; p_reason: string }
+        Returns: Json
+      }
+      reverse_role_grant: {
+        Args: { p_reason: string; p_request_id: string }
+        Returns: Json
+      }
+      reverse_stock_adjustment: {
+        Args: { p_id: string; p_reason: string }
+        Returns: Json
+      }
+      set_production_scope: {
+        Args: { p_scope: string; p_user_id: string }
+        Returns: Json
+      }
+      set_user_department: {
+        Args: { new_department: string; target_id: string }
+        Returns: Json
+      }
+      set_user_status: {
+        Args: { new_status: string; target_id: string }
+        Returns: Json
+      }
+      submit_costing_sheet: { Args: { payload: Json }; Returns: Json }
+      submit_goods_receipt: { Args: { payload: Json }; Returns: Json }
+      transfer_finished_stock: { Args: { payload: Json }; Returns: Json }
+      transfer_raw_material: { Args: { payload: Json }; Returns: Json }
+      update_costing_sheet: { Args: { payload: Json }; Returns: Json }
+      update_delivery_status: {
+        Args: { p_id: string; p_status: string }
+        Returns: Json
+      }
+      update_production: { Args: { payload: Json }; Returns: Json }
+      workflow_approval_progress: {
+        Args: { p_entity_id: string; p_module: unknown }
+        Returns: {
+          approvals_so_far: number
+          required_approvals: number
+          satisfied: boolean
+        }[]
+      }
     }
     Enums: {
-      app_role:
-        | "super_admin"
-        | "factory_manager"
-        | "sales_manager"
-        | "sales_officer"
-        | "production_manager"
-        | "production_officer"
-        | "inventory_manager"
-        | "store_keeper"
-        | "hr"
-        | "payroll_officer"
-        | "accountant"
-        | "auditor"
-        | "viewer"
       debt_status: "paid" | "partial" | "unpaid"
       movement_type:
         | "received"
@@ -1273,6 +3307,11 @@ export type Database = {
         | "sold"
         | "damaged"
         | "returned"
+        | "used_for_production"
+        | "opening_balance"
+        | "return_from_production"
+        | "expiry"
+        | "correction"
       payment_method: "cash" | "transfer" | "pos" | "card" | "cheque" | "credit"
     }
     CompositeTypes: {
@@ -1399,23 +3438,11 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
-      app_role: [
-        "super_admin",
-        "factory_manager",
-        "sales_manager",
-        "sales_officer",
-        "production_manager",
-        "production_officer",
-        "inventory_manager",
-        "store_keeper",
-        "hr",
-        "payroll_officer",
-        "accountant",
-        "auditor",
-        "viewer",
-      ],
       debt_status: ["paid", "partial", "unpaid"],
       movement_type: [
         "received",
@@ -1426,6 +3453,11 @@ export const Constants = {
         "sold",
         "damaged",
         "returned",
+        "used_for_production",
+        "opening_balance",
+        "return_from_production",
+        "expiry",
+        "correction",
       ],
       payment_method: ["cash", "transfer", "pos", "card", "cheque", "credit"],
     },
