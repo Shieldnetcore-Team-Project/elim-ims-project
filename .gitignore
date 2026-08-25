@@ -6,3 +6,6 @@ build/
 *.log
 .DS_Store
 .vitest-tmp/
+server/data/*.db
+server/data/*.db-shm
+server/data/*.db-wal
