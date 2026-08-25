@@ -47,9 +47,12 @@ import { driverPerformanceRouter } from './routes/driverPerformance.js';
 import { maintenanceReportsRouter } from './routes/maintenanceReports.js';
 import { notificationsRouter } from './routes/notifications.js';
 
-migrate();
-seed();
-ensureDefaultPasswords();
+await migrate();
+// Demo/mock data is opt-in only (local dev), never automatic — a deployed
+// install must start virgin, with zero seed rows, so real business data is
+// never mixed with (or silently reset back to) sample data.
+if (process.env.SEED_DEMO_DATA === 'true') await seed();
+await ensureDefaultPasswords();
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 4000);

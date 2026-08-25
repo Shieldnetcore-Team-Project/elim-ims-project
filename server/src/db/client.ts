@@ -1,18 +1,93 @@
-import { DatabaseSync } from 'node:sqlite';
-import path from 'node:path';
-import fs from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import pg from 'pg';
 
-const dirname = path.dirname(fileURLToPath(import.meta.url));
-const dataDir = path.resolve(dirname, '../../data');
-if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+const { Pool } = pg;
 
-// The Vitest suite points this at a throwaway temp file (see vitest.config.ts)
-// so tests never touch the real dev database — everything else is unchanged.
-const dbPath = process.env.ELIM_DB_PATH ?? path.join(dataDir, 'elim.db');
-const dbDir = path.dirname(dbPath);
-if (!fs.existsSync(dbDir)) fs.mkdirSync(dbDir, { recursive: true });
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) throw new Error('DATABASE_URL environment variable is required');
 
-export const db = new DatabaseSync(dbPath);
-db.exec('PRAGMA foreign_keys = ON');
-db.exec('PRAGMA journal_mode = WAL');
+const pool = new Pool({ connectionString, ssl: { rejectUnauthorized: false } });
+
+// Threads the single pooled client checked out by db.transaction() through every
+// nested db.prepare(...) call made inside its callback, so a multi-statement business
+// transaction (e.g. sales.approveCreditSale) shares one real Postgres transaction
+// instead of each query grabbing its own connection from the pool.
+const txContext = new AsyncLocalStorage<pg.PoolClient>();
+
+function executor(): Pick<pg.Pool | pg.PoolClient, 'query'> {
+  return txContext.getStore() ?? pool;
+}
+
+/** node:sqlite (better-sqlite3-style) uses positional `?` placeholders; pg needs
+ *  numbered `$1,$2,...`. Rewritten here, quote-aware, so none of the SQL text at any
+ *  of the ~490 call sites across the app needs to change — only the JS call site gets
+ *  `await` added. No SQL string in this codebase contains a literal `?` inside a
+ *  string/identifier, but this stays quote-aware defensively rather than assuming that. */
+function toPositional(sql: string): string {
+  let out = '';
+  let n = 0;
+  let inSingle = false;
+  let inDouble = false;
+  for (let i = 0; i < sql.length; i++) {
+    const c = sql[i];
+    if (c === "'" && !inDouble) inSingle = !inSingle;
+    else if (c === '"' && !inSingle) inDouble = !inDouble;
+    if (c === '?' && !inSingle && !inDouble) {
+      n += 1;
+      out += `$${n}`;
+    } else {
+      out += c;
+    }
+  }
+  return out;
+}
+
+export interface RunResult { changes: number }
+
+interface PreparedLike<Row> {
+  get(...params: unknown[]): Promise<Row | undefined>;
+  all(...params: unknown[]): Promise<Row[]>;
+  run(...params: unknown[]): Promise<RunResult>;
+}
+
+function prepare<Row = Record<string, unknown>>(sql: string): PreparedLike<Row> {
+  const text = toPositional(sql);
+  return {
+    async get(...params) {
+      const res = await executor().query(text, params);
+      return res.rows[0] as Row | undefined;
+    },
+    async all(...params) {
+      const res = await executor().query(text, params);
+      return res.rows as Row[];
+    },
+    async run(...params) {
+      const res = await executor().query(text, params);
+      return { changes: res.rowCount ?? 0 };
+    },
+  };
+}
+
+async function exec(sql: string): Promise<void> {
+  await executor().query(sql);
+}
+
+/** Replaces the old db.exec('BEGIN') / db.exec('COMMIT') / db.exec('ROLLBACK') pattern.
+ *  Every db.prepare(...) call made inside `fn` (directly or through nested service
+ *  calls) transparently reuses the same checked-out connection via txContext. */
+async function transaction<T>(fn: () => Promise<T>): Promise<T> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await txContext.run(client, fn);
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+export const db = { prepare, exec, transaction };

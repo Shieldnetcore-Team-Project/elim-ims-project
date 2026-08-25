@@ -23,64 +23,64 @@ export interface DeletionRequest {
  *  this map at all and keep working exactly as before. Queried directly by table
  *  rather than importing sales.ts/receiving.ts/materialRequests.ts, to avoid a
  *  circular dependency back into this file from theirs. */
-const POSTED_CHECK: Record<string, (id: string) => boolean> = {
-  payments: () => true,
-  receipts: () => true,
-  production_batches: () => true,
-  finished_goods: () => true,
-  sales: (id) => {
-    const row = db.prepare('SELECT status FROM sales WHERE id = ?').get(id) as { status: string } | undefined;
+const POSTED_CHECK: Record<string, (id: string) => Promise<boolean>> = {
+  payments: async () => true,
+  receipts: async () => true,
+  production_batches: async () => true,
+  finished_goods: async () => true,
+  sales: async (id) => {
+    const row = await db.prepare('SELECT status FROM sales WHERE id = ?').get(id) as { status: string } | undefined;
     return row?.status !== 'AWAITING_APPROVAL';
   },
-  goods_received: (id) => {
-    const row = db.prepare('SELECT status FROM goods_received WHERE id = ?').get(id) as { status: string } | undefined;
+  goods_received: async (id) => {
+    const row = await db.prepare('SELECT status FROM goods_received WHERE id = ?').get(id) as { status: string } | undefined;
     return row?.status !== 'PENDING_INSPECTION';
   },
-  material_requests: (id) => {
-    const row = db.prepare('SELECT status FROM material_requests WHERE id = ?').get(id) as { status: string } | undefined;
+  material_requests: async (id) => {
+    const row = await db.prepare('SELECT status FROM material_requests WHERE id = ?').get(id) as { status: string } | undefined;
     return row?.status === 'ISSUED';
   },
 };
 
-export function request(params: { entityType: string; entityId: string; entityLabel?: string; requestedBy: string; reason: string }): DeletionRequest {
-  if (POSTED_CHECK[params.entityType]?.(params.entityId)) {
+export async function request(params: { entityType: string; entityId: string; entityLabel?: string; requestedBy: string; reason: string }): Promise<DeletionRequest> {
+  if (await POSTED_CHECK[params.entityType]?.(params.entityId)) {
     throw new Error(`${params.entityLabel ?? params.entityId} has already posted a real transaction — it cannot be deleted. Use Reverse instead.`);
   }
-  const id = nextBusinessId('deletion_requests', 'DEL-', 5);
-  db.prepare(
+  const id = await nextBusinessId('deletion_requests', 'DEL-', 5);
+  await db.prepare(
     `INSERT INTO deletion_requests (id, entity_type, entity_id, entity_label, requested_by, reason) VALUES (?,?,?,?,?,?)`,
   ).run(id, params.entityType, params.entityId, params.entityLabel ?? null, params.requestedBy, params.reason);
-  activityLog.record(params.requestedBy, 'requested deletion of', params.entityType, params.entityId, `${params.entityLabel ?? params.entityId}: ${params.reason}`);
-  return get(id)!;
+  await activityLog.record(params.requestedBy, 'requested deletion of', params.entityType, params.entityId, `${params.entityLabel ?? params.entityId}: ${params.reason}`);
+  return (await get(id))!;
 }
 
-export function approve(id: string, reviewedBy: string, note?: string): DeletionRequest {
-  const row = get(id);
+export async function approve(id: string, reviewedBy: string, note?: string): Promise<DeletionRequest> {
+  const row = await get(id);
   if (!row) throw new Error(`Unknown deletion request ${id}`);
   if (row.status !== 'PENDING') throw new Error(`Deletion request ${id} has already been reviewed`);
-  db.prepare(`UPDATE deletion_requests SET status = 'APPROVED', reviewed_by = ?, reviewed_at = datetime('now'), review_note = ? WHERE id = ?`)
+  await db.prepare(`UPDATE deletion_requests SET status = 'APPROVED', reviewed_by = ?, reviewed_at = to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS'), review_note = ? WHERE id = ?`)
     .run(reviewedBy, note ?? null, id);
-  activityLog.record(reviewedBy, 'approved deletion of', row.entity_type, row.entity_id, `${row.entity_label ?? row.entity_id} removed from active use`);
-  return get(id)!;
+  await activityLog.record(reviewedBy, 'approved deletion of', row.entity_type, row.entity_id, `${row.entity_label ?? row.entity_id} removed from active use`);
+  return (await get(id))!;
 }
 
-export function reject(id: string, reviewedBy: string, note?: string): DeletionRequest {
-  const row = get(id);
+export async function reject(id: string, reviewedBy: string, note?: string): Promise<DeletionRequest> {
+  const row = await get(id);
   if (!row) throw new Error(`Unknown deletion request ${id}`);
   if (row.status !== 'PENDING') throw new Error(`Deletion request ${id} has already been reviewed`);
-  db.prepare(`UPDATE deletion_requests SET status = 'REJECTED', reviewed_by = ?, reviewed_at = datetime('now'), review_note = ? WHERE id = ?`)
+  await db.prepare(`UPDATE deletion_requests SET status = 'REJECTED', reviewed_by = ?, reviewed_at = to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS'), review_note = ? WHERE id = ?`)
     .run(reviewedBy, note ?? null, id);
-  activityLog.record(reviewedBy, 'rejected deletion request for', row.entity_type, row.entity_id, note ?? `Kept ${row.entity_label ?? row.entity_id}`);
-  return get(id)!;
+  await activityLog.record(reviewedBy, 'rejected deletion request for', row.entity_type, row.entity_id, note ?? `Kept ${row.entity_label ?? row.entity_id}`);
+  return (await get(id))!;
 }
 
-export function get(id: string): DeletionRequest | undefined {
-  return db.prepare('SELECT * FROM deletion_requests WHERE id = ?').get(id) as unknown as DeletionRequest | undefined;
+export async function get(id: string): Promise<DeletionRequest | undefined> {
+  return await db.prepare('SELECT * FROM deletion_requests WHERE id = ?').get(id) as unknown as DeletionRequest | undefined;
 }
 
-export function list(status?: 'PENDING' | 'APPROVED' | 'REJECTED'): DeletionRequest[] {
-  if (status) return db.prepare('SELECT * FROM deletion_requests WHERE status = ? ORDER BY id DESC').all(status) as unknown as DeletionRequest[];
-  return db.prepare('SELECT * FROM deletion_requests ORDER BY id DESC').all() as unknown as DeletionRequest[];
+export async function list(status?: 'PENDING' | 'APPROVED' | 'REJECTED'): Promise<DeletionRequest[]> {
+  if (status) return await db.prepare('SELECT * FROM deletion_requests WHERE status = ? ORDER BY id DESC').all(status) as unknown as DeletionRequest[];
+  return await db.prepare('SELECT * FROM deletion_requests ORDER BY id DESC').all() as unknown as DeletionRequest[];
 }
 
 /** Applied in route handlers (not baked into every service's SQL) so an approved
@@ -90,9 +90,9 @@ export function list(status?: 'PENDING' | 'APPROVED' | 'REJECTED'): DeletionRequ
 // an `id` — but no single TS type describes both an index signature and a concrete
 // interface at once, so the id lookup below casts through unknown rather than via a
 // constraint that would reject one shape or the other.
-export function filterDeleted<T>(entityType: string, rows: T[]): T[] {
+export async function filterDeleted<T>(entityType: string, rows: T[]): Promise<T[]> {
   const deleted = new Set(
-    (db.prepare(`SELECT entity_id FROM deletion_requests WHERE entity_type = ? AND status = 'APPROVED'`).all(entityType) as { entity_id: string }[])
+    (await db.prepare(`SELECT entity_id FROM deletion_requests WHERE entity_type = ? AND status = 'APPROVED'`).all(entityType) as { entity_id: string }[])
       .map(r => r.entity_id),
   );
   return rows.filter(r => !deleted.has(String((r as unknown as { id: unknown }).id)));
