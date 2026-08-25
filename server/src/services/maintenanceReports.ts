@@ -29,12 +29,12 @@ const REPORT_TYPES: MaintenanceReportType[] = ['VEHICLE', 'GENERATOR', 'MACHINE'
  *  both assets and vehicles. Regulatory Documentation is vehicle_documents
  *  — audit-ready in the same sense as the rest: every row keeps its actor
  *  and created_at, so who logged it and when is never lost. */
-export function report(type: MaintenanceReportType, range?: DateRange): MaintenanceReportRow[] {
+export async function report(type: MaintenanceReportType, range?: DateRange): Promise<MaintenanceReportRow[]> {
   const rangeParams = range ? [range.from, range.to] : [];
 
   if (type === 'FUEL') {
-    const dateCond = range ? 'AND date(fuel_date) BETWEEN date(?) AND date(?)' : '';
-    return (db.prepare(`
+    const dateCond = range ? 'AND fr.fuel_date::date BETWEEN ?::date AND ?::date' : '';
+    return (await db.prepare(`
       SELECT fr.id, 'FUEL' AS report_type, v.plate_number AS ref_label, COALESCE(fr.fuel_type, 'Fuel') AS category,
         fr.remarks AS description, fr.vendor, fr.total_cost AS amount, fr.fuel_date AS date, fr.receipt_reference AS reference,
         fr.driver AS performed_by, NULL AS approved_by, fr.actor, fr.created_at
@@ -45,8 +45,8 @@ export function report(type: MaintenanceReportType, range?: DateRange): Maintena
   }
 
   if (type === 'REGULATORY') {
-    const dateCond = range ? 'AND date(COALESCE(vd.issue_date, vd.created_at)) BETWEEN date(?) AND date(?)' : '';
-    return db.prepare(`
+    const dateCond = range ? 'AND COALESCE(vd.issue_date, vd.created_at)::date BETWEEN ?::date AND ?::date' : '';
+    return await db.prepare(`
       SELECT vd.id, 'REGULATORY' AS report_type, v.plate_number AS ref_label, vd.document_type AS category,
         vd.notes AS description, NULL AS vendor, 0 AS amount, COALESCE(vd.issue_date, vd.created_at) AS date,
         vd.document_number AS reference, NULL AS performed_by, NULL AS approved_by, vd.actor, vd.created_at
@@ -56,7 +56,7 @@ export function report(type: MaintenanceReportType, range?: DateRange): Maintena
     `).all(...rangeParams) as unknown as MaintenanceReportRow[];
   }
 
-  const dateCond = range ? 'AND date(mr.service_date) BETWEEN date(?) AND date(?)' : '';
+  const dateCond = range ? 'AND mr.service_date::date BETWEEN ?::date AND ?::date' : '';
   const typeFilter: Record<Exclude<MaintenanceReportType, 'FUEL' | 'REGULATORY'>, string> = {
     VEHICLE: `mr.ref_type = 'VEHICLE'`,
     GENERATOR: `mr.ref_type = 'ASSET' AND mr.category LIKE '%Generator%'`,
@@ -66,7 +66,7 @@ export function report(type: MaintenanceReportType, range?: DateRange): Maintena
     UTILITIES: `mr.category IN ('Utilities','Electricity')`,
   };
 
-  return db.prepare(`
+  return await db.prepare(`
     SELECT mr.id, ? AS report_type,
       CASE mr.ref_type WHEN 'VEHICLE' THEN (SELECT plate_number FROM vehicles WHERE id = mr.ref_id) ELSE (SELECT equipment FROM assets WHERE id = mr.ref_id) END AS ref_label,
       mr.category, mr.description, mr.vendor, mr.amount, mr.service_date AS date, mr.invoice_reference AS reference,

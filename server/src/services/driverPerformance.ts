@@ -32,12 +32,14 @@ export interface DriverPerformanceRow {
  *  during the period, since maintenance_records is recorded per-vehicle,
  *  not per-driver. Performance is the plain success rate (Successful
  *  Deliveries ÷ Trips) — the one transparent reading of "Performance"
- *  without inventing an opaque scoring formula. */
-export function report(period?: string): DriverPerformanceRow[] {
-  const dispatchPeriodCond = period ? `AND strftime('%Y-%m', dispatched_at) = ?` : '';
+ *  without inventing an opaque scoring formula. SQLite's strftime() has no
+ *  Postgres equivalent — every date column here is formatted TEXT (see
+ *  schema.ts), cast to timestamp then to_char(). */
+export async function report(period?: string): Promise<DriverPerformanceRow[]> {
+  const dispatchPeriodCond = period ? `AND to_char(dispatched_at::timestamp, 'YYYY-MM') = ?` : '';
   const periodParams = period ? [period] : [];
 
-  const trips = db.prepare(`
+  const trips = await db.prepare(`
     SELECT driver,
       COUNT(*) AS trips,
       SUM(CASE WHEN status IN ('DELIVERED','RETURNED') THEN 1 ELSE 0 END) AS deliveries,
@@ -54,9 +56,9 @@ export function report(period?: string): DriverPerformanceRow[] {
 
   if (trips.length === 0) return [];
 
-  const fuelPeriodCond = period ? `AND strftime('%Y-%m', fuel_date) = ?` : '';
+  const fuelPeriodCond = period ? `AND to_char(fuel_date::timestamp, 'YYYY-MM') = ?` : '';
   const fuelByDriver = new Map(
-    (db.prepare(`
+    (await db.prepare(`
       SELECT driver, COALESCE(SUM(total_cost), 0) AS fuel_cost FROM fuel_records
       WHERE driver IS NOT NULL AND driver != '' ${fuelPeriodCond} GROUP BY driver
     `).all(...periodParams) as { driver: string; fuel_cost: number }[]).map(r => [r.driver, r.fuel_cost]),
@@ -65,7 +67,7 @@ export function report(period?: string): DriverPerformanceRow[] {
   // Vehicle(s) each driver was assigned to (within the same period window),
   // used to approximate a per-driver maintenance figure below.
   const vehiclesByDriver = new Map<string, Set<string>>();
-  for (const row of db.prepare(`
+  for (const row of await db.prepare(`
     SELECT DISTINCT driver, vehicle_id FROM delivery_runs WHERE driver IS NOT NULL AND driver != '' ${dispatchPeriodCond}
   `).all(...periodParams) as { driver: string; vehicle_id: string }[]) {
     const set = vehiclesByDriver.get(row.driver) ?? new Set<string>();
@@ -73,9 +75,9 @@ export function report(period?: string): DriverPerformanceRow[] {
     vehiclesByDriver.set(row.driver, set);
   }
 
-  const maintenancePeriodCond = period ? `AND strftime('%Y-%m', service_date) = ?` : '';
+  const maintenancePeriodCond = period ? `AND to_char(service_date::timestamp, 'YYYY-MM') = ?` : '';
   const maintenanceCostByVehicle = new Map(
-    (db.prepare(`
+    (await db.prepare(`
       SELECT ref_id AS vehicle_id, COALESCE(SUM(amount), 0) AS cost FROM maintenance_records
       WHERE ref_type = 'VEHICLE' ${maintenancePeriodCond} GROUP BY ref_id
     `).all(...periodParams) as { vehicle_id: string; cost: number }[]).map(r => [r.vehicle_id, r.cost]),

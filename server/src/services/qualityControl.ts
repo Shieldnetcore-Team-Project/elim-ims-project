@@ -28,12 +28,12 @@ export interface QualityTestParameter {
  *  any existing caller of this endpoint still gets a 201, just without the old
  *  side effects, which would otherwise now double-post inventory alongside
  *  inspectGoodsReceived. */
-export function recordResult(params: {
+export async function recordResult(params: {
   refType: RefType; refId: string; inspector: string; parameter?: string; result?: string;
   verdict: Verdict; notes?: string; actor?: string;
-}): QualityControlRecord {
-  const id = nextBusinessId('quality_control', 'QC-', 4);
-  db.prepare(
+}): Promise<QualityControlRecord> {
+  const id = await nextBusinessId('quality_control', 'QC-', 4);
+  await db.prepare(
     `INSERT INTO quality_control (id, ref_type, ref_id, inspector, parameter, result, verdict, notes)
      VALUES (?,?,?,?,?,?,?,?)`,
   ).run(id, params.refType, params.refId, params.inspector, params.parameter ?? null, params.result ?? null, params.verdict, params.notes ?? null);
@@ -41,19 +41,19 @@ export function recordResult(params: {
   const actor = params.actor ?? params.inspector;
 
   if (params.refType === 'PRODUCTION_BATCH' && params.verdict === 'FAIL') {
-    production.setStatus(params.refId, 'FAILED', actor);
+    await production.setStatus(params.refId, 'FAILED', actor);
   }
 
-  activityLog.record(actor, 'recorded QC verdict for', params.refType.toLowerCase(), params.refId, `${params.verdict} on ${params.refId}`);
-  return getResult(id)!;
+  await activityLog.record(actor, 'recorded QC verdict for', params.refType.toLowerCase(), params.refId, `${params.verdict} on ${params.refId}`);
+  return (await getResult(id))!;
 }
 
 /** Configurable QC parameters (Section 19: "do not hard-code only pH") —
  *  read from the Settings module's "QC parameters" row, same mechanism as
  *  inventory.listCategories(). Only drives what the test-entry picker
  *  suggests; a tester can still type a parameter name that isn't on the list. */
-export function parameterNames(): string[] {
-  const row = db.prepare(`SELECT value FROM settings WHERE id = 'QC parameters'`).get() as { value: string } | undefined;
+export async function parameterNames(): Promise<string[]> {
+  const row = await db.prepare(`SELECT value FROM settings WHERE id = 'QC parameters'`).get() as { value: string } | undefined;
   const fallback = ['pH', 'Turbidity', 'Odour', 'Taste', 'Appearance/Clearness'];
   if (!row) return fallback;
   const parsed = row.value.split(',').map(s => s.trim()).filter(Boolean);
@@ -71,11 +71,11 @@ export function parameterNames(): string[] {
  *  asserted by whoever typed it in. A qualitative parameter (no numeric
  *  range — Odour, Taste, Appearance) keeps the tester's own PASS/FAIL call,
  *  since there's nothing here to independently verify it against. */
-export function recordTest(params: {
+export async function recordTest(params: {
   refType: RefType; refId: string; inspector: string; productType?: ProductType; reviewedBy?: string;
   parameters: { name: string; measuredValue: string; unit?: string; minValue?: number; maxValue?: number; expectedValue?: string; result: Verdict }[];
   notes?: string; actor?: string;
-}): QualityControlRecord {
+}): Promise<QualityControlRecord> {
   if (params.parameters.length === 0) throw new Error('At least one parameter is required');
 
   const resolved = params.parameters.map(p => {
@@ -89,8 +89,8 @@ export function recordTest(params: {
   const verdict: Verdict = resolved.every(p => p.result === 'PASS') ? 'PASS' : 'FAIL';
   const passCount = resolved.filter(p => p.result === 'PASS').length;
 
-  const id = nextBusinessId('quality_control', 'QC-', 4);
-  db.prepare(`
+  const id = await nextBusinessId('quality_control', 'QC-', 4);
+  await db.prepare(`
     INSERT INTO quality_control (id, ref_type, ref_id, inspector, parameter, result, verdict, notes, product_type, reviewed_by)
     VALUES (?,?,?,?,?,?,?,?,?,?)
   `).run(
@@ -104,50 +104,50 @@ export function recordTest(params: {
     VALUES (?,?,?,?,?,?,?,?)
   `);
   for (const p of resolved) {
-    insertParam.run(id, p.name, p.measuredValue, p.unit ?? null, p.minValue ?? null, p.maxValue ?? null, p.expectedValue ?? null, p.result);
+    await insertParam.run(id, p.name, p.measuredValue, p.unit ?? null, p.minValue ?? null, p.maxValue ?? null, p.expectedValue ?? null, p.result);
   }
 
   const actor = params.actor ?? params.inspector;
   if (params.refType === 'PRODUCTION_BATCH' && verdict === 'FAIL') {
-    production.setStatus(params.refId, 'FAILED', actor);
+    await production.setStatus(params.refId, 'FAILED', actor);
   }
-  activityLog.record(
+  await activityLog.record(
     actor, 'recorded QC test for', params.refType.toLowerCase(), params.refId,
     `${id}: ${verdict} on ${params.refId} (${passCount}/${resolved.length} parameters passed — ${resolved.map(p => `${p.name}=${p.measuredValue}${p.unit ?? ''} ${p.result}`).join(', ')})`,
   );
-  return getResult(id)!;
+  return (await getResult(id))!;
 }
 
-export function getTestParameters(qcId: string): QualityTestParameter[] {
-  return db.prepare('SELECT * FROM quality_test_parameters WHERE qc_id = ?').all(qcId) as unknown as QualityTestParameter[];
+export async function getTestParameters(qcId: string): Promise<QualityTestParameter[]> {
+  return await db.prepare('SELECT * FROM quality_test_parameters WHERE qc_id = ?').all(qcId) as unknown as QualityTestParameter[];
 }
 
 /** Answers "why did this batch pass?" directly — the test header plus every
  *  parameter that fed its verdict. */
-export function getTestDetail(qcId: string): (QualityControlRecord & { parameters: QualityTestParameter[] }) | undefined {
-  const record = getResult(qcId);
+export async function getTestDetail(qcId: string): Promise<(QualityControlRecord & { parameters: QualityTestParameter[] }) | undefined> {
+  const record = await getResult(qcId);
   if (!record) return undefined;
-  return { ...record, parameters: getTestParameters(qcId) };
+  return { ...record, parameters: await getTestParameters(qcId) };
 }
 
-export function getResult(id: string): QualityControlRecord | undefined {
-  return db.prepare('SELECT * FROM quality_control WHERE id = ?').get(id) as QualityControlRecord | undefined;
+export async function getResult(id: string): Promise<QualityControlRecord | undefined> {
+  return await db.prepare('SELECT * FROM quality_control WHERE id = ?').get(id) as QualityControlRecord | undefined;
 }
 
-export function latestVerdict(refType: RefType, refId: string): Verdict | null {
-  const row = db.prepare('SELECT verdict FROM quality_control WHERE ref_type = ? AND ref_id = ? ORDER BY id DESC LIMIT 1')
+export async function latestVerdict(refType: RefType, refId: string): Promise<Verdict | null> {
+  const row = await db.prepare('SELECT verdict FROM quality_control WHERE ref_type = ? AND ref_id = ? ORDER BY id DESC LIMIT 1')
     .get(refType, refId) as { verdict: Verdict } | undefined;
   return row?.verdict ?? null;
 }
 
-export function pendingGoodsReceived() {
-  return receiving.pendingQc();
+export async function pendingGoodsReceived() {
+  return await receiving.pendingQc();
 }
 
-export function pendingProductionBatches() {
-  return production.pendingQc();
+export async function pendingProductionBatches() {
+  return await production.pendingQc();
 }
 
-export function history(limit = 200): QualityControlRecord[] {
-  return db.prepare('SELECT * FROM quality_control ORDER BY id DESC LIMIT ?').all(limit) as unknown as QualityControlRecord[];
+export async function history(limit = 200): Promise<QualityControlRecord[]> {
+  return await db.prepare('SELECT * FROM quality_control ORDER BY id DESC LIMIT ?').all(limit) as unknown as QualityControlRecord[];
 }

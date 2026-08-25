@@ -40,8 +40,8 @@ function statusFor(line: { pending_assignment: number; pending_return: number; s
   return 'BALANCED';
 }
 
-export function reconciliation(marketerId?: string): ReconciliationLine[] {
-  const rows = db.prepare(`
+export async function reconciliation(marketerId?: string): Promise<ReconciliationLine[]> {
+  const rows = await db.prepare(`
     WITH pairs AS (
       SELECT DISTINCT marketer_id, item_id FROM marketer_stock_transactions
       UNION

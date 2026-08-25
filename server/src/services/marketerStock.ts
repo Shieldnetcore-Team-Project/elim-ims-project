@@ -27,8 +27,8 @@ export interface StockAssignment {
   verified_by: string | null; verified_at: string | null; issued_at: string;
 }
 
-export function assertMarketer(marketerId: string) {
-  const customer = sales.getCustomer(marketerId);
+export async function assertMarketer(marketerId: string) {
+  const customer = await sales.getCustomer(marketerId);
   if (!customer) throw new Error(`Unknown customer ${marketerId}`);
   if (customer.customer_type !== 'MARKETER') throw new Error(`${marketerId} is not a Marketer (${customer.customer_type})`);
   return customer;
@@ -36,23 +36,23 @@ export function assertMarketer(marketerId: string) {
 
 /** Current balance for one item — SUM(IN) - SUM(OUT), same derivation as
  *  inventory.getBalance, just scoped to this marketer's mobile inventory. */
-export function getBalance(marketerId: string, itemId: string): number {
-  const row = db.prepare(
+export async function getBalance(marketerId: string, itemId: string): Promise<number> {
+  const row = await db.prepare(
     `SELECT COALESCE(SUM(CASE WHEN direction='IN' THEN quantity ELSE -quantity END), 0) AS q
      FROM marketer_stock_transactions WHERE marketer_id = ? AND item_id = ?`,
   ).get(marketerId, itemId) as { q: number };
   return row.q;
 }
 
-export function listBalances(marketerId: string): MarketerStockBalance[] {
-  return db.prepare(`
+export async function listBalances(marketerId: string): Promise<MarketerStockBalance[]> {
+  return await db.prepare(`
     SELECT i.id AS item_id, i.name AS item_name,
       COALESCE(SUM(CASE WHEN mst.direction='IN' THEN mst.quantity ELSE -mst.quantity END), 0) AS on_hand,
       (SELECT unit_price FROM marketer_stock_transactions WHERE marketer_id = ? AND item_id = i.id ORDER BY id DESC LIMIT 1) AS unit_price
     FROM marketer_stock_transactions mst JOIN items i ON i.id = mst.item_id
     WHERE mst.marketer_id = ?
     GROUP BY i.id, i.name
-    HAVING on_hand > 0
+    HAVING COALESCE(SUM(CASE WHEN mst.direction='IN' THEN mst.quantity ELSE -mst.quantity END), 0) > 0
     ORDER BY i.name
   `).all(marketerId, marketerId) as unknown as MarketerStockBalance[];
 }
@@ -60,8 +60,8 @@ export function listBalances(marketerId: string): MarketerStockBalance[] {
 /** A return/sale is valued at whatever this marketer was last issued that
  *  item for — this app has no per-lot/FIFO cost tracking anywhere, so this
  *  is the simplest convention consistent with that. */
-function latestIssuePrice(marketerId: string, itemId: string): number {
-  const row = db.prepare(
+async function latestIssuePrice(marketerId: string, itemId: string): Promise<number> {
+  const row = await db.prepare(
     `SELECT unit_price FROM marketer_stock_transactions WHERE marketer_id = ? AND item_id = ? AND source_type = 'ISSUE' ORDER BY id DESC LIMIT 1`,
   ).get(marketerId, itemId) as { unit_price: number } | undefined;
   return row?.unit_price ?? 0;
@@ -70,15 +70,15 @@ function latestIssuePrice(marketerId: string, itemId: string): number {
 /** Claimed-but-unverified return quantity for one marketer, grouped by item —
  *  this is the sole source of truth both issueStock's block and the client's
  *  pre-flight banner read from, so the two can never disagree. */
-export function pendingVerification(marketerId: string): PendingVerification[] {
-  return db.prepare(`
+export async function pendingVerification(marketerId: string): Promise<PendingVerification[]> {
+  return await db.prepare(`
     SELECT mri.item_id AS item_id, i.name AS item_name, SUM(mri.quantity) AS pending_quantity
     FROM marketer_return_items mri
     JOIN marketer_returns mr ON mr.id = mri.return_id
     JOIN items i ON i.id = mri.item_id
     WHERE mr.marketer_id = ? AND mr.status = 'PENDING_VERIFICATION'
     GROUP BY mri.item_id, i.name
-    HAVING pending_quantity > 0
+    HAVING SUM(mri.quantity) > 0
   `).all(marketerId) as unknown as PendingVerification[];
 }
 
@@ -86,33 +86,33 @@ export function pendingVerification(marketerId: string): PendingVerification[] {
  *  what Section 12 means by "Jerry sees: Assigned: 200": physically posted
  *  out of the warehouse (see issueStock), but not yet in the marketer's own
  *  held balance (marketer_stock_transactions) until verifyAssignment runs. */
-export function pendingAssignments(marketerId: string): PendingAssignment[] {
-  return db.prepare(`
+export async function pendingAssignments(marketerId: string): Promise<PendingAssignment[]> {
+  return await db.prepare(`
     SELECT msii.item_id AS item_id, i.name AS item_name, SUM(msii.quantity) AS assigned_quantity
     FROM marketer_stock_issue_items msii
     JOIN marketer_stock_issues msi ON msi.id = msii.issue_id
     JOIN items i ON i.id = msii.item_id
     WHERE msi.marketer_id = ? AND msi.status = 'ASSIGNED'
     GROUP BY msii.item_id, i.name
-    HAVING assigned_quantity > 0
+    HAVING SUM(msii.quantity) > 0
   `).all(marketerId) as unknown as PendingAssignment[];
 }
 
-export function listAssignments(marketerId?: string): (StockAssignment & { marketer_name: string })[] {
+export async function listAssignments(marketerId?: string): Promise<(StockAssignment & { marketer_name: string })[]> {
   const base = `
     SELECT msi.*, c.name AS marketer_name
     FROM marketer_stock_issues msi JOIN customers c ON c.id = msi.marketer_id
   `;
-  if (marketerId) return db.prepare(`${base} WHERE msi.marketer_id = ? ORDER BY msi.id DESC`).all(marketerId) as unknown as (StockAssignment & { marketer_name: string })[];
-  return db.prepare(`${base} ORDER BY msi.id DESC`).all() as unknown as (StockAssignment & { marketer_name: string })[];
+  if (marketerId) return await db.prepare(`${base} WHERE msi.marketer_id = ? ORDER BY msi.id DESC`).all(marketerId) as unknown as (StockAssignment & { marketer_name: string })[];
+  return await db.prepare(`${base} ORDER BY msi.id DESC`).all() as unknown as (StockAssignment & { marketer_name: string })[];
 }
 
-export function getAssignment(id: string): StockAssignment | undefined {
-  return db.prepare('SELECT * FROM marketer_stock_issues WHERE id = ?').get(id) as StockAssignment | undefined;
+export async function getAssignment(id: string): Promise<StockAssignment | undefined> {
+  return await db.prepare('SELECT * FROM marketer_stock_issues WHERE id = ?').get(id) as StockAssignment | undefined;
 }
 
-export function listAssignmentItems(issueId: string): { item_id: string; item_name: string; quantity: number; unit_price: number }[] {
-  return db.prepare(`
+export async function listAssignmentItems(issueId: string): Promise<{ item_id: string; item_name: string; quantity: number; unit_price: number }[]> {
+  return await db.prepare(`
     SELECT msii.item_id, i.name AS item_name, msii.quantity, msii.unit_price
     FROM marketer_stock_issue_items msii JOIN items i ON i.id = msii.item_id
     WHERE msii.issue_id = ?
@@ -128,12 +128,12 @@ export function listAssignmentItems(issueId: string): { item_id: string; item_na
  *  Blocked while the marketer has any unverified return outstanding for an
  *  item being issued — a Warehouse Manager (a real users.role, looked up
  *  server-side, not a trusted free-text field) can override. */
-export function issueStock(params: {
+export async function issueStock(params: {
   marketerId: string; items: { itemId: string; quantity: number; unitPrice?: number }[]; issuedBy: string; actor?: string; overrideUserId?: string;
-}): { id: string } {
-  assertMarketer(params.marketerId);
+}): Promise<{ id: string }> {
+  await assertMarketer(params.marketerId);
   const actor = params.actor ?? params.issuedBy;
-  const itemRows = new Map(params.items.map(it => [it.itemId, inventory.getItem(it.itemId)]));
+  const itemRows = new Map(await Promise.all(params.items.map(async it => [it.itemId, await inventory.getItem(it.itemId)] as const)));
   for (const it of params.items) {
     const item = itemRows.get(it.itemId);
     if (!item) throw new Error(`Unknown item ${it.itemId}`);
@@ -141,7 +141,7 @@ export function issueStock(params: {
     if (it.quantity <= 0) throw new Error(`${it.itemId}: quantity must be positive`);
   }
 
-  const pending = new Map(pendingVerification(params.marketerId).map(p => [p.item_id, p]));
+  const pending = new Map((await pendingVerification(params.marketerId)).map(p => [p.item_id, p]));
   const blocked = params.items
     .map(it => {
       const p = pending.get(it.itemId);
@@ -155,42 +155,37 @@ export function issueStock(params: {
     if (!params.overrideUserId) {
       throw new Error(blocked.map(b => `${b.pendingQty} ${b.itemName} still pending warehouse verification — maximum issuable today is ${b.maxIssuable}.`).join(' '));
     }
-    const overrideUser = accessControl.getUser(params.overrideUserId);
+    const overrideUser = await accessControl.getUser(params.overrideUserId);
     if (!overrideUser || overrideUser.role !== WAREHOUSE_MANAGER_ROLE) {
       throw new Error(`Only a ${WAREHOUSE_MANAGER_ROLE} can override a pending-verification block`);
     }
     overrideBy = overrideUser;
   }
 
-  const id = nextBusinessId('marketer_stock_issues', 'MSI-', 4);
-  db.exec('BEGIN');
-  try {
-    db.prepare(`INSERT INTO marketer_stock_issues (id, marketer_id, issued_by, status) VALUES (?,?,?,'ASSIGNED')`).run(id, params.marketerId, params.issuedBy);
+  const id = await nextBusinessId('marketer_stock_issues', 'MSI-', 4);
+  await db.transaction(async () => {
+    await db.prepare(`INSERT INTO marketer_stock_issues (id, marketer_id, issued_by, status) VALUES (?,?,?,'ASSIGNED')`).run(id, params.marketerId, params.issuedBy);
     const insertItem = db.prepare('INSERT INTO marketer_stock_issue_items (issue_id, item_id, quantity, unit_price) VALUES (?,?,?,?)');
     for (const it of params.items) {
       const unitPrice = it.unitPrice ?? itemRows.get(it.itemId)!.unit_cost;
-      insertItem.run(id, it.itemId, it.quantity, unitPrice);
+      await insertItem.run(id, it.itemId, it.quantity, unitPrice);
       // Physically leaves the Finished Goods Warehouse now — that part is a
       // fact, regardless of when (or whether) the marketer gets around to
       // confirming it. Their own held balance (marketer_stock_transactions)
       // is deliberately NOT posted here — see verifyAssignment.
-      inventory.postTransaction({
+      await inventory.postTransaction({
         itemId: it.itemId, direction: 'OUT', quantity: it.quantity, unitCost: unitPrice,
         sourceType: 'MATERIAL_ISSUE', sourceId: id, actor,
         fromLocation: 'Finished Goods Warehouse', toLocation: 'Marketer Field Stock',
         note: `Issued to marketer ${params.marketerId} on ${id}`,
       });
     }
-    activityLog.record(actor, 'assigned stock to', 'marketer', params.marketerId, `${id}: ${params.items.length} line(s) assigned, awaiting the marketer's confirmation`);
+    await activityLog.record(actor, 'assigned stock to', 'marketer', params.marketerId, `${id}: ${params.items.length} line(s) assigned, awaiting the marketer's confirmation`);
     if (overrideBy) {
-      activityLog.record(overrideBy.name, 'overrode pending-verification block for', 'marketer', params.marketerId,
+      await activityLog.record(overrideBy.name, 'overrode pending-verification block for', 'marketer', params.marketerId,
         `${id}: ${blocked.map(b => `${b.itemName} (${b.pendingQty} pending)`).join(', ')}`);
     }
-    db.exec('COMMIT');
-  } catch (err) {
-    db.exec('ROLLBACK');
-    throw err;
-  }
+  });
   return { id };
 }
 
@@ -201,28 +196,23 @@ export function issueStock(params: {
  *  assignment become the marketer's held stock (marketer_stock_transactions),
  *  matching Section 12's Posted By / Verified By / Date / Time / Quantity /
  *  Product / Reference record — all already on marketer_stock_issues(_items). */
-export function verifyAssignment(issueId: string, params: { verifiedBy: string; actor?: string }): StockAssignment {
-  const assignment = getAssignment(issueId);
+export async function verifyAssignment(issueId: string, params: { verifiedBy: string; actor?: string }): Promise<StockAssignment> {
+  const assignment = await getAssignment(issueId);
   if (!assignment) throw new Error(`Unknown stock assignment ${issueId}`);
   if (assignment.status !== 'ASSIGNED') throw new Error(`${issueId} is already ${assignment.status}`);
   const actor = params.actor ?? params.verifiedBy;
-  const items = listAssignmentItems(issueId);
+  const items = await listAssignmentItems(issueId);
 
-  db.exec('BEGIN');
-  try {
+  await db.transaction(async () => {
     const insertTxn = db.prepare('INSERT INTO marketer_stock_transactions (marketer_id, item_id, direction, quantity, unit_price, source_type, source_id, actor) VALUES (?,?,?,?,?,?,?,?)');
     for (const it of items) {
-      insertTxn.run(assignment.marketer_id, it.item_id, 'IN', it.quantity, it.unit_price, 'ISSUE', issueId, actor);
+      await insertTxn.run(assignment.marketer_id, it.item_id, 'IN', it.quantity, it.unit_price, 'ISSUE', issueId, actor);
     }
-    db.prepare(`UPDATE marketer_stock_issues SET status = 'VERIFIED', verified_by = ?, verified_at = datetime('now') WHERE id = ?`).run(params.verifiedBy, issueId);
-    activityLog.record(actor, 'verified stock receipt for', 'marketer', assignment.marketer_id,
+    await db.prepare(`UPDATE marketer_stock_issues SET status = 'VERIFIED', verified_by = ?, verified_at = now() WHERE id = ?`).run(params.verifiedBy, issueId);
+    await activityLog.record(actor, 'verified stock receipt for', 'marketer', assignment.marketer_id,
       `${issueId}: ${items.length} line(s) confirmed received by ${params.verifiedBy}`);
-    db.exec('COMMIT');
-  } catch (err) {
-    db.exec('ROLLBACK');
-    throw err;
-  }
-  return getAssignment(issueId)!;
+  });
+  return (await getAssignment(issueId))!;
 }
 
 /** The marketer's claim that goods are coming back. Immediately shrinks
@@ -233,53 +223,48 @@ export function verifyAssignment(issueId: string, params: { verifiedBy: string; 
  *  ever invoiced for unsold stock). The return sits PENDING_VERIFICATION
  *  until verifyReturn confirms what physically arrived — see Module 5:
  *  "sometimes goods never physically arrive." */
-export function recordReturn(params: { marketerId: string; items: { itemId: string; quantity: number }[]; actor: string }): { id: string } {
-  assertMarketer(params.marketerId);
+export async function recordReturn(params: { marketerId: string; items: { itemId: string; quantity: number }[]; actor: string }): Promise<{ id: string }> {
+  await assertMarketer(params.marketerId);
   for (const it of params.items) {
-    const balance = getBalance(params.marketerId, it.itemId);
+    const balance = await getBalance(params.marketerId, it.itemId);
     if (it.quantity <= 0 || it.quantity > balance) {
       throw new Error(`${it.itemId}: cannot return ${it.quantity} — marketer only holds ${balance}`);
     }
   }
 
-  const id = nextBusinessId('marketer_returns', 'MRT-', 4);
-  db.exec('BEGIN');
-  try {
-    db.prepare('INSERT INTO marketer_returns (id, marketer_id, created_by) VALUES (?,?,?)').run(id, params.marketerId, params.actor);
+  const id = await nextBusinessId('marketer_returns', 'MRT-', 4);
+  await db.transaction(async () => {
+    await db.prepare('INSERT INTO marketer_returns (id, marketer_id, created_by) VALUES (?,?,?)').run(id, params.marketerId, params.actor);
     const insertItem = db.prepare('INSERT INTO marketer_return_items (return_id, item_id, quantity, unit_price) VALUES (?,?,?,?)');
     const insertTxn = db.prepare('INSERT INTO marketer_stock_transactions (marketer_id, item_id, direction, quantity, unit_price, source_type, source_id, actor) VALUES (?,?,?,?,?,?,?,?)');
     for (const it of params.items) {
-      const unitPrice = latestIssuePrice(params.marketerId, it.itemId);
-      insertItem.run(id, it.itemId, it.quantity, unitPrice);
-      insertTxn.run(params.marketerId, it.itemId, 'OUT', it.quantity, unitPrice, 'RETURN', id, params.actor);
+      const unitPrice = await latestIssuePrice(params.marketerId, it.itemId);
+      await insertItem.run(id, it.itemId, it.quantity, unitPrice);
+      await insertTxn.run(params.marketerId, it.itemId, 'OUT', it.quantity, unitPrice, 'RETURN', id, params.actor);
     }
-    activityLog.record(params.actor, 'reported return from', 'marketer', params.marketerId, `${id}: ${params.items.length} line(s) claimed, pending warehouse verification`);
-    db.exec('COMMIT');
-  } catch (err) {
-    db.exec('ROLLBACK');
-    throw err;
-  }
+    await activityLog.record(params.actor, 'reported return from', 'marketer', params.marketerId, `${id}: ${params.items.length} line(s) claimed, pending warehouse verification`);
+  });
   return { id };
 }
 
-export function listReturns(): MarketerReturn[] {
-  return db.prepare(`
+export async function listReturns(): Promise<MarketerReturn[]> {
+  return await db.prepare(`
     SELECT mr.id, mr.marketer_id, c.name AS marketer_name, mr.status, mr.created_by, mr.created_at, mr.verified_by, mr.verified_at
     FROM marketer_returns mr JOIN customers c ON c.id = mr.marketer_id
     ORDER BY mr.id DESC
   `).all() as unknown as MarketerReturn[];
 }
 
-export function getReturn(id: string): MarketerReturn | undefined {
-  return db.prepare(`
+export async function getReturn(id: string): Promise<MarketerReturn | undefined> {
+  return await db.prepare(`
     SELECT mr.id, mr.marketer_id, c.name AS marketer_name, mr.status, mr.created_by, mr.created_at, mr.verified_by, mr.verified_at
     FROM marketer_returns mr JOIN customers c ON c.id = mr.marketer_id
     WHERE mr.id = ?
   `).get(id) as MarketerReturn | undefined;
 }
 
-export function listReturnItems(returnId: string): MarketerReturnItem[] {
-  return db.prepare(`
+export async function listReturnItems(returnId: string): Promise<MarketerReturnItem[]> {
+  return await db.prepare(`
     SELECT mri.item_id, i.name AS item_name, mri.quantity, mri.unit_price, mri.verified_quantity
     FROM marketer_return_items mri JOIN items i ON i.id = mri.item_id
     WHERE mri.return_id = ?
@@ -294,13 +279,13 @@ export function listReturnItems(returnId: string): MarketerReturnItem[] {
  *  reconciliation.ts's Short/Excess status. Nothing auto-adjusts the
  *  marketer's own balance (no inventory adjustment by editing records — that
  *  would need a separate, deliberate follow-up). */
-export function verifyReturn(returnId: string, params: {
+export async function verifyReturn(returnId: string, params: {
   verifiedBy: string; lines: { itemId: string; verifiedQuantity: number }[]; actor?: string;
-}): { id: string } {
-  const ret = getReturn(returnId);
+}): Promise<{ id: string }> {
+  const ret = await getReturn(returnId);
   if (!ret) throw new Error(`Unknown return ${returnId}`);
   if (ret.status !== 'PENDING_VERIFICATION') throw new Error(`${returnId} is already ${ret.status}`);
-  const claimed = listReturnItems(returnId);
+  const claimed = await listReturnItems(returnId);
   if (params.lines.length !== claimed.length) throw new Error('Every claimed line must be verified');
   for (const line of params.lines) {
     const claimedLine = claimed.find(c => c.item_id === line.itemId);
@@ -311,14 +296,13 @@ export function verifyReturn(returnId: string, params: {
   }
 
   const actor = params.actor ?? params.verifiedBy;
-  db.exec('BEGIN');
-  try {
+  await db.transaction(async () => {
     const updateItem = db.prepare('UPDATE marketer_return_items SET verified_quantity = ? WHERE return_id = ? AND item_id = ?');
     for (const line of params.lines) {
       const claimedLine = claimed.find(c => c.item_id === line.itemId)!;
-      updateItem.run(line.verifiedQuantity, returnId, line.itemId);
+      await updateItem.run(line.verifiedQuantity, returnId, line.itemId);
       if (line.verifiedQuantity > 0) {
-        inventory.postTransaction({
+        await inventory.postTransaction({
           itemId: line.itemId, direction: 'IN', quantity: line.verifiedQuantity, unitCost: claimedLine.unit_price,
           sourceType: 'SALES', sourceId: returnId, actor,
           fromLocation: 'Marketer Field Stock', toLocation: 'Finished Goods Warehouse',
@@ -326,18 +310,14 @@ export function verifyReturn(returnId: string, params: {
         });
       }
     }
-    db.prepare(`UPDATE marketer_returns SET status = 'VERIFIED', verified_by = ?, verified_at = datetime('now') WHERE id = ?`).run(params.verifiedBy, returnId);
+    await db.prepare(`UPDATE marketer_returns SET status = 'VERIFIED', verified_by = ?, verified_at = now() WHERE id = ?`).run(params.verifiedBy, returnId);
 
     const totalClaimed = claimed.reduce((s, c) => s + c.quantity, 0);
     const totalVerified = params.lines.reduce((s, l) => s + l.verifiedQuantity, 0);
     const mismatchNote = totalVerified < totalClaimed ? ` — shortage of ${totalClaimed - totalVerified}`
       : totalVerified > totalClaimed ? ` — excess of ${totalVerified - totalClaimed}` : '';
-    activityLog.record(actor, 'verified return from', 'marketer', ret.marketer_id, `${returnId}: ${totalVerified}/${totalClaimed} verified${mismatchNote}`);
-    db.exec('COMMIT');
-  } catch (err) {
-    db.exec('ROLLBACK');
-    throw err;
-  }
+    await activityLog.record(actor, 'verified return from', 'marketer', ret.marketer_id, `${returnId}: ${totalVerified}/${totalClaimed} verified${mismatchNote}`);
+  });
   return { id: returnId };
 }
 
@@ -354,19 +334,19 @@ export interface FieldSaleResult { totalValue: number; prices: Map<string, numbe
  *  posts exactly once regardless of which caller triggered it. Must be
  *  called inside the caller's own transaction — it opens no transaction of
  *  its own, and inserts no sale-document row (callers own that shape). */
-export function postFieldSale(params: {
+export async function postFieldSale(params: {
   marketerId: string; items: { itemId: string; quantity: number }[]; cashReceived: number; actor: string; sourceId: string;
-}): FieldSaleResult {
+}): Promise<FieldSaleResult> {
   if (params.cashReceived < 0) throw new Error('cashReceived cannot be negative');
 
   let totalValue = 0;
   const prices = new Map<string, number>();
   for (const it of params.items) {
-    const balance = getBalance(params.marketerId, it.itemId);
+    const balance = await getBalance(params.marketerId, it.itemId);
     if (it.quantity <= 0 || it.quantity > balance) {
       throw new Error(`${it.itemId}: cannot sell ${it.quantity} — marketer only holds ${balance}`);
     }
-    const unitPrice = latestIssuePrice(params.marketerId, it.itemId);
+    const unitPrice = await latestIssuePrice(params.marketerId, it.itemId);
     prices.set(it.itemId, unitPrice);
     totalValue += it.quantity * unitPrice;
   }
@@ -376,15 +356,15 @@ export function postFieldSale(params: {
 
   const insertTxn = db.prepare('INSERT INTO marketer_stock_transactions (marketer_id, item_id, direction, quantity, unit_price, source_type, source_id, actor) VALUES (?,?,?,?,?,?,?,?)');
   for (const it of params.items) {
-    insertTxn.run(params.marketerId, it.itemId, 'OUT', it.quantity, prices.get(it.itemId)!, 'SOLD', params.sourceId, params.actor);
+    await insertTxn.run(params.marketerId, it.itemId, 'OUT', it.quantity, prices.get(it.itemId)!, 'SOLD', params.sourceId, params.actor);
   }
 
   if (totalValue > 0) {
-    finance.postLedger({ account: 'Accounts receivable', debit: totalValue, credit: 0, referenceType: 'sales', referenceId: params.sourceId, description: `Marketer sale ${params.sourceId}`, actor: params.actor, customerId: params.marketerId });
-    finance.postLedger({ account: 'Sales revenue', debit: 0, credit: totalValue, referenceType: 'sales', referenceId: params.sourceId, description: `Marketer sale ${params.sourceId}`, actor: params.actor });
+    await finance.postLedger({ account: 'Accounts receivable', debit: totalValue, credit: 0, referenceType: 'sales', referenceId: params.sourceId, description: `Marketer sale ${params.sourceId}`, actor: params.actor, customerId: params.marketerId });
+    await finance.postLedger({ account: 'Sales revenue', debit: 0, credit: totalValue, referenceType: 'sales', referenceId: params.sourceId, description: `Marketer sale ${params.sourceId}`, actor: params.actor });
   }
   if (params.cashReceived > 0) {
-    finance.recordReceipt({ receivedFrom: params.marketerId, amount: params.cashReceived, method: 'Cash', referenceType: 'sales', referenceId: params.sourceId, actor: params.actor, customerId: params.marketerId });
+    await finance.recordReceipt({ receivedFrom: params.marketerId, amount: params.cashReceived, method: 'Cash', referenceType: 'sales', referenceId: params.sourceId, actor: params.actor, customerId: params.marketerId });
   }
 
   return { totalValue, prices };
@@ -397,54 +377,49 @@ export function postFieldSale(params: {
  *  receivable — the uncovered remainder is exactly "Credit Given", and the
  *  customer's running Accounts receivable balance is exactly "Outstanding
  *  Balance", both read off the same ledger Modules 2-3 already built. */
-export function recordSale(params: {
+export async function recordSale(params: {
   marketerId: string; items: { itemId: string; quantity: number }[]; cashReceived: number; actor: string;
-}): { id: string } {
-  assertMarketer(params.marketerId);
-  const id = nextBusinessId('marketer_sales', 'MSL-', 4);
-  db.exec('BEGIN');
-  try {
-    db.prepare('INSERT INTO marketer_sales (id, marketer_id, cash_received, created_by) VALUES (?,?,?,?)').run(id, params.marketerId, params.cashReceived, params.actor);
-    const { totalValue, prices } = postFieldSale({ marketerId: params.marketerId, items: params.items, cashReceived: params.cashReceived, actor: params.actor, sourceId: id });
+}): Promise<{ id: string }> {
+  await assertMarketer(params.marketerId);
+  const id = await nextBusinessId('marketer_sales', 'MSL-', 4);
+  await db.transaction(async () => {
+    await db.prepare('INSERT INTO marketer_sales (id, marketer_id, cash_received, created_by) VALUES (?,?,?,?)').run(id, params.marketerId, params.cashReceived, params.actor);
+    const { totalValue, prices } = await postFieldSale({ marketerId: params.marketerId, items: params.items, cashReceived: params.cashReceived, actor: params.actor, sourceId: id });
     const insertItem = db.prepare('INSERT INTO marketer_sale_items (sale_id, item_id, quantity, unit_price) VALUES (?,?,?,?)');
     for (const it of params.items) {
-      insertItem.run(id, it.itemId, it.quantity, prices.get(it.itemId)!);
+      await insertItem.run(id, it.itemId, it.quantity, prices.get(it.itemId)!);
     }
 
-    activityLog.record(params.actor, 'recorded sale for', 'marketer', params.marketerId, `${id}: ₦${totalValue.toLocaleString('en-NG')} sold, ₦${params.cashReceived.toLocaleString('en-NG')} cash received`);
-    db.exec('COMMIT');
-  } catch (err) {
-    db.exec('ROLLBACK');
-    throw err;
-  }
+    await activityLog.record(params.actor, 'recorded sale for', 'marketer', params.marketerId, `${id}: ₦${totalValue.toLocaleString('en-NG')} sold, ₦${params.cashReceived.toLocaleString('en-NG')} cash received`);
+  });
   return { id };
 }
 
-export function dailyStatement(marketerId: string, date?: string): DailyStatement {
-  assertMarketer(marketerId);
+export async function dailyStatement(marketerId: string, date?: string): Promise<DailyStatement> {
+  await assertMarketer(marketerId);
   const day = date ?? new Date().toISOString().slice(0, 10);
 
-  const expectedAmount = (db.prepare(
+  const expectedAmount = (await db.prepare(
     `SELECT COALESCE(SUM(CASE WHEN direction='IN' THEN quantity * unit_price ELSE -quantity * unit_price END), 0) AS v
      FROM marketer_stock_transactions WHERE marketer_id = ?`,
   ).get(marketerId) as { v: number }).v;
 
-  const returnedGoods = (db.prepare(
+  const returnedGoods = (await db.prepare(
     `SELECT COALESCE(SUM(quantity * unit_price), 0) AS v FROM marketer_stock_transactions
-     WHERE marketer_id = ? AND source_type = 'RETURN' AND date(created_at) = ?`,
+     WHERE marketer_id = ? AND source_type = 'RETURN' AND to_char(created_at::timestamp, 'YYYY-MM-DD') = ?`,
   ).get(marketerId, day) as { v: number }).v;
 
-  const cashReceived = (db.prepare(
-    `SELECT COALESCE(SUM(cash_received), 0) AS v FROM marketer_sales WHERE marketer_id = ? AND date(created_at) = ?`,
+  const cashReceived = (await db.prepare(
+    `SELECT COALESCE(SUM(cash_received), 0) AS v FROM marketer_sales WHERE marketer_id = ? AND to_char(created_at::timestamp, 'YYYY-MM-DD') = ?`,
   ).get(marketerId, day) as { v: number }).v;
 
-  const soldToday = (db.prepare(
+  const soldToday = (await db.prepare(
     `SELECT COALESCE(SUM(msi.quantity * msi.unit_price), 0) AS v
      FROM marketer_sale_items msi JOIN marketer_sales ms ON ms.id = msi.sale_id
-     WHERE ms.marketer_id = ? AND date(ms.created_at) = ?`,
+     WHERE ms.marketer_id = ? AND to_char(ms.created_at::timestamp, 'YYYY-MM-DD') = ?`,
   ).get(marketerId, day) as { v: number }).v;
 
-  const outstandingBalance = finance.customerBalance(marketerId).outstanding;
+  const outstandingBalance = (await finance.customerBalance(marketerId)).outstanding;
 
   return { date: day, expectedAmount, returnedGoods, cashReceived, creditGiven: Math.max(soldToday - cashReceived, 0), outstandingBalance };
 }

@@ -6,19 +6,19 @@ import { safe } from '../lib/errors.js';
 
 export const finishedGoodsRouter = Router();
 
-finishedGoodsRouter.get('/', (_req, res) => res.json(deletionRequests.filterDeleted('finished_goods', packaging.listFinishedGoods())));
+finishedGoodsRouter.get('/', safe(async (_req, res) => { res.json(await deletionRequests.filterDeleted('finished_goods', await packaging.listFinishedGoods())); }));
 
-finishedGoodsRouter.post('/', safe((req, res) => {
+finishedGoodsRouter.post('/', safe(async (req, res) => {
   const { batchId, itemId, quantity, packagedBy } = req.body ?? {};
   if (!batchId || !itemId || typeof quantity !== 'number' || !packagedBy) {
     res.status(400).json({ error: 'batchId, itemId, quantity and packagedBy are required' });
     return;
   }
-  res.status(201).json(packaging.packageBatch({ batchId, itemId, quantity, packagedBy }));
+  res.status(201).json(await packaging.packageBatch({ batchId, itemId, quantity, packagedBy }));
 }));
 
-finishedGoodsRouter.post('/:id/reverse', safe((req, res) => {
+finishedGoodsRouter.post('/:id/reverse', safe(async (req, res) => {
   const { reason, userId } = req.body ?? {};
-  const approver = accessControl.requireRole(userId, ['Warehouse Manager']);
-  res.json(packaging.reverseFinishedGoods(req.params.id, { reason, actor: approver.name }));
+  const approver = await accessControl.requireRole(userId, ['Warehouse Manager']);
+  res.json(await packaging.reverseFinishedGoods(req.params.id, { reason, actor: approver.name }));
 }));

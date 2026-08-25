@@ -24,16 +24,28 @@ function AccessDenied() {
   );
 }
 
+function LoadFailed({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="empty" style={{ marginTop: 60 }}>
+      <span className="ring"><Icon name="alert-triangle" size={20} /></span>
+      <h1 style={{ marginTop: 16, fontSize: 22 }}>Couldn&apos;t reach the server</h1>
+      <p className="sub" style={{ marginTop: 6, maxWidth: 360 }}>{message}</p>
+      <button className="btn btn-secondary" style={{ marginTop: 16 }} onClick={onRetry}>Try again</button>
+    </div>
+  );
+}
+
 export function AppShell() {
   const ui = useUi();
   const location = useLocation();
-  const { user, loading, isSuperAdmin, allowedPages, hasAccess } = useCurrentUser();
+  const { user, loading, error, refreshUsers, isSuperAdmin, allowedPages, hasAccess } = useCurrentUser();
 
   const pageKey = ALL_NAV_ITEMS.find(i => i.path === location.pathname)?.key;
   const gated = !!pageKey && pageKey !== 'dashboard';
   const stillCheckingAccess = gated && !isSuperAdmin && allowedPages === null;
 
   if (loading) return null;
+  if (error && !user) return <LoadFailed message={error} onRetry={refreshUsers} />;
   if (!user) return <SignInGate />;
 
   let allowed = true;

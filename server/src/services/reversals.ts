@@ -12,37 +12,37 @@ export interface Reversal {
  *  entity's own reverse* function in finance.ts/sales.ts/receiving.ts/production.ts/
  *  packaging.ts/materialRequests.ts), so a reversal is a new event layered on top,
  *  not a rewrite of history. */
-export function isReversed(entityType: string, entityId: string): boolean {
-  return !!get(entityType, entityId);
+export async function isReversed(entityType: string, entityId: string): Promise<boolean> {
+  return !!(await get(entityType, entityId));
 }
 
-export function assertNotReversed(entityType: string, entityId: string): void {
-  if (isReversed(entityType, entityId)) {
+export async function assertNotReversed(entityType: string, entityId: string): Promise<void> {
+  if (await isReversed(entityType, entityId)) {
     throw new Error(`${entityType} ${entityId} has already been reversed`);
   }
 }
 
-export function create(params: {
+export async function create(params: {
   entityType: string; entityId: string; reversedBy: string; reason: string;
   oldValue?: string | null; newValue?: string | null;
-}): Reversal {
+}): Promise<Reversal> {
   if (!params.reason || params.reason.trim().length < 8) {
     throw new Error('A reason of at least 8 characters is required to reverse a transaction');
   }
-  const id = nextBusinessId('reversals', 'REV-', 5);
+  const id = await nextBusinessId('reversals', 'REV-', 5);
   // UNIQUE(entity_type, entity_id) is a defense-in-depth backstop against a double
   // reversal race, even though every caller already checks assertNotReversed first.
-  db.prepare(
+  await db.prepare(
     `INSERT INTO reversals (id, entity_type, entity_id, reversed_by, reason, old_value, new_value) VALUES (?,?,?,?,?,?,?)`,
   ).run(id, params.entityType, params.entityId, params.reversedBy, params.reason.trim(), params.oldValue ?? null, params.newValue ?? null);
-  return get(params.entityType, params.entityId)!;
+  return (await get(params.entityType, params.entityId))!;
 }
 
-export function get(entityType: string, entityId: string): Reversal | undefined {
-  return db.prepare('SELECT * FROM reversals WHERE entity_type = ? AND entity_id = ?').get(entityType, entityId) as Reversal | undefined;
+export async function get(entityType: string, entityId: string): Promise<Reversal | undefined> {
+  return await db.prepare('SELECT * FROM reversals WHERE entity_type = ? AND entity_id = ?').get(entityType, entityId) as Reversal | undefined;
 }
 
-export function list(entityType?: string): Reversal[] {
-  if (entityType) return db.prepare('SELECT * FROM reversals WHERE entity_type = ? ORDER BY id DESC').all(entityType) as unknown as Reversal[];
-  return db.prepare('SELECT * FROM reversals ORDER BY id DESC').all() as unknown as Reversal[];
+export async function list(entityType?: string): Promise<Reversal[]> {
+  if (entityType) return await db.prepare('SELECT * FROM reversals WHERE entity_type = ? ORDER BY id DESC').all(entityType) as unknown as Reversal[];
+  return await db.prepare('SELECT * FROM reversals ORDER BY id DESC').all() as unknown as Reversal[];
 }

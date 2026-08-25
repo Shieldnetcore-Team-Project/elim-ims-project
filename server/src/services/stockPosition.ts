@@ -42,8 +42,8 @@ export interface StockPositionLine {
  *    physical stock against an unfulfilled order), kept as its own field rather
  *    than reusing physical_stock so a future reservation concept has somewhere
  *    to land without renaming this API. */
-export function getStockPosition(): StockPositionLine[] {
-  return db.prepare(`
+export async function getStockPosition(): Promise<StockPositionLine[]> {
+  return await db.prepare(`
     SELECT
       i.id AS item_id, i.name AS item_name, i.category, i.uom AS unit,
       COALESCE(inv.physical, 0) AS physical_stock,

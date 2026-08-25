@@ -6,42 +6,42 @@ import { safe } from '../lib/errors.js';
 
 export const salesRouter = Router();
 
-salesRouter.get('/', (req, res) => res.json(deletionRequests.filterDeleted('sales', sales.listOrders(req.query.channel as 'INVOICE' | 'POS' | undefined))));
+salesRouter.get('/', safe(async (req, res) => { res.json(await deletionRequests.filterDeleted('sales', await sales.listOrders(req.query.channel as 'INVOICE' | 'POS' | undefined))); }));
 
-salesRouter.get('/pending-credit-approval', (_req, res) => res.json(sales.pendingCreditApproval()));
+salesRouter.get('/pending-credit-approval', safe(async (_req, res) => { res.json(await sales.pendingCreditApproval()); }));
 
-salesRouter.get('/retail-customers', (_req, res) => res.json(sales.retailCustomerActivity()));
+salesRouter.get('/retail-customers', safe(async (_req, res) => { res.json(await sales.retailCustomerActivity()); }));
 
-salesRouter.get('/:id', (req, res) => {
-  const order = sales.getOrder(req.params.id);
-  if (!order) return res.status(404).json({ error: 'Not found' });
-  res.json({ ...order, items: sales.listItemsFor(req.params.id) });
-});
+salesRouter.get('/:id', safe(async (req, res) => {
+  const order = await sales.getOrder(req.params.id);
+  if (!order) { res.status(404).json({ error: 'Not found' }); return; }
+  res.json({ ...order, items: await sales.listItemsFor(req.params.id) });
+}));
 
-salesRouter.post('/', safe((req, res) => {
+salesRouter.post('/', safe(async (req, res) => {
   const { customerId, channel, rep, paymentTerms, items, branchId, manualInvoiceNumber, payments } = req.body ?? {};
   if (!channel || !rep || !Array.isArray(items) || items.length === 0) {
     res.status(400).json({ error: 'channel, rep and at least one item are required' });
     return;
   }
-  res.status(201).json(sales.createOrder({ customerId, channel, rep, paymentTerms, items, branchId, manualInvoiceNumber, payments }));
+  res.status(201).json(await sales.createOrder({ customerId, channel, rep, paymentTerms, items, branchId, manualInvoiceNumber, payments }));
 }));
 
 // Requires the separate "sales-approve" capability, distinct from ordinary
 // sales page access, so the rep who raised the credit order can't also
 // approve their own.
-salesRouter.post('/:id/approve-credit', safe((req, res) => {
-  accessControl.requirePageAccess(req.body?.userId, 'sales-approve', 'Sales approvals');
-  res.json(sales.approveCreditSale(req.params.id, req.body?.actor));
+salesRouter.post('/:id/approve-credit', safe(async (req, res) => {
+  await accessControl.requirePageAccess(req.body?.userId, 'sales-approve', 'Sales approvals');
+  res.json(await sales.approveCreditSale(req.params.id, req.body?.actor));
 }));
 
-salesRouter.post('/:id/reject-credit', safe((req, res) => {
-  accessControl.requirePageAccess(req.body?.userId, 'sales-approve', 'Sales approvals');
-  res.json(sales.rejectCreditSale(req.params.id, req.body?.actor));
+salesRouter.post('/:id/reject-credit', safe(async (req, res) => {
+  await accessControl.requirePageAccess(req.body?.userId, 'sales-approve', 'Sales approvals');
+  res.json(await sales.rejectCreditSale(req.params.id, req.body?.actor));
 }));
 
-salesRouter.post('/:id/reverse', safe((req, res) => {
+salesRouter.post('/:id/reverse', safe(async (req, res) => {
   const { reason, userId } = req.body ?? {};
-  const approver = accessControl.requireRole(userId, ['Sales manager']);
-  res.json(sales.reverseOrder(req.params.id, { reason, actor: approver.name }));
+  const approver = await accessControl.requireRole(userId, ['Sales manager']);
+  res.json(await sales.reverseOrder(req.params.id, { reason, actor: approver.name }));
 }));

@@ -6,51 +6,51 @@ import { safe } from '../lib/errors.js';
 
 export const financeRouter = Router();
 
-financeRouter.get('/ledger', (_req, res) => res.json(finance.listLedger()));
-financeRouter.get('/payments', (req, res) => res.json(deletionRequests.filterDeleted('payments', finance.listPayments(req.query.supplierId as string | undefined))));
-financeRouter.get('/receipts', (_req, res) => res.json(deletionRequests.filterDeleted('receipts', finance.listReceipts())));
-financeRouter.get('/totals', (_req, res) => res.json(finance.totals()));
+financeRouter.get('/ledger', safe(async (_req, res) => { res.json(await finance.listLedger()); }));
+financeRouter.get('/payments', safe(async (req, res) => { res.json(await deletionRequests.filterDeleted('payments', await finance.listPayments(req.query.supplierId as string | undefined))); }));
+financeRouter.get('/receipts', safe(async (_req, res) => { res.json(await deletionRequests.filterDeleted('receipts', await finance.listReceipts())); }));
+financeRouter.get('/totals', safe(async (_req, res) => { res.json(await finance.totals()); }));
 
-financeRouter.post('/payments', safe((req, res) => {
+financeRouter.post('/payments', safe(async (req, res) => {
   const { paidTo, amount, method, referenceType, referenceId, supplierId } = req.body ?? {};
   if (!paidTo || typeof amount !== 'number' || !method) {
     res.status(400).json({ error: 'paidTo, amount and method are required' });
     return;
   }
-  res.status(201).json(finance.recordPayment({ paidTo, amount, method, referenceType, referenceId, supplierId }));
+  res.status(201).json(await finance.recordPayment({ paidTo, amount, method, referenceType, referenceId, supplierId }));
 }));
 
-financeRouter.post('/receipts', safe((req, res) => {
+financeRouter.post('/receipts', safe(async (req, res) => {
   const { receivedFrom, amount, method, referenceType, referenceId } = req.body ?? {};
   if (!receivedFrom || typeof amount !== 'number' || !method) {
     res.status(400).json({ error: 'receivedFrom, amount and method are required' });
     return;
   }
-  res.status(201).json(finance.recordReceipt({ receivedFrom, amount, method, referenceType, referenceId }));
+  res.status(201).json(await finance.recordReceipt({ receivedFrom, amount, method, referenceType, referenceId }));
 }));
 
-financeRouter.post('/payments/:id/reverse', safe((req, res) => {
+financeRouter.post('/payments/:id/reverse', safe(async (req, res) => {
   const { reason, userId } = req.body ?? {};
-  const approver = accessControl.requireRole(userId, ['Finance manager']);
-  res.json(finance.reversePayment(req.params.id, { reason, actor: approver.name }));
+  const approver = await accessControl.requireRole(userId, ['Finance manager']);
+  res.json(await finance.reversePayment(req.params.id, { reason, actor: approver.name }));
 }));
 
-financeRouter.post('/receipts/:id/reverse', safe((req, res) => {
+financeRouter.post('/receipts/:id/reverse', safe(async (req, res) => {
   const { reason, userId } = req.body ?? {};
-  const approver = accessControl.requireRole(userId, ['Finance manager']);
-  res.json(finance.reverseReceipt(req.params.id, { reason, actor: approver.name }));
+  const approver = await accessControl.requireRole(userId, ['Finance manager']);
+  res.json(await finance.reverseReceipt(req.params.id, { reason, actor: approver.name }));
 }));
 
 // Supplier accounting — every supplier's Accounts payable activity, derived
 // live from ledger/payments (see services/finance.ts); nothing new is stored.
-financeRouter.get('/payables', (_req, res) => res.json(finance.payablesReport()));
-financeRouter.get('/aging', (_req, res) => res.json(finance.agingReport()));
-financeRouter.get('/suppliers/:id/balance', (req, res) => res.json(finance.supplierBalance(req.params.id)));
-financeRouter.get('/suppliers/:id/statement', (req, res) => res.json(finance.supplierStatement(req.params.id)));
-financeRouter.get('/suppliers/:id/invoices', (req, res) => res.json(finance.supplierInvoices(req.params.id)));
+financeRouter.get('/payables', safe(async (_req, res) => { res.json(await finance.payablesReport()); }));
+financeRouter.get('/aging', safe(async (_req, res) => { res.json(await finance.agingReport()); }));
+financeRouter.get('/suppliers/:id/balance', safe(async (req, res) => { res.json(await finance.supplierBalance(req.params.id)); }));
+financeRouter.get('/suppliers/:id/statement', safe(async (req, res) => { res.json(await finance.supplierStatement(req.params.id)); }));
+financeRouter.get('/suppliers/:id/invoices', safe(async (req, res) => { res.json(await finance.supplierInvoices(req.params.id)); }));
 
 // Customer accounting — the mirror of the supplier routes above, Section 16/17.
-financeRouter.get('/receivables', (_req, res) => res.json(finance.receivablesReport()));
-financeRouter.get('/customer-aging', (_req, res) => res.json(finance.customerAgingReport()));
-financeRouter.get('/customers/:id/balance', (req, res) => res.json(finance.customerBalance(req.params.id)));
-financeRouter.get('/customers/:id/statement', (req, res) => res.json(finance.customerStatement(req.params.id)));
+financeRouter.get('/receivables', safe(async (_req, res) => { res.json(await finance.receivablesReport()); }));
+financeRouter.get('/customer-aging', safe(async (_req, res) => { res.json(await finance.customerAgingReport()); }));
+financeRouter.get('/customers/:id/balance', safe(async (req, res) => { res.json(await finance.customerBalance(req.params.id)); }));
+financeRouter.get('/customers/:id/statement', safe(async (req, res) => { res.json(await finance.customerStatement(req.params.id)); }));

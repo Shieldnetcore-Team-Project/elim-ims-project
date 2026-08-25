@@ -3,6 +3,15 @@ import pg from 'pg';
 
 const { Pool } = pg;
 
+// Postgres returns COUNT(*) (and any bigint/int8 column) as a string, since it
+// doesn't fit safely in a JS number in general — unlike the old node:sqlite
+// driver, which always handed back real numbers. Every count in this app is
+// well within Number.MAX_SAFE_INTEGER, and callers throughout the codebase
+// (e.g. userCount() === 0, pendingCounts.ts summing several counts) already
+// assume a real number, so parse int8 as one globally rather than special-casing
+// every call site.
+pg.types.setTypeParser(20, (val: string) => parseInt(val, 10));
+
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) throw new Error('DATABASE_URL environment variable is required');
 

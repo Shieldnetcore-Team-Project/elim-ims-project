@@ -13,6 +13,9 @@ interface CurrentUserState {
   /** true until the user list has been fetched at least once — distinct from
    *  `user === null`, which (once loaded) means genuinely signed out. */
   loading: boolean;
+  /** Set when the last fetch of the user list failed — AppShell shows this
+   *  instead of silently sitting blank forever with loading stuck true. */
+  error: string | null;
   /** null while access is still loading — treat as "not yet known", not "denied". */
   allowedPages: string[] | null;
   hasAccess: (pageKey: string) => boolean;
@@ -31,9 +34,15 @@ export function CurrentUserProvider({ children }: { children: ReactNode }) {
     try { return localStorage.getItem(STORAGE_KEY); } catch { return null; }
   });
   const [allowedPages, setAllowedPages] = useState<string[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const refreshUsers = useCallback(() => {
-    api<AppUser[]>('/masters/users').then(res => { setUsers(res); setLoading(false); });
+    api<AppUser[]>('/masters/users')
+      .then(res => { setUsers(res); setError(null); setLoading(false); })
+      // Without this, a failed fetch left `loading` stuck true forever —
+      // AppShell renders nothing while loading, so the whole app just went
+      // blank with no indication anything was wrong.
+      .catch((err: unknown) => { setError(err instanceof Error ? err.message : 'Failed to load users'); setLoading(false); });
   }, []);
   // Refetch on focus too — someone sitting on the sign-in gate waiting for a
   // System admin to approve their account (or flip PENDING_APPROVAL to
@@ -101,7 +110,7 @@ export function CurrentUserProvider({ children }: { children: ReactNode }) {
     return allowedPages?.includes(pageKey) ?? false;
   }, [user, isSuperAdmin, allowedPages]);
 
-  const value: CurrentUserState = { user, users, isSuperAdmin, loading, allowedPages, hasAccess, signInAs, signOut, refreshUsers };
+  const value: CurrentUserState = { user, users, isSuperAdmin, loading, error, allowedPages, hasAccess, signInAs, signOut, refreshUsers };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

@@ -16,9 +16,9 @@ mastersRouter.get('/items', safe(async (req, res) => {
   res.json(await deletionRequests.filterDeleted('items', await inventory.listItems(type)));
 }));
 
-mastersRouter.get('/item-categories', safe(async (_req, res) => res.json(await inventory.listCategories())));
-mastersRouter.get('/employee-statuses', safe(async (_req, res) => res.json(await peripheral.employeeStatusOptions())));
-mastersRouter.get('/employees', safe(async (_req, res) => res.json(await db.prepare('SELECT id, name, status FROM employees ORDER BY name').all())));
+mastersRouter.get('/item-categories', safe(async (_req, res) => { res.json(await inventory.listCategories()); }));
+mastersRouter.get('/employee-statuses', safe(async (_req, res) => { res.json(await peripheral.employeeStatusOptions()); }));
+mastersRouter.get('/employees', safe(async (_req, res) => { res.json(await db.prepare('SELECT id, name, status FROM employees ORDER BY name').all()); }));
 
 // Self-serve material creation — e.g. a manufacturer/grammage variant
 // ("PET Preform 16g — Prima") with its own pieces-per-bag conversion.
@@ -38,7 +38,7 @@ mastersRouter.post('/items', safe(async (req, res) => {
   res.status(201).json(await inventory.getItem(id));
 }));
 
-mastersRouter.get('/suppliers', safe(async (_req, res) => res.json(await procurement.listSuppliers())));
+mastersRouter.get('/suppliers', safe(async (_req, res) => { res.json(await procurement.listSuppliers()); }));
 
 mastersRouter.get('/suppliers/:id', safe(async (req, res) => {
   const supplier = await procurement.getSupplier(req.params.id);
@@ -55,7 +55,7 @@ mastersRouter.post('/suppliers', safe(async (req, res) => {
   await procurement.createSupplier({ id, name, location: location || null });
   res.status(201).json({ id, name, location: location || null });
 }));
-mastersRouter.get('/customers', safe(async (_req, res) => res.json(await sales.listCustomers())));
+mastersRouter.get('/customers', safe(async (_req, res) => { res.json(await sales.listCustomers()); }));
 
 // Self-serve customer creation — one of the three customer categories
 // (RETAIL/MARKETER/DISTRIBUTOR) that drive different order workflow in
@@ -69,7 +69,7 @@ mastersRouter.post('/customers', safe(async (req, res) => {
   await sales.createCustomer({ id, name, location: location || null, phone: phone || null, customer_type: type });
   res.status(201).json(await sales.getCustomer(id));
 }));
-mastersRouter.get('/vehicles', safe(async (_req, res) => res.json(await fleet.listVehicles())));
+mastersRouter.get('/vehicles', safe(async (_req, res) => { res.json(await fleet.listVehicles()); }));
 mastersRouter.post('/vehicles', safe(async (req, res) => {
   const { driver, status, odometer, plateNumber, vehicleType, category, acquisitionDate } = req.body ?? {};
   if (category && category !== 'COMMERCIAL' && category !== 'PRIVATE') {

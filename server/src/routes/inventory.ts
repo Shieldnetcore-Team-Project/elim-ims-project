@@ -6,16 +6,16 @@ import { safe } from '../lib/errors.js';
 
 export const inventoryRouter = Router();
 
-inventoryRouter.get('/balances', (_req, res) => res.json(deletionRequests.filterDeleted('items', inventory.getBalances())));
-inventoryRouter.get('/transactions', (req, res) => res.json(inventory.listTransactions(req.query.itemId as string | undefined)));
-inventoryRouter.get('/stock-position', (_req, res) => res.json(stockPosition.getStockPosition()));
+inventoryRouter.get('/balances', safe(async (_req, res) => { res.json(await deletionRequests.filterDeleted('items', await inventory.getBalances())); }));
+inventoryRouter.get('/transactions', safe(async (req, res) => { res.json(await inventory.listTransactions(req.query.itemId as string | undefined)); }));
+inventoryRouter.get('/stock-position', safe(async (_req, res) => { res.json(await stockPosition.getStockPosition()); }));
 
-inventoryRouter.post('/adjust', safe((req, res) => {
+inventoryRouter.post('/adjust', safe(async (req, res) => {
   const { itemId, delta, note } = req.body ?? {};
   if (!itemId || typeof delta !== 'number' || !note) {
     res.status(400).json({ error: 'itemId, delta and note are required' });
     return;
   }
-  inventory.adjustStock(itemId, delta, note, req.body.actor);
-  res.status(201).json({ itemId, on_hand: inventory.getBalance(itemId) });
+  await inventory.adjustStock(itemId, delta, note, req.body.actor);
+  res.status(201).json({ itemId, on_hand: await inventory.getBalance(itemId) });
 }));

@@ -9,8 +9,8 @@ const COMMISSION_SETTING_ID = 'Marketer commission rate';
  *  "5%"; a missing or unparseable row is 0% rather than a guessed default,
  *  since paying commission on an unconfigured rate would be a real financial
  *  error, not a safe fallback. */
-export function commissionRatePercent(): number {
-  const row = db.prepare('SELECT value FROM settings WHERE id = ?').get(COMMISSION_SETTING_ID) as { value: string } | undefined;
+export async function commissionRatePercent(): Promise<number> {
+  const row = await db.prepare('SELECT value FROM settings WHERE id = ?').get(COMMISSION_SETTING_ID) as { value: string } | undefined;
   if (!row) return 0;
   const parsed = Number(row.value.replace(/[^0-9.]/g, ''));
   return Number.isFinite(parsed) ? parsed : 0;
@@ -63,18 +63,18 @@ export interface DateRange { from: string; to: string }
  *  not "recovering" anything, it was never outstanding) — so
  *  commissionable_sales = cash_sales + credit_recovered holds consistently
  *  whether or not a range is given. */
-export function performanceReport(range?: DateRange): MarketerPerformanceRow[] {
-  const marketers = db.prepare(`SELECT id, name FROM customers WHERE customer_type = 'MARKETER' ORDER BY name`).all() as { id: string; name: string }[];
-  const rate = commissionRatePercent();
+export async function performanceReport(range?: DateRange): Promise<MarketerPerformanceRow[]> {
+  const marketers = await db.prepare(`SELECT id, name FROM customers WHERE customer_type = 'MARKETER' ORDER BY name`).all() as { id: string; name: string }[];
+  const rate = await commissionRatePercent();
   const rangeParams = range ? [range.from, range.to] : [];
 
   const salesByMarketer = new Map(
-    (db.prepare(`
+    (await db.prepare(`
       WITH sale_totals AS (
         SELECT mcs.id AS sale_id, mcs.marketer_id, mcs.cash_received,
           (SELECT COALESCE(SUM(quantity * unit_price), 0) FROM marketer_customer_sale_items WHERE sale_id = mcs.id) AS sale_total
         FROM marketer_customer_sales mcs
-        WHERE 1 = 1 ${range ? 'AND date(mcs.created_at) BETWEEN date(?) AND date(?)' : ''}
+        WHERE 1 = 1 ${range ? 'AND mcs.created_at::date BETWEEN ?::date AND ?::date' : ''}
       )
       SELECT marketer_id,
         SUM(CASE WHEN cash_received >= sale_total THEN sale_total ELSE 0 END) AS cash_sales,
@@ -85,7 +85,7 @@ export function performanceReport(range?: DateRange): MarketerPerformanceRow[] {
 
   // Live, all-time — never scoped to the report range (see doc comment above).
   const outstandingByMarketer = new Map(
-    (db.prepare(`
+    (await db.prepare(`
       SELECT mc.marketer_id, COALESCE(SUM(l.debit), 0) - COALESCE(SUM(l.credit), 0) AS outstanding
       FROM marketer_customer_ledger l JOIN marketer_customers mc ON mc.id = l.customer_id
       GROUP BY mc.marketer_id
@@ -93,7 +93,7 @@ export function performanceReport(range?: DateRange): MarketerPerformanceRow[] {
   );
 
   const recoveredByMarketer = new Map(
-    (db.prepare(`
+    (await db.prepare(`
       WITH settled_cash_sale_ids AS (
         SELECT mcs.id FROM marketer_customer_sales mcs
         WHERE mcs.cash_received >= (SELECT COALESCE(SUM(quantity * unit_price), 0) FROM marketer_customer_sale_items WHERE sale_id = mcs.id)
@@ -101,26 +101,26 @@ export function performanceReport(range?: DateRange): MarketerPerformanceRow[] {
       SELECT mc.marketer_id, COALESCE(SUM(l.credit), 0) AS recovered
       FROM marketer_customer_ledger l JOIN marketer_customers mc ON mc.id = l.customer_id
       WHERE l.credit > 0 AND l.reference_id NOT IN (SELECT id FROM settled_cash_sale_ids)
-        ${range ? 'AND date(l.entry_date) BETWEEN date(?) AND date(?)' : ''}
+        ${range ? 'AND l.entry_date::date BETWEEN ?::date AND ?::date' : ''}
       GROUP BY mc.marketer_id
     `).all(...rangeParams) as { marketer_id: string; recovered: number }[]).map(r => [r.marketer_id, r.recovered]),
   );
 
   const stockMovementByMarketer = new Map(
-    (db.prepare(`
+    (await db.prepare(`
       SELECT marketer_id,
         SUM(CASE WHEN direction = 'IN' AND source_type = 'ISSUE' THEN quantity ELSE 0 END) AS received,
         SUM(CASE WHEN direction = 'OUT' AND source_type = 'SOLD' THEN quantity ELSE 0 END) AS sold,
         SUM(CASE WHEN direction = 'OUT' AND source_type = 'RETURN' THEN quantity ELSE 0 END) AS returned
       FROM marketer_stock_transactions
-      WHERE 1 = 1 ${range ? 'AND date(created_at) BETWEEN date(?) AND date(?)' : ''}
+      WHERE 1 = 1 ${range ? 'AND created_at::date BETWEEN ?::date AND ?::date' : ''}
       GROUP BY marketer_id
     `).all(...rangeParams) as { marketer_id: string; received: number; sold: number; returned: number }[]).map(r => [r.marketer_id, r]),
   );
 
   // Live, all-time — what's currently in the marketer's hands, same reasoning as outstanding_credit above.
   const stockOutstandingByMarketer = new Map<string, number>();
-  for (const line of marketerReconciliation.reconciliation()) {
+  for (const line of await marketerReconciliation.reconciliation()) {
     stockOutstandingByMarketer.set(line.marketer_id, (stockOutstandingByMarketer.get(line.marketer_id) ?? 0) + line.remaining);
   }
 

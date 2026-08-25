@@ -9,18 +9,18 @@ export interface RetailIntakeItem { item_id: string; item_name: string; quantity
 
 /** The only functions in the app allowed to write retail_stock_transactions —
  *  mirrors inventory.postTransaction being the sole writer of inventory_transactions. */
-function postRetailTransaction(params: {
+async function postRetailTransaction(params: {
   itemId: string; direction: 'IN' | 'OUT'; quantity: number; unitCost?: number;
   sourceType: 'INTAKE' | 'SOLD' | 'ADJUSTMENT'; sourceId?: string; actor?: string;
-}): void {
-  db.prepare(
+}): Promise<void> {
+  await db.prepare(
     `INSERT INTO retail_stock_transactions (item_id, direction, quantity, unit_cost, source_type, source_id, actor)
      VALUES (?,?,?,?,?,?,?)`,
   ).run(params.itemId, params.direction, params.quantity, params.unitCost ?? 0, params.sourceType, params.sourceId ?? null, params.actor ?? null);
 }
 
-export function getBalances(): RetailBalance[] {
-  return db.prepare(`
+export async function getBalances(): Promise<RetailBalance[]> {
+  return await db.prepare(`
     SELECT i.id, i.name, i.category, i.uom, i.unit_cost,
       COALESCE((SELECT SUM(CASE WHEN t.direction = 'IN' THEN t.quantity ELSE -t.quantity END) FROM retail_stock_transactions t WHERE t.item_id = i.id), 0) AS on_hand
     FROM items i
@@ -29,8 +29,8 @@ export function getBalances(): RetailBalance[] {
   `).all() as unknown as RetailBalance[];
 }
 
-export function getBalance(itemId: string): number {
-  const row = db.prepare(`
+export async function getBalance(itemId: string): Promise<number> {
+  const row = await db.prepare(`
     SELECT COALESCE(SUM(CASE WHEN direction = 'IN' THEN quantity ELSE -quantity END), 0) AS on_hand
     FROM retail_stock_transactions WHERE item_id = ?
   `).get(itemId) as { on_hand: number };
@@ -40,14 +40,14 @@ export function getBalance(itemId: string): number {
 /** A sale against retail stock (called from services/sales.ts for channel='POS')
  *  — deducts from the Retail unit's own balance, not the central warehouse ledger,
  *  since that stock already left the warehouse at intake time. */
-export function postSale(params: { itemId: string; quantity: number; unitCost: number; salesId: string; actor?: string }): void {
-  postRetailTransaction({ itemId: params.itemId, direction: 'OUT', quantity: params.quantity, unitCost: params.unitCost, sourceType: 'SOLD', sourceId: params.salesId, actor: params.actor });
+export async function postSale(params: { itemId: string; quantity: number; unitCost: number; salesId: string; actor?: string }): Promise<void> {
+  await postRetailTransaction({ itemId: params.itemId, direction: 'OUT', quantity: params.quantity, unitCost: params.unitCost, sourceType: 'SOLD', sourceId: params.salesId, actor: params.actor });
 }
 
 /** Undoes postSale — a reversed POS sale returns stock to the Retail unit,
  *  not the central warehouse (mirrors sales.reverseOrder's INVOICE branch). */
-export function reverseSale(params: { itemId: string; quantity: number; unitCost: number; salesId: string; actor?: string }): void {
-  postRetailTransaction({ itemId: params.itemId, direction: 'IN', quantity: params.quantity, unitCost: params.unitCost, sourceType: 'SOLD', sourceId: params.salesId, actor: params.actor });
+export async function reverseSale(params: { itemId: string; quantity: number; unitCost: number; salesId: string; actor?: string }): Promise<void> {
+  await postRetailTransaction({ itemId: params.itemId, direction: 'IN', quantity: params.quantity, unitCost: params.unitCost, sourceType: 'SOLD', sourceId: params.salesId, actor: params.actor });
 }
 
 /** Transfers stock from the central warehouse into Retail's own bounded
@@ -57,55 +57,50 @@ export function reverseSale(params: { itemId: string; quantity: number; unitCost
  *  internal stock transfer already uses elsewhere), then credits the
  *  destination ledger — here, retail_stock_transactions instead of a
  *  per-marketer balance. */
-export function postIntake(params: { issuedBy: string; items: { itemId: string; quantity: number; unitCost: number }[]; actor?: string }): RetailIntake {
+export async function postIntake(params: { issuedBy: string; items: { itemId: string; quantity: number; unitCost: number }[]; actor?: string }): Promise<RetailIntake> {
   if (params.items.length === 0) throw new Error('An intake must have at least one item');
   for (const it of params.items) {
     if (it.quantity <= 0) throw new Error(`Quantity for ${it.itemId} must be positive`);
-    const available = inventory.getBalance(it.itemId);
+    const available = await inventory.getBalance(it.itemId);
     if (it.quantity > available) throw new Error(`Only ${available} of ${it.itemId} available in the central warehouse`);
   }
 
   const actor = params.actor ?? params.issuedBy;
-  const id = nextBusinessId('retail_intakes', 'RTI-', 4);
+  const id = await nextBusinessId('retail_intakes', 'RTI-', 4);
 
-  db.exec('BEGIN');
-  try {
-    db.prepare('INSERT INTO retail_intakes (id, issued_by, actor) VALUES (?,?,?)').run(id, params.issuedBy, actor);
+  await db.transaction(async () => {
+    await db.prepare('INSERT INTO retail_intakes (id, issued_by, actor) VALUES (?,?,?)').run(id, params.issuedBy, actor);
     const insertItem = db.prepare('INSERT INTO retail_intake_items (intake_id, item_id, quantity, unit_cost) VALUES (?,?,?,?)');
     for (const it of params.items) {
-      insertItem.run(id, it.itemId, it.quantity, it.unitCost);
-      inventory.postTransaction({
+      await insertItem.run(id, it.itemId, it.quantity, it.unitCost);
+      await inventory.postTransaction({
         itemId: it.itemId, direction: 'OUT', quantity: it.quantity, unitCost: it.unitCost,
         sourceType: 'MATERIAL_ISSUE', sourceId: id, actor,
         fromLocation: 'Finished Goods Warehouse', toLocation: 'Retail Stock',
         note: `Issued to Retail on ${id}`,
       });
-      postRetailTransaction({ itemId: it.itemId, direction: 'IN', quantity: it.quantity, unitCost: it.unitCost, sourceType: 'INTAKE', sourceId: id, actor });
+      await postRetailTransaction({ itemId: it.itemId, direction: 'IN', quantity: it.quantity, unitCost: it.unitCost, sourceType: 'INTAKE', sourceId: id, actor });
     }
     const totalQuantity = params.items.reduce((s, it) => s + it.quantity, 0);
-    activityLog.record(actor, 'posted retail intake', 'retail_intake', id, `${id}: ${totalQuantity} unit(s) issued to Retail from the warehouse`);
-    db.exec('COMMIT');
-  } catch (err) {
-    db.exec('ROLLBACK');
-    throw err;
-  }
-  return getIntake(id)!;
+    await activityLog.record(actor, 'posted retail intake', 'retail_intake', id, `${id}: ${totalQuantity} unit(s) issued to Retail from the warehouse`);
+  });
+  return (await getIntake(id))!;
 }
 
-export function getIntake(id: string): RetailIntake | undefined {
-  return listIntakes().find(i => i.id === id);
+export async function getIntake(id: string): Promise<RetailIntake | undefined> {
+  return (await listIntakes()).find(i => i.id === id);
 }
 
-export function listIntakeItems(intakeId: string): RetailIntakeItem[] {
-  return db.prepare(`
+export async function listIntakeItems(intakeId: string): Promise<RetailIntakeItem[]> {
+  return await db.prepare(`
     SELECT ri.item_id, i.name AS item_name, ri.quantity, ri.unit_cost
     FROM retail_intake_items ri JOIN items i ON i.id = ri.item_id
     WHERE ri.intake_id = ?
   `).all(intakeId) as unknown as RetailIntakeItem[];
 }
 
-export function listIntakes(): RetailIntake[] {
-  return db.prepare(`
+export async function listIntakes(): Promise<RetailIntake[]> {
+  return await db.prepare(`
     SELECT ri.id, ri.issued_by, ri.actor, ri.created_at,
       COUNT(rii.id) AS item_count, COALESCE(SUM(rii.quantity), 0) AS total_quantity
     FROM retail_intakes ri LEFT JOIN retail_intake_items rii ON rii.intake_id = ri.id
@@ -130,35 +125,35 @@ export interface DailyReport {
  *  live figure (not scoped to `date`), same reasoning services/dayClose.ts
  *  already documents for its own checks — "on hand right now" is what
  *  matters, not a snapshot frozen at close-of-business. */
-export function dailyReport(date?: string): DailyReport {
+export async function dailyReport(date?: string): Promise<DailyReport> {
   const d = date ?? new Date().toISOString().slice(0, 10);
 
-  const received = db.prepare(`
+  const received = await db.prepare(`
     SELECT t.item_id, i.name AS item_name, SUM(t.quantity) AS quantity
     FROM retail_stock_transactions t JOIN items i ON i.id = t.item_id
-    WHERE t.source_type = 'INTAKE' AND date(t.created_at) = ?
+    WHERE t.source_type = 'INTAKE' AND to_char(t.created_at::timestamp, 'YYYY-MM-DD') = ?
     GROUP BY t.item_id ORDER BY i.name
   `).all(d) as unknown as DailyReportLine[];
 
   // PAID only — excludes a CANCELLED (reversed/voided) retail sale, which
   // never had its receipt or stock deduction reinstated.
-  const salesByCategoryAndPayment = db.prepare(`
+  const salesByCategoryAndPayment = await db.prepare(`
     SELECT i.category AS category, COALESCE(r.method, 'Unspecified') AS payment_method, SUM(si.line_total) AS amount
     FROM sales s
     JOIN sales_items si ON si.sales_id = s.id
     JOIN items i ON i.id = si.item_id
     LEFT JOIN receipts r ON r.reference_type = 'sales' AND r.reference_id = s.id
-    WHERE s.channel = 'POS' AND s.status = 'PAID' AND date(s.created_at) = ?
+    WHERE s.channel = 'POS' AND s.status = 'PAID' AND to_char(s.created_at::timestamp, 'YYYY-MM-DD') = ?
     GROUP BY i.category, payment_method ORDER BY i.category, payment_method
   `).all(d) as unknown as CategoryPaymentLine[];
 
-  const intakesToday = db.prepare(`
-    SELECT id, created_at, issued_by FROM retail_intakes WHERE date(created_at) = ? ORDER BY id
+  const intakesToday = await db.prepare(`
+    SELECT id, created_at, issued_by FROM retail_intakes WHERE to_char(created_at::timestamp, 'YYYY-MM-DD') = ? ORDER BY id
   `).all(d) as { id: string; created_at: string; issued_by: string | null }[];
-  const salesToday = db.prepare(`
+  const salesToday = await db.prepare(`
     SELECT s.id, s.created_at, s.rep, s.total_amount, COALESCE(c.name, 'Walk-in customer') AS customer_name
     FROM sales s LEFT JOIN customers c ON c.id = s.customer_id
-    WHERE s.channel = 'POS' AND date(s.created_at) = ? ORDER BY s.id
+    WHERE s.channel = 'POS' AND to_char(s.created_at::timestamp, 'YYYY-MM-DD') = ? ORDER BY s.id
   `).all(d) as { id: string; created_at: string; rep: string | null; total_amount: number; customer_name: string }[];
 
   const activity: DailyActivity[] = [
@@ -166,5 +161,5 @@ export function dailyReport(date?: string): DailyReport {
     ...salesToday.map(s => ({ type: 'SALE' as const, id: s.id, at: s.created_at, detail: `Sold to ${s.customer_name} by ${s.rep ?? 'unknown'} — ₦${s.total_amount.toLocaleString('en-NG')}` })),
   ].sort((a, b) => a.at.localeCompare(b.at));
 
-  return { date: d, received, salesByCategoryAndPayment, remainingBalance: getBalances(), activity };
+  return { date: d, received, salesByCategoryAndPayment, remainingBalance: await getBalances(), activity };
 }

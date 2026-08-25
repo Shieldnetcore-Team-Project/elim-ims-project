@@ -29,33 +29,33 @@ function today(): string {
  *  adjustments/actual count separately per till, just against this one
  *  shared figure. If multiple physical tills ever need their own sales
  *  split, that requires tagging sales with a till id first. */
-export function todayCashFigures(businessDate?: string): { cashSales: number; cashReceived: number; transfers: number } {
+export async function todayCashFigures(businessDate?: string): Promise<{ cashSales: number; cashReceived: number; transfers: number }> {
   const d = businessDate ?? today();
-  const cashSales = (db.prepare(
-    `SELECT COALESCE(SUM(total_amount), 0) AS v FROM sales WHERE channel = 'POS' AND status = 'PAID' AND date(created_at) = ?`,
+  const cashSales = (await db.prepare(
+    `SELECT COALESCE(SUM(total_amount), 0) AS v FROM sales WHERE channel = 'POS' AND status = 'PAID' AND to_char(created_at::timestamp, 'YYYY-MM-DD') = ?`,
   ).get(d) as { v: number }).v;
-  const cashReceived = (db.prepare(`
+  const cashReceived = (await db.prepare(`
     SELECT COALESCE(SUM(r.amount), 0) AS v FROM receipts r JOIN sales s ON s.id = r.reference_id AND r.reference_type = 'sales'
-    WHERE s.channel = 'POS' AND date(r.received_at) = ? AND r.method = 'Cash'
+    WHERE s.channel = 'POS' AND to_char(r.received_at::timestamp, 'YYYY-MM-DD') = ? AND r.method = 'Cash'
   `).get(d) as { v: number }).v;
-  const transfers = (db.prepare(`
+  const transfers = (await db.prepare(`
     SELECT COALESCE(SUM(r.amount), 0) AS v FROM receipts r JOIN sales s ON s.id = r.reference_id AND r.reference_type = 'sales'
-    WHERE s.channel = 'POS' AND date(r.received_at) = ? AND r.method IN ('Transfer', 'POS Terminal')
+    WHERE s.channel = 'POS' AND to_char(r.received_at::timestamp, 'YYYY-MM-DD') = ? AND r.method IN ('Transfer', 'POS Terminal')
   `).get(d) as { v: number }).v;
   return { cashSales, cashReceived, transfers };
 }
 
-export function getTillClose(id: string): TillClose | undefined {
-  return db.prepare('SELECT * FROM till_closes WHERE id = ?').get(id) as TillClose | undefined;
+export async function getTillClose(id: string): Promise<TillClose | undefined> {
+  return await db.prepare('SELECT * FROM till_closes WHERE id = ?').get(id) as TillClose | undefined;
 }
 
-export function listTillCloses(): TillClose[] {
-  return db.prepare('SELECT * FROM till_closes ORDER BY business_date DESC, id DESC').all() as unknown as TillClose[];
+export async function listTillCloses(): Promise<TillClose[]> {
+  return await db.prepare('SELECT * FROM till_closes ORDER BY business_date DESC, id DESC').all() as unknown as TillClose[];
 }
 
-export function isTillClosed(till: string = DEFAULT_TILL, businessDate?: string): boolean {
+export async function isTillClosed(till: string = DEFAULT_TILL, businessDate?: string): Promise<boolean> {
   const d = businessDate ?? today();
-  return !!db.prepare('SELECT 1 FROM till_closes WHERE business_date = ? AND till = ?').get(d, till);
+  return !!(await db.prepare('SELECT 1 FROM till_closes WHERE business_date = ? AND till = ?').get(d, till));
 }
 
 /** Section 23: cash Sales/Received/Transfers are read live (todayCashFigures);
@@ -68,39 +68,39 @@ export function isTillClosed(till: string = DEFAULT_TILL, businessDate?: string)
  *  value of what sold, which can differ from Cash Received on a split-paid
  *  sale) is likewise reporting-only. difference = actual - expected: positive
  *  is an overage, negative a shortage. */
-export function closeTill(params: {
+export async function closeTill(params: {
   till?: string; businessDate?: string; openingBalance: number; payments: number; adjustments: number;
   actualClosing: number; closedBy: string; actor?: string;
-}): TillClose {
+}): Promise<TillClose> {
   const till = params.till?.trim() || DEFAULT_TILL;
   const businessDate = params.businessDate ?? today();
-  if (isTillClosed(till, businessDate)) throw new Error(`${till} is already closed for ${businessDate}`);
+  if (await isTillClosed(till, businessDate)) throw new Error(`${till} is already closed for ${businessDate}`);
   if (params.openingBalance < 0 || params.payments < 0) throw new Error('Opening balance and payments cannot be negative');
 
-  const { cashSales, cashReceived, transfers } = todayCashFigures(businessDate);
+  const { cashSales, cashReceived, transfers } = await todayCashFigures(businessDate);
   const expectedClosing = params.openingBalance + cashReceived - params.payments + params.adjustments;
   const difference = params.actualClosing - expectedClosing;
 
-  const id = nextBusinessId('till_closes', 'TC-', 4);
-  db.prepare(`
+  const id = await nextBusinessId('till_closes', 'TC-', 4);
+  await db.prepare(`
     INSERT INTO till_closes (id, business_date, till, opening_balance, cash_sales, cash_received, payments, transfers, adjustments, expected_closing, actual_closing, difference, closed_by)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
   `).run(id, businessDate, till, params.openingBalance, cashSales, cashReceived, params.payments, transfers, params.adjustments, expectedClosing, params.actualClosing, difference, params.closedBy);
 
   const actor = params.actor ?? params.closedBy;
   const diffNote = difference === 0 ? 'balanced' : difference > 0 ? `₦${difference.toLocaleString('en-NG')} over` : `₦${Math.abs(difference).toLocaleString('en-NG')} short`;
-  activityLog.record(actor, 'closed till', 'till_close', id, `${till} closed for ${businessDate} by ${params.closedBy} — ${diffNote}`);
-  return getTillClose(id)!;
+  await activityLog.record(actor, 'closed till', 'till_close', id, `${till} closed for ${businessDate} by ${params.closedBy} — ${diffNote}`);
+  return (await getTillClose(id))!;
 }
 
 /** Confirmation by a second person, same shape as marketerStock.verifyAssignment
  *  — no role/approval gate, just a distinct signature from whoever closed it. */
-export function reviewTill(id: string, params: { reviewedBy: string; actor?: string }): TillClose {
-  const row = getTillClose(id);
+export async function reviewTill(id: string, params: { reviewedBy: string; actor?: string }): Promise<TillClose> {
+  const row = await getTillClose(id);
   if (!row) throw new Error(`Unknown till close ${id}`);
   if (row.status === 'REVIEWED') throw new Error(`${id} has already been reviewed`);
   const actor = params.actor ?? params.reviewedBy;
-  db.prepare(`UPDATE till_closes SET reviewed_by = ?, status = 'REVIEWED', reviewed_at = datetime('now') WHERE id = ?`).run(params.reviewedBy, id);
-  activityLog.record(actor, 'reviewed till close', 'till_close', id, `${id} reviewed by ${params.reviewedBy}`);
-  return getTillClose(id)!;
+  await db.prepare(`UPDATE till_closes SET reviewed_by = ?, status = 'REVIEWED', reviewed_at = now() WHERE id = ?`).run(params.reviewedBy, id);
+  await activityLog.record(actor, 'reviewed till close', 'till_close', id, `${id} reviewed by ${params.reviewedBy}`);
+  return (await getTillClose(id))!;
 }

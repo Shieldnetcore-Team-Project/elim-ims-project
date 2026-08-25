@@ -23,35 +23,39 @@ function attentionCheck(category: string, description: string, records: Discrepa
   return { ...check(category, description, records), blocking };
 }
 
+function today(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
 /** Every check reads current state, live — nothing is scoped to "today"
  *  (see dayClose plan notes: an old stuck record is more urgent, not less,
  *  once its creation day passes). This IS "must synchronize instantly" —
  *  the report always reflects reality right now. */
-export function runDiscrepancyChecks(): DiscrepancyReport {
-  const productionOutput = db.prepare(`
+export async function runDiscrepancyChecks(): Promise<DiscrepancyReport> {
+  const productionOutput = await db.prepare(`
     SELECT id, quantity_issued, started_at FROM empty_bottle_runs WHERE status = 'OPEN'
   `).all() as { id: string; quantity_issued: number; started_at: string }[];
 
-  const warehouseReceipt = db.prepare(`
+  const warehouseReceipt = await db.prepare(`
     SELECT id, status, received_at FROM goods_received WHERE status IN ('PENDING_INSPECTION','PARTIALLY_ACCEPTED')
   `).all() as { id: string; status: string; received_at: string }[];
 
-  const warehouseIssues = db.prepare(`
+  const warehouseIssues = await db.prepare(`
     SELECT id, requested_by, created_at FROM material_requests WHERE status = 'PENDING'
   `).all() as { id: string; requested_by: string | null; created_at: string }[];
 
-  const supplierReturns = db.prepare(`
+  const supplierReturns = await db.prepare(`
     SELECT id, supplier_id, created_at FROM supplier_returns WHERE status = 'PENDING'
   `).all() as { id: string; supplier_id: string; created_at: string }[];
-  const salesReturnsPending = db.prepare(`
+  const salesReturnsPending = await db.prepare(`
     SELECT id, status, created_at FROM sales_returns WHERE status IN ('PENDING_INSPECTION','PARTIALLY_ACCEPTED')
   `).all() as { id: string; status: string; created_at: string }[];
 
-  const emptyReturns = db.prepare(`
+  const emptyReturns = await db.prepare(`
     SELECT id, marketer_id, created_at FROM marketer_returns WHERE status = 'PENDING_VERIFICATION'
   `).all() as { id: string; marketer_id: string; created_at: string }[];
 
-  const finishedGoodsGap = db.prepare(`
+  const finishedGoodsGap = await db.prepare(`
     SELECT pb.id, pb.product_item_id, pb.units_actual,
       COALESCE((SELECT SUM(fg.quantity) FROM finished_goods fg WHERE fg.batch_id = pb.id), 0) AS packaged
     FROM production_batches pb
@@ -61,7 +65,7 @@ export function runDiscrepancyChecks(): DiscrepancyReport {
   let damagedEmptiesCount = 0;
   let damagedEmptiesDetail = 'No returnable-asset item configured';
   try {
-    const summary = emptyBottleManagement.conditionSummary();
+    const summary = await emptyBottleManagement.conditionSummary();
     damagedEmptiesCount = summary.damagedEmpty + summary.leakingEmpty;
     damagedEmptiesDetail = `${summary.damagedEmpty} damaged, ${summary.leakingEmpty} leaking — untriaged`;
   } catch {
@@ -69,21 +73,21 @@ export function runDiscrepancyChecks(): DiscrepancyReport {
     damagedEmptiesCount = 0;
   }
 
-  const pendingGrnQc = qualityControl.pendingGoodsReceived() as { id: string; received_at: string }[];
-  const pendingBatchQc = qualityControl.pendingProductionBatches() as { id: string; completed_at: string | null; product_name: string }[];
+  const pendingGrnQc = await qualityControl.pendingGoodsReceived() as { id: string; received_at: string }[];
+  const pendingBatchQc = await qualityControl.pendingProductionBatches() as { id: string; completed_at: string | null; product_name: string }[];
 
-  const unexplainedBottles = dispenserBottles.marketerWiseReport().filter(r => r.unexplained_missing > 0);
+  const unexplainedBottles = (await dispenserBottles.marketerWiseReport()).filter(r => r.unexplained_missing > 0);
 
-  const overdueCustomerInvoices = marketerCustomers.collectionsReport().filter(r => r.bucket === 'OVERDUE');
+  const overdueCustomerInvoices = (await marketerCustomers.collectionsReport()).filter(r => r.bucket === 'OVERDUE');
 
-  const agedSupplierBalances = finance.agingReport().filter(r => r.d90plus > 0);
+  const agedSupplierBalances = (await finance.agingReport()).filter(r => r.d90plus > 0);
 
-  const posSales = db.prepare(`
+  const posSales = await db.prepare(`
     SELECT s.id, s.created_at, s.total_amount,
       COALESCE((SELECT SUM(r.amount) FROM receipts r WHERE r.reference_type = 'sales' AND r.reference_id = s.id), 0) AS receipted
     FROM sales s
-    WHERE s.channel = 'POS' AND date(s.created_at) = date('now')
-  `).all() as { id: string; created_at: string; total_amount: number; receipted: number }[];
+    WHERE s.channel = 'POS' AND to_char(s.created_at::timestamp, 'YYYY-MM-DD') = ?
+  `).all(today()) as { id: string; created_at: string; total_amount: number; receipted: number }[];
   const posMismatches = posSales.filter(s => Math.abs(s.total_amount - s.receipted) > 0.01);
 
   const checks: DiscrepancyCheck[] = [
@@ -137,19 +141,19 @@ export function runDiscrepancyChecks(): DiscrepancyReport {
  *  day impossible on any day with an order still moving through the
  *  pipeline. Nothing here is stored; both halves are computed live, same as
  *  runDiscrepancyChecks(). */
-export function attentionList(): AttentionReport {
-  const core = runDiscrepancyChecks();
+export async function attentionList(): Promise<AttentionReport> {
+  const core = await runDiscrepancyChecks();
   const blockingChecks: AttentionCheck[] = core.checks.map(c => ({ ...c, blocking: true }));
 
-  const pendingApprovalPOs = db.prepare(`SELECT id, created_at FROM purchase_orders WHERE status = 'AWAITING_APPROVAL'`).all() as { id: string; created_at: string }[];
-  const pendingApprovalSales = db.prepare(`SELECT id, created_at FROM sales WHERE status = 'AWAITING_APPROVAL'`).all() as { id: string; created_at: string }[];
-  const pendingApprovalUsers = db.prepare(`SELECT id, name FROM users WHERE status = 'PENDING_APPROVAL'`).all() as { id: string; name: string }[];
-  const pendingDeletions = db.prepare(`SELECT id, entity_type, entity_label FROM deletion_requests WHERE status = 'PENDING'`).all() as { id: string; entity_type: string; entity_label: string | null }[];
+  const pendingApprovalPOs = await db.prepare(`SELECT id, created_at FROM purchase_orders WHERE status = 'AWAITING_APPROVAL'`).all() as { id: string; created_at: string }[];
+  const pendingApprovalSales = await db.prepare(`SELECT id, created_at FROM sales WHERE status = 'AWAITING_APPROVAL'`).all() as { id: string; created_at: string }[];
+  const pendingApprovalUsers = await db.prepare(`SELECT id, name FROM users WHERE status = 'PENDING_APPROVAL'`).all() as { id: string; name: string }[];
+  const pendingDeletions = await db.prepare(`SELECT id, entity_type, entity_label FROM deletion_requests WHERE status = 'PENDING'`).all() as { id: string; entity_type: string; entity_label: string | null }[];
 
-  const undeliveredPOs = db.prepare(`
+  const undeliveredPOs = await db.prepare(`
     SELECT po.id, s.name AS supplier_name FROM purchase_orders po JOIN suppliers s ON s.id = po.supplier_id WHERE po.status = 'APPROVED'
   `).all() as { id: string; supplier_name: string }[];
-  const undeliveredRuns = db.prepare(`
+  const undeliveredRuns = await db.prepare(`
     SELECT id, sales_id, status FROM delivery_runs WHERE status IN ('DISPATCHED', 'ACTIVE')
   `).all() as { id: string; sales_id: string; status: string }[];
 
@@ -157,12 +161,12 @@ export function attentionList(): AttentionReport {
   // with any status other than the schema default 'CLEARED' — kept as a real
   // check (not hard-coded to always pass) so it's meaningful the moment
   // anything ever does introduce an uncleared/pending state.
-  const uncleared = db.prepare(`SELECT id, 'payment' AS kind FROM payments WHERE status != 'CLEARED' UNION ALL SELECT id, 'receipt' FROM receipts WHERE status != 'CLEARED'`).all() as { id: string; kind: string }[];
+  const uncleared = await db.prepare(`SELECT id, 'payment' AS kind FROM payments WHERE status != 'CLEARED' UNION ALL SELECT id, 'receipt' FROM receipts WHERE status != 'CLEARED'`).all() as { id: string; kind: string }[];
 
   const businessDate = today();
-  const tillPending = tillClose.isTillClosed(undefined, businessDate) ? [] : [{ id: businessDate, detail: 'Retail Till not yet closed for today' }];
+  const tillPending = (await tillClose.isTillClosed(undefined, businessDate)) ? [] : [{ id: businessDate, detail: 'Retail Till not yet closed for today' }];
 
-  const companyWideAgedCustomers = finance.customerAgingReport().filter(r => r.d90plus > 0);
+  const companyWideAgedCustomers = (await finance.customerAgingReport()).filter(r => r.d90plus > 0);
 
   const informational: AttentionCheck[] = [
     attentionCheck('Pending Approvals', 'Purchase orders, sales, user accounts and deletion requests awaiting a decision', [
@@ -185,34 +189,30 @@ export function attentionList(): AttentionReport {
   return { balanced: core.balanced, checks: [...blockingChecks, ...informational] };
 }
 
-export function listDayCloses(): DayClose[] {
-  return db.prepare('SELECT * FROM day_closes ORDER BY business_date DESC').all() as unknown as DayClose[];
-}
-
-function today(): string {
-  return new Date().toISOString().slice(0, 10);
+export async function listDayCloses(): Promise<DayClose[]> {
+  return await db.prepare('SELECT * FROM day_closes ORDER BY business_date DESC').all() as unknown as DayClose[];
 }
 
 /** Only ever writes when balanced — a blocked attempt persists nothing,
  *  matching validate-then-write everywhere else in this app. Re-closing an
  *  already-closed day is a no-op, not an error. */
-export function closeDay(params: { checkedBy: string; actor?: string }): { alreadyClosed: boolean; balanced: boolean; dayClose?: DayClose; checks?: DiscrepancyCheck[] } {
+export async function closeDay(params: { checkedBy: string; actor?: string }): Promise<{ alreadyClosed: boolean; balanced: boolean; dayClose?: DayClose; checks?: DiscrepancyCheck[] }> {
   const businessDate = today();
-  const existing = db.prepare('SELECT * FROM day_closes WHERE business_date = ?').get(businessDate) as unknown as DayClose | undefined;
+  const existing = await db.prepare('SELECT * FROM day_closes WHERE business_date = ?').get(businessDate) as unknown as DayClose | undefined;
   if (existing) {
     return { alreadyClosed: true, balanced: true, dayClose: existing };
   }
 
-  const report = runDiscrepancyChecks();
+  const report = await runDiscrepancyChecks();
   if (!report.balanced) {
     return { alreadyClosed: false, balanced: false, checks: report.checks };
   }
 
   const actor = params.actor ?? params.checkedBy;
-  const id = nextBusinessId('day_closes', 'DC-', 4);
-  db.prepare('INSERT INTO day_closes (id, business_date, checked_by, actor) VALUES (?,?,?,?)').run(id, businessDate, params.checkedBy, actor);
-  activityLog.record(actor, 'closed business day', 'day_close', id, `${businessDate} closed by ${params.checkedBy} — all checks balanced`);
+  const id = await nextBusinessId('day_closes', 'DC-', 4);
+  await db.prepare('INSERT INTO day_closes (id, business_date, checked_by, actor) VALUES (?,?,?,?)').run(id, businessDate, params.checkedBy, actor);
+  await activityLog.record(actor, 'closed business day', 'day_close', id, `${businessDate} closed by ${params.checkedBy} — all checks balanced`);
 
-  const dayClose = db.prepare('SELECT * FROM day_closes WHERE id = ?').get(id) as unknown as DayClose;
+  const dayClose = await db.prepare('SELECT * FROM day_closes WHERE id = ?').get(id) as unknown as DayClose;
   return { alreadyClosed: false, balanced: true, dayClose };
 }

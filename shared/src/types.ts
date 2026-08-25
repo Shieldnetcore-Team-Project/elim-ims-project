@@ -4,7 +4,7 @@ export type IconName =
   | 'grid' | 'drop' | 'factory' | 'flask' | 'box' | 'receipt' | 'cart' | 'wallet'
   | 'truck' | 'bank' | 'users' | 'clock' | 'wrench' | 'chart' | 'usercog'
   | 'shield' | 'scroll' | 'cog' | 'search' | 'sun' | 'moon' | 'monitor' | 'bell'
-  | 'download' | 'print' | 'x' | 'chevronRight' | 'arrowRight' | 'table' | 'file' | 'plus' | 'trash' | 'lock' | 'switch' | 'warehouse';
+  | 'download' | 'print' | 'x' | 'chevronRight' | 'arrowRight' | 'table' | 'file' | 'plus' | 'trash' | 'lock' | 'switch' | 'warehouse' | 'alert-triangle';
 
 /** Every status string used anywhere in the app resolves to one of these four tones. */
 export type Tone = 'ok' | 'wait' | 'stop' | 'live';
