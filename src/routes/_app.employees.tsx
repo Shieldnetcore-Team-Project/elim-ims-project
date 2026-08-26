@@ -10,9 +10,29 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { money } from "@/lib/format";
@@ -29,12 +49,27 @@ export const Route = createFileRoute("/_app/employees")({
 });
 
 type Employee = {
-  id: string; employee_code: string | null; full_name: string; phone: string | null; email: string | null;
-  gender: string | null; dob: string | null; department: string | null; position: string | null;
-  basic_salary: number; housing_allowance: number | null; transport_allowance: number | null;
-  meal_allowance: number | null; medical_allowance: number | null; other_allowances: number | null;
-  employment_date: string | null; status: string | null; bank_name: string | null; account_number: string | null;
-  emergency_contact: string | null; photo_url: string | null;
+  id: string;
+  employee_code: string | null;
+  full_name: string;
+  phone: string | null;
+  email: string | null;
+  gender: string | null;
+  dob: string | null;
+  department: string | null;
+  position: string | null;
+  basic_salary: number;
+  housing_allowance: number | null;
+  transport_allowance: number | null;
+  meal_allowance: number | null;
+  medical_allowance: number | null;
+  other_allowances: number | null;
+  employment_date: string | null;
+  status: string | null;
+  bank_name: string | null;
+  account_number: string | null;
+  emergency_contact: string | null;
+  photo_url: string | null;
 };
 type EmployeeDoc = { id: string; file_name: string; file_path: string; created_at: string };
 
@@ -42,11 +77,19 @@ function useSignedUrl(path: string | null | undefined) {
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
     let active = true;
-    if (!path) { setUrl(null); return; }
-    supabase.storage.from("employee-files").createSignedUrl(path, 3600).then(({ data }) => {
-      if (active) setUrl(data?.signedUrl ?? null);
-    });
-    return () => { active = false; };
+    if (!path) {
+      setUrl(null);
+      return;
+    }
+    supabase.storage
+      .from("employee-files")
+      .createSignedUrl(path, 3600)
+      .then(({ data }) => {
+        if (active) setUrl(data?.signedUrl ?? null);
+      });
+    return () => {
+      active = false;
+    };
   }, [path]);
   return url;
 }
@@ -75,7 +118,11 @@ function EmployeesPage() {
     queryKey: ["employees-list", factoryId, q],
     enabled: !!factoryId,
     queryFn: async () => {
-      let query = supabase.from("employees").select("*").eq("factory_id", factoryId!).order("full_name");
+      let query = supabase
+        .from("employees")
+        .select("*")
+        .eq("factory_id", factoryId!)
+        .order("full_name");
       if (q.trim()) query = query.ilike("full_name", `%${q.trim()}%`);
       const { data, error } = await query;
       if (error) throw error;
@@ -91,7 +138,10 @@ function EmployeesPage() {
       const { error } = await supabase.from("employees").delete().eq("id", emp.id);
       if (error) throw error;
     },
-    onSuccess: () => { toast.success("Employee removed"); invalidateAll(); },
+    onSuccess: () => {
+      toast.success("Employee removed");
+      invalidateAll();
+    },
     onError: (e: Error) => toast.error(e.message),
   });
 
@@ -100,17 +150,35 @@ function EmployeesPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Employees</h1>
-          <p className="text-sm text-muted-foreground">Records, documents, and compensation profile.</p>
+          <p className="text-sm text-muted-foreground">
+            Records, documents, and compensation profile.
+          </p>
         </div>
         {write && (
-        <Dialog open={formOpen} onOpenChange={(v) => { setFormOpen(v); if (!v) setEditing(null); }}>
-          <DialogTrigger asChild>
-            <Button className="gap-2" onClick={() => setEditing(null)}><Plus className="h-4 w-4" /> New Employee</Button>
-          </DialogTrigger>
-          {formOpen && factoryId && (
-            <EmployeeForm factoryId={factoryId} editing={editing} onDone={() => { setFormOpen(false); setEditing(null); invalidateAll(); }} />
-          )}
-        </Dialog>
+          <Dialog
+            open={formOpen}
+            onOpenChange={(v) => {
+              setFormOpen(v);
+              if (!v) setEditing(null);
+            }}
+          >
+            <DialogTrigger asChild>
+              <Button className="gap-2" onClick={() => setEditing(null)}>
+                <Plus className="h-4 w-4" /> New Employee
+              </Button>
+            </DialogTrigger>
+            {formOpen && factoryId && (
+              <EmployeeForm
+                factoryId={factoryId}
+                editing={editing}
+                onDone={() => {
+                  setFormOpen(false);
+                  setEditing(null);
+                  invalidateAll();
+                }}
+              />
+            )}
+          </Dialog>
         )}
       </div>
 
@@ -119,7 +187,12 @@ function EmployeesPage() {
           <CardTitle>All Employees</CardTitle>
           <div className="relative w-full max-w-xs">
             <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search…" className="pl-8 h-9" />
+            <Input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search…"
+              className="pl-8 h-9"
+            />
           </div>
         </CardHeader>
         <CardContent className="overflow-x-auto">
@@ -138,7 +211,9 @@ function EmployeesPage() {
             <TableBody>
               {(list.data ?? []).map((e) => (
                 <TableRow key={e.id}>
-                  <TableCell><EmployeePhoto path={e.photo_url} name={e.full_name} /></TableCell>
+                  <TableCell>
+                    <EmployeePhoto path={e.photo_url} name={e.full_name} />
+                  </TableCell>
                   <TableCell>
                     <div className="font-medium">{e.full_name}</div>
                     <div className="text-xs text-muted-foreground">{e.employee_code ?? "—"}</div>
@@ -146,16 +221,41 @@ function EmployeesPage() {
                   <TableCell>{e.department ?? "—"}</TableCell>
                   <TableCell>{e.position ?? "—"}</TableCell>
                   <TableCell className="text-right">{money(Number(e.basic_salary))}</TableCell>
-                  <TableCell><Badge variant={e.status === "active" ? "secondary" : "outline"} className="capitalize">{e.status ?? "active"}</Badge></TableCell>
+                  <TableCell>
+                    <Badge
+                      variant={e.status === "active" ? "secondary" : "outline"}
+                      className="capitalize"
+                    >
+                      {e.status ?? "active"}
+                    </Badge>
+                  </TableCell>
                   <TableCell>
                     <div className="flex justify-end gap-1">
-                      <Button variant="ghost" size="icon" title="Documents" onClick={() => setDocsTarget(e)}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title="Documents"
+                        onClick={() => setDocsTarget(e)}
+                      >
                         <FileText className="h-4 w-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" title="Edit" onClick={() => { setEditing(e); setFormOpen(true); }}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title="Edit"
+                        onClick={() => {
+                          setEditing(e);
+                          setFormOpen(true);
+                        }}
+                      >
                         <Pencil className="h-4 w-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" title="Remove" onClick={() => del.mutate(e)}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title="Remove"
+                        onClick={() => del.mutate(e)}
+                      >
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
                     </div>
@@ -163,7 +263,11 @@ function EmployeesPage() {
                 </TableRow>
               ))}
               {(list.data ?? []).length === 0 && (
-                <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">No employees yet.</TableCell></TableRow>
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                    No employees yet.
+                  </TableCell>
+                </TableRow>
               )}
             </TableBody>
           </Table>
@@ -177,7 +281,15 @@ function EmployeesPage() {
   );
 }
 
-function EmployeeForm({ factoryId, editing, onDone }: { factoryId: string; editing: Employee | null; onDone: () => void }) {
+function EmployeeForm({
+  factoryId,
+  editing,
+  onDone,
+}: {
+  factoryId: string;
+  editing: Employee | null;
+  onDone: () => void;
+}) {
   const [code, setCode] = useState(editing?.employee_code ?? "");
   const [name, setName] = useState(editing?.full_name ?? "");
   const [phone, setPhone] = useState(editing?.phone ?? "");
@@ -188,7 +300,9 @@ function EmployeeForm({ factoryId, editing, onDone }: { factoryId: string; editi
   const [position, setPosition] = useState(editing?.position ?? "");
   const [basicSalary, setBasicSalary] = useState(editing ? Number(editing.basic_salary) : 0);
   const [housing, setHousing] = useState(editing ? Number(editing.housing_allowance ?? 0) : 0);
-  const [transport, setTransport] = useState(editing ? Number(editing.transport_allowance ?? 0) : 0);
+  const [transport, setTransport] = useState(
+    editing ? Number(editing.transport_allowance ?? 0) : 0,
+  );
   const [meal, setMeal] = useState(editing ? Number(editing.meal_allowance ?? 0) : 0);
   const [medical, setMedical] = useState(editing ? Number(editing.medical_allowance ?? 0) : 0);
   const [otherAllow, setOtherAllow] = useState(editing ? Number(editing.other_allowances ?? 0) : 0);
@@ -212,44 +326,89 @@ function EmployeeForm({ factoryId, editing, onDone }: { factoryId: string; editi
       }
 
       const payload = {
-        employee_code: code || null, full_name: name.trim(), phone: phone || null, email: email || null,
-        gender: gender || null, dob: dob || null, department: department || null, position: position || null,
-        basic_salary: basicSalary, housing_allowance: housing, transport_allowance: transport,
-        meal_allowance: meal, medical_allowance: medical, other_allowances: otherAllow,
-        employment_date: employmentDate || null, status, bank_name: bankName || null,
-        account_number: accountNumber || null, emergency_contact: emergencyContact || null, photo_url: photoPath,
+        employee_code: code || null,
+        full_name: name.trim(),
+        phone: phone || null,
+        email: email || null,
+        gender: gender || null,
+        dob: dob || null,
+        department: department || null,
+        position: position || null,
+        basic_salary: basicSalary,
+        housing_allowance: housing,
+        transport_allowance: transport,
+        meal_allowance: meal,
+        medical_allowance: medical,
+        other_allowances: otherAllow,
+        employment_date: employmentDate || null,
+        status,
+        bank_name: bankName || null,
+        account_number: accountNumber || null,
+        emergency_contact: emergencyContact || null,
+        photo_url: photoPath,
       };
 
       if (editing) {
         const { error } = await supabase.from("employees").update(payload).eq("id", editing.id);
         if (error) throw error;
       } else {
-        const { error } = await supabase.from("employees").insert({ ...payload, factory_id: factoryId });
+        const { error } = await supabase
+          .from("employees")
+          .insert({ ...payload, factory_id: factoryId });
         if (error) throw error;
       }
     },
-    onSuccess: () => { toast.success(editing ? "Employee updated" : "Employee added"); onDone(); },
+    onSuccess: () => {
+      toast.success(editing ? "Employee updated" : "Employee added");
+      onDone();
+    },
     onError: (e: Error) => toast.error(e.message),
   });
 
   return (
     <DialogContent className="max-w-lg">
-      <DialogHeader><DialogTitle>{editing ? "Edit Employee" : "New Employee"}</DialogTitle></DialogHeader>
+      <DialogHeader>
+        <DialogTitle>{editing ? "Edit Employee" : "New Employee"}</DialogTitle>
+      </DialogHeader>
       <div className="grid gap-3 max-h-[70vh] overflow-y-auto pr-1">
-        <div><Label>Employee photo</Label><Input type="file" accept="image/*" onChange={(e) => setPhotoFile(e.target.files?.[0] ?? null)} /></div>
-        <div className="grid grid-cols-2 gap-3">
-          <div><Label>Employee ID</Label><Input value={code} onChange={(e) => setCode(e.target.value)} /></div>
-          <div><Label>Full name *</Label><Input value={name} onChange={(e) => setName(e.target.value)} /></div>
+        <div>
+          <Label>Employee photo</Label>
+          <Input
+            type="file"
+            accept="image/*"
+            onChange={(e) => setPhotoFile(e.target.files?.[0] ?? null)}
+          />
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <div><Label>Phone</Label><Input value={phone} onChange={(e) => setPhone(e.target.value)} /></div>
-          <div><Label>Email</Label><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
+          <div>
+            <Label>Employee ID</Label>
+            <Input value={code} onChange={(e) => setCode(e.target.value)} />
+          </div>
+          <div>
+            <Label>Full name *</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label>Phone</Label>
+            <Input value={phone} onChange={(e) => setPhone(e.target.value)} />
+          </div>
+          <div>
+            <Label>Email</Label>
+            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+          </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label>Gender</Label>
-            <Select value={gender || "unspecified"} onValueChange={(v) => setGender(v === "unspecified" ? "" : v)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+            <Select
+              value={gender || "unspecified"}
+              onValueChange={(v) => setGender(v === "unspecified" ? "" : v)}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="unspecified">— Unspecified —</SelectItem>
                 <SelectItem value="male">Male</SelectItem>
@@ -257,28 +416,100 @@ function EmployeeForm({ factoryId, editing, onDone }: { factoryId: string; editi
               </SelectContent>
             </Select>
           </div>
-          <div><Label>Date of birth</Label><Input type="date" value={dob} onChange={(e) => setDob(e.target.value)} /></div>
+          <div>
+            <Label>Date of birth</Label>
+            <Input type="date" value={dob} onChange={(e) => setDob(e.target.value)} />
+          </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <div><Label>Department</Label><Input value={department} onChange={(e) => setDepartment(e.target.value)} /></div>
-          <div><Label>Position</Label><Input value={position} onChange={(e) => setPosition(e.target.value)} /></div>
+          <div>
+            <Label>Department</Label>
+            <Input value={department} onChange={(e) => setDepartment(e.target.value)} />
+          </div>
+          <div>
+            <Label>Position</Label>
+            <Input value={position} onChange={(e) => setPosition(e.target.value)} />
+          </div>
         </div>
         <div className="grid grid-cols-3 gap-3">
-          <div><Label>Basic salary</Label><Input type="number" min={0} step="0.01" value={basicSalary} onChange={(e) => setBasicSalary(Number(e.target.value))} /></div>
-          <div><Label>Housing</Label><Input type="number" min={0} step="0.01" value={housing} onChange={(e) => setHousing(Number(e.target.value))} /></div>
-          <div><Label>Transport</Label><Input type="number" min={0} step="0.01" value={transport} onChange={(e) => setTransport(Number(e.target.value))} /></div>
+          <div>
+            <Label>Basic salary</Label>
+            <Input
+              type="number"
+              min={0}
+              step="0.01"
+              value={basicSalary}
+              onChange={(e) => setBasicSalary(Number(e.target.value))}
+            />
+          </div>
+          <div>
+            <Label>Housing</Label>
+            <Input
+              type="number"
+              min={0}
+              step="0.01"
+              value={housing}
+              onChange={(e) => setHousing(Number(e.target.value))}
+            />
+          </div>
+          <div>
+            <Label>Transport</Label>
+            <Input
+              type="number"
+              min={0}
+              step="0.01"
+              value={transport}
+              onChange={(e) => setTransport(Number(e.target.value))}
+            />
+          </div>
         </div>
         <div className="grid grid-cols-3 gap-3">
-          <div><Label>Meal</Label><Input type="number" min={0} step="0.01" value={meal} onChange={(e) => setMeal(Number(e.target.value))} /></div>
-          <div><Label>Medical</Label><Input type="number" min={0} step="0.01" value={medical} onChange={(e) => setMedical(Number(e.target.value))} /></div>
-          <div><Label>Other</Label><Input type="number" min={0} step="0.01" value={otherAllow} onChange={(e) => setOtherAllow(Number(e.target.value))} /></div>
+          <div>
+            <Label>Meal</Label>
+            <Input
+              type="number"
+              min={0}
+              step="0.01"
+              value={meal}
+              onChange={(e) => setMeal(Number(e.target.value))}
+            />
+          </div>
+          <div>
+            <Label>Medical</Label>
+            <Input
+              type="number"
+              min={0}
+              step="0.01"
+              value={medical}
+              onChange={(e) => setMedical(Number(e.target.value))}
+            />
+          </div>
+          <div>
+            <Label>Other</Label>
+            <Input
+              type="number"
+              min={0}
+              step="0.01"
+              value={otherAllow}
+              onChange={(e) => setOtherAllow(Number(e.target.value))}
+            />
+          </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <div><Label>Employment date</Label><Input type="date" value={employmentDate} onChange={(e) => setEmploymentDate(e.target.value)} /></div>
+          <div>
+            <Label>Employment date</Label>
+            <Input
+              type="date"
+              value={employmentDate}
+              onChange={(e) => setEmploymentDate(e.target.value)}
+            />
+          </div>
           <div>
             <Label>Status</Label>
             <Select value={status} onValueChange={setStatus}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="active">Active</SelectItem>
                 <SelectItem value="on_leave">On leave</SelectItem>
@@ -289,13 +520,28 @@ function EmployeeForm({ factoryId, editing, onDone }: { factoryId: string; editi
           </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <div><Label>Bank name</Label><Input value={bankName} onChange={(e) => setBankName(e.target.value)} /></div>
-          <div><Label>Account number</Label><Input value={accountNumber} onChange={(e) => setAccountNumber(e.target.value)} /></div>
+          <div>
+            <Label>Bank name</Label>
+            <Input value={bankName} onChange={(e) => setBankName(e.target.value)} />
+          </div>
+          <div>
+            <Label>Account number</Label>
+            <Input value={accountNumber} onChange={(e) => setAccountNumber(e.target.value)} />
+          </div>
         </div>
-        <div><Label>Emergency contact</Label><Textarea rows={2} value={emergencyContact} onChange={(e) => setEmergencyContact(e.target.value)} /></div>
+        <div>
+          <Label>Emergency contact</Label>
+          <Textarea
+            rows={2}
+            value={emergencyContact}
+            onChange={(e) => setEmergencyContact(e.target.value)}
+          />
+        </div>
       </div>
       <DialogFooter>
-        <Button disabled={save.isPending} onClick={() => save.mutate()}>{save.isPending ? "Saving…" : editing ? "Save changes" : "Add employee"}</Button>
+        <Button disabled={save.isPending} onClick={() => save.mutate()}>
+          {save.isPending ? "Saving…" : editing ? "Save changes" : "Add employee"}
+        </Button>
       </DialogFooter>
     </DialogContent>
   );
@@ -308,7 +554,11 @@ function DocumentsDialog({ employee, factoryId }: { employee: Employee; factoryI
   const docs = useQuery({
     queryKey: ["employee-documents", employee.id],
     queryFn: async () => {
-      const { data, error } = await supabase.from("employee_documents").select("id,file_name,file_path,created_at").eq("employee_id", employee.id).order("created_at", { ascending: false });
+      const { data, error } = await supabase
+        .from("employee_documents")
+        .select("id,file_name,file_path,created_at")
+        .eq("employee_id", employee.id)
+        .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as EmployeeDoc[];
     },
@@ -318,15 +568,25 @@ function DocumentsDialog({ employee, factoryId }: { employee: Employee; factoryI
     mutationFn: async () => {
       if (!file) throw new Error("Choose a file first");
       const path = `${factoryId}/documents/${employee.id}/${Date.now()}-${file.name}`;
-      const { error: uploadError } = await supabase.storage.from("employee-files").upload(path, file);
+      const { error: uploadError } = await supabase.storage
+        .from("employee-files")
+        .upload(path, file);
       if (uploadError) throw uploadError;
       const { data: userData } = await supabase.auth.getUser();
       const { error } = await supabase.from("employee_documents").insert({
-        employee_id: employee.id, factory_id: factoryId, file_name: file.name, file_path: path, uploaded_by: userData.user?.id ?? null,
+        employee_id: employee.id,
+        factory_id: factoryId,
+        file_name: file.name,
+        file_path: path,
+        uploaded_by: userData.user?.id ?? null,
       });
       if (error) throw error;
     },
-    onSuccess: () => { toast.success("Document uploaded"); setFile(null); qc.invalidateQueries({ queryKey: ["employee-documents", employee.id] }); },
+    onSuccess: () => {
+      toast.success("Document uploaded");
+      setFile(null);
+      qc.invalidateQueries({ queryKey: ["employee-documents", employee.id] });
+    },
     onError: (e: Error) => toast.error(e.message),
   });
 
@@ -336,30 +596,50 @@ function DocumentsDialog({ employee, factoryId }: { employee: Employee; factoryI
       const { error } = await supabase.from("employee_documents").delete().eq("id", doc.id);
       if (error) throw error;
     },
-    onSuccess: () => { toast.success("Document removed"); qc.invalidateQueries({ queryKey: ["employee-documents", employee.id] }); },
+    onSuccess: () => {
+      toast.success("Document removed");
+      qc.invalidateQueries({ queryKey: ["employee-documents", employee.id] });
+    },
     onError: (e: Error) => toast.error(e.message),
   });
 
   const view = async (doc: EmployeeDoc) => {
-    const { data, error } = await supabase.storage.from("employee-files").createSignedUrl(doc.file_path, 60);
-    if (error) { toast.error(error.message); return; }
+    const { data, error } = await supabase.storage
+      .from("employee-files")
+      .createSignedUrl(doc.file_path, 60);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
     window.open(data.signedUrl, "_blank");
   };
 
   return (
     <DialogContent>
-      <DialogHeader><DialogTitle>Documents — {employee.full_name}</DialogTitle></DialogHeader>
+      <DialogHeader>
+        <DialogTitle>Documents — {employee.full_name}</DialogTitle>
+      </DialogHeader>
       <div className="space-y-3">
         <div className="flex gap-2">
           <Input type="file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-          <Button disabled={!file || upload.isPending} onClick={() => upload.mutate()} className="gap-2 shrink-0">
+          <Button
+            disabled={!file || upload.isPending}
+            onClick={() => upload.mutate()}
+            className="gap-2 shrink-0"
+          >
             <Upload className="h-4 w-4" /> Upload
           </Button>
         </div>
         <div className="space-y-2">
           {(docs.data ?? []).map((d) => (
-            <div key={d.id} className="flex items-center justify-between rounded-md border p-2 text-sm">
-              <button onClick={() => view(d)} className="flex items-center gap-2 hover:underline text-left">
+            <div
+              key={d.id}
+              className="flex items-center justify-between rounded-md border p-2 text-sm"
+            >
+              <button
+                onClick={() => view(d)}
+                className="flex items-center gap-2 hover:underline text-left"
+              >
                 <Download className="h-4 w-4" /> {d.file_name}
               </button>
               <Button variant="ghost" size="icon" onClick={() => remove.mutate(d)}>
@@ -367,7 +647,11 @@ function DocumentsDialog({ employee, factoryId }: { employee: Employee; factoryI
               </Button>
             </div>
           ))}
-          {(docs.data ?? []).length === 0 && <p className="text-sm text-muted-foreground py-4 text-center">No documents uploaded yet.</p>}
+          {(docs.data ?? []).length === 0 && (
+            <p className="text-sm text-muted-foreground py-4 text-center">
+              No documents uploaded yet.
+            </p>
+          )}
         </div>
       </div>
     </DialogContent>

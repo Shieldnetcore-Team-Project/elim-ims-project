@@ -10,9 +10,29 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Trash2, FileDown, Printer, Eye, Receipt as ReceiptIcon } from "lucide-react";
 import { money, num } from "@/lib/format";
@@ -31,12 +51,30 @@ export const Route = createFileRoute("/_app/sales")({
 
 type PaymentMethod = "cash" | "transfer" | "pos" | "card" | "cheque" | "credit";
 
-type Product = { id: string; name: string; sku: string | null; unit: string; unit_price: number; current_stock: number; category_id: string | null };
+type Product = {
+  id: string;
+  name: string;
+  sku: string | null;
+  unit: string;
+  unit_price: number;
+  current_stock: number;
+  category_id: string | null;
+};
 type Category = { id: string; name: string };
 type Customer = { id: string; name: string; phone: string | null; address: string | null };
-type CartItem = { product_id: string; name: string; unit: string; quantity: number; unit_price: number; stock: number };
+type CartItem = {
+  product_id: string;
+  name: string;
+  unit: string;
+  quantity: number;
+  unit_price: number;
+  stock: number;
+};
 
-const paymentStatus = (paid: number, balance: number): { label: string; variant: "secondary" | "outline" | "destructive" } => {
+const paymentStatus = (
+  paid: number,
+  balance: number,
+): { label: string; variant: "secondary" | "outline" | "destructive" } => {
   if (balance <= 0) return { label: "Paid", variant: "secondary" };
   if (paid > 0) return { label: "Partial", variant: "outline" };
   return { label: "Unpaid", variant: "destructive" };
@@ -56,7 +94,9 @@ function SalesPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("sales")
-        .select("id,invoice_number,sale_date,customer_name,grand_total,amount_paid,balance,payment_method,created_at")
+        .select(
+          "id,invoice_number,sale_date,customer_name,grand_total,amount_paid,balance,payment_method,created_at",
+        )
         .eq("factory_id", factoryId!)
         .order("created_at", { ascending: false })
         .limit(200);
@@ -66,28 +106,51 @@ function SalesPage() {
   });
 
   const openInvoice = async (saleId: string, action: "download" | "print") => {
-    const { data, error } = await supabase.from("sales").select(`
+    const { data, error } = await supabase
+      .from("sales")
+      .select(
+        `
       *, sale_items(quantity,unit_price,line_total,products(name,unit))
-    `).eq("id", saleId).single();
-    if (error) { toast.error(error.message); return; }
+    `,
+      )
+      .eq("id", saleId)
+      .single();
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
     const s = data as any;
-    await generateInvoicePdf({
-      company: {
-        name: settings.data?.company_name ?? "FMIS",
-        address: settings.data?.address, phone: settings.data?.phone, email: settings.data?.email,
-        logo_url: settings.data?.logo_url,
+    await generateInvoicePdf(
+      {
+        company: {
+          name: settings.data?.company_name ?? "FMIS",
+          address: settings.data?.address,
+          phone: settings.data?.phone,
+          email: settings.data?.email,
+          logo_url: settings.data?.logo_url,
+        },
+        invoice_number: s.invoice_number,
+        sale_date: s.sale_date,
+        customer: { name: s.customer_name, phone: s.customer_phone, address: s.customer_address },
+        items: (s.sale_items ?? []).map((it: any) => ({
+          name: it.products?.name ?? "-",
+          quantity: Number(it.quantity),
+          unit: it.products?.unit ?? "",
+          unit_price: Number(it.unit_price),
+          line_total: Number(it.line_total),
+        })),
+        subtotal: Number(s.subtotal),
+        discount: Number(s.discount),
+        vat: Number(s.vat),
+        grand_total: Number(s.grand_total),
+        amount_paid: Number(s.amount_paid),
+        balance: Number(s.balance),
+        currency: settings.data?.currency ?? "NGN",
+        remarks: s.remarks,
+        sales_person: s.sales_person,
       },
-      invoice_number: s.invoice_number, sale_date: s.sale_date,
-      customer: { name: s.customer_name, phone: s.customer_phone, address: s.customer_address },
-      items: (s.sale_items ?? []).map((it: any) => ({
-        name: it.products?.name ?? "-", quantity: Number(it.quantity), unit: it.products?.unit ?? "",
-        unit_price: Number(it.unit_price), line_total: Number(it.line_total),
-      })),
-      subtotal: Number(s.subtotal), discount: Number(s.discount), vat: Number(s.vat),
-      grand_total: Number(s.grand_total), amount_paid: Number(s.amount_paid), balance: Number(s.balance),
-      currency: settings.data?.currency ?? "NGN",
-      remarks: s.remarks, sales_person: s.sales_person,
-    }, action);
+      action,
+    );
   };
 
   return (
@@ -95,25 +158,34 @@ function SalesPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Sales & POS</h1>
-          <p className="text-sm text-muted-foreground">Create invoices, decrement stock, and print receipts.</p>
+          <p className="text-sm text-muted-foreground">
+            Create invoices, decrement stock, and print receipts.
+          </p>
         </div>
         {write && (
-        <Dialog open={posOpen} onOpenChange={setPosOpen}>
-          <DialogTrigger asChild>
-            <Button className="gap-2"><Plus className="h-4 w-4" /> New Sale</Button>
-          </DialogTrigger>
-          {posOpen && factoryId && (
-            <PosDialog
-              factoryId={factoryId}
-              onDone={() => { setPosOpen(false); qc.invalidateQueries({ queryKey: ["sales-list"] }); }}
-            />
-          )}
-        </Dialog>
+          <Dialog open={posOpen} onOpenChange={setPosOpen}>
+            <DialogTrigger asChild>
+              <Button className="gap-2">
+                <Plus className="h-4 w-4" /> New Sale
+              </Button>
+            </DialogTrigger>
+            {posOpen && factoryId && (
+              <PosDialog
+                factoryId={factoryId}
+                onDone={() => {
+                  setPosOpen(false);
+                  qc.invalidateQueries({ queryKey: ["sales-list"] });
+                }}
+              />
+            )}
+          </Dialog>
         )}
       </div>
 
       <Card className="rounded-2xl">
-        <CardHeader><CardTitle>Recent Sales</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle>Recent Sales</CardTitle>
+        </CardHeader>
         <CardContent className="overflow-x-auto">
           <Table>
             <TableHeader>
@@ -133,34 +205,54 @@ function SalesPage() {
               {(sales.data ?? []).map((s: any) => {
                 const status = paymentStatus(Number(s.amount_paid), Number(s.balance));
                 return (
-                <TableRow key={s.id}>
-                  <TableCell className="font-mono text-xs">{s.invoice_number}</TableCell>
-                  <TableCell>{s.sale_date}</TableCell>
-                  <TableCell>{s.customer_name ?? "Walk-in"}</TableCell>
-                  <TableCell><Badge variant="outline" className="capitalize">{s.payment_method}</Badge></TableCell>
-                  <TableCell className="text-right">{money(Number(s.grand_total))}</TableCell>
-                  <TableCell className="text-right">{money(Number(s.amount_paid))}</TableCell>
-                  <TableCell className="text-right">
-                    <span className={Number(s.balance) > 0 ? "text-destructive font-medium" : ""}>
-                      {money(Number(s.balance))}
-                    </span>
-                  </TableCell>
-                  <TableCell><Badge variant={status.variant}>{status.label}</Badge></TableCell>
-                  <TableCell>
-                    <div className="flex justify-end gap-1">
-                      <Button variant="ghost" size="sm" className="gap-1" onClick={() => openInvoice(s.id, "print")}>
-                        <Printer className="h-4 w-4" /> Print
-                      </Button>
-                      <Button variant="ghost" size="sm" className="gap-1" onClick={() => openInvoice(s.id, "download")}>
-                        <FileDown className="h-4 w-4" /> PDF
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
+                  <TableRow key={s.id}>
+                    <TableCell className="font-mono text-xs">{s.invoice_number}</TableCell>
+                    <TableCell>{s.sale_date}</TableCell>
+                    <TableCell>{s.customer_name ?? "Walk-in"}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="capitalize">
+                        {s.payment_method}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">{money(Number(s.grand_total))}</TableCell>
+                    <TableCell className="text-right">{money(Number(s.amount_paid))}</TableCell>
+                    <TableCell className="text-right">
+                      <span className={Number(s.balance) > 0 ? "text-destructive font-medium" : ""}>
+                        {money(Number(s.balance))}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={status.variant}>{status.label}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="gap-1"
+                          onClick={() => openInvoice(s.id, "print")}
+                        >
+                          <Printer className="h-4 w-4" /> Print
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="gap-1"
+                          onClick={() => openInvoice(s.id, "download")}
+                        >
+                          <FileDown className="h-4 w-4" /> PDF
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
                 );
               })}
               {(sales.data ?? []).length === 0 && (
-                <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-8">No sales yet.</TableCell></TableRow>
+                <TableRow>
+                  <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
+                    No sales yet.
+                  </TableCell>
+                </TableRow>
               )}
             </TableBody>
           </Table>
@@ -178,7 +270,9 @@ function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: () => voi
       const { data, error } = await supabase
         .from("products")
         .select("id,name,sku,unit,unit_price,current_stock,category_id")
-        .eq("factory_id", factoryId).eq("active", true).order("name");
+        .eq("factory_id", factoryId)
+        .eq("active", true)
+        .order("name");
       if (error) throw error;
       return (data ?? []) as Product[];
     },
@@ -187,7 +281,10 @@ function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: () => voi
     queryKey: ["product-categories", factoryId],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("product_categories").select("id,name").eq("factory_id", factoryId).order("name");
+        .from("product_categories")
+        .select("id,name")
+        .eq("factory_id", factoryId)
+        .order("name");
       if (error) throw error;
       return (data ?? []) as Category[];
     },
@@ -196,7 +293,10 @@ function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: () => voi
     queryKey: ["customers-brief", factoryId],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("customers").select("id,name,phone,address").eq("factory_id", factoryId).order("name");
+        .from("customers")
+        .select("id,name,phone,address")
+        .eq("factory_id", factoryId)
+        .order("name");
       if (error) throw error;
       return (data ?? []) as Customer[];
     },
@@ -224,7 +324,7 @@ function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: () => voi
 
   const totals = useMemo(() => {
     const subtotal = cart.reduce((s, i) => s + i.quantity * i.unit_price, 0);
-    const vat = Math.max((subtotal - discount), 0) * (vatRate / 100);
+    const vat = Math.max(subtotal - discount, 0) * (vatRate / 100);
     const grand = Math.max(subtotal - discount + vat, 0);
     const balance = Math.max(grand - amountPaid, 0);
     return { subtotal, vat, grand, balance };
@@ -236,24 +336,46 @@ function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: () => voi
     setCart((prev) => {
       const existing = prev.find((c) => c.product_id === id);
       if (existing) {
-        if (existing.quantity + 1 > p.current_stock) { toast.error(`Only ${p.current_stock} ${p.unit} in stock`); return prev; }
-        return prev.map((c) => c.product_id === id ? { ...c, quantity: c.quantity + 1 } : c);
+        if (existing.quantity + 1 > p.current_stock) {
+          toast.error(`Only ${p.current_stock} ${p.unit} in stock`);
+          return prev;
+        }
+        return prev.map((c) => (c.product_id === id ? { ...c, quantity: c.quantity + 1 } : c));
       }
-      if (p.current_stock < 1) { toast.error("Out of stock"); return prev; }
-      return [...prev, { product_id: p.id, name: p.name, unit: p.unit, quantity: 1, unit_price: Number(p.unit_price), stock: Number(p.current_stock) }];
+      if (p.current_stock < 1) {
+        toast.error("Out of stock");
+        return prev;
+      }
+      return [
+        ...prev,
+        {
+          product_id: p.id,
+          name: p.name,
+          unit: p.unit,
+          quantity: 1,
+          unit_price: Number(p.unit_price),
+          stock: Number(p.current_stock),
+        },
+      ];
     });
     setPickerId("");
   };
 
   const updateQty = (id: string, qty: number) => {
-    setCart((prev) => prev.map((c) => {
-      if (c.product_id !== id) return c;
-      const q = Math.max(0, Math.min(qty, c.stock));
-      return { ...c, quantity: q };
-    }).filter((c) => c.quantity > 0));
+    setCart((prev) =>
+      prev
+        .map((c) => {
+          if (c.product_id !== id) return c;
+          const q = Math.max(0, Math.min(qty, c.stock));
+          return { ...c, quantity: q };
+        })
+        .filter((c) => c.quantity > 0),
+    );
   };
   const updatePrice = (id: string, price: number) => {
-    setCart((prev) => prev.map((c) => c.product_id === id ? { ...c, unit_price: Math.max(0, price) } : c));
+    setCart((prev) =>
+      prev.map((c) => (c.product_id === id ? { ...c, unit_price: Math.max(0, price) } : c)),
+    );
   };
 
   const submit = useMutation({
@@ -273,12 +395,17 @@ function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: () => voi
           customer_name: displayName || null,
           customer_phone: customerPhone || null,
           customer_address: customerAddress || null,
-          discount, vat: totals.vat,
+          discount,
+          vat: totals.vat,
           amount_paid: amountPaid,
           payment_method: method,
           sales_person: salesPerson || null,
           remarks: remarks || null,
-          items: cart.map((c) => ({ product_id: c.product_id, quantity: c.quantity, unit_price: c.unit_price })),
+          items: cart.map((c) => ({
+            product_id: c.product_id,
+            quantity: c.quantity,
+            unit_price: c.unit_price,
+          })),
         } as any,
       });
       if (error) throw error;
@@ -287,23 +414,47 @@ function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: () => voi
     onSuccess: async (res) => {
       toast.success(`Invoice ${res.invoice_number} created`);
       logAudit({
-        action: "sale", entity: "sales", entityId: res.sale_id, factoryId,
-        newValue: { invoice_number: res.invoice_number, grand_total: res.grand_total, balance: res.balance },
+        action: "sale",
+        entity: "sales",
+        entityId: res.sale_id,
+        factoryId,
+        newValue: {
+          invoice_number: res.invoice_number,
+          grand_total: res.grand_total,
+          balance: res.balance,
+        },
       });
       await generateInvoicePdf({
         company: {
           name: settings.data?.company_name ?? "FMIS",
-          address: settings.data?.address, phone: settings.data?.phone, email: settings.data?.email,
+          address: settings.data?.address,
+          phone: settings.data?.phone,
+          email: settings.data?.email,
           logo_url: settings.data?.logo_url,
         },
         invoice_number: res.invoice_number,
         sale_date: saleDate,
-        customer: { name: customerName || customers.data?.find((c) => c.id === customerId)?.name, phone: customerPhone, address: customerAddress },
-        items: cart.map((c) => ({ name: c.name, quantity: c.quantity, unit: c.unit, unit_price: c.unit_price, line_total: c.quantity * c.unit_price })),
-        subtotal: totals.subtotal, discount, vat: totals.vat,
-        grand_total: totals.grand, amount_paid: amountPaid, balance: totals.balance,
+        customer: {
+          name: customerName || customers.data?.find((c) => c.id === customerId)?.name,
+          phone: customerPhone,
+          address: customerAddress,
+        },
+        items: cart.map((c) => ({
+          name: c.name,
+          quantity: c.quantity,
+          unit: c.unit,
+          unit_price: c.unit_price,
+          line_total: c.quantity * c.unit_price,
+        })),
+        subtotal: totals.subtotal,
+        discount,
+        vat: totals.vat,
+        grand_total: totals.grand,
+        amount_paid: amountPaid,
+        balance: totals.balance,
         currency: settings.data?.currency ?? "NGN",
-        remarks, sales_person: salesPerson,
+        remarks,
+        sales_person: salesPerson,
       });
       onDone();
     },
@@ -311,42 +462,72 @@ function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: () => voi
   });
 
   const previewInvoice = async () => {
-    if (cart.length === 0) { toast.error("Add at least one item to preview"); return; }
-    await generateInvoicePdf({
-      company: {
-        name: settings.data?.company_name ?? "FMIS",
-        address: settings.data?.address, phone: settings.data?.phone, email: settings.data?.email,
-        logo_url: settings.data?.logo_url,
+    if (cart.length === 0) {
+      toast.error("Add at least one item to preview");
+      return;
+    }
+    await generateInvoicePdf(
+      {
+        company: {
+          name: settings.data?.company_name ?? "FMIS",
+          address: settings.data?.address,
+          phone: settings.data?.phone,
+          email: settings.data?.email,
+          logo_url: settings.data?.logo_url,
+        },
+        invoice_number: "PREVIEW",
+        sale_date: saleDate,
+        customer: {
+          name: customerName || customers.data?.find((c) => c.id === customerId)?.name,
+          phone: customerPhone,
+          address: customerAddress,
+        },
+        items: cart.map((c) => ({
+          name: c.name,
+          quantity: c.quantity,
+          unit: c.unit,
+          unit_price: c.unit_price,
+          line_total: c.quantity * c.unit_price,
+        })),
+        subtotal: totals.subtotal,
+        discount,
+        vat: totals.vat,
+        grand_total: totals.grand,
+        amount_paid: amountPaid,
+        balance: totals.balance,
+        currency: settings.data?.currency ?? "NGN",
+        remarks,
+        sales_person: salesPerson,
       },
-      invoice_number: "PREVIEW",
-      sale_date: saleDate,
-      customer: { name: customerName || customers.data?.find((c) => c.id === customerId)?.name, phone: customerPhone, address: customerAddress },
-      items: cart.map((c) => ({ name: c.name, quantity: c.quantity, unit: c.unit, unit_price: c.unit_price, line_total: c.quantity * c.unit_price })),
-      subtotal: totals.subtotal, discount, vat: totals.vat,
-      grand_total: totals.grand, amount_paid: amountPaid, balance: totals.balance,
-      currency: settings.data?.currency ?? "NGN",
-      remarks, sales_person: salesPerson,
-    }, "preview");
+      "preview",
+    );
   };
 
   return (
     <DialogContent className="max-w-4xl">
-      <DialogHeader><DialogTitle>New Sale</DialogTitle></DialogHeader>
+      <DialogHeader>
+        <DialogTitle>New Sale</DialogTitle>
+      </DialogHeader>
       <div className="grid gap-4 md:grid-cols-[2fr_1fr]">
         <div className="space-y-3">
           <div className="grid grid-cols-[1fr_auto] gap-2">
             <div className="grid gap-2">
               <Label>Add product</Label>
               <Select value={pickerId} onValueChange={addProduct}>
-                <SelectTrigger><SelectValue placeholder="Select a product to add…" /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a product to add…" />
+                </SelectTrigger>
                 <SelectContent>
                   {visibleProducts.map((p) => (
                     <SelectItem key={p.id} value={p.id} disabled={p.current_stock <= 0}>
-                      {p.name} · {money(Number(p.unit_price))} · stock {num(Number(p.current_stock))} {p.unit}
+                      {p.name} · {money(Number(p.unit_price))} · stock{" "}
+                      {num(Number(p.current_stock))} {p.unit}
                     </SelectItem>
                   ))}
                   {visibleProducts.length === 0 && (
-                    <div className="px-2 py-4 text-center text-sm text-muted-foreground">No products in this category.</div>
+                    <div className="px-2 py-4 text-center text-sm text-muted-foreground">
+                      No products in this category.
+                    </div>
                   )}
                 </SelectContent>
               </Select>
@@ -354,11 +535,15 @@ function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: () => voi
             <div className="grid gap-2">
               <Label>Category</Label>
               <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                <SelectTrigger className="w-[160px]"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="w-[160px]">
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All categories</SelectItem>
                   {(categories.data ?? []).map((c) => (
-                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -381,20 +566,50 @@ function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: () => voi
                   <TableRow key={c.product_id}>
                     <TableCell>
                       <div className="font-medium">{c.name}</div>
-                      <div className="text-xs text-muted-foreground">stock {num(c.stock)} {c.unit}</div>
+                      <div className="text-xs text-muted-foreground">
+                        stock {num(c.stock)} {c.unit}
+                      </div>
                     </TableCell>
-                    <TableCell><Input type="number" min={0} max={c.stock} value={c.quantity} onChange={(e) => updateQty(c.product_id, Number(e.target.value))} className="h-8" /></TableCell>
-                    <TableCell><Input type="number" min={0} step="0.01" value={c.unit_price} onChange={(e) => updatePrice(c.product_id, Number(e.target.value))} className="h-8" /></TableCell>
+                    <TableCell>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={c.stock}
+                        value={c.quantity}
+                        onChange={(e) => updateQty(c.product_id, Number(e.target.value))}
+                        className="h-8"
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={c.unit_price}
+                        onChange={(e) => updatePrice(c.product_id, Number(e.target.value))}
+                        className="h-8"
+                      />
+                    </TableCell>
                     <TableCell className="text-right">{money(c.quantity * c.unit_price)}</TableCell>
                     <TableCell>
-                      <Button variant="ghost" size="icon" onClick={() => setCart((prev) => prev.filter((x) => x.product_id !== c.product_id))}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() =>
+                          setCart((prev) => prev.filter((x) => x.product_id !== c.product_id))
+                        }
+                      >
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </TableCell>
                   </TableRow>
                 ))}
                 {cart.length === 0 && (
-                  <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-6">No items yet.</TableCell></TableRow>
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center text-muted-foreground py-6">
+                      No items yet.
+                    </TableCell>
+                  </TableRow>
                 )}
               </TableBody>
             </Table>
@@ -402,64 +617,146 @@ function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: () => voi
         </div>
 
         <div className="space-y-3">
-          <div><Label>Sales date</Label><Input type="date" value={saleDate} onChange={(e) => setSaleDate(e.target.value)} /></div>
+          <div>
+            <Label>Sales date</Label>
+            <Input type="date" value={saleDate} onChange={(e) => setSaleDate(e.target.value)} />
+          </div>
           <div>
             <Label>Customer</Label>
-            <Select value={customerId} onValueChange={(v) => {
-              setCustomerId(v);
-              if (v === "walkin") { setCustomerName(""); setCustomerPhone(""); setCustomerAddress(""); }
-              else {
-                const c = customers.data?.find((x) => x.id === v);
-                setCustomerName(c?.name ?? ""); setCustomerPhone(c?.phone ?? ""); setCustomerAddress(c?.address ?? "");
-              }
-            }}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+            <Select
+              value={customerId}
+              onValueChange={(v) => {
+                setCustomerId(v);
+                if (v === "walkin") {
+                  setCustomerName("");
+                  setCustomerPhone("");
+                  setCustomerAddress("");
+                } else {
+                  const c = customers.data?.find((x) => x.id === v);
+                  setCustomerName(c?.name ?? "");
+                  setCustomerPhone(c?.phone ?? "");
+                  setCustomerAddress(c?.address ?? "");
+                }
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="walkin">Walk-in</SelectItem>
                 {(customers.data ?? []).map((c) => (
-                  <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
           {customerId === "walkin" && (
             <>
-              <div><Label>Customer name</Label><Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} /></div>
-              <div><Label>Phone</Label><Input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} /></div>
-              <div><Label>Address</Label><Input value={customerAddress} onChange={(e) => setCustomerAddress(e.target.value)} /></div>
+              <div>
+                <Label>Customer name</Label>
+                <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} />
+              </div>
+              <div>
+                <Label>Phone</Label>
+                <Input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} />
+              </div>
+              <div>
+                <Label>Address</Label>
+                <Input
+                  value={customerAddress}
+                  onChange={(e) => setCustomerAddress(e.target.value)}
+                />
+              </div>
             </>
           )}
           <div className="grid grid-cols-2 gap-2">
-            <div><Label>Discount</Label><Input type="number" min={0} step="0.01" value={discount} onChange={(e) => setDiscount(Number(e.target.value))} /></div>
-            <div><Label>Paid</Label><Input type="number" min={0} step="0.01" value={amountPaid} onChange={(e) => setAmountPaid(Number(e.target.value))} /></div>
+            <div>
+              <Label>Discount</Label>
+              <Input
+                type="number"
+                min={0}
+                step="0.01"
+                value={discount}
+                onChange={(e) => setDiscount(Number(e.target.value))}
+              />
+            </div>
+            <div>
+              <Label>Paid</Label>
+              <Input
+                type="number"
+                min={0}
+                step="0.01"
+                value={amountPaid}
+                onChange={(e) => setAmountPaid(Number(e.target.value))}
+              />
+            </div>
           </div>
           <div>
             <Label>Payment method</Label>
             <Select value={method} onValueChange={(v) => setMethod(v as PaymentMethod)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
-                {(["cash","transfer","pos","card","cheque","credit"] as PaymentMethod[]).map((m) => (
-                  <SelectItem key={m} value={m} className="capitalize">{m}</SelectItem>
-                ))}
+                {(["cash", "transfer", "pos", "card", "cheque", "credit"] as PaymentMethod[]).map(
+                  (m) => (
+                    <SelectItem key={m} value={m} className="capitalize">
+                      {m}
+                    </SelectItem>
+                  ),
+                )}
               </SelectContent>
             </Select>
           </div>
-          <div><Label>Sales person</Label><Input value={salesPerson} onChange={(e) => setSalesPerson(e.target.value)} /></div>
-          <div><Label>Remarks</Label><Textarea value={remarks} onChange={(e) => setRemarks(e.target.value)} rows={2} /></div>
+          <div>
+            <Label>Sales person</Label>
+            <Input value={salesPerson} onChange={(e) => setSalesPerson(e.target.value)} />
+          </div>
+          <div>
+            <Label>Remarks</Label>
+            <Textarea value={remarks} onChange={(e) => setRemarks(e.target.value)} rows={2} />
+          </div>
 
           <div className="rounded-lg border p-3 text-sm space-y-1 bg-muted/30">
-            <div className="flex justify-between"><span>Subtotal</span><span>{money(totals.subtotal)}</span></div>
-            <div className="flex justify-between"><span>Discount</span><span>-{money(discount)}</span></div>
-            <div className="flex justify-between"><span>VAT ({vatRate}%)</span><span>{money(totals.vat)}</span></div>
-            <div className="flex justify-between text-base font-semibold pt-1 border-t"><span>Total</span><span>{money(totals.grand)}</span></div>
-            <div className="flex justify-between"><span>Paid</span><span>{money(amountPaid)}</span></div>
-            <div className="flex justify-between font-medium"><span>Balance</span><span className={totals.balance > 0 ? "text-destructive" : ""}>{money(totals.balance)}</span></div>
+            <div className="flex justify-between">
+              <span>Subtotal</span>
+              <span>{money(totals.subtotal)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Discount</span>
+              <span>-{money(discount)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>VAT ({vatRate}%)</span>
+              <span>{money(totals.vat)}</span>
+            </div>
+            <div className="flex justify-between text-base font-semibold pt-1 border-t">
+              <span>Total</span>
+              <span>{money(totals.grand)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Paid</span>
+              <span>{money(amountPaid)}</span>
+            </div>
+            <div className="flex justify-between font-medium">
+              <span>Balance</span>
+              <span className={totals.balance > 0 ? "text-destructive" : ""}>
+                {money(totals.balance)}
+              </span>
+            </div>
           </div>
         </div>
       </div>
 
       <DialogFooter>
-        <Button variant="outline" disabled={cart.length === 0} onClick={previewInvoice} className="gap-2">
+        <Button
+          variant="outline"
+          disabled={cart.length === 0}
+          onClick={previewInvoice}
+          className="gap-2"
+        >
           <Eye className="h-4 w-4" /> Preview
         </Button>
         <Button

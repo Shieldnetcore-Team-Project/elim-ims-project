@@ -6,15 +6,32 @@ import { supabase } from "@/integrations/supabase/client";
 // useUnitsOfMeasure() below returns. Every Select using either also offers a
 // free-text "Other…" escape hatch.
 export const UNIT_OPTIONS = [
-  "kg", "g", "litres", "ml", "pieces", "units", "bags", "cartons", "pallets",
-  "tons", "meters", "rolls", "sacks", "drums", "boxes",
+  "kg",
+  "g",
+  "litres",
+  "ml",
+  "pieces",
+  "units",
+  "bags",
+  "cartons",
+  "pallets",
+  "tons",
+  "meters",
+  "rolls",
+  "sacks",
+  "drums",
+  "boxes",
 ];
 
 export function useUnitsOfMeasure() {
   return useQuery({
     queryKey: ["units-of-measure"],
     queryFn: async (): Promise<string[]> => {
-      const { data, error } = await supabase.from("units_of_measure").select("name").eq("active", true).order("name");
+      const { data, error } = await supabase
+        .from("units_of_measure")
+        .select("name")
+        .eq("active", true)
+        .order("name");
       if (error) throw error;
       return (data ?? []).map((u) => u.name);
     },

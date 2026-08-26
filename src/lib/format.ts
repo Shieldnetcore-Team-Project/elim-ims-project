@@ -1,7 +1,11 @@
 export const money = (n: number | null | undefined, currency = "NGN") => {
   const v = typeof n === "number" ? n : 0;
   try {
-    return new Intl.NumberFormat("en-NG", { style: "currency", currency, maximumFractionDigits: 2 }).format(v);
+    return new Intl.NumberFormat("en-NG", {
+      style: "currency",
+      currency,
+      maximumFractionDigits: 2,
+    }).format(v);
   } catch {
     return `${currency} ${v.toFixed(2)}`;
   }

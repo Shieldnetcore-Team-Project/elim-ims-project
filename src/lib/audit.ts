@@ -1,8 +1,16 @@
 import { supabase } from "@/integrations/supabase/client";
 
 export type AuditAction =
-  | "login" | "logout" | "create" | "update" | "delete"
-  | "print" | "export" | "payment" | "production" | "sale";
+  | "login"
+  | "logout"
+  | "create"
+  | "update"
+  | "delete"
+  | "print"
+  | "export"
+  | "payment"
+  | "production"
+  | "sale";
 
 let cachedIp: string | null | undefined;
 
@@ -11,7 +19,9 @@ let cachedIp: string | null | undefined;
 async function lookupIp(): Promise<string | null> {
   if (cachedIp !== undefined) return cachedIp;
   try {
-    const res = await fetch("https://api.ipify.org?format=json", { signal: AbortSignal.timeout(2000) });
+    const res = await fetch("https://api.ipify.org?format=json", {
+      signal: AbortSignal.timeout(2000),
+    });
     const data = await res.json();
     cachedIp = data?.ip ?? null;
   } catch {

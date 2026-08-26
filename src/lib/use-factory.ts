@@ -17,7 +17,11 @@ export function useFactorySettings(factoryId: string | undefined) {
     queryKey: ["settings", factoryId],
     enabled: !!factoryId,
     queryFn: async () => {
-      const { data, error } = await supabase.from("settings").select("*").eq("factory_id", factoryId!).maybeSingle();
+      const { data, error } = await supabase
+        .from("settings")
+        .select("*")
+        .eq("factory_id", factoryId!)
+        .maybeSingle();
       if (error) throw error;
       return data;
     },

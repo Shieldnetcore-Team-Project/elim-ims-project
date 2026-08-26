@@ -8,8 +8,19 @@ import type { Action, ModuleKey } from "@/lib/permissions";
 // single source of truth — this file just reads them for the UI.
 
 export type WorkflowStatus =
-  | "draft" | "submitted" | "pending_review" | "pending_approval" | "approved" | "rejected"
-  | "processing" | "completed" | "pending_confirmation" | "confirmed" | "posted" | "cancelled" | "reversed";
+  | "draft"
+  | "submitted"
+  | "pending_review"
+  | "pending_approval"
+  | "approved"
+  | "rejected"
+  | "processing"
+  | "completed"
+  | "pending_confirmation"
+  | "confirmed"
+  | "posted"
+  | "cancelled"
+  | "reversed";
 
 export type WorkflowConfig = {
   module: ModuleKey;
@@ -36,7 +47,11 @@ export function useWorkflowConfig(module: ModuleKey) {
   return useQuery({
     queryKey: ["workflow-config", module],
     queryFn: async (): Promise<WorkflowConfig | null> => {
-      const { data, error } = await supabase.from("workflow_configs").select("*").eq("module", module).maybeSingle();
+      const { data, error } = await supabase
+        .from("workflow_configs")
+        .select("*")
+        .eq("module", module)
+        .maybeSingle();
       if (error) throw error;
       return data as WorkflowConfig | null;
     },
@@ -63,8 +78,13 @@ export function useWorkflowHistory(module: ModuleKey, entityId: string | null | 
       const actorIds = Array.from(new Set(rows.map((r) => r.actor)));
       let names: Record<string, string> = {};
       if (actorIds.length > 0) {
-        const { data: profiles } = await supabase.from("profiles").select("id,full_name").in("id", actorIds);
-        names = Object.fromEntries((profiles ?? []).map((p: any) => [p.id, p.full_name ?? "Unknown"]));
+        const { data: profiles } = await supabase
+          .from("profiles")
+          .select("id,full_name")
+          .in("id", actorIds);
+        names = Object.fromEntries(
+          (profiles ?? []).map((p: any) => [p.id, p.full_name ?? "Unknown"]),
+        );
       }
       return rows.map((r: any) => ({
         id: r.id,

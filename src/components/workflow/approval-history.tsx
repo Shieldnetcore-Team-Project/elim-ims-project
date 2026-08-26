@@ -1,4 +1,9 @@
-import { useWorkflowConfig, useWorkflowHistory, WORKFLOW_ACTION_LABELS, WORKFLOW_STATUS_LABELS } from "@/lib/workflow";
+import {
+  useWorkflowConfig,
+  useWorkflowHistory,
+  WORKFLOW_ACTION_LABELS,
+  WORKFLOW_STATUS_LABELS,
+} from "@/lib/workflow";
 import type { ModuleKey } from "@/lib/permissions";
 import { Badge } from "@/components/ui/badge";
 import { History } from "lucide-react";
@@ -17,7 +22,13 @@ const ACTION_TONE: Record<string, string> = {
 // component works for expenses, debt write-offs, payments, payroll, stock
 // write-offs, and role grants, since they all write to the one generic
 // workflow_approval_history table (Section 6: workflow/approval engine).
-export function ApprovalHistory({ module, entityId }: { module: ModuleKey; entityId: string | null | undefined }) {
+export function ApprovalHistory({
+  module,
+  entityId,
+}: {
+  module: ModuleKey;
+  entityId: string | null | undefined;
+}) {
   const config = useWorkflowConfig(module);
   const history = useWorkflowHistory(module, entityId);
 
@@ -32,7 +43,9 @@ export function ApprovalHistory({ module, entityId }: { module: ModuleKey; entit
         {config.data && (
           <span className="text-xs text-muted-foreground">
             {config.data.maker_label} → {config.data.checker_label}
-            {config.data.required_approvals > 1 ? ` (${config.data.required_approvals} approvers required)` : ""}
+            {config.data.required_approvals > 1
+              ? ` (${config.data.required_approvals} approvers required)`
+              : ""}
           </span>
         )}
       </div>
@@ -56,7 +69,9 @@ export function ApprovalHistory({ module, entityId }: { module: ModuleKey; entit
                     ? `${WORKFLOW_STATUS_LABELS[h.from_status]} → ${WORKFLOW_STATUS_LABELS[h.to_status]}`
                     : WORKFLOW_STATUS_LABELS[h.to_status]}
                 </span>
-                <span className="text-muted-foreground">{new Date(h.created_at).toLocaleString()}</span>
+                <span className="text-muted-foreground">
+                  {new Date(h.created_at).toLocaleString()}
+                </span>
               </div>
               {h.comment && <p className="mt-0.5 text-muted-foreground">"{h.comment}"</p>}
             </li>

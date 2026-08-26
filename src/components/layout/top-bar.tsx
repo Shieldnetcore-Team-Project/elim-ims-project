@@ -6,8 +6,12 @@ import { useFactoryId } from "@/lib/use-factory";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
-  DropdownMenuSeparator, DropdownMenuTrigger,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -44,13 +48,23 @@ function NotificationsBell() {
   const markAllRead = async () => {
     const unreadIds = (notifications.data ?? []).filter((n) => !n.read).map((n) => n.id);
     if (unreadIds.length === 0) return;
-    const { error } = await supabase.from("notifications").update({ read: true }).in("id", unreadIds);
-    if (error) { toast.error(error.message); return; }
+    const { error } = await supabase
+      .from("notifications")
+      .update({ read: true })
+      .in("id", unreadIds);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
     qc.invalidateQueries({ queryKey: ["notifications"] });
   };
 
   return (
-    <DropdownMenu onOpenChange={(open) => { if (open) markAllRead(); }}>
+    <DropdownMenu
+      onOpenChange={(open) => {
+        if (open) markAllRead();
+      }}
+    >
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="icon" className="relative" aria-label="Notifications">
           <Bell className="h-4 w-4" />
@@ -70,7 +84,10 @@ function NotificationsBell() {
           <ScrollArea className="h-80">
             <div className="space-y-1 p-1">
               {notifications.data!.map((n) => (
-                <div key={n.id} className={`rounded-md p-2 text-sm ${n.read ? "" : "bg-accent/50"}`}>
+                <div
+                  key={n.id}
+                  className={`rounded-md p-2 text-sm ${n.read ? "" : "bg-accent/50"}`}
+                >
                   <div className="font-medium">{n.title}</div>
                   {n.body && <div className="text-xs text-muted-foreground">{n.body}</div>}
                   <div className="mt-1 text-[10px] text-muted-foreground">
@@ -121,7 +138,9 @@ export function TopBar() {
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" className="h-9 gap-2 px-2">
-              <Avatar className="h-7 w-7"><AvatarFallback>{initials}</AvatarFallback></Avatar>
+              <Avatar className="h-7 w-7">
+                <AvatarFallback>{initials}</AvatarFallback>
+              </Avatar>
               <span className="hidden md:inline text-sm">{email || "Account"}</span>
             </Button>
           </DropdownMenuTrigger>

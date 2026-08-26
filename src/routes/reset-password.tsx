@@ -9,7 +9,9 @@ import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 
 export const Route = createFileRoute("/reset-password")({
-  head: () => ({ meta: [{ title: "Reset password — FMIS" }, { name: "robots", content: "noindex" }] }),
+  head: () => ({
+    meta: [{ title: "Reset password — FMIS" }, { name: "robots", content: "noindex" }],
+  }),
   component: ResetPage,
 });
 
@@ -40,14 +42,23 @@ function ResetPage() {
         <CardHeader>
           <CardTitle>Set a new password</CardTitle>
           <CardDescription>
-            {ready ? "Enter your new password below." : "Open this page from the reset link in your email."}
+            {ready
+              ? "Enter your new password below."
+              : "Open this page from the reset link in your email."}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={submit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="pw">New password</Label>
-              <Input id="pw" type="password" required minLength={6} value={password} onChange={(e) => setPassword(e.target.value)} />
+              <Input
+                id="pw"
+                type="password"
+                required
+                minLength={6}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
             </div>
             <Button type="submit" className="w-full" disabled={loading || !ready}>
               {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

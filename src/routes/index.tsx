@@ -8,20 +8,45 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { toast } from "sonner";
 import { Loader2, Boxes, BarChart3, ShieldCheck, Users, Lock } from "lucide-react";
 
 const FEATURES = [
-  { icon: Boxes, title: "Inventory & production", desc: "Raw materials to finished goods, tracked end to end." },
-  { icon: BarChart3, title: "Real-time reporting", desc: "Live dashboards across sales, costs, and cash flow." },
-  { icon: ShieldCheck, title: "Role-based security", desc: "Granular access, audited down to every action." },
-  { icon: Users, title: "Two factories, one login", desc: "Water and Nylon, fully separated, one platform." },
+  {
+    icon: Boxes,
+    title: "Inventory & production",
+    desc: "Raw materials to finished goods, tracked end to end.",
+  },
+  {
+    icon: BarChart3,
+    title: "Real-time reporting",
+    desc: "Live dashboards across sales, costs, and cash flow.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Role-based security",
+    desc: "Granular access, audited down to every action.",
+  },
+  {
+    icon: Users,
+    title: "Two factories, one login",
+    desc: "Water and Nylon, fully separated, one platform.",
+  },
 ];
 
 const STATUS_MESSAGES: Record<string, (reason?: string | null) => string> = {
   pending: () => "Your account is awaiting admin approval. You'll be notified once it's reviewed.",
-  rejected: (reason) => reason ? `Your registration was declined: ${reason}` : "Your registration was declined. Contact an administrator.",
+  rejected: (reason) =>
+    reason
+      ? `Your registration was declined: ${reason}`
+      : "Your registration was declined. Contact an administrator.",
   suspended: () => "Your account has been suspended. Contact an administrator.",
   deactivated: () => "Your account has been deactivated. Contact an administrator.",
 };
@@ -30,9 +55,17 @@ export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
       { title: "FMIS — Factory Management & Inventory System" },
-      { name: "description", content: "Enterprise inventory, sales, production, payroll, and reporting for the Water Factory and Nylon Factory." },
+      {
+        name: "description",
+        content:
+          "Enterprise inventory, sales, production, payroll, and reporting for the Water Factory and Nylon Factory.",
+      },
       { property: "og:title", content: "FMIS — Factory Management & Inventory System" },
-      { property: "og:description", content: "One platform for two factories. Fully separated data, secure roles, real-time dashboards." },
+      {
+        property: "og:description",
+        content:
+          "One platform for two factories. Fully separated data, secure roles, real-time dashboards.",
+      },
       { property: "og:type", content: "website" },
     ],
   }),
@@ -88,7 +121,10 @@ function Landing() {
 
     setLoading(true);
 
-    const { data, error } = await supabase.auth.signInWithPassword({ email: signInEmail, password: signInPassword });
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: signInEmail,
+      password: signInPassword,
+    });
     if (error) {
       setLoading(false);
       return toast.error(error.message);
@@ -140,7 +176,9 @@ function Landing() {
     });
     setLoading(false);
     if (error) return toast.error(error.message);
-    toast.success("Account created. Check your email to confirm, then wait for an admin to approve your account before signing in.");
+    toast.success(
+      "Account created. Check your email to confirm, then wait for an admin to approve your account before signing in.",
+    );
   };
 
   const forgot = async () => {
@@ -169,7 +207,8 @@ function Landing() {
               <span className="h-1.5 w-1.5 rounded-full bg-accent" /> Enterprise · Two-factory ready
             </div>
             <h1 className="mt-6 text-4xl font-semibold leading-tight">
-              Factory Management &<br />Inventory System
+              Factory Management &<br />
+              Inventory System
             </h1>
             <p className="mt-4 max-w-md mx-auto text-sidebar-foreground/70">
               Run your <strong className="text-sidebar-foreground">Water Factory</strong> and{" "}
@@ -213,16 +252,36 @@ function Landing() {
                 <form onSubmit={signIn} className="space-y-4 pt-4">
                   <div className="space-y-2">
                     <Label htmlFor="email">Email</Label>
-                    <Input id="email" name="email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+                    <Input
+                      id="email"
+                      name="email"
+                      type="email"
+                      autoComplete="email"
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                    />
                   </div>
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <Label htmlFor="password">Password</Label>
-                      <button type="button" onClick={forgot} className="text-xs text-primary hover:underline">
+                      <button
+                        type="button"
+                        onClick={forgot}
+                        className="text-xs text-primary hover:underline"
+                      >
                         Forgot?
                       </button>
                     </div>
-                    <Input id="password" name="password" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
+                    <Input
+                      id="password"
+                      name="password"
+                      type="password"
+                      autoComplete="current-password"
+                      required
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                    />
                   </div>
                   <Button type="submit" className="w-full" disabled={loading}>
                     {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -236,27 +295,51 @@ function Landing() {
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-2">
                       <Label htmlFor="su-name">Full name</Label>
-                      <Input id="su-name" required value={suFullName} onChange={(e) => setSuFullName(e.target.value)} />
+                      <Input
+                        id="su-name"
+                        required
+                        value={suFullName}
+                        onChange={(e) => setSuFullName(e.target.value)}
+                      />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="su-username">Username</Label>
-                      <Input id="su-username" value={suUsername} onChange={(e) => setSuUsername(e.target.value)} />
+                      <Input
+                        id="su-username"
+                        value={suUsername}
+                        onChange={(e) => setSuUsername(e.target.value)}
+                      />
                     </div>
                   </div>
 
                   <div className="space-y-2">
                     <Label htmlFor="su-email">Email</Label>
-                    <Input id="su-email" type="email" required value={suEmail} onChange={(e) => setSuEmail(e.target.value)} />
+                    <Input
+                      id="su-email"
+                      type="email"
+                      required
+                      value={suEmail}
+                      onChange={(e) => setSuEmail(e.target.value)}
+                    />
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-2">
                       <Label htmlFor="su-phone">Phone</Label>
-                      <Input id="su-phone" type="tel" value={suPhone} onChange={(e) => setSuPhone(e.target.value)} />
+                      <Input
+                        id="su-phone"
+                        type="tel"
+                        value={suPhone}
+                        onChange={(e) => setSuPhone(e.target.value)}
+                      />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="su-department">Department</Label>
-                      <Input id="su-department" value={suDepartment} onChange={(e) => setSuDepartment(e.target.value)} />
+                      <Input
+                        id="su-department"
+                        value={suDepartment}
+                        onChange={(e) => setSuDepartment(e.target.value)}
+                      />
                     </div>
                   </div>
 
@@ -264,10 +347,14 @@ function Landing() {
                     <div className="space-y-2">
                       <Label>Factory</Label>
                       <Select value={suFactoryId} onValueChange={setSuFactoryId}>
-                        <SelectTrigger><SelectValue placeholder="Select factory" /></SelectTrigger>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select factory" />
+                        </SelectTrigger>
                         <SelectContent>
                           {factories.data?.map((f) => (
-                            <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
+                            <SelectItem key={f.id} value={f.id}>
+                              {f.name}
+                            </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
@@ -275,10 +362,14 @@ function Landing() {
                     <div className="space-y-2">
                       <Label>Role requested</Label>
                       <Select value={suRole} onValueChange={(v) => setSuRole(v as Role)}>
-                        <SelectTrigger><SelectValue placeholder="Select role" /></SelectTrigger>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select role" />
+                        </SelectTrigger>
                         <SelectContent>
                           {requestableRoles.map((r) => (
-                            <SelectItem key={r.slug} value={r.slug}>{r.label}</SelectItem>
+                            <SelectItem key={r.slug} value={r.slug}>
+                              {r.label}
+                            </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
@@ -288,11 +379,25 @@ function Landing() {
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-2">
                       <Label htmlFor="su-password">Password</Label>
-                      <Input id="su-password" type="password" required minLength={6} value={suPassword} onChange={(e) => setSuPassword(e.target.value)} />
+                      <Input
+                        id="su-password"
+                        type="password"
+                        required
+                        minLength={6}
+                        value={suPassword}
+                        onChange={(e) => setSuPassword(e.target.value)}
+                      />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="su-confirm">Confirm password</Label>
-                      <Input id="su-confirm" type="password" required minLength={6} value={suConfirmPassword} onChange={(e) => setSuConfirmPassword(e.target.value)} />
+                      <Input
+                        id="su-confirm"
+                        type="password"
+                        required
+                        minLength={6}
+                        value={suConfirmPassword}
+                        onChange={(e) => setSuConfirmPassword(e.target.value)}
+                      />
                     </div>
                   </div>
 

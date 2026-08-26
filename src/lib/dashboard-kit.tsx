@@ -7,8 +7,17 @@ import { Card, CardContent } from "@/components/ui/card";
 // KPI-card / pending-count widgets (e.g. _app.finance.tsx) — kept in one
 // place so neither has to redefine them.
 
-export function KPI({ icon: Icon, label, value, hint, tone = "primary" }: {
-  icon: React.ElementType; label: string; value: string; hint?: string;
+export function KPI({
+  icon: Icon,
+  label,
+  value,
+  hint,
+  tone = "primary",
+}: {
+  icon: React.ElementType;
+  label: string;
+  value: string;
+  hint?: string;
   tone?: "primary" | "success" | "warning" | "destructive";
 }) {
   const toneClasses = {
@@ -54,14 +63,44 @@ export function usePendingApprovalsCount(factoryId: string | undefined) {
     enabled: !!factoryId,
     queryFn: async () => {
       const [exp, debt, payroll, stockRaw, stockFin, roles] = await Promise.all([
-        supabase.from("expenses").select("id", { count: "exact", head: true }).eq("factory_id", factoryId!).eq("status", "pending_approval"),
-        supabase.from("debts").select("id", { count: "exact", head: true }).eq("factory_id", factoryId!).eq("writeoff_status", "pending_approval"),
-        supabase.from("payroll").select("id", { count: "exact", head: true }).eq("factory_id", factoryId!).eq("status", "pending_approval"),
-        supabase.from("stock_adjustment_requests").select("id", { count: "exact", head: true }).eq("factory_id", factoryId!).eq("status", "pending_approval"),
-        supabase.from("stock_adjustment_requests").select("id", { count: "exact", head: true }).eq("factory_id", factoryId!).eq("status", "pending_approval"),
-        supabase.from("role_grant_requests").select("id", { count: "exact", head: true }).eq("status", "pending_approval"),
+        supabase
+          .from("expenses")
+          .select("id", { count: "exact", head: true })
+          .eq("factory_id", factoryId!)
+          .eq("status", "pending_approval"),
+        supabase
+          .from("debts")
+          .select("id", { count: "exact", head: true })
+          .eq("factory_id", factoryId!)
+          .eq("writeoff_status", "pending_approval"),
+        supabase
+          .from("payroll")
+          .select("id", { count: "exact", head: true })
+          .eq("factory_id", factoryId!)
+          .eq("status", "pending_approval"),
+        supabase
+          .from("stock_adjustment_requests")
+          .select("id", { count: "exact", head: true })
+          .eq("factory_id", factoryId!)
+          .eq("status", "pending_approval"),
+        supabase
+          .from("stock_adjustment_requests")
+          .select("id", { count: "exact", head: true })
+          .eq("factory_id", factoryId!)
+          .eq("status", "pending_approval"),
+        supabase
+          .from("role_grant_requests")
+          .select("id", { count: "exact", head: true })
+          .eq("status", "pending_approval"),
       ]);
-      return (exp.count ?? 0) + (debt.count ?? 0) + (payroll.count ?? 0) + (stockRaw.count ?? 0) + (stockFin.count ?? 0) + (roles.count ?? 0);
+      return (
+        (exp.count ?? 0) +
+        (debt.count ?? 0) +
+        (payroll.count ?? 0) +
+        (stockRaw.count ?? 0) +
+        (stockFin.count ?? 0) +
+        (roles.count ?? 0)
+      );
     },
   });
 }
@@ -72,8 +111,10 @@ export function usePendingConfirmationsCount(factoryId: string | undefined) {
     enabled: !!factoryId,
     queryFn: async () => {
       const { count, error } = await supabase
-        .from("payments_received").select("id", { count: "exact", head: true })
-        .eq("factory_id", factoryId!).eq("status", "pending_confirmation");
+        .from("payments_received")
+        .select("id", { count: "exact", head: true })
+        .eq("factory_id", factoryId!)
+        .eq("status", "pending_confirmation");
       if (error) throw error;
       return count ?? 0;
     },
