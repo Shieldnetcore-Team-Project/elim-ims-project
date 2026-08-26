@@ -60,7 +60,7 @@ function AuditLogsPage() {
   });
 
   const factories = useQuery({
-    queryKey: ["factories-all"],
+    queryKey: ["factories-name-map"],
     queryFn: async () => {
       const { data, error } = await supabase.from("factories").select("id,name");
       if (error) throw error;

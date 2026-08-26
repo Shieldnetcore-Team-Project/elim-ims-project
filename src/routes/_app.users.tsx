@@ -68,7 +68,7 @@ function UsersPage() {
   const factories = useQuery({
     queryKey: ["factories-all"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("factories").select("id,name").order("name");
+      const { data, error } = await supabase.from("factories").select("id,code,name").order("name");
       if (error) throw error;
       return (data ?? []) as Factory[];
     },
