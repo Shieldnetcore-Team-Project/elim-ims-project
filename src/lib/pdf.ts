@@ -63,6 +63,21 @@ async function loadLogo(url: string): Promise<{ dataUrl: string; width: number; 
   }
 }
 
+// Draws the company logo centered at the top of the page (any format/orientation)
+// and returns the y-coordinate the rest of the header should start from --
+// `baseTop` unchanged when there's no logo, pushed down by the logo's height
+// (capped to maxW x maxH) plus a gap when there is one.
+async function drawLogoHeader(doc: jsPDF, logoUrl: string | null | undefined, baseTop: number, maxW = 90, maxH = 34): Promise<number> {
+  if (!logoUrl) return baseTop;
+  const logo = await loadLogo(logoUrl);
+  if (!logo) return baseTop;
+  const ratio = Math.min(maxW / logo.width, maxH / logo.height, 1);
+  const w = logo.width * ratio, h = logo.height * ratio;
+  const pageW = doc.internal.pageSize.getWidth();
+  doc.addImage(logo.dataUrl, "PNG", pageW / 2 - w / 2, 14, w, h);
+  return baseTop + h + 10;
+}
+
 // 80mm thermal POS paper width. Height is computed from content (see
 // `draw` below run once against a tall scratch doc, then again against a
 // doc sized exactly to fit) so the receipt prints like a real till slip
@@ -166,8 +181,8 @@ export async function generateInvoicePdf(data: InvoiceData, action: PdfAction = 
   }
 }
 
-export function generateReceiptPdf(opts: {
-  company: { name: string; address?: string | null; phone?: string | null };
+export async function generateReceiptPdf(opts: {
+  company: { name: string; address?: string | null; phone?: string | null; logo_url?: string | null };
   receipt_number: string;
   payment_date: string;
   customer_name?: string | null;
@@ -180,18 +195,19 @@ export function generateReceiptPdf(opts: {
 }, action: PdfAction = "download") {
   const doc = new jsPDF({ unit: "pt", format: "a5" });
   const currency = opts.currency ?? "NGN";
-  doc.setFontSize(16); doc.text(opts.company.name, 40, 50);
+  const top = await drawLogoHeader(doc, opts.company.logo_url, 50);
+  doc.setFontSize(16); doc.text(opts.company.name, 40, top);
   doc.setFontSize(10);
-  if (opts.company.address) doc.text(opts.company.address, 40, 66);
-  if (opts.company.phone) doc.text(opts.company.phone, 40, 80);
+  if (opts.company.address) doc.text(opts.company.address, 40, top + 16);
+  if (opts.company.phone) doc.text(opts.company.phone, 40, top + 30);
 
-  doc.setFontSize(18); doc.text("RECEIPT", 380, 50, { align: "right" });
+  doc.setFontSize(18); doc.text("RECEIPT", 380, top, { align: "right" });
   doc.setFontSize(10);
-  doc.text(`# ${opts.receipt_number}`, 380, 66, { align: "right" });
-  doc.text(`Date: ${opts.payment_date}`, 380, 80, { align: "right" });
+  doc.text(`# ${opts.receipt_number}`, 380, top + 16, { align: "right" });
+  doc.text(`Date: ${opts.payment_date}`, 380, top + 30, { align: "right" });
 
   doc.setFontSize(11);
-  let y = 130;
+  let y = top + 80;
   doc.text(`Received from: ${opts.customer_name ?? "—"}`, 40, y); y += 18;
   if (opts.invoice_number) { doc.text(`Invoice: ${opts.invoice_number}`, 40, y); y += 18; }
   doc.text(`Payment method: ${opts.payment_method}`, 40, y); y += 24;
@@ -209,8 +225,8 @@ export function generateReceiptPdf(opts: {
   }
 }
 
-export function generateProductionSlipPdf(opts: {
-  company: { name: string; address?: string | null; phone?: string | null };
+export async function generateProductionSlipPdf(opts: {
+  company: { name: string; address?: string | null; phone?: string | null; logo_url?: string | null };
   production_number: string;
   production_date: string;
   product_name: string;
@@ -227,21 +243,26 @@ export function generateProductionSlipPdf(opts: {
   status?: string;
   packaging_unit?: string | null;
   packaging_quantity?: number | null;
+  accepted_quantity?: number | null;
+  damaged_quantity?: number | null;
+  rejected_quantity?: number | null;
+  confirmed_at?: string | null;
 }, action: PdfAction = "download") {
   const doc = new jsPDF({ unit: "pt", format: "a5" });
   const currency = opts.currency ?? "NGN";
-  doc.setFontSize(16); doc.text(opts.company.name, 40, 50);
+  const top = await drawLogoHeader(doc, opts.company.logo_url, 50);
+  doc.setFontSize(16); doc.text(opts.company.name, 40, top);
   doc.setFontSize(10);
-  if (opts.company.address) doc.text(opts.company.address, 40, 66);
-  if (opts.company.phone) doc.text(opts.company.phone, 40, 80);
+  if (opts.company.address) doc.text(opts.company.address, 40, top + 16);
+  if (opts.company.phone) doc.text(opts.company.phone, 40, top + 30);
 
-  doc.setFontSize(18); doc.text("PRODUCTION SLIP", 380, 50, { align: "right" });
+  doc.setFontSize(18); doc.text("PRODUCTION REPORT", 380, top, { align: "right" });
   doc.setFontSize(10);
-  doc.text(`# ${opts.production_number}`, 380, 66, { align: "right" });
-  doc.text(`Date: ${opts.production_date}`, 380, 80, { align: "right" });
+  doc.text(`# ${opts.production_number}`, 380, top + 16, { align: "right" });
+  doc.text(`Date: ${opts.production_date}`, 380, top + 30, { align: "right" });
 
   doc.setFontSize(11);
-  let y = 130;
+  let y = top + 80;
   const rows: [string, string][] = [
     ["Product", opts.product_name],
     ["Production type", opts.production_type || "—"],
@@ -251,12 +272,33 @@ export function generateProductionSlipPdf(opts: {
     ["Production cost", money(opts.production_cost, currency)],
     ["Department", opts.department || "—"],
     ["Production scope", opts.production_scope || "—"],
-    ["Status", (opts.status ?? "").replace(/_/g, " ").toUpperCase() || "—"],
-    ["Supervisor", opts.supervisor || "—"],
+    ["Status / Approval", (opts.status ?? "").replace(/_/g, " ").toUpperCase() || "—"],
+    ["User", opts.supervisor || "—"],
     ["Batch number", opts.batch_number || "—"],
   ];
   rows.forEach(([l, v]) => { doc.text(`${l}: ${v}`, 40, y); y += 20; });
-  if (opts.remarks) { doc.setFontSize(10); doc.text(`Remarks: ${opts.remarks}`, 40, y + 10); }
+  if (opts.remarks) { doc.setFontSize(10); doc.text(`Remarks: ${opts.remarks}`, 40, y + 10); y += 20; }
+
+  // Store confirmation — only present once Store has actually acted on this batch.
+  if (opts.confirmed_at) {
+    y += 12;
+    doc.setFontSize(11); doc.text("Store Confirmation", 40, y); y += 16;
+    doc.setFontSize(10);
+    const confRows: [string, string][] = [
+      ["Confirmed on", new Date(opts.confirmed_at).toLocaleString()],
+      ["Accepted", opts.accepted_quantity != null ? `${opts.accepted_quantity} ${opts.unit}` : "—"],
+      ["Damaged", opts.damaged_quantity ? `${opts.damaged_quantity} ${opts.unit}` : "—"],
+      ["Rejected", opts.rejected_quantity ? `${opts.rejected_quantity} ${opts.unit}` : "—"],
+    ];
+    confRows.forEach(([l, v]) => { doc.text(`${l}: ${v}`, 40, y); y += 18; });
+  }
+
+  y += 24;
+  doc.setFontSize(9);
+  doc.line(40, y, 200, y); doc.line(260, y, 420, y);
+  y += 12;
+  doc.text("Prepared by / Date", 40, y);
+  doc.text("Store Confirmed by / Date", 260, y);
 
   if (action === "download") {
     doc.save(`${opts.production_number}.pdf`);
@@ -266,8 +308,8 @@ export function generateProductionSlipPdf(opts: {
   }
 }
 
-export function generateDebtStatementPdf(opts: {
-  company: { name: string; address?: string | null; phone?: string | null };
+export async function generateDebtStatementPdf(opts: {
+  company: { name: string; address?: string | null; phone?: string | null; logo_url?: string | null };
   customer: { name: string; phone?: string | null; address?: string | null };
   invoice_number?: string | null;
   products?: { name: string; quantity: number; unit_price: number; line_total: number }[];
@@ -281,23 +323,24 @@ export function generateDebtStatementPdf(opts: {
   const doc = new jsPDF({ unit: "pt", format: "a4" });
   const currency = opts.currency ?? "NGN";
 
-  doc.setFontSize(18); doc.text(opts.company.name, 40, 50);
+  const top = await drawLogoHeader(doc, opts.company.logo_url, 50);
+  doc.setFontSize(18); doc.text(opts.company.name, 40, top);
   doc.setFontSize(10);
-  if (opts.company.address) doc.text(opts.company.address, 40, 68);
-  if (opts.company.phone) doc.text(opts.company.phone, 40, 82);
+  if (opts.company.address) doc.text(opts.company.address, 40, top + 18);
+  if (opts.company.phone) doc.text(opts.company.phone, 40, top + 32);
 
-  doc.setFontSize(20); doc.text("DEBT STATEMENT", 555, 50, { align: "right" });
+  doc.setFontSize(20); doc.text("DEBT STATEMENT", 555, top, { align: "right" });
   doc.setFontSize(10);
-  if (opts.invoice_number) doc.text(`Invoice: ${opts.invoice_number}`, 555, 68, { align: "right" });
-  doc.text(`Status: ${opts.status.toUpperCase()}`, 555, 82, { align: "right" });
+  if (opts.invoice_number) doc.text(`Invoice: ${opts.invoice_number}`, 555, top + 18, { align: "right" });
+  doc.text(`Status: ${opts.status.toUpperCase()}`, 555, top + 32, { align: "right" });
 
-  doc.setFontSize(11); doc.text("Debtor:", 40, 110);
+  doc.setFontSize(11); doc.text("Debtor:", 40, top + 60);
   doc.setFontSize(10);
-  doc.text(opts.customer.name, 40, 124);
-  if (opts.customer.phone) doc.text(opts.customer.phone, 40, 138);
-  if (opts.customer.address) doc.text(opts.customer.address, 40, 152);
+  doc.text(opts.customer.name, 40, top + 74);
+  if (opts.customer.phone) doc.text(opts.customer.phone, 40, top + 88);
+  if (opts.customer.address) doc.text(opts.customer.address, 40, top + 102);
 
-  let y = 180;
+  let y = top + 130;
   if (opts.products && opts.products.length > 0) {
     autoTable(doc, {
       startY: y,
@@ -337,8 +380,8 @@ export function generateDebtStatementPdf(opts: {
   doc.save(`Statement-${opts.customer.name.replace(/\s+/g, "-")}.pdf`);
 }
 
-export function generateStockCardPdf(opts: {
-  company: { name: string; address?: string | null; phone?: string | null };
+export async function generateStockCardPdf(opts: {
+  company: { name: string; address?: string | null; phone?: string | null; logo_url?: string | null };
   title: string;
   item_name: string;
   unit: string;
@@ -353,16 +396,17 @@ export function generateStockCardPdf(opts: {
   const doc = new jsPDF({ unit: "pt", format: "a4" });
   const currency = opts.currency ?? "NGN";
 
-  doc.setFontSize(18); doc.text(opts.company.name, 40, 50);
+  const top = await drawLogoHeader(doc, opts.company.logo_url, 50);
+  doc.setFontSize(18); doc.text(opts.company.name, 40, top);
   doc.setFontSize(10);
-  if (opts.company.address) doc.text(opts.company.address, 40, 68);
-  if (opts.company.phone) doc.text(opts.company.phone, 40, 82);
+  if (opts.company.address) doc.text(opts.company.address, 40, top + 18);
+  if (opts.company.phone) doc.text(opts.company.phone, 40, top + 32);
 
-  doc.setFontSize(20); doc.text(opts.title.toUpperCase(), 555, 50, { align: "right" });
+  doc.setFontSize(20); doc.text(opts.title.toUpperCase(), 555, top, { align: "right" });
   doc.setFontSize(10);
-  doc.text(opts.item_name, 555, 68, { align: "right" });
+  doc.text(opts.item_name, 555, top + 18, { align: "right" });
 
-  doc.setFontSize(11); doc.text("Snapshot", 40, 110);
+  doc.setFontSize(11); doc.text("Snapshot", 40, top + 60);
   doc.setFontSize(10);
   const rows: [string, string][] = [
     ["Current stock", `${opts.current_stock} ${opts.unit}`],
@@ -371,7 +415,7 @@ export function generateStockCardPdf(opts: {
     ...(opts.reorder_level != null ? [["Reorder level", `${opts.reorder_level} ${opts.unit}`] as [string, string]] : []),
     ...(opts.extra ?? []),
   ];
-  let y = 124;
+  let y = top + 74;
   rows.forEach(([l, v]) => { doc.text(`${l}: ${v}`, 40, y); y += 16; });
 
   y += 16;
@@ -389,8 +433,8 @@ export function generateStockCardPdf(opts: {
   doc.save(`${opts.title.replace(/\s+/g, "-")}-${opts.item_name.replace(/\s+/g, "-")}.pdf`);
 }
 
-export function generateExpenseVoucherPdf(opts: {
-  company: { name: string; address?: string | null; phone?: string | null };
+export async function generateExpenseVoucherPdf(opts: {
+  company: { name: string; address?: string | null; phone?: string | null; logo_url?: string | null };
   expense_date: string;
   category?: string | null;
   description?: string | null;
@@ -408,18 +452,19 @@ export function generateExpenseVoucherPdf(opts: {
   const doc = new jsPDF({ unit: "pt", format: "a5" });
   const currency = opts.currency ?? "NGN";
 
-  doc.setFontSize(16); doc.text(opts.company.name, 40, 50);
+  const top = await drawLogoHeader(doc, opts.company.logo_url, 50);
+  doc.setFontSize(16); doc.text(opts.company.name, 40, top);
   doc.setFontSize(10);
-  if (opts.company.address) doc.text(opts.company.address, 40, 66);
-  if (opts.company.phone) doc.text(opts.company.phone, 40, 80);
+  if (opts.company.address) doc.text(opts.company.address, 40, top + 16);
+  if (opts.company.phone) doc.text(opts.company.phone, 40, top + 30);
 
-  doc.setFontSize(18); doc.text("EXPENSE VOUCHER", 380, 50, { align: "right" });
+  doc.setFontSize(18); doc.text("EXPENSE VOUCHER", 380, top, { align: "right" });
   doc.setFontSize(10);
-  if (opts.receipt_number) doc.text(`Ref: ${opts.receipt_number}`, 380, 66, { align: "right" });
-  doc.text(`Date: ${opts.expense_date}`, 380, 80, { align: "right" });
+  if (opts.receipt_number) doc.text(`Ref: ${opts.receipt_number}`, 380, top + 16, { align: "right" });
+  doc.text(`Date: ${opts.expense_date}`, 380, top + 30, { align: "right" });
 
   doc.setFontSize(11);
-  let y = 130;
+  let y = top + 80;
   const rows: [string, string][] = [
     ["Category", opts.category || "—"],
     ["Description", opts.description || "—"],
@@ -446,8 +491,8 @@ export function generateExpenseVoucherPdf(opts: {
   }
 }
 
-export function generatePayslipPdf(opts: {
-  company: { name: string; address?: string | null; phone?: string | null };
+export async function generatePayslipPdf(opts: {
+  company: { name: string; address?: string | null; phone?: string | null; logo_url?: string | null };
   employee: { code: string | null; name: string; department?: string | null; position?: string | null; bank_name?: string | null; account_number?: string | null };
   period: string;
   payment_date?: string | null;
@@ -471,17 +516,18 @@ export function generatePayslipPdf(opts: {
   const doc = new jsPDF({ unit: "pt", format: "a4" });
   const currency = opts.currency ?? "NGN";
 
-  doc.setFontSize(18); doc.text(opts.company.name, 40, 50);
+  const top = await drawLogoHeader(doc, opts.company.logo_url, 50);
+  doc.setFontSize(18); doc.text(opts.company.name, 40, top);
   doc.setFontSize(10);
-  if (opts.company.address) doc.text(opts.company.address, 40, 68);
-  if (opts.company.phone) doc.text(opts.company.phone, 40, 82);
+  if (opts.company.address) doc.text(opts.company.address, 40, top + 18);
+  if (opts.company.phone) doc.text(opts.company.phone, 40, top + 32);
 
-  doc.setFontSize(20); doc.text("PAYSLIP", 555, 50, { align: "right" });
+  doc.setFontSize(20); doc.text("PAYSLIP", 555, top, { align: "right" });
   doc.setFontSize(10);
-  doc.text(`Period: ${opts.period}`, 555, 68, { align: "right" });
-  if (opts.payment_date) doc.text(`Paid: ${opts.payment_date}`, 555, 82, { align: "right" });
+  doc.text(`Period: ${opts.period}`, 555, top + 18, { align: "right" });
+  if (opts.payment_date) doc.text(`Paid: ${opts.payment_date}`, 555, top + 32, { align: "right" });
 
-  doc.setFontSize(11); doc.text("Employee", 40, 110);
+  doc.setFontSize(11); doc.text("Employee", 40, top + 60);
   doc.setFontSize(10);
   const empRows: [string, string][] = [
     ["Employee ID", opts.employee.code || "—"],
@@ -490,7 +536,7 @@ export function generatePayslipPdf(opts: {
     ["Position", opts.employee.position || "—"],
     ["Bank", `${opts.employee.bank_name || "—"} · ${opts.employee.account_number || "—"}`],
   ];
-  let y = 126;
+  let y = top + 76;
   empRows.forEach(([l, v]) => { doc.text(`${l}: ${v}`, 40, y); y += 15; });
 
   autoTable(doc, {
@@ -525,8 +571,8 @@ export function generatePayslipPdf(opts: {
   }
 }
 
-export function generateProductionRequestPdf(opts: {
-  company: { name: string; address?: string | null; phone?: string | null };
+export async function generateProductionRequestPdf(opts: {
+  company: { name: string; address?: string | null; phone?: string | null; logo_url?: string | null };
   request_number: string;
   request_date: string;
   requested_by_name: string;
@@ -546,18 +592,19 @@ export function generateProductionRequestPdf(opts: {
 }, action: PdfAction = "download") {
   const doc = new jsPDF({ unit: "pt", format: "a4" });
 
-  doc.setFontSize(18); doc.text(opts.company.name, 40, 50);
+  const top = await drawLogoHeader(doc, opts.company.logo_url, 50);
+  doc.setFontSize(18); doc.text(opts.company.name, 40, top);
   doc.setFontSize(10);
-  let y = 68;
+  let y = top + 18;
   if (opts.company.address) { doc.text(opts.company.address, 40, y); y += 14; }
   if (opts.company.phone) { doc.text(opts.company.phone, 40, y); y += 14; }
 
-  doc.setFontSize(18); doc.text("PRODUCTION REQUEST / MATERIAL ISSUE", 555, 50, { align: "right" });
+  doc.setFontSize(18); doc.text("PRODUCTION REQUEST / MATERIAL ISSUE", 555, top, { align: "right" });
   doc.setFontSize(10);
-  doc.text(`# ${opts.request_number}`, 555, 68, { align: "right" });
-  doc.text(`Date: ${opts.request_date}`, 555, 82, { align: "right" });
+  doc.text(`# ${opts.request_number}`, 555, top + 18, { align: "right" });
+  doc.text(`Date: ${opts.request_date}`, 555, top + 32, { align: "right" });
 
-  y = Math.max(y, 110);
+  y = Math.max(y, top + 60);
   doc.setFontSize(11); doc.text("Request Details", 40, y); y += 16;
   doc.setFontSize(10);
   const headerRows: [string, string][] = [
@@ -607,8 +654,8 @@ export function generateProductionRequestPdf(opts: {
   }
 }
 
-export function generatePurchaseOrderPdf(opts: {
-  company: { name: string; address?: string | null; phone?: string | null; email?: string | null };
+export async function generatePurchaseOrderPdf(opts: {
+  company: { name: string; address?: string | null; phone?: string | null; email?: string | null; logo_url?: string | null };
   po_number: string;
   issued_at: string;
   issued_by_name: string;
@@ -626,20 +673,21 @@ export function generatePurchaseOrderPdf(opts: {
   const doc = new jsPDF({ unit: "pt", format: "a4" });
   const currency = opts.currency ?? "NGN";
 
-  doc.setFontSize(18); doc.text(opts.company.name, 40, 50);
+  const top = await drawLogoHeader(doc, opts.company.logo_url, 50);
+  doc.setFontSize(18); doc.text(opts.company.name, 40, top);
   doc.setFontSize(10);
-  let y = 68;
+  let y = top + 18;
   if (opts.company.address) { doc.text(opts.company.address, 40, y); y += 14; }
   const contact = [opts.company.phone, opts.company.email].filter(Boolean).join(" · ");
   if (contact) { doc.text(contact, 40, y); y += 14; }
 
-  doc.setFontSize(18); doc.text("PURCHASE ORDER", 555, 50, { align: "right" });
+  doc.setFontSize(18); doc.text("PURCHASE ORDER", 555, top, { align: "right" });
   doc.setFontSize(10);
-  doc.text(`# ${opts.po_number}`, 555, 68, { align: "right" });
-  doc.text(`Date: ${opts.issued_at}`, 555, 82, { align: "right" });
-  doc.text(`Status: ${opts.status.replace(/_/g, " ").toUpperCase()}`, 555, 96, { align: "right" });
+  doc.text(`# ${opts.po_number}`, 555, top + 18, { align: "right" });
+  doc.text(`Date: ${opts.issued_at}`, 555, top + 32, { align: "right" });
+  doc.text(`Status: ${opts.status.replace(/_/g, " ").toUpperCase()}`, 555, top + 46, { align: "right" });
 
-  y = Math.max(y, 120);
+  y = Math.max(y, top + 70);
   doc.setFontSize(11); doc.text("Supplier", 40, y); y += 16;
   doc.setFontSize(10);
   doc.text(opts.supplier?.name ?? "—", 40, y); y += 14;
@@ -682,18 +730,22 @@ export function generatePurchaseOrderPdf(opts: {
   }
 }
 
-export function generateReportPdf(
+export async function generateReportPdf(
   title: string,
   columns: { key: string; label: string }[],
   rows: Record<string, unknown>[],
   action: PdfAction = "download",
+  company?: { name?: string | null; logo_url?: string | null } | null,
 ) {
   const doc = new jsPDF({ unit: "pt", format: "a4", orientation: columns.length > 6 ? "landscape" : "portrait" });
-  doc.setFontSize(16); doc.text(title, 40, 40);
-  doc.setFontSize(9); doc.text(`Generated ${new Date().toLocaleString()}`, 40, 56);
+  const top = await drawLogoHeader(doc, company?.logo_url, 40);
+  let y = top;
+  if (company?.name) { doc.setFontSize(10); doc.text(company.name, 40, y); y += 16; }
+  doc.setFontSize(16); doc.text(title, 40, y); y += 16;
+  doc.setFontSize(9); doc.text(`Generated ${new Date().toLocaleString()}`, 40, y); y += 16;
 
   autoTable(doc, {
-    startY: 72,
+    startY: y,
     head: [columns.map((c) => c.label)],
     body: rows.map((r) => columns.map((c) => (r[c.key] == null ? "—" : String(r[c.key])))),
     styles: { fontSize: 8 },

@@ -218,7 +218,7 @@ function LedgerPage() {
         newValue: { receipt_number: res.receipt_number, amount: input.amount, method: input.method },
       });
       generateReceiptPdf({
-        company: { name: settings.data?.company_name ?? "FMIS", address: settings.data?.address, phone: settings.data?.phone },
+        company: { name: settings.data?.company_name ?? "FMIS", address: settings.data?.address, phone: settings.data?.phone, logo_url: settings.data?.logo_url },
         receipt_number: res.receipt_number, payment_date: input.date,
         customer_name: input.customer_name, invoice_number: input.invoice_number || undefined,
         amount: input.amount, payment_method: input.method, remarks: input.remarks,

@@ -108,7 +108,7 @@ function PurchaseOrdersPage() {
   const printPo = (row: PoRow) => {
     generatePurchaseOrderPdf(
       {
-        company: { name: settings.data?.company_name ?? "FMIS", address: settings.data?.address, phone: settings.data?.phone, email: settings.data?.email },
+        company: { name: settings.data?.company_name ?? "FMIS", address: settings.data?.address, phone: settings.data?.phone, email: settings.data?.email, logo_url: settings.data?.logo_url },
         po_number: row.po_number,
         issued_at: new Date(row.issued_at).toLocaleString(),
         issued_by_name: row.issued_by_name,
@@ -310,17 +310,20 @@ function CreatePoDialog({ candidates, onDone }: { candidates: ApprovedRequest[];
 function ReceiveDialog({ row, onDone }: { row: PoRow; onDone: () => void }) {
   const outstanding = Number(row.quantity_ordered) - Number(row.quantity_received);
   const [quantity, setQuantity] = useState(outstanding);
+  const [damagedQuantity, setDamagedQuantity] = useState(0);
   const [unitCost, setUnitCost] = useState<number | "">(row.unit_cost != null ? Number(row.unit_cost) : "");
   const [deliveryReference, setDeliveryReference] = useState("");
   const [remarks, setRemarks] = useState("");
+  const accepted = Math.max(quantity - damagedQuantity, 0);
 
   const submit = useMutation({
     mutationFn: async () => {
       if (quantity <= 0) throw new Error("Quantity must be > 0");
       if (quantity > outstanding) throw new Error(`Cannot exceed the ${num(outstanding)} ${row.unit ?? ""} still outstanding`);
+      if (damagedQuantity < 0 || damagedQuantity > quantity) throw new Error("Damaged quantity must be between 0 and the received quantity");
       const { error } = await supabase.rpc("submit_goods_receipt", {
         payload: {
-          purchase_order_id: row.id, quantity,
+          purchase_order_id: row.id, quantity, damaged_quantity: damagedQuantity,
           unit_cost: unitCost === "" ? undefined : unitCost,
           delivery_reference: deliveryReference || undefined, remarks: remarks || undefined,
         } as any,
@@ -341,13 +344,15 @@ function ReceiveDialog({ row, onDone }: { row: PoRow; onDone: () => void }) {
         </p>
         <div className="grid grid-cols-2 gap-3">
           <div><Label>Quantity received</Label><Input type="number" min={0.001} max={outstanding} step="0.001" value={quantity} onChange={(e) => setQuantity(Number(e.target.value))} /></div>
-          <div><Label>Unit cost</Label><Input type="number" min={0} step="0.01" value={unitCost} onChange={(e) => setUnitCost(e.target.value === "" ? "" : Number(e.target.value))} /></div>
+          <div><Label>Damaged quantity</Label><Input type="number" min={0} max={quantity} step="0.001" value={damagedQuantity} onChange={(e) => setDamagedQuantity(Number(e.target.value))} /></div>
         </div>
+        <p className="text-xs text-muted-foreground">Accepted quantity: {num(accepted)} {row.unit} — only this posts to stock; damaged goes to the damage ledger.</p>
+        <div><Label>Unit cost</Label><Input type="number" min={0} step="0.01" value={unitCost} onChange={(e) => setUnitCost(e.target.value === "" ? "" : Number(e.target.value))} /></div>
         <div><Label>Delivery reference</Label><Input value={deliveryReference} onChange={(e) => setDeliveryReference(e.target.value)} placeholder="Waybill / delivery note number" /></div>
         <div><Label>Remarks</Label><Textarea rows={2} value={remarks} onChange={(e) => setRemarks(e.target.value)} /></div>
       </div>
       <DialogFooter>
-        <Button disabled={submit.isPending || quantity <= 0} onClick={() => submit.mutate()}>{submit.isPending ? "Submitting…" : "Submit for Confirmation"}</Button>
+        <Button disabled={submit.isPending || quantity <= 0 || damagedQuantity > quantity} onClick={() => submit.mutate()}>{submit.isPending ? "Submitting…" : "Submit for Confirmation"}</Button>
       </DialogFooter>
     </DialogContent>
   );

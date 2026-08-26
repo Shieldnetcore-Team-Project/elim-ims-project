@@ -106,7 +106,7 @@ function PayrollPage() {
 
   const printPayslip = (r: PayrollRow, action: "print" | "download") => {
     generatePayslipPdf({
-      company: { name: settings.data?.company_name ?? "FMIS", address: settings.data?.address, phone: settings.data?.phone },
+      company: { name: settings.data?.company_name ?? "FMIS", address: settings.data?.address, phone: settings.data?.phone, logo_url: settings.data?.logo_url },
       employee: {
         code: r.employees?.employee_code ?? null, name: r.employees?.full_name ?? "—",
         department: r.employees?.department, position: r.employees?.position,

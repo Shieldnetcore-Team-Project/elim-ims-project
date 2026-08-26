@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.15"
+    PostgrestVersion: "14.17"
   }
   graphql_public: {
     Tables: {
@@ -186,6 +186,7 @@ export type Database = {
           line_total: number
           material_id: string
           quantity: number
+          role: string | null
           sheet_id: string
           unit_cost: number
         }
@@ -194,6 +195,7 @@ export type Database = {
           line_total: number
           material_id: string
           quantity: number
+          role?: string | null
           sheet_id: string
           unit_cost: number
         }
@@ -202,6 +204,7 @@ export type Database = {
           line_total?: number
           material_id?: string
           quantity?: number
+          role?: string | null
           sheet_id?: string
           unit_cost?: number
         }
@@ -243,6 +246,7 @@ export type Database = {
           product_id: string
           reject_reason: string | null
           sheet_number: string
+          sheet_type: string | null
           status: string
           total_cost: number
           unit_cost: number
@@ -268,6 +272,7 @@ export type Database = {
           product_id: string
           reject_reason?: string | null
           sheet_number: string
+          sheet_type?: string | null
           status?: string
           total_cost?: number
           unit_cost?: number
@@ -293,6 +298,7 @@ export type Database = {
           product_id?: string
           reject_reason?: string | null
           sheet_number?: string
+          sheet_type?: string | null
           status?: string
           total_cost?: number
           unit_cost?: number
@@ -1000,8 +1006,10 @@ export type Database = {
       }
       goods_receipts: {
         Row: {
+          accepted_quantity: number | null
           confirmed_at: string | null
           confirmed_by: string | null
+          damaged_quantity: number
           delivery_reference: string | null
           factory_id: string
           id: string
@@ -1020,8 +1028,10 @@ export type Database = {
           unit_cost: number | null
         }
         Insert: {
+          accepted_quantity?: number | null
           confirmed_at?: string | null
           confirmed_by?: string | null
+          damaged_quantity?: number
           delivery_reference?: string | null
           factory_id: string
           id?: string
@@ -1040,8 +1050,10 @@ export type Database = {
           unit_cost?: number | null
         }
         Update: {
+          accepted_quantity?: number | null
           confirmed_at?: string | null
           confirmed_by?: string | null
+          damaged_quantity?: number
           delivery_reference?: string | null
           factory_id?: string
           id?: string
@@ -1161,6 +1173,7 @@ export type Database = {
           factory_id: string
           id: string
           name: string
+          product_line: string | null
         }
         Insert: {
           created_at?: string
@@ -1168,6 +1181,7 @@ export type Database = {
           factory_id: string
           id?: string
           name: string
+          product_line?: string | null
         }
         Update: {
           created_at?: string
@@ -1175,6 +1189,7 @@ export type Database = {
           factory_id?: string
           id?: string
           name?: string
+          product_line?: string | null
         }
         Relationships: [
           {
@@ -1451,6 +1466,7 @@ export type Database = {
           factory_id: string
           id: string
           name: string
+          product_line: string | null
         }
         Insert: {
           created_at?: string
@@ -1458,6 +1474,7 @@ export type Database = {
           factory_id: string
           id?: string
           name: string
+          product_line?: string | null
         }
         Update: {
           created_at?: string
@@ -1465,6 +1482,7 @@ export type Database = {
           factory_id?: string
           id?: string
           name?: string
+          product_line?: string | null
         }
         Relationships: [
           {
@@ -1472,6 +1490,47 @@ export type Database = {
             columns: ["factory_id"]
             isOneToOne: false
             referencedRelation: "factories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      product_price_history: {
+        Row: {
+          approved_by: string | null
+          created_at: string
+          created_by: string | null
+          effective_date: string
+          id: string
+          previous_price: number | null
+          price: number
+          product_id: string
+        }
+        Insert: {
+          approved_by?: string | null
+          created_at?: string
+          created_by?: string | null
+          effective_date?: string
+          id?: string
+          previous_price?: number | null
+          price: number
+          product_id: string
+        }
+        Update: {
+          approved_by?: string | null
+          created_at?: string
+          created_by?: string | null
+          effective_date?: string
+          id?: string
+          previous_price?: number | null
+          price?: number
+          product_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_price_history_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
             referencedColumns: ["id"]
           },
         ]
@@ -2642,6 +2701,7 @@ export type Database = {
           product_id: string | null
           quantity_delta: number
           reason: string | null
+          reference_number: string
           review_reason: string | null
           review_status: string
           reviewed_at: string | null
@@ -2659,6 +2719,7 @@ export type Database = {
           product_id?: string | null
           quantity_delta: number
           reason?: string | null
+          reference_number: string
           review_reason?: string | null
           review_status?: string
           reviewed_at?: string | null
@@ -2676,6 +2737,7 @@ export type Database = {
           product_id?: string | null
           quantity_delta?: number
           reason?: string | null
+          reference_number?: string
           review_reason?: string | null
           review_status?: string
           reviewed_at?: string | null
@@ -2978,8 +3040,6 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      adjust_finished_stock: { Args: { payload: Json }; Returns: Json }
-      adjust_raw_material: { Args: { payload: Json }; Returns: Json }
       approve_costing_sheet: {
         Args: { p_comment?: string; p_id: string }
         Returns: Json
@@ -3087,14 +3147,12 @@ export type Database = {
         Returns: Json
       }
       create_cash_transaction: { Args: { payload: Json }; Returns: Json }
-      create_costing_sheet: { Args: { payload: Json }; Returns: Json }
       create_delivery: { Args: { payload: Json }; Returns: Json }
       create_production: { Args: { payload: Json }; Returns: Json }
       create_production_request: { Args: { payload: Json }; Returns: Json }
       create_purchase_order: { Args: { payload: Json }; Returns: Json }
       create_sale: { Args: { payload: Json }; Returns: Json }
       create_sales_return: { Args: { payload: Json }; Returns: Json }
-      delete_production: { Args: { p_id: string }; Returns: Json }
       delete_user_account: { Args: { target_id: string }; Returns: Json }
       flag_payment: { Args: { p_id: string; p_reason: string }; Returns: Json }
       get_all_users_last_login: {
@@ -3162,7 +3220,6 @@ export type Database = {
         Returns: Json
       }
       process_payroll: { Args: { payload: Json }; Returns: Json }
-      receive_raw_material: { Args: { payload: Json }; Returns: Json }
       record_payment: { Args: { payload: Json }; Returns: Json }
       record_workflow_action: {
         Args: {

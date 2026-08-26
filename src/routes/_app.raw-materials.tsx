@@ -19,6 +19,7 @@ import { toast } from "sonner";
 import { Plus, PackagePlus, PackageMinus, SlidersHorizontal, Printer, Pencil, History, Boxes, AlertTriangle, Wallet, ArrowLeftRight, Send, Ban, Undo2, ShoppingCart, Check, X } from "lucide-react";
 import { generateStockCardPdf } from "@/lib/pdf";
 import { useUnitsOfMeasure, UNIT_OPTIONS as UNIT_OPTIONS_FALLBACK } from "@/lib/units";
+import { ADJUSTMENT_REASONS } from "@/lib/adjustment-reasons";
 
 export const Route = createFileRoute("/_app/raw-materials")({
   head: () => ({ meta: [{ title: "Raw Materials — FMIS" }, { name: "robots", content: "noindex" }] }),
@@ -43,12 +44,12 @@ type Movement = {
   user_id: string | null; created_at: string; quantity_before: number | null; quantity_after: number | null;
 };
 type PendingAdjustment = {
-  id: string; material_id: string | null; quantity_delta: number; reason: string | null;
+  id: string; reference_number: string; material_id: string | null; quantity_delta: number; reason: string | null;
   submitted_by: string; submitted_at: string; status: string;
   raw_materials: { name: string; unit: string } | null;
 };
 type PendingReceipt = {
-  id: string; receipt_number: string; material_id: string; quantity: number; status: string;
+  id: string; receipt_number: string; material_id: string; quantity: number; damaged_quantity: number; accepted_quantity: number; status: string;
   submitted_by: string; submitted_at: string;
   raw_materials: { name: string; unit: string } | null;
 };
@@ -146,7 +147,7 @@ function RawMaterialsPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("stock_adjustment_requests")
-        .select("id,material_id,quantity_delta,reason,submitted_by,submitted_at,status,raw_materials(name,unit)")
+        .select("id,reference_number,material_id,quantity_delta,reason,submitted_by,submitted_at,status,raw_materials(name,unit)")
         .eq("factory_id", factoryId!).eq("entity_type", "raw_material").in("status", ["pending_approval", "approved"])
         .order("submitted_at", { ascending: false });
       if (error) throw error;
@@ -160,7 +161,7 @@ function RawMaterialsPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("goods_receipts")
-        .select("id,receipt_number,material_id,quantity,status,submitted_by,submitted_at,raw_materials(name,unit)")
+        .select("id,receipt_number,material_id,quantity,damaged_quantity,accepted_quantity,status,submitted_by,submitted_at,raw_materials(name,unit)")
         .eq("factory_id", factoryId!).eq("status", "pending_confirmation")
         .order("submitted_at", { ascending: false });
       if (error) throw error;
@@ -290,7 +291,7 @@ function RawMaterialsPage() {
       .eq("material_id", m.id).order("created_at", { ascending: false }).limit(50);
     if (error) { toast.error(error.message); return; }
     generateStockCardPdf({
-      company: { name: settings.data?.company_name ?? "FMIS", address: settings.data?.address, phone: settings.data?.phone },
+      company: { name: settings.data?.company_name ?? "FMIS", address: settings.data?.address, phone: settings.data?.phone, logo_url: settings.data?.logo_url },
       title: "Raw Material Card", item_name: m.name, unit: m.unit,
       current_stock: Number(m.current_stock), unit_cost: Number(m.unit_cost),
       total_value: Number(m.current_stock) * Number(m.unit_cost), reorder_level: m.reorder_level,
@@ -440,7 +441,9 @@ function RawMaterialsPage() {
                 <TableRow>
                   <TableHead>Receipt #</TableHead>
                   <TableHead>Material</TableHead>
-                  <TableHead className="text-right">Quantity</TableHead>
+                  <TableHead className="text-right">Received</TableHead>
+                  <TableHead className="text-right">Damaged</TableHead>
+                  <TableHead className="text-right">Accepted</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Submitted</TableHead>
                   <TableHead></TableHead>
@@ -454,6 +457,8 @@ function RawMaterialsPage() {
                       <TableCell className="font-medium">{r.receipt_number}</TableCell>
                       <TableCell>{r.raw_materials?.name ?? "—"}</TableCell>
                       <TableCell className="text-right">{num(Number(r.quantity))} {r.raw_materials?.unit ?? ""}</TableCell>
+                      <TableCell className="text-right text-destructive">{Number(r.damaged_quantity) > 0 ? `${num(Number(r.damaged_quantity))} ${r.raw_materials?.unit ?? ""}` : "—"}</TableCell>
+                      <TableCell className="text-right">{num(Number(r.accepted_quantity))} {r.raw_materials?.unit ?? ""}</TableCell>
                       <TableCell><Badge variant="outline" className="capitalize">{r.status.replace(/_/g, " ")}</Badge></TableCell>
                       <TableCell className="text-xs text-muted-foreground">{new Date(r.submitted_at).toLocaleString()}</TableCell>
                       <TableCell>
@@ -491,6 +496,7 @@ function RawMaterialsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead>Reference</TableHead>
                   <TableHead>Material</TableHead>
                   <TableHead className="text-right">Quantity</TableHead>
                   <TableHead>Reason</TableHead>
@@ -504,6 +510,7 @@ function RawMaterialsPage() {
                   const isSelf = a.submitted_by === currentUser.data;
                   return (
                   <TableRow key={a.id}>
+                    <TableCell className="font-mono text-xs">{a.reference_number}</TableCell>
                     <TableCell className="font-medium">{a.raw_materials?.name ?? "—"}</TableCell>
                     <TableCell className="text-right text-destructive">{num(Number(a.quantity_delta))} {a.raw_materials?.unit ?? ""}</TableCell>
                     <TableCell className="text-muted-foreground">{a.reason ?? "—"}</TableCell>
@@ -718,17 +725,20 @@ function MaterialForm({ factoryId, suppliers, categories, editing, onDone }: {
 
 function ReceiveDialog({ material, suppliers, onDone }: { material: Material; suppliers: Supplier[]; onDone: () => void }) {
   const [quantity, setQuantity] = useState(0);
+  const [damagedQuantity, setDamagedQuantity] = useState(0);
   const [unitCost, setUnitCost] = useState(Number(material.unit_cost));
   const [supplierId, setSupplierId] = useState(material.supplier_id ?? "none");
   const [deliveryReference, setDeliveryReference] = useState("");
   const [remarks, setRemarks] = useState("");
+  const accepted = Math.max(quantity - damagedQuantity, 0);
 
   const submit = useMutation({
     mutationFn: async () => {
       if (quantity <= 0) throw new Error("Quantity must be > 0");
+      if (damagedQuantity < 0 || damagedQuantity > quantity) throw new Error("Damaged quantity must be between 0 and the received quantity");
       const { error } = await supabase.rpc("submit_goods_receipt", {
         payload: {
-          material_id: material.id, quantity, unit_cost: unitCost,
+          material_id: material.id, quantity, damaged_quantity: damagedQuantity, unit_cost: unitCost,
           supplier_id: supplierId === "none" ? null : supplierId,
           delivery_reference: deliveryReference || null, remarks: remarks || null,
         } as any,
@@ -746,8 +756,10 @@ function ReceiveDialog({ material, suppliers, onDone }: { material: Material; su
         <p className="text-xs text-muted-foreground">Dual control: this only posts to stock once someone else confirms it.</p>
         <div className="grid grid-cols-2 gap-3">
           <div><Label>Quantity received</Label><Input type="number" min={0.001} step="0.001" value={quantity} onChange={(e) => setQuantity(Number(e.target.value))} /></div>
-          <div><Label>Unit cost</Label><Input type="number" min={0} step="0.01" value={unitCost} onChange={(e) => setUnitCost(Number(e.target.value))} /></div>
+          <div><Label>Damaged quantity</Label><Input type="number" min={0} max={quantity} step="0.001" value={damagedQuantity} onChange={(e) => setDamagedQuantity(Number(e.target.value))} /></div>
         </div>
+        <p className="text-xs text-muted-foreground">Accepted quantity: {num(accepted)} {material.unit} — only this posts to stock; damaged goes to the damage ledger.</p>
+        <div><Label>Unit cost</Label><Input type="number" min={0} step="0.01" value={unitCost} onChange={(e) => setUnitCost(Number(e.target.value))} /></div>
         <div><Label>Delivery reference</Label><Input value={deliveryReference} onChange={(e) => setDeliveryReference(e.target.value)} placeholder="Waybill / delivery note number" /></div>
         <div>
           <Label>Supplier</Label>
@@ -762,7 +774,7 @@ function ReceiveDialog({ material, suppliers, onDone }: { material: Material; su
         <div><Label>Remarks</Label><Textarea rows={2} value={remarks} onChange={(e) => setRemarks(e.target.value)} /></div>
       </div>
       <DialogFooter>
-        <Button disabled={submit.isPending || quantity <= 0} onClick={() => submit.mutate()}>{submit.isPending ? "Submitting…" : "Submit for Confirmation"}</Button>
+        <Button disabled={submit.isPending || quantity <= 0 || damagedQuantity > quantity} onClick={() => submit.mutate()}>{submit.isPending ? "Submitting…" : "Submit for Confirmation"}</Button>
       </DialogFooter>
     </DialogContent>
   );
@@ -796,6 +808,7 @@ function RequestPurchaseDialog({ material, onDone }: { material: Material; onDon
       <DialogHeader><DialogTitle>Request Purchase — {material.name}</DialogTitle></DialogHeader>
       <div className="grid gap-3">
         <p className="text-xs text-muted-foreground">Low stock: {num(Number(material.current_stock))} {material.unit} on hand, reorder level {num(Number(material.reorder_level ?? 0))}.</p>
+        <p className="text-xs text-muted-foreground">Supplier: {material.suppliers?.name ?? "— none on file —"}</p>
         <div><Label>Your name</Label><Input value={requestedByName} onChange={(e) => setRequestedByName(e.target.value)} /></div>
         <div><Label>Quantity to request</Label><Input type="number" min={0.001} step="0.001" value={quantity} onChange={(e) => setQuantity(Number(e.target.value))} /></div>
         <div><Label>Remarks</Label><Textarea rows={2} value={remarks} onChange={(e) => setRemarks(e.target.value)} /></div>
@@ -854,14 +867,19 @@ function IssueDialog({ material, onDone }: { material: Material; onDone: () => v
 }
 
 function AdjustDialog({ material, onDone }: { material: Material; onDone: () => void }) {
-  const [delta, setDelta] = useState(0);
-  const [reason, setReason] = useState("");
+  const oldQuantity = Number(material.current_stock);
+  const [newQuantity, setNewQuantity] = useState(oldQuantity);
+  const [reasonCategory, setReasonCategory] = useState<string>(ADJUSTMENT_REASONS[0]);
+  const [otherDetail, setOtherDetail] = useState("");
+  const delta = newQuantity - oldQuantity;
+  const reason = reasonCategory === "Other" ? otherDetail.trim() : reasonCategory;
 
   const submit = useMutation({
     mutationFn: async () => {
-      if (delta === 0) throw new Error("Enter a non-zero adjustment");
+      if (delta === 0) throw new Error("New quantity is the same as the current stock — enter a different value");
+      if (!reason) throw new Error("Describe the reason for this adjustment");
       const { error } = await supabase.rpc("request_stock_adjustment", {
-        payload: { entity_type: "raw_material", material_id: material.id, quantity_delta: delta, reason: reason || null } as any,
+        payload: { entity_type: "raw_material", material_id: material.id, quantity_delta: delta, reason } as any,
       });
       if (error) throw error;
     },
@@ -873,12 +891,31 @@ function AdjustDialog({ material, onDone }: { material: Material; onDone: () => 
     <DialogContent>
       <DialogHeader><DialogTitle>Adjust Stock — {material.name}</DialogTitle></DialogHeader>
       <div className="grid gap-3">
-        <div><Label>Adjustment (negative to reduce, positive to increase)</Label><Input type="number" step="0.001" value={delta} onChange={(e) => setDelta(Number(e.target.value))} /></div>
-        <div><Label>Reason</Label><Textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} /></div>
+        <div className="grid grid-cols-3 gap-3">
+          <div><Label>Old quantity</Label><Input type="number" value={oldQuantity} disabled /></div>
+          <div><Label>New quantity</Label><Input type="number" step="0.001" value={newQuantity} onChange={(e) => setNewQuantity(Number(e.target.value))} /></div>
+          <div>
+            <Label>Difference</Label>
+            <Input value={`${delta > 0 ? "+" : ""}${num(delta)} ${material.unit}`} disabled
+              className={delta < 0 ? "text-destructive" : delta > 0 ? "text-success" : ""} />
+          </div>
+        </div>
+        <div>
+          <Label>Reason</Label>
+          <Select value={reasonCategory} onValueChange={setReasonCategory}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {ADJUSTMENT_REASONS.map((r) => (<SelectItem key={r} value={r}>{r}</SelectItem>))}
+            </SelectContent>
+          </Select>
+        </div>
+        {reasonCategory === "Other" && (
+          <div><Label>Describe the reason</Label><Textarea rows={2} value={otherDetail} onChange={(e) => setOtherDetail(e.target.value)} /></div>
+        )}
         <p className="text-xs text-muted-foreground">Both increases and reductions require a second person's approval — this submits a request instead of adjusting stock immediately.</p>
       </div>
       <DialogFooter>
-        <Button disabled={submit.isPending || delta === 0} onClick={() => submit.mutate()}>
+        <Button disabled={submit.isPending || delta === 0 || !reason} onClick={() => submit.mutate()}>
           {submit.isPending ? "Submitting…" : "Submit for approval"}
         </Button>
       </DialogFooter>

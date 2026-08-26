@@ -3,7 +3,7 @@ import { RequireAccess } from "@/components/layout/require-access";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useFactoryId } from "@/lib/use-factory";
+import { useFactoryId, useFactorySettings } from "@/lib/use-factory";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,7 +14,7 @@ import { FileDown, FileSpreadsheet, Printer, FileText } from "lucide-react";
 import { generateReportPdf } from "@/lib/pdf";
 import { exportCsv, exportExcel, type ReportColumn } from "@/lib/export";
 import { logAudit } from "@/lib/audit";
-import { startOfDay, startOfWeek, startOfMonth, startOfYear, format } from "date-fns";
+import { startOfDay, endOfDay, subDays, startOfWeek, startOfMonth, startOfYear, format } from "date-fns";
 
 export const Route = createFileRoute("/_app/reports")({
   head: () => ({ meta: [{ title: "Reports — FMIS" }, { name: "robots", content: "noindex" }] }),
@@ -46,18 +46,22 @@ const REPORTS: { key: ReportKey; label: string }[] = [
   { key: "suppliers", label: "Suppliers" },
 ];
 
-type RangeKey = "daily" | "weekly" | "monthly" | "yearly" | "custom" | "all";
+type RangeKey = "today" | "yesterday" | "daily" | "weekly" | "monthly" | "yearly" | "custom" | "all";
 const RANGES: { key: RangeKey; label: string }[] = [
   { key: "all", label: "All time" },
-  { key: "daily", label: "Daily" },
-  { key: "weekly", label: "Weekly" },
-  { key: "monthly", label: "Monthly" },
-  { key: "yearly", label: "Yearly" },
+  { key: "today", label: "Today" },
+  { key: "yesterday", label: "Yesterday" },
+  { key: "daily", label: "Last 24h" },
+  { key: "weekly", label: "This Week" },
+  { key: "monthly", label: "This Month" },
+  { key: "yearly", label: "This Year" },
   { key: "custom", label: "Custom Date" },
 ];
 
 function rangeBounds(key: RangeKey, from: string, to: string): { start: string | null; end: string | null } {
   const now = new Date();
+  if (key === "today") return { start: startOfDay(now).toISOString(), end: endOfDay(now).toISOString() };
+  if (key === "yesterday") { const y = subDays(now, 1); return { start: startOfDay(y).toISOString(), end: endOfDay(y).toISOString() }; }
   if (key === "daily") return { start: startOfDay(now).toISOString(), end: null };
   if (key === "weekly") return { start: startOfWeek(now).toISOString(), end: null };
   if (key === "monthly") return { start: startOfMonth(now).toISOString(), end: null };
@@ -66,8 +70,14 @@ function rangeBounds(key: RangeKey, from: string, to: string): { start: string |
   return { start: null, end: null };
 }
 
+type ProductionReportFilters = {
+  productionTypeId?: string; department?: string; supervisor?: string;
+  status?: string; productId?: string; batchNumber?: string;
+};
+
 async function fetchReport(
   key: ReportKey, factoryId: string, dateField: string, start: string | null, end: string | null,
+  productionFilters?: ProductionReportFilters,
 ): Promise<{ columns: ReportColumn[]; rows: Record<string, unknown>[] }> {
   const applyRange = <T,>(q: T): T => {
     let query = q as any;
@@ -94,10 +104,16 @@ async function fetchReport(
       };
     }
     case "production": {
-      const { data, error } = await applyRange(
-        supabase.from("production").select("production_number,production_date,created_at,quantity_produced,unit,production_cost,supervisor,batch_number,department,production_scope,status,products(name),production_types(name)")
-          .eq("factory_id", factoryId).order("production_date", { ascending: false }),
-      );
+      let q = supabase.from("production")
+        .select("production_number,production_date,created_at,quantity_produced,unit,production_cost,supervisor,batch_number,department,production_scope,status,product_id,production_type_id,products(name),production_types(name)")
+        .eq("factory_id", factoryId);
+      if (productionFilters?.productionTypeId) q = q.eq("production_type_id", productionFilters.productionTypeId) as any;
+      if (productionFilters?.department) q = q.ilike("department", `%${productionFilters.department}%`) as any;
+      if (productionFilters?.supervisor) q = q.ilike("supervisor", `%${productionFilters.supervisor}%`) as any;
+      if (productionFilters?.status) q = q.eq("status", productionFilters.status) as any;
+      if (productionFilters?.productId) q = q.eq("product_id", productionFilters.productId) as any;
+      if (productionFilters?.batchNumber) q = q.ilike("batch_number", `%${productionFilters.batchNumber}%`) as any;
+      const { data, error } = await applyRange(q.order("production_date", { ascending: false }));
       if (error) throw error;
       return {
         columns: [
@@ -323,17 +339,51 @@ const DATE_FIELDS: Record<ReportKey, string> = {
 
 function ReportsPage() {
   const { data: factoryId } = useFactoryId();
+  const settings = useFactorySettings(factoryId);
   const [reportKey, setReportKey] = useState<ReportKey>("sales");
   const [range, setRange] = useState<RangeKey>("monthly");
   const [customFrom, setCustomFrom] = useState(format(new Date(), "yyyy-MM-01"));
   const [customTo, setCustomTo] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [prodType, setProdType] = useState("all");
+  const [prodDepartment, setProdDepartment] = useState("");
+  const [prodUser, setProdUser] = useState("");
+  const [prodStatus, setProdStatus] = useState("all");
+  const [prodProduct, setProdProduct] = useState("all");
+  const [prodBatch, setProdBatch] = useState("");
 
   const bounds = useMemo(() => rangeBounds(range, customFrom, customTo), [range, customFrom, customTo]);
+  const productionFilters: ProductionReportFilters = useMemo(() => ({
+    productionTypeId: prodType === "all" ? undefined : prodType,
+    department: prodDepartment || undefined,
+    supervisor: prodUser || undefined,
+    status: prodStatus === "all" ? undefined : prodStatus,
+    productId: prodProduct === "all" ? undefined : prodProduct,
+    batchNumber: prodBatch || undefined,
+  }), [prodType, prodDepartment, prodUser, prodStatus, prodProduct, prodBatch]);
+
+  const productionTypes = useQuery({
+    queryKey: ["report-production-types", factoryId],
+    enabled: !!factoryId && reportKey === "production",
+    queryFn: async () => {
+      const { data, error } = await supabase.from("production_types").select("id,name").eq("active", true).order("name");
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+  const productsForFilter = useQuery({
+    queryKey: ["report-products", factoryId],
+    enabled: !!factoryId && reportKey === "production",
+    queryFn: async () => {
+      const { data, error } = await supabase.from("products").select("id,name").eq("factory_id", factoryId!).order("name");
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
 
   const report = useQuery({
-    queryKey: ["report", reportKey, factoryId, bounds.start, bounds.end],
+    queryKey: ["report", reportKey, factoryId, bounds.start, bounds.end, reportKey === "production" ? productionFilters : null],
     enabled: !!factoryId,
-    queryFn: () => fetchReport(reportKey, factoryId!, DATE_FIELDS[reportKey], bounds.start, bounds.end),
+    queryFn: () => fetchReport(reportKey, factoryId!, DATE_FIELDS[reportKey], bounds.start, bounds.end, reportKey === "production" ? productionFilters : undefined),
   });
 
   const reportLabel = REPORTS.find((r) => r.key === reportKey)?.label ?? "Report";
@@ -345,8 +395,8 @@ function ReportsPage() {
     const name = `${reportLabel}-${format(new Date(), "yyyy-MM-dd")}`;
     if (type === "csv") exportCsv(name, columns, rows);
     else if (type === "excel") exportExcel(name, columns, rows);
-    else if (type === "pdf") generateReportPdf(reportLabel, columns, rows, "download");
-    else generateReportPdf(reportLabel, columns, rows, "print");
+    else if (type === "pdf") generateReportPdf(reportLabel, columns, rows, "download", { name: settings.data?.company_name, logo_url: settings.data?.logo_url });
+    else generateReportPdf(reportLabel, columns, rows, "print", { name: settings.data?.company_name, logo_url: settings.data?.logo_url });
     logAudit({ action: type === "print" ? "print" : "export", entity: "report", factoryId, newValue: { report: reportLabel, format: type, rows: rows.length } });
   };
 
@@ -390,6 +440,47 @@ function ReportsPage() {
             <Button variant="outline" size="sm" className="gap-2" onClick={() => doExport("print")}><Printer className="h-4 w-4" /> Print</Button>
           </div>
         </CardContent>
+        {reportKey === "production" && (
+          <CardContent className="p-4 pt-0 flex flex-wrap items-end gap-3 border-t">
+            <div>
+              <Label className="mb-1 block text-xs">Production Type</Label>
+              <Select value={prodType} onValueChange={setProdType}>
+                <SelectTrigger className="w-[160px]"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All types</SelectItem>
+                  {(productionTypes.data ?? []).map((t) => (<SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="mb-1 block text-xs">Product</Label>
+              <Select value={prodProduct} onValueChange={setProdProduct}>
+                <SelectTrigger className="w-[160px]"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All products</SelectItem>
+                  {(productsForFilter.data ?? []).map((p) => (<SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="mb-1 block text-xs">Status</Label>
+              <Select value={prodStatus} onValueChange={setProdStatus}>
+                <SelectTrigger className="w-[160px]"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All statuses</SelectItem>
+                  <SelectItem value="pending_confirmation">Pending confirmation</SelectItem>
+                  <SelectItem value="confirmed">Confirmed</SelectItem>
+                  <SelectItem value="posted">Posted</SelectItem>
+                  <SelectItem value="rejected">Rejected</SelectItem>
+                  <SelectItem value="cancelled">Cancelled</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div><Label className="mb-1 block text-xs">Department</Label><Input className="w-[140px]" value={prodDepartment} onChange={(e) => setProdDepartment(e.target.value)} placeholder="Any" /></div>
+            <div><Label className="mb-1 block text-xs">User</Label><Input className="w-[140px]" value={prodUser} onChange={(e) => setProdUser(e.target.value)} placeholder="Supervisor name" /></div>
+            <div><Label className="mb-1 block text-xs">Batch</Label><Input className="w-[140px]" value={prodBatch} onChange={(e) => setProdBatch(e.target.value)} placeholder="Any" /></div>
+          </CardContent>
+        )}
       </Card>
 
       <Card className="rounded-2xl">

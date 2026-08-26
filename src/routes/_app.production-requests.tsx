@@ -150,7 +150,7 @@ function ProductionRequestsPage() {
     const items = await fetchItems(row.id);
     generateProductionRequestPdf(
       {
-        company: { name: settings.data?.company_name ?? "FMIS", address: settings.data?.address, phone: settings.data?.phone },
+        company: { name: settings.data?.company_name ?? "FMIS", address: settings.data?.address, phone: settings.data?.phone, logo_url: settings.data?.logo_url },
         request_number: row.request_number,
         request_date: new Date(row.request_date).toLocaleString(),
         requested_by_name: row.requested_by_name,

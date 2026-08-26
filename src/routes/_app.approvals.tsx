@@ -116,8 +116,8 @@ function ApprovalsPage() {
     enabled: canApprove("raw-materials"),
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("stock_adjustment_requests").select("id,quantity_delta,reason,submitted_by,raw_materials(name,unit)")
-        .eq("entity_type", "raw_material").eq("review_status", "pending").limit(50);
+        .from("stock_adjustment_requests").select("id,reference_number,quantity_delta,reason,submitted_by,raw_materials(name,unit)")
+        .eq("entity_type", "raw_material").eq("status", "pending_approval").limit(50);
       if (error) throw error;
       return (data ?? []).filter((r: any) => r.submitted_by !== uid) as any[];
     },
@@ -128,8 +128,8 @@ function ApprovalsPage() {
     enabled: canApprove("finished-goods"),
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("stock_adjustment_requests").select("id,quantity_delta,reason,submitted_by,products(name,unit)")
-        .eq("entity_type", "finished_good").eq("review_status", "pending").limit(50);
+        .from("stock_adjustment_requests").select("id,reference_number,quantity_delta,reason,submitted_by,products(name,unit)")
+        .eq("entity_type", "finished_good").eq("status", "pending_approval").limit(50);
       if (error) throw error;
       return (data ?? []).filter((r: any) => r.submitted_by !== uid) as any[];
     },
@@ -250,8 +250,8 @@ function ApprovalsPage() {
           {(canApprove("raw-materials") || canApprove("finished-goods")) && (
             <QueueCard icon={PackageMinus} title="Stock Write-offs" to="/raw-materials" empty="No stock write-off requests pending."
               rows={[
-                ...(stockRaw.data ?? []).map((r: any) => ({ key: r.id, cells: [r.raw_materials?.name ?? "—", `${r.quantity_delta} ${r.raw_materials?.unit ?? ""}`, r.reason ?? "—"] })),
-                ...(stockFinished.data ?? []).map((r: any) => ({ key: r.id, cells: [r.products?.name ?? "—", `${r.quantity_delta} ${r.products?.unit ?? ""}`, r.reason ?? "—"] })),
+                ...(stockRaw.data ?? []).map((r: any) => ({ key: r.id, cells: [r.reference_number, r.raw_materials?.name ?? "—", `${r.quantity_delta} ${r.raw_materials?.unit ?? ""}`, r.reason ?? "—"] })),
+                ...(stockFinished.data ?? []).map((r: any) => ({ key: r.id, cells: [r.reference_number, r.products?.name ?? "—", `${r.quantity_delta} ${r.products?.unit ?? ""}`, r.reason ?? "—"] })),
               ]}
             />
           )}

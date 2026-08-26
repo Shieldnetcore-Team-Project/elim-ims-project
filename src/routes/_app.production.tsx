@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Pencil, Ban, Printer, Loader2, AlertTriangle } from "lucide-react";
+import { Plus, Pencil, Ban, Printer, FileDown, Loader2, AlertTriangle } from "lucide-react";
 import { money, num } from "@/lib/format";
 import { toast } from "sonner";
 import { generateProductionSlipPdf } from "@/lib/pdf";
@@ -90,7 +90,10 @@ type ProductionRow = {
   remarks: string | null;
   status: string;
   accepted_quantity: number | null;
+  damaged_quantity: number | null;
+  rejected_quantity: number | null;
   confirmed_by: string | null;
+  confirmed_at: string | null;
   department: string | null;
   production_scope: string | null;
   packaging_unit: string | null;
@@ -118,9 +121,11 @@ function ProductionPage() {
   const factoryId = factory.data;
   const settings = useFactorySettings(factoryId);
   const qc = useQueryClient();
-  const { canWrite, canCancel } = usePermissions();
+  const { canWrite, canCancel, canPrint, canExport } = usePermissions();
   const write = canWrite("production");
   const cancel = canCancel("production");
+  const allowPrint = canPrint("production");
+  const allowExport = canExport("production");
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<ProductionRow | null>(null);
 
@@ -142,7 +147,7 @@ function ProductionPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("production")
-        .select("id,production_number,production_date,product_id,quantity_produced,unit,production_cost,supervisor,batch_number,remarks,status,accepted_quantity,confirmed_by,department,production_scope,packaging_unit,packaging_quantity,products(name,unit),production_requests!production_production_request_id_fkey(request_number),production_types(name)")
+        .select("id,production_number,production_date,product_id,quantity_produced,unit,production_cost,supervisor,batch_number,remarks,status,accepted_quantity,damaged_quantity,rejected_quantity,confirmed_by,confirmed_at,department,production_scope,packaging_unit,packaging_quantity,products(name,unit),production_requests!production_production_request_id_fkey(request_number),production_types(name)")
         .eq("factory_id", factoryId!)
         .order("created_at", { ascending: false })
         .limit(300);
@@ -210,9 +215,9 @@ function ProductionPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const print = (row: ProductionRow) => {
+  const print = (row: ProductionRow, action: "print" | "download" = "download") => {
     generateProductionSlipPdf({
-      company: { name: settings.data?.company_name ?? "FMIS", address: settings.data?.address, phone: settings.data?.phone },
+      company: { name: settings.data?.company_name ?? "FMIS", address: settings.data?.address, phone: settings.data?.phone, logo_url: settings.data?.logo_url },
       production_number: row.production_number,
       production_date: row.production_date,
       product_name: row.products?.name ?? "—",
@@ -229,7 +234,12 @@ function ProductionPage() {
       status: row.status,
       packaging_unit: row.packaging_unit,
       packaging_quantity: row.packaging_quantity != null ? Number(row.packaging_quantity) : null,
-    });
+      accepted_quantity: row.accepted_quantity != null ? Number(row.accepted_quantity) : null,
+      damaged_quantity: row.damaged_quantity != null ? Number(row.damaged_quantity) : null,
+      rejected_quantity: row.rejected_quantity != null ? Number(row.rejected_quantity) : null,
+      confirmed_at: row.confirmed_at,
+    }, action);
+    logAudit({ action: action === "print" ? "print" : "export", entity: "production", entityId: row.id, factoryId });
   };
 
   return (
@@ -323,9 +333,16 @@ function ProductionPage() {
                   <TableCell><Badge variant={statusBadge(row.status)} className="capitalize">{row.status.replace(/_/g, " ")}</Badge></TableCell>
                   <TableCell>
                     <div className="flex justify-end gap-1">
-                      <Button variant="ghost" size="icon" title="Print" onClick={() => print(row)}>
-                        <Printer className="h-4 w-4" />
-                      </Button>
+                      {allowPrint && (
+                        <Button variant="ghost" size="icon" title="Print" onClick={() => print(row, "print")}>
+                          <Printer className="h-4 w-4" />
+                        </Button>
+                      )}
+                      {allowExport && (
+                        <Button variant="ghost" size="icon" title="Export PDF" onClick={() => print(row, "download")}>
+                          <FileDown className="h-4 w-4" />
+                        </Button>
+                      )}
                       {row.status === "pending_confirmation" && (
                         <Button variant="ghost" size="icon" title="Edit" onClick={() => { setEditing(row); setFormOpen(true); }}>
                           <Pencil className="h-4 w-4" />

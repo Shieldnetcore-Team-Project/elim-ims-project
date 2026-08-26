@@ -167,7 +167,7 @@ function ExpensesPage() {
 
   const printExpense = (e: Expense, action: "print" | "download") => {
     generateExpenseVoucherPdf({
-      company: { name: settings.data?.company_name ?? "FMIS", address: settings.data?.address, phone: settings.data?.phone },
+      company: { name: settings.data?.company_name ?? "FMIS", address: settings.data?.address, phone: settings.data?.phone, logo_url: settings.data?.logo_url },
       expense_date: e.expense_date, category: e.expense_categories?.name, description: e.description,
       vendor: e.vendor, receipt_number: e.receipt_number, payment_method: e.payment_method, amount: Number(e.amount),
       requested_by: e.requested_by_name, approval_status: e.status, approved_by: e.approved_by,

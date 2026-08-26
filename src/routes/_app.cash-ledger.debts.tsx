@@ -161,7 +161,7 @@ function DebtsPage() {
     onSuccess: ({ res, input }) => {
       toast.success(`Receipt ${res.receipt_number}`);
       generateReceiptPdf({
-        company: { name: settings.data?.company_name ?? "FMIS", address: settings.data?.address, phone: settings.data?.phone },
+        company: { name: settings.data?.company_name ?? "FMIS", address: settings.data?.address, phone: settings.data?.phone, logo_url: settings.data?.logo_url },
         receipt_number: res.receipt_number, payment_date: new Date().toISOString().slice(0, 10),
         customer_name: input.debt.customers?.name, invoice_number: input.debt.sales?.invoice_number,
         amount: input.amount, payment_method: input.method, remarks: input.remarks,
@@ -224,7 +224,7 @@ function DebtsPage() {
       .eq("debt_id", debt.id).order("payment_date");
     if (error) { toast.error(error.message); return; }
     generateDebtStatementPdf({
-      company: { name: settings.data?.company_name ?? "FMIS", address: settings.data?.address, phone: settings.data?.phone },
+      company: { name: settings.data?.company_name ?? "FMIS", address: settings.data?.address, phone: settings.data?.phone, logo_url: settings.data?.logo_url },
       customer: { name: debt.customers?.name ?? "Walk-in", phone: debt.customers?.phone, address: debt.customers?.address },
       invoice_number: debt.sales?.invoice_number,
       products: (debt.sales?.sale_items ?? []).map((it) => ({

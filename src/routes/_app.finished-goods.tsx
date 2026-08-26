@@ -19,6 +19,7 @@ import { toast } from "sonner";
 import { SlidersHorizontal, PackageX, PackageCheck, PackagePlus, ArrowLeftRight, History, Printer, Boxes, Wallet, AlertTriangle, Plus, Pencil, Send, Ban, Check, X, Factory, Trash2 } from "lucide-react";
 import { generateStockCardPdf } from "@/lib/pdf";
 import { useUnitsOfMeasure, UNIT_OPTIONS as UNIT_OPTIONS_FALLBACK } from "@/lib/units";
+import { ADJUSTMENT_REASONS } from "@/lib/adjustment-reasons";
 
 export const Route = createFileRoute("/_app/finished-goods")({
   head: () => ({ meta: [{ title: "Finished Goods — FMIS" }, { name: "robots", content: "noindex" }] }),
@@ -41,7 +42,7 @@ type Movement = {
   quantity_before: number | null; quantity_after: number | null;
 };
 type PendingAdjustment = {
-  id: string; product_id: string | null; quantity_delta: number; reason: string | null;
+  id: string; reference_number: string; product_id: string | null; quantity_delta: number; reason: string | null;
   submitted_by: string; submitted_at: string; status: string;
   products: { name: string; unit: string } | null;
 };
@@ -131,7 +132,7 @@ function FinishedGoodsPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("stock_adjustment_requests")
-        .select("id,product_id,quantity_delta,reason,submitted_by,submitted_at,status,products(name,unit)")
+        .select("id,reference_number,product_id,quantity_delta,reason,submitted_by,submitted_at,status,products(name,unit)")
         .eq("factory_id", factoryId!).eq("entity_type", "finished_good").in("status", ["pending_approval", "approved"])
         .order("submitted_at", { ascending: false });
       if (error) throw error;
@@ -220,7 +221,7 @@ function FinishedGoodsPage() {
       .eq("product_id", p.id).order("created_at", { ascending: false }).limit(50);
     if (error) { toast.error(error.message); return; }
     generateStockCardPdf({
-      company: { name: settings.data?.company_name ?? "FMIS", address: settings.data?.address, phone: settings.data?.phone },
+      company: { name: settings.data?.company_name ?? "FMIS", address: settings.data?.address, phone: settings.data?.phone, logo_url: settings.data?.logo_url },
       title: "Finished Goods Card", item_name: p.name, unit: p.unit,
       current_stock: Number(p.current_stock), unit_cost: Number(p.cost_price),
       total_value: Number(p.current_stock) * Number(p.cost_price), reorder_level: p.reorder_level,
@@ -343,6 +344,7 @@ function FinishedGoodsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead>Reference</TableHead>
                   <TableHead>Product</TableHead>
                   <TableHead className="text-right">Quantity</TableHead>
                   <TableHead>Reason</TableHead>
@@ -356,6 +358,7 @@ function FinishedGoodsPage() {
                   const isSelf = a.submitted_by === currentUser.data;
                   return (
                   <TableRow key={a.id}>
+                    <TableCell className="font-mono text-xs">{a.reference_number}</TableCell>
                     <TableCell className="font-medium">{a.products?.name ?? "—"}</TableCell>
                     <TableCell className="text-right text-destructive">{num(Number(a.quantity_delta))} {a.products?.unit ?? ""}</TableCell>
                     <TableCell className="text-muted-foreground">{a.reason ?? "—"}</TableCell>
@@ -581,15 +584,20 @@ const typeLabels: Record<string, string> = {
 };
 
 function AdjustDialog({ product, type, onDone }: { product: Product; type: "adjusted" | "damaged"; onDone: () => void }) {
-  const [quantity, setQuantity] = useState(0);
-  const [reason, setReason] = useState("");
+  const oldQuantity = Number(product.current_stock);
+  const [newQuantity, setNewQuantity] = useState(oldQuantity);
+  const [damagedQuantity, setDamagedQuantity] = useState(0);
+  const [reasonCategory, setReasonCategory] = useState<string>(type === "damaged" ? "Damaged material" : ADJUSTMENT_REASONS[0]);
+  const [otherDetail, setOtherDetail] = useState("");
+  const delta = type === "adjusted" ? newQuantity - oldQuantity : -Math.abs(damagedQuantity);
+  const reason = reasonCategory === "Other" ? otherDetail.trim() : reasonCategory;
 
   const submit = useMutation({
     mutationFn: async () => {
-      const delta = type === "adjusted" ? quantity : -Math.abs(quantity);
-      if (delta === 0) throw new Error("Enter a non-zero quantity");
+      if (delta === 0) throw new Error(type === "adjusted" ? "New quantity is the same as the current stock — enter a different value" : "Enter a non-zero quantity");
+      if (!reason) throw new Error("Describe the reason for this adjustment");
       const { error } = await supabase.rpc("request_stock_adjustment", {
-        payload: { entity_type: "finished_good", product_id: product.id, quantity_delta: delta, reason: reason || null, movement_type: type } as any,
+        payload: { entity_type: "finished_good", product_id: product.id, quantity_delta: delta, reason, movement_type: type } as any,
       });
       if (error) throw error;
     },
@@ -601,16 +609,38 @@ function AdjustDialog({ product, type, onDone }: { product: Product; type: "adju
     <DialogContent>
       <DialogHeader><DialogTitle>{typeLabels[type]} — {product.name}</DialogTitle></DialogHeader>
       <div className="grid gap-3">
-        <p className="text-sm text-muted-foreground">Available: {num(Number(product.current_stock))} {product.unit}</p>
+        {type === "adjusted" ? (
+          <div className="grid grid-cols-3 gap-3">
+            <div><Label>Old quantity</Label><Input type="number" value={oldQuantity} disabled /></div>
+            <div><Label>New quantity</Label><Input type="number" step="0.001" value={newQuantity} onChange={(e) => setNewQuantity(Number(e.target.value))} /></div>
+            <div>
+              <Label>Difference</Label>
+              <Input value={`${delta > 0 ? "+" : ""}${num(delta)} ${product.unit}`} disabled
+                className={delta < 0 ? "text-destructive" : delta > 0 ? "text-success" : ""} />
+            </div>
+          </div>
+        ) : (
+          <>
+            <p className="text-sm text-muted-foreground">Available: {num(Number(product.current_stock))} {product.unit}</p>
+            <div><Label>Quantity</Label><Input type="number" min={0.001} step="0.001" value={damagedQuantity} onChange={(e) => setDamagedQuantity(Number(e.target.value))} /></div>
+          </>
+        )}
         <div>
-          <Label>{type === "adjusted" ? "Adjustment (negative to reduce)" : "Quantity"}</Label>
-          <Input type="number" step="0.001" value={quantity} onChange={(e) => setQuantity(Number(e.target.value))} />
+          <Label>Reason</Label>
+          <Select value={reasonCategory} onValueChange={setReasonCategory}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {ADJUSTMENT_REASONS.map((r) => (<SelectItem key={r} value={r}>{r}</SelectItem>))}
+            </SelectContent>
+          </Select>
         </div>
-        <div><Label>Reason</Label><Textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} /></div>
+        {reasonCategory === "Other" && (
+          <div><Label>Describe the reason</Label><Textarea rows={2} value={otherDetail} onChange={(e) => setOtherDetail(e.target.value)} /></div>
+        )}
         <p className="text-xs text-muted-foreground">Requires a second person's approval — this submits a request instead of adjusting stock immediately.</p>
       </div>
       <DialogFooter>
-        <Button disabled={submit.isPending || quantity === 0} onClick={() => submit.mutate()}>
+        <Button disabled={submit.isPending || delta === 0 || !reason} onClick={() => submit.mutate()}>
           {submit.isPending ? "Submitting…" : "Submit for approval"}
         </Button>
       </DialogFooter>
@@ -712,6 +742,8 @@ const movementBadge = (type: string): "default" | "secondary" | "outline" | "des
   return "default";
 };
 
+type PriceHistoryRow = { id: string; price: number; previous_price: number | null; effective_date: string; created_by: string | null };
+
 function HistoryDialog({ product }: { product: Product }) {
   const movements = useQuery({
     queryKey: ["finished-goods-movements", product.id],
@@ -722,6 +754,18 @@ function HistoryDialog({ product }: { product: Product }) {
         .eq("product_id", product.id).order("created_at", { ascending: false }).limit(100);
       if (error) throw error;
       return (data ?? []) as Movement[];
+    },
+  });
+
+  const priceHistory = useQuery({
+    queryKey: ["finished-goods-price-history", product.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("product_price_history")
+        .select("id,price,previous_price,effective_date,created_by")
+        .eq("product_id", product.id).order("effective_date", { ascending: false }).limit(50);
+      if (error) throw error;
+      return (data ?? []) as PriceHistoryRow[];
     },
   });
 
@@ -754,6 +798,29 @@ function HistoryDialog({ product }: { product: Product }) {
           ))}
           {(movements.data ?? []).length === 0 && (
             <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-6">No movements yet.</TableCell></TableRow>
+          )}
+        </TableBody>
+      </Table>
+
+      <h3 className="mt-4 text-sm font-medium">Price history</h3>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Effective</TableHead>
+            <TableHead className="text-right">Previous price</TableHead>
+            <TableHead className="text-right">New price</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {(priceHistory.data ?? []).map((h) => (
+            <TableRow key={h.id}>
+              <TableCell>{new Date(h.effective_date).toLocaleString()}</TableCell>
+              <TableCell className="text-right text-muted-foreground">{h.previous_price === null ? "—" : money(Number(h.previous_price))}</TableCell>
+              <TableCell className="text-right font-medium">{money(Number(h.price))}</TableCell>
+            </TableRow>
+          ))}
+          {(priceHistory.data ?? []).length === 0 && (
+            <TableRow><TableCell colSpan={3} className="text-center text-muted-foreground py-6">No price history yet.</TableCell></TableRow>
           )}
         </TableBody>
       </Table>
