@@ -100,7 +100,7 @@ const statusVariant = (status: string): "default" | "secondary" | "outline" | "d
   return "destructive";
 };
 
-function AccountApprovalsPage() {
+export function AccountApprovalsPage() {
   const qc = useQueryClient();
   const isSuperAdmin = useIsSuperAdmin();
   const roles = useAllRoles();

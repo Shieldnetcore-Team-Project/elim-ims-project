@@ -57,7 +57,7 @@ const slugify = (label: string) =>
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "");
 
-function RoleManagementPage() {
+export function RoleManagementPage() {
   const qc = useQueryClient();
   const isSuperAdmin = useIsSuperAdmin();
   const roles = useAllRoles();

@@ -45,7 +45,7 @@ type ConfigRow = {
   description: string | null;
 };
 
-function ApprovalWorkflowsPage() {
+export function ApprovalWorkflowsPage() {
   const isSuperAdmin = useIsSuperAdmin();
   const qc = useQueryClient();
   const [editing, setEditing] = useState<Record<string, number>>({});

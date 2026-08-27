@@ -60,7 +60,7 @@ const actionTone: Record<string, "default" | "secondary" | "outline" | "destruct
   export: "outline",
 };
 
-function AuditLogsPage() {
+export function AuditLogsPage() {
   const [q, setQ] = useState("");
   const [actionFilter, setActionFilter] = useState("all");
   const [detail, setDetail] = useState<LogRow | null>(null);

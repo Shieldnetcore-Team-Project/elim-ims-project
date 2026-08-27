@@ -67,7 +67,7 @@ type RoleGrantRequest = {
   status: string;
 };
 
-function UsersPage() {
+export function UsersPage() {
   const qc = useQueryClient();
   const allRoles = useAllRoles();
   const roleLabel = (slug: string) => allRoles.data?.find((r) => r.slug === slug)?.label ?? slug;

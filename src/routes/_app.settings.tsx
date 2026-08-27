@@ -61,7 +61,7 @@ const BACKUP_TABLES = [
   "employees",
 ] as const;
 
-function SettingsPage() {
+export function SettingsPage() {
   const code = useActiveFactoryCode();
   const { theme, setTheme } = useTheme();
   const qc = useQueryClient();

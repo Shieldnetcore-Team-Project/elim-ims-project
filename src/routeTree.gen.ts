@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as AppAccountApprovalsRouteImport } from './routes/_app.account-approvals'
+import { Route as AppAdminRouteImport } from './routes/_app.admin'
 import { Route as AppApprovalWorkflowsRouteImport } from './routes/_app.approval-workflows'
 import { Route as AppApprovalsRouteImport } from './routes/_app.approvals'
 import { Route as AppAuditLogsRouteImport } from './routes/_app.audit-logs'
@@ -59,6 +60,11 @@ const ResetPasswordRoute = ResetPasswordRouteImport.update({
 const AppAccountApprovalsRoute = AppAccountApprovalsRouteImport.update({
   id: '/account-approvals',
   path: '/account-approvals',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppAdminRoute = AppAdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
   getParentRoute: () => AppRoute,
 } as any)
 const AppApprovalWorkflowsRoute = AppApprovalWorkflowsRouteImport.update({
@@ -206,6 +212,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/reset-password': typeof ResetPasswordRoute
   '/account-approvals': typeof AppAccountApprovalsRoute
+  '/admin': typeof AppAdminRoute
   '/approval-workflows': typeof AppApprovalWorkflowsRoute
   '/approvals': typeof AppApprovalsRoute
   '/audit-logs': typeof AppAuditLogsRoute
@@ -239,6 +246,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/reset-password': typeof ResetPasswordRoute
   '/account-approvals': typeof AppAccountApprovalsRoute
+  '/admin': typeof AppAdminRoute
   '/approval-workflows': typeof AppApprovalWorkflowsRoute
   '/approvals': typeof AppApprovalsRoute
   '/audit-logs': typeof AppAuditLogsRoute
@@ -273,6 +281,7 @@ export interface FileRoutesById {
   '/_app': typeof AppRouteWithChildren
   '/reset-password': typeof ResetPasswordRoute
   '/_app/account-approvals': typeof AppAccountApprovalsRoute
+  '/_app/admin': typeof AppAdminRoute
   '/_app/approval-workflows': typeof AppApprovalWorkflowsRoute
   '/_app/approvals': typeof AppApprovalsRoute
   '/_app/audit-logs': typeof AppAuditLogsRoute
@@ -308,6 +317,7 @@ export interface FileRouteTypes {
     | '/'
     | '/reset-password'
     | '/account-approvals'
+    | '/admin'
     | '/approval-workflows'
     | '/approvals'
     | '/audit-logs'
@@ -341,6 +351,7 @@ export interface FileRouteTypes {
     | '/'
     | '/reset-password'
     | '/account-approvals'
+    | '/admin'
     | '/approval-workflows'
     | '/approvals'
     | '/audit-logs'
@@ -374,6 +385,7 @@ export interface FileRouteTypes {
     | '/_app'
     | '/reset-password'
     | '/_app/account-approvals'
+    | '/_app/admin'
     | '/_app/approval-workflows'
     | '/_app/approvals'
     | '/_app/audit-logs'
@@ -438,6 +450,13 @@ declare module '@tanstack/react-router' {
       path: '/account-approvals'
       fullPath: '/account-approvals'
       preLoaderRoute: typeof AppAccountApprovalsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/admin': {
+      id: '/_app/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AppAdminRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/approval-workflows': {
@@ -657,6 +676,7 @@ const AppCashLedgerRouteWithChildren = AppCashLedgerRoute._addFileChildren(
 
 interface AppRouteChildren {
   AppAccountApprovalsRoute: typeof AppAccountApprovalsRoute
+  AppAdminRoute: typeof AppAdminRoute
   AppApprovalWorkflowsRoute: typeof AppApprovalWorkflowsRoute
   AppApprovalsRoute: typeof AppApprovalsRoute
   AppAuditLogsRoute: typeof AppAuditLogsRoute
@@ -686,6 +706,7 @@ interface AppRouteChildren {
 
 const AppRouteChildren: AppRouteChildren = {
   AppAccountApprovalsRoute: AppAccountApprovalsRoute,
+  AppAdminRoute: AppAdminRoute,
   AppApprovalWorkflowsRoute: AppApprovalWorkflowsRoute,
   AppApprovalsRoute: AppApprovalsRoute,
   AppAuditLogsRoute: AppAuditLogsRoute,

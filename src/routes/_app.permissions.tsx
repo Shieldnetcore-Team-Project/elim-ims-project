@@ -45,7 +45,7 @@ export const Route = createFileRoute("/_app/permissions")({
   ),
 });
 
-function PermissionsPage() {
+export function PermissionsPage() {
   const isSuperAdmin = useIsSuperAdmin();
   const roles = useAllRoles();
   const [module, setModule] = useState<ModuleKey>("expenses");

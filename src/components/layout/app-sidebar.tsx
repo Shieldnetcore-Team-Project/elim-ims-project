@@ -25,22 +25,16 @@ import {
   Truck,
   UserCog,
   FileBarChart,
-  Settings,
-  Shield,
-  ScrollText,
-  UserCheck,
   ClipboardList,
   Calculator,
   PackageCheck,
   CheckSquare,
   HandCoins,
   FileText,
-  KeyRound,
-  Workflow,
-  ShieldPlus,
   FileStack,
   Landmark,
   Undo2,
+  LayoutGrid,
 } from "lucide-react";
 import { usePermissions, type ModuleKey } from "@/lib/permissions";
 
@@ -133,18 +127,10 @@ const nav: { section: string; items: NavItem[] }[] = [
   {
     section: "Administration",
     items: [
-      { title: "Users", url: "/users", icon: Shield, module: "users" },
-      { title: "Role Management", url: "/role-management", icon: ShieldPlus, module: "users" },
-      { title: "Roles & Permissions", url: "/permissions", icon: KeyRound, module: "users" },
-      { title: "Approval Workflows", url: "/approval-workflows", icon: Workflow, module: "users" },
-      {
-        title: "Account Approvals",
-        url: "/account-approvals",
-        icon: UserCheck,
-        module: "account-approvals",
-      },
-      { title: "Audit Logs", url: "/audit-logs", icon: ScrollText, module: "audit-logs" },
-      { title: "System Settings", url: "/settings", icon: Settings, module: "settings" },
+      // Individual admin pages (Users, Role Management, Roles & Permissions,
+      // Approval Workflows, Account Approvals, Audit Logs, System Settings) are
+      // reached from inside the Admin Panel to keep the sidebar short.
+      { title: "Admin Panel", url: "/admin", icon: LayoutGrid, module: "users" },
     ],
   },
 ];
