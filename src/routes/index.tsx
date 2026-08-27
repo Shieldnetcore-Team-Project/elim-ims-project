@@ -87,7 +87,7 @@ function Landing() {
   const [suConfirmPassword, setSuConfirmPassword] = useState("");
 
   const roles = useAllRoles();
-  const requestableRoles = (roles.data ?? []).filter((r) => r.slug !== "super_admin");
+  const requestableRoles = roles.data ?? [];
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
