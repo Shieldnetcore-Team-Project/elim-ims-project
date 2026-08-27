@@ -1,6 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAllRoles, type Role } from "@/lib/permissions";
 import { Button } from "@/components/ui/button";
@@ -84,18 +83,8 @@ function Landing() {
   const [suPhone, setSuPhone] = useState("");
   const [suDepartment, setSuDepartment] = useState("");
   const [suRole, setSuRole] = useState<Role | "">("");
-  const [suFactoryId, setSuFactoryId] = useState("");
   const [suPassword, setSuPassword] = useState("");
   const [suConfirmPassword, setSuConfirmPassword] = useState("");
-
-  const factories = useQuery({
-    queryKey: ["factories-signup"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("factories").select("id,name").order("name");
-      if (error) throw error;
-      return data ?? [];
-    },
-  });
 
   const roles = useAllRoles();
   const requestableRoles = (roles.data ?? []).filter((r) => r.slug !== "super_admin");
@@ -156,7 +145,6 @@ function Landing() {
     e.preventDefault();
     if (suPassword !== suConfirmPassword) return toast.error("Passwords don't match");
     if (!suRole) return toast.error("Select the role you're requesting");
-    if (!suFactoryId) return toast.error("Select your factory");
 
     setLoading(true);
     const { error } = await supabase.auth.signUp({
@@ -170,7 +158,6 @@ function Landing() {
           phone: suPhone || undefined,
           department: suDepartment || undefined,
           role_requested: suRole,
-          requested_factory_id: suFactoryId,
         },
       },
     });
@@ -343,37 +330,20 @@ function Landing() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-2">
-                      <Label>Factory</Label>
-                      <Select value={suFactoryId} onValueChange={setSuFactoryId}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select factory" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {factories.data?.map((f) => (
-                            <SelectItem key={f.id} value={f.id}>
-                              {f.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Role requested</Label>
-                      <Select value={suRole} onValueChange={(v) => setSuRole(v as Role)}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select role" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {requestableRoles.map((r) => (
-                            <SelectItem key={r.slug} value={r.slug}>
-                              {r.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                  <div className="space-y-2">
+                    <Label>Role requested</Label>
+                    <Select value={suRole} onValueChange={(v) => setSuRole(v as Role)}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select role" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {requestableRoles.map((r) => (
+                          <SelectItem key={r.slug} value={r.slug}>
+                            {r.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
