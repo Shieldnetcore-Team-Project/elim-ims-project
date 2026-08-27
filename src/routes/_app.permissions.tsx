@@ -99,7 +99,7 @@ function PermissionsPage() {
       {!isSuperAdmin.data && !isSuperAdmin.isLoading && (
         <Card className="rounded-2xl border-dashed">
           <CardContent className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
-            <ShieldAlert className="h-4 w-4" /> You can view this matrix, but only a Super Admin can
+            <ShieldAlert className="h-4 w-4" /> You can view this matrix, but only an Admin can
             change it.
           </CardContent>
         </Card>
@@ -164,7 +164,7 @@ function PermissionsPage() {
                   colSpan={ALL_ACTIONS.length + 1}
                   className="text-center text-xs text-muted-foreground"
                 >
-                  Super Admin always has every action on every module and isn't shown here.
+                  Admin always has every action on every module and isn't shown here.
                 </TableCell>
               </TableRow>
             </TableBody>

@@ -266,7 +266,7 @@ function AccountApprovalsPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Account Approvals</h1>
         <p className="text-sm text-muted-foreground">
-          Review new registrations and manage account access. Super Admin only.
+          Review new registrations and manage account access. Admin only.
         </p>
       </div>
 

@@ -102,7 +102,7 @@ function ProductionFactoryGate() {
         </CardHeader>
         <CardContent className="text-sm text-muted-foreground">
           Your production scope is <span className="font-medium text-foreground">{scope}</span>{" "}
-          only. Switch the factory in the top bar to continue, or ask a Super Admin to extend your
+          only. Switch the factory in the top bar to continue, or ask an Admin to extend your
           access.
         </CardContent>
       </Card>
@@ -693,7 +693,7 @@ function ProductionForm({
             </Select>
             {eligibleTypes.length === 0 && (
               <p className="mt-1 text-xs text-destructive">
-                No production types are configured for this factory yet — ask a Super Admin to add
+                No production types are configured for this factory yet — ask an Admin to add
                 one in Settings.
               </p>
             )}

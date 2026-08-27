@@ -16,7 +16,7 @@ export function RequireAccess({ module, children }: { module: ModuleKey; childre
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            Your role doesn't have access to this module. Contact a Super Admin or Factory Manager
+            Your role doesn't have access to this module. Contact an Admin or Factory Manager
             if you believe this is a mistake.
           </CardContent>
         </Card>

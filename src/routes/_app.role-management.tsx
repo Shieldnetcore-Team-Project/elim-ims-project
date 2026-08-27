@@ -172,7 +172,7 @@ function RoleManagementPage() {
       {!isSuperAdmin.data && !isSuperAdmin.isLoading && (
         <Card className="rounded-2xl border-dashed">
           <CardContent className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
-            <ShieldAlert className="h-4 w-4" /> You can view roles, but only a Super Admin can
+            <ShieldAlert className="h-4 w-4" /> You can view roles, but only an Admin can
             create or change them.
           </CardContent>
         </Card>

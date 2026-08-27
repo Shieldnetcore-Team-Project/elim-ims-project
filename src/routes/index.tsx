@@ -372,7 +372,7 @@ function Landing() {
                   </div>
 
                   <p className="text-xs text-muted-foreground">
-                    A Super Admin reviews and approves new accounts before you can sign in.
+                    An Admin reviews and approves new accounts before you can sign in.
                   </p>
 
                   <Button type="submit" className="w-full" disabled={loading}>
