@@ -13,6 +13,14 @@ services:
     # Vite is configured to output to repo-root dist.
     staticPublishPath: dist
     pullRequestPreviews: true
+    # SPA fallback: this app uses the HTML5 history API (createBrowserRouter),
+    # so deep links / refreshes on any route other than "/" must serve
+    # index.html instead of a 404. (A public/_redirects file in the build
+    # output does the same thing for manually-created services.)
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
     # Set this to the deployed API URL (e.g. https://elim-erp-api.onrender.com)
     # in the Render dashboard after the API service is live. Vite inlines it
     # at build time, so update + redeploy the static site when it changes.
