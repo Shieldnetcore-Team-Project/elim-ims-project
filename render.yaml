@@ -29,21 +29,23 @@ services:
         sync: false
 
   # --- Backend API (web service) ---
-  # Self-contained Express API using Node's built-in SQLite (node:sqlite).
-  # It migrates + seeds its own DB at boot, so no external database is needed.
+  # Express API backed by Postgres (Supabase). It runs its own migrations at
+  # boot; DATABASE_URL must point at a real, persistent Postgres instance —
+  # set it in the Render dashboard (Environment tab) since it's a secret.
   - type: web
     name: elim-erp-api
     runtime: node
     rootDir: server
-    # Free tier: no Render Disk, so the SQLite DB lives on the ephemeral
-    # instance filesystem and resets on every restart/deploy. Fine for a demo.
-    # To persist data, upgrade to a paid plan and re-add the `disks:` block
-    # + ELIM_DB_PATH env.
     plan: free
     buildCommand: npm install && npm run build
-    # node:sqlite needs the --experimental-sqlite flag on Node 22.x.
-    startCommand: node --experimental-sqlite dist/index.js
+    startCommand: node dist/index.js
     healthCheckPath: /api/health
     envVars:
       - key: NODE_VERSION
         value: "22"
+      - key: DATABASE_URL
+        sync: false
+      # Leave unset (or 'false') in production: seeding is opt-in only and
+      # must never run against a live install with real business data.
+      - key: SEED_DEMO_DATA
+        value: "false"
