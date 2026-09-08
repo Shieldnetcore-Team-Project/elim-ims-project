@@ -1,17 +1,21 @@
 import { defineConfig } from 'vitest/config';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { TEST_DATABASE_URL } from './src/test/testDbUrl.js';
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
-const testDbPath = path.join(dirname, '.vitest-tmp', 'test.db');
 
 export default defineConfig({
   test: {
     environment: 'node',
-    // One shared temp SQLite file for the whole run (reset in globalSetup) —
-    // tests run sequentially so there's no cross-file contention over it.
+    // The whole suite shares one Postgres schema, laid down once in globalSetup.
+    // Tests namespace their rows with uniqueId() so they don't collide, so there
+    // is no per-test reset. Run serially and in a single module context so the
+    // one pg Pool (and the migrate() guard in fixtures) is shared, not recreated
+    // per file.
     fileParallelism: false,
-    env: { ELIM_DB_PATH: testDbPath },
+    isolate: false,
+    env: { DATABASE_URL: TEST_DATABASE_URL },
     globalSetup: path.join(dirname, 'vitest.globalSetup.ts'),
   },
 });

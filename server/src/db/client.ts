@@ -15,9 +15,20 @@ pg.types.setTypeParser(20, (val: string) => parseInt(val, 10));
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) throw new Error('DATABASE_URL environment variable is required');
 
+/** Managed Postgres (Supabase et al.) requires TLS and presents a chain we don't
+ *  pin; a local Docker/CI Postgres speaks plaintext and rejects an SSL handshake
+ *  outright. Decide from the host so the same code runs against both. */
+function resolveSsl(cs: string): pg.PoolConfig['ssl'] {
+  if (/\bsslmode=disable\b/.test(cs)) return false;
+  let host = '';
+  try { host = new URL(cs).hostname; } catch { /* opaque DSN — assume remote */ }
+  if (['localhost', '127.0.0.1', '::1', 'postgres', 'test-db'].includes(host)) return false;
+  return { rejectUnauthorized: false };
+}
+
 const pool = new Pool({
   connectionString,
-  ssl: { rejectUnauthorized: false },
+  ssl: resolveSsl(connectionString),
   // Supabase's pooler closes idle server-side connections aggressively. Keep our
   // own idle timeout shorter than theirs so pg retires a connection before the
   // far end yanks it, enable TCP keep-alive to survive NAT/proxy idle drops, and

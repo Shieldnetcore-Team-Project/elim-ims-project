@@ -8,6 +8,9 @@
     "build": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --banner:js=\"import { createRequire } from 'module'; const require = createRequire(import.meta.url);\"",
     "start": "node --env-file-if-exists=.env dist/index.js",
     "typecheck": "tsc --noEmit",
+    "test:db:up": "docker compose -f ../docker-compose.yml up -d --wait test-db",
+    "test:db:down": "docker compose -f ../docker-compose.yml down",
+    "pretest": "npm run test:db:up",
     "test": "vitest run",
     "test:watch": "vitest"
   },

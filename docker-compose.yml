@@ -1,0 +1,26 @@
+# Local Postgres for the server test suite only (`npm test` / `npm test -w server`).
+# Production uses Render + Supabase — this file is never deployed.
+#
+#   npm run test:db:up   -w server   # start it (blocks until healthy)
+#   npm test             -w server   # runs pretest -> test:db:up automatically
+#   npm run test:db:down -w server   # stop and remove it
+services:
+  test-db:
+    image: postgres:16-alpine
+    container_name: elim-test-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: elim_test
+    ports:
+      # Host 5433 to avoid clashing with any local Postgres on the default 5432.
+      - "5433:5432"
+    tmpfs:
+      # Data lives in RAM: fast, and every `up` starts from a clean slate so
+      # there is nothing to purge between runs.
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d elim_test"]
+      interval: 1s
+      timeout: 3s
+      retries: 30

@@ -2,11 +2,15 @@ import { db } from '../db/client.js';
 import { migrate } from '../db/migrate.js';
 
 let migrated = false;
-/** migrate() is idempotent (CREATE TABLE IF NOT EXISTS / guarded ensureColumn calls),
- *  so every test file can call this in its own beforeAll without worrying about
- *  running it more than once against the shared temp db (see vitest.config.ts). */
-export function ensureMigrated(): void {
-  if (!migrated) { migrate(); migrated = true; }
+/** globalSetup lays the schema down once per run; this is a per-process safety
+ *  net (and covers running a single file with `vitest run path`). migrate() is
+ *  idempotent, and with isolate:false the guard makes it a no-op after the first
+ *  call anyway. */
+export async function ensureMigrated(): Promise<void> {
+  if (!migrated) {
+    await migrate();
+    migrated = true;
+  }
 }
 
 let seq = 0;
@@ -15,15 +19,18 @@ export function uniqueId(prefix: string): string {
   return `${prefix}${Date.now()}-${seq}`;
 }
 
-export function makeItem(overrides: Partial<{ name: string; type: string; unitCost: number }> = {}): string {
+export async function makeItem(
+  overrides: Partial<{ name: string; type: string; unitCost: number }> = {},
+): Promise<string> {
   const id = uniqueId('TST-ITEM-');
-  db.prepare(`INSERT INTO items (id, name, category, type, uom, reorder_point, unit_cost) VALUES (?,?,?,?,?,?,?)`)
+  await db
+    .prepare(`INSERT INTO items (id, name, category, type, uom, reorder_point, unit_cost) VALUES (?,?,?,?,?,?,?)`)
     .run(id, overrides.name ?? 'Test item', 'Test', overrides.type ?? 'FINISHED_GOOD', 'unit', 0, overrides.unitCost ?? 100);
   return id;
 }
 
-export function makeSupplier(name = 'Test Supplier'): string {
+export async function makeSupplier(name = 'Test Supplier'): Promise<string> {
   const id = uniqueId('TST-SUP-');
-  db.prepare(`INSERT INTO suppliers (id, name) VALUES (?,?)`).run(id, name);
+  await db.prepare(`INSERT INTO suppliers (id, name) VALUES (?,?)`).run(id, name);
   return id;
 }

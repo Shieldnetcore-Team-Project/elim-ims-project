@@ -5,8 +5,8 @@ A React/TypeScript ERP frontend with a lightweight Express API, built out from
 `ELIM-ERP-DESIGN-SYSTEM.md`.
 
 ```
-shared/   TypeScript types + the config for all 18 modules (single source of truth)
-server/   Express API, in-memory seeded mock data
+shared/   TypeScript types + the module config (single source of truth)
+server/   Express API backed by Postgres (Supabase in prod); opt-in demo seed
 client/   Vite + React + TypeScript frontend
 ```
 
@@ -26,6 +26,28 @@ the server, so just open the client URL).
 ```
 npm run build
 ```
+
+## Test
+
+The server test suite runs against a real Postgres in Docker (matches
+production; no SQLite dialect drift).
+
+```
+npm test                     # from repo root — starts the test DB, then runs vitest
+```
+
+`npm test` runs a `pretest` hook that does `docker compose up -d --wait test-db`
+(see [`docker-compose.yml`](docker-compose.yml) — Postgres 16 on host port 5433,
+data in tmpfs so every run starts clean). Requires **Docker Desktop** running.
+
+```
+npm run test:db:up   -w server   # start the test DB by hand
+npm run test:db:down -w server   # stop it
+```
+
+To point the suite at a different Postgres, set `DATABASE_URL` — it must be a
+local/disposable instance, since `vitest.globalSetup.ts` drops and recreates the
+`public` schema on every run (and refuses to run against a non-local host).
 
 ## Deploy (Render, static frontend)
 
