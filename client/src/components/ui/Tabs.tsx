@@ -5,8 +5,8 @@ import { useState, type CSSProperties, type ReactNode } from 'react';
 // however they like without hand-tuning each Card's offset.
 const STICKY_CARD_TOP = { '--sticky-card-top': '108px' } as CSSProperties;
 
-export function Tabs({ tabs }: { tabs: { key: string; label: string; content: ReactNode; badge?: number }[] }) {
-  const [active, setActive] = useState(tabs[0]?.key);
+export function Tabs({ tabs, initialKey }: { tabs: { key: string; label: string; content: ReactNode; badge?: number }[]; initialKey?: string }) {
+  const [active, setActive] = useState(initialKey && tabs.some(t => t.key === initialKey) ? initialKey : tabs[0]?.key);
   const current = tabs.find(t => t.key === active) ?? tabs[0];
 
   return (

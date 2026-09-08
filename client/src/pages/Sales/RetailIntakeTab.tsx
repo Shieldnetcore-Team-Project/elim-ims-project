@@ -13,13 +13,13 @@ interface RetailBalance { id: string; name: string; category: string; uom: strin
 interface RetailIntake { id: string; issued_by: string | null; actor: string | null; created_at: string; item_count: number; total_quantity: number }
 interface CentralBalance { id: string; on_hand: number }
 
-export function RetailIntakeTab({ items }: { items: Item[] }) {
+export function RetailIntakeTab({ items, autoIntakeItemId }: { items: Item[]; autoIntakeItemId?: string }) {
   const ui = useUi();
   const [balances, setBalances] = useState<RetailBalance[]>([]);
   const [intakes, setIntakes] = useState<RetailIntake[]>([]);
   const [centralBalances, setCentralBalances] = useState<CentralBalance[]>([]);
   const [reloadKey, setReloadKey] = useState(0);
-  const [intakeOpen, setIntakeOpen] = useState(false);
+  const [intakeOpen, setIntakeOpen] = useState(() => Boolean(autoIntakeItemId));
   const refresh = useCallback(() => setReloadKey(k => k + 1), []);
 
   useEffect(() => {
@@ -75,7 +75,7 @@ export function RetailIntakeTab({ items }: { items: Item[] }) {
 
       {intakeOpen && (
         <NewIntake
-          items={items} centralBalances={centralBalances}
+          items={items} centralBalances={centralBalances} initialItemId={autoIntakeItemId}
           onClose={() => setIntakeOpen(false)}
           onCreated={() => { setIntakeOpen(false); refresh(); ui.toast('Stock posted to Retail'); }}
         />
@@ -84,11 +84,14 @@ export function RetailIntakeTab({ items }: { items: Item[] }) {
   );
 }
 
-function NewIntake({ items, centralBalances, onClose, onCreated }: {
-  items: Item[]; centralBalances: CentralBalance[]; onClose: () => void; onCreated: () => void;
+function NewIntake({ items, centralBalances, initialItemId, onClose, onCreated }: {
+  items: Item[]; centralBalances: CentralBalance[]; initialItemId?: string; onClose: () => void; onCreated: () => void;
 }) {
   const [issuedBy, setIssuedBy] = useState('');
-  const [lines, setLines] = useState<LineItemValue[]>([{ itemId: items[0]?.id ?? '', quantity: '10', unitPrice: String(items[0]?.unit_cost ?? 0) }]);
+  const [lines, setLines] = useState<LineItemValue[]>(() => {
+    const preselected = initialItemId ? items.find(i => i.id === initialItemId) : undefined;
+    return [{ itemId: preselected?.id ?? items[0]?.id ?? '', quantity: '10', unitPrice: String(preselected?.unit_cost ?? items[0]?.unit_cost ?? 0) }];
+  });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

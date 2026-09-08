@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api, apiPost } from '../../lib/apiClient';
 import { naira, number } from '../../lib/format';
 import { useUi } from '../../lib/uiState';
@@ -71,7 +72,7 @@ interface CustomerWiseRow { customer_name: string; item_id: string; item_name: s
 interface MovementRow { period: string; returned: number; sold_with_bottle: number }
 
 const COPY: Record<'INVOICE' | 'POS', { title: string; subtitle: string; newLabel: string; empty: string }> = {
-  INVOICE: { title: 'Sales', subtitle: 'Customer orders invoiced for delivery — Marketers on credit, Distributors cash/advance/credit-with-approval.', newLabel: 'New sales order', empty: 'No sales orders yet' },
+  INVOICE: { title: 'Warehouse', subtitle: 'Customer orders invoiced for delivery — Marketers on credit, Distributors cash/advance/credit-with-approval.', newLabel: 'New sales order', empty: 'No sales orders yet' },
   POS: { title: 'Retail', subtitle: 'Walk-in and depot till transactions — cash, every sale tied to a customer, posts to stock and the ledger immediately.', newLabel: 'New retail sale', empty: 'No till transactions yet' },
 };
 
@@ -80,6 +81,13 @@ export default function SalesPage({ channel }: { channel: 'INVOICE' | 'POS' }) {
   const copy = COPY[channel];
   const { user, isSuperAdmin, hasAccess } = useCurrentUser();
   const canApprove = isSuperAdmin || hasAccess('sales-approve');
+  // Deep-link from the Store page's "Assign" action: ?tab=<tab-key>&assignItem=<item-id>
+  // opens the right tab with the item preselected in its create/issue/intake form —
+  // read once on mount, no separate ack step needed since these are only ever consumed
+  // as an initial value (lazy useState initializers), never watched afterward.
+  const [searchParams] = useSearchParams();
+  const initialTab = searchParams.get('tab') ?? undefined;
+  const assignItemId = searchParams.get('assignItem') ?? undefined;
   const [orders, setOrders] = useState<SalesOrder[]>([]);
   const [returns, setReturns] = useState<SalesReturn[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -90,7 +98,7 @@ export default function SalesPage({ channel }: { channel: 'INVOICE' | 'POS' }) {
   const [receiptFor, setReceiptFor] = useState<string | null>(null);
   const [invoiceFor, setInvoiceFor] = useState<string | null>(null);
   const [exchangeFor, setExchangeFor] = useState<string | null>(null);
-  const [createOpen, setCreateOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(() => Boolean(assignItemId) && (!initialTab || initialTab === 'orders'));
   const [newCustomerOpen, setNewCustomerOpen] = useState(false);
   const [newReturnOpen, setNewReturnOpen] = useState(false);
   const [inspectReturnFor, setInspectReturnFor] = useState<SalesReturn | null>(null);
@@ -221,7 +229,7 @@ export default function SalesPage({ channel }: { channel: 'INVOICE' | 'POS' }) {
       <KpiRow kpis={kpis} />
 
       {channel === 'INVOICE' ? (
-        <Tabs tabs={[
+        <Tabs initialKey={initialTab} tabs={[
           { key: 'orders', label: 'Orders', badge: orders.filter(o => o.status === 'AWAITING_APPROVAL').length, content: ordersTable },
           {
             key: 'returns', label: 'Returns', badge: returns.filter(r => r.status === 'PENDING_INSPECTION').length, content: (
@@ -252,7 +260,7 @@ export default function SalesPage({ channel }: { channel: 'INVOICE' | 'POS' }) {
               </Card>
             ),
           },
-          { key: 'marketer-stock', label: 'Marketer stock', badge: marketerPendingCount, content: <MarketerStockTab customers={customers} items={items} /> },
+          { key: 'marketer-stock', label: 'Marketer stock', badge: marketerPendingCount, content: <MarketerStockTab customers={customers} items={items} autoIssueItemId={initialTab === 'marketer-stock' ? assignItemId : undefined} /> },
           { key: 'marketer-reconciliation', label: 'Reconciliation', content: <MarketerReconciliationTab reloadKey={reloadKey} /> },
           { key: 'credit-sales', label: 'Credit sales', content: <CreditSalesTab reloadKey={reloadKey} /> },
           { key: 'marketer-performance', label: 'Performance & commission', content: <MarketerPerformanceTab reloadKey={reloadKey} /> },
@@ -261,9 +269,9 @@ export default function SalesPage({ channel }: { channel: 'INVOICE' | 'POS' }) {
           { key: 'distributor-branches', label: 'Distributor branches', content: <DistributorBranchesTab customers={customers} /> },
         ]} />
       ) : (
-        <Tabs tabs={[
+        <Tabs initialKey={initialTab} tabs={[
           { key: 'orders', label: 'Orders', badge: orders.filter(o => o.status === 'AWAITING_APPROVAL').length, content: ordersTable },
-          { key: 'retail-stock', label: 'Retail stock', content: <RetailIntakeTab items={items} /> },
+          { key: 'retail-stock', label: 'Retail stock', content: <RetailIntakeTab items={items} autoIntakeItemId={initialTab === 'retail-stock' ? assignItemId : undefined} /> },
           { key: 'returns-exchanges', label: 'Returns & exchanges', content: <RetailExchangesTab reloadKey={reloadKey} /> },
           { key: 'customers', label: 'Customers', badge: globalPendingCounts.pos, content: <RetailCustomersTab reloadKey={reloadKey} /> },
           { key: 'reconciliation', label: 'Daily reconciliation', content: <RetailReconciliationTab /> },
@@ -273,6 +281,8 @@ export default function SalesPage({ channel }: { channel: 'INVOICE' | 'POS' }) {
       {createOpen && (
         <NewOrder
           channel={channel} customers={eligibleCustomers} items={items}
+          initialItemId={assignItemId}
+          preferCustomerType={assignItemId && channel === 'INVOICE' ? 'DISTRIBUTOR' : undefined}
           onClose={() => setCreateOpen(false)}
           onCreated={() => { setCreateOpen(false); refresh(); ui.toast(`${copy.newLabel} created`); }}
         />
@@ -319,13 +329,16 @@ export default function SalesPage({ channel }: { channel: 'INVOICE' | 'POS' }) {
   );
 }
 
-function NewOrder({ channel, customers, items, onClose, onCreated }: {
-  channel: 'INVOICE' | 'POS'; customers: Customer[]; items: Item[]; onClose: () => void; onCreated: () => void;
+function NewOrder({ channel, customers, items, initialItemId, preferCustomerType, onClose, onCreated }: {
+  channel: 'INVOICE' | 'POS'; customers: Customer[]; items: Item[]; initialItemId?: string; preferCustomerType?: CustomerType; onClose: () => void; onCreated: () => void;
 }) {
-  const [customerId, setCustomerId] = useState(customers[0]?.id ?? '');
+  const [customerId, setCustomerId] = useState(() => (preferCustomerType && customers.find(c => c.customer_type === preferCustomerType)?.id) || customers[0]?.id || '');
   const [paymentTerms, setPaymentTerms] = useState<PaymentTerms>('CREDIT');
   const [rep, setRep] = useState('');
-  const [lines, setLines] = useState<LineItemValue[]>([{ itemId: items[0]?.id ?? '', quantity: '10', unitPrice: String(items[0]?.unit_cost ?? 0) }]);
+  const [lines, setLines] = useState<LineItemValue[]>(() => {
+    const preselected = initialItemId ? items.find(i => i.id === initialItemId) : undefined;
+    return [{ itemId: preselected?.id ?? items[0]?.id ?? '', quantity: '10', unitPrice: String(preselected?.unit_cost ?? items[0]?.unit_cost ?? 0) }];
+  });
   const [branches, setBranches] = useState<{ id: string; name: string }[]>([]);
   const [branchId, setBranchId] = useState('');
   const [manualInvoiceNumber, setManualInvoiceNumber] = useState('');
@@ -626,7 +639,7 @@ function InspectReturn({ ret, onClose, onInspected }: { ret: SalesReturn; onClos
   );
 }
 
-function MarketerStockTab({ customers, items }: { customers: Customer[]; items: Item[] }) {
+function MarketerStockTab({ customers, items, autoIssueItemId }: { customers: Customer[]; items: Item[]; autoIssueItemId?: string }) {
   const ui = useUi();
   const { user } = useCurrentUser();
   const marketers = useMemo(() => customers.filter(c => c.customer_type === 'MARKETER'), [customers]);
@@ -637,7 +650,7 @@ function MarketerStockTab({ customers, items }: { customers: Customer[]; items: 
   const [assignments, setAssignments] = useState<StockAssignment[]>([]);
   const [returns, setReturns] = useState<MarketerReturn[]>([]);
   const [reloadKey, setReloadKey] = useState(0);
-  const [issueOpen, setIssueOpen] = useState(false);
+  const [issueOpen, setIssueOpen] = useState(() => Boolean(autoIssueItemId));
   const [returnOpen, setReturnOpen] = useState(false);
   const [saleOpen, setSaleOpen] = useState(false);
   const [verifyTarget, setVerifyTarget] = useState<MarketerReturn | null>(null);
@@ -772,6 +785,7 @@ function MarketerStockTab({ customers, items }: { customers: Customer[]; items: 
         {issueOpen && (
           <IssueMarketerStock
             marketers={marketers} items={items} defaultMarketerId={marketerId} pending={pending}
+            initialItemId={autoIssueItemId}
             onClose={() => setIssueOpen(false)}
             onIssued={() => { setIssueOpen(false); refresh(); ui.toast('Stock assigned — awaiting the marketer\'s confirmation'); }}
           />
@@ -803,14 +817,17 @@ function MarketerStockTab({ customers, items }: { customers: Customer[]; items: 
   );
 }
 
-function IssueMarketerStock({ marketers, items, defaultMarketerId, pending, onClose, onIssued }: {
-  marketers: Customer[]; items: Item[]; defaultMarketerId: string; pending: PendingVerification[]; onClose: () => void; onIssued: () => void;
+function IssueMarketerStock({ marketers, items, defaultMarketerId, pending, initialItemId, onClose, onIssued }: {
+  marketers: Customer[]; items: Item[]; defaultMarketerId: string; pending: PendingVerification[]; initialItemId?: string; onClose: () => void; onIssued: () => void;
 }) {
   const { user } = useCurrentUser();
   const isWarehouseManager = user?.role === 'Warehouse Manager';
   const [marketerId, setMarketerId] = useState(defaultMarketerId || marketers[0]?.id || '');
   const [issuedBy, setIssuedBy] = useState('');
-  const [lines, setLines] = useState<LineItemValue[]>([{ itemId: items[0]?.id ?? '', quantity: '50', unitPrice: String(items[0]?.unit_cost ?? 0) }]);
+  const [lines, setLines] = useState<LineItemValue[]>(() => {
+    const preselected = initialItemId ? items.find(i => i.id === initialItemId) : undefined;
+    return [{ itemId: preselected?.id ?? items[0]?.id ?? '', quantity: '50', unitPrice: String(preselected?.unit_cost ?? items[0]?.unit_cost ?? 0) }];
+  });
   const [override, setOverride] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);

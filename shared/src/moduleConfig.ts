@@ -101,6 +101,18 @@ export const MODULES: ModuleConfig[] = [
     ],
   },
   {
+    key: 'store', label: 'Store', group: 'Operations', icon: 'warehouse', moduleNo: 0,
+    subtitle: 'Finished goods on hand, ready to assign out to a Distributor, Sales Rep, or Walk-in customer.',
+    searchPlaceholder: 'Search finished goods',
+    columns: [
+      { key: 'item_name', label: 'Item', kind: 'text', subKey: 'category' },
+      { key: 'physical_stock', label: 'Physical stock', kind: 'num' },
+      { key: 'assigned_stock', label: 'Assigned', kind: 'num' },
+      { key: 'available_stock', label: 'Available', kind: 'num' },
+    ],
+    statusOptions: [],
+  },
+  {
     key: 'production', label: 'Production', group: 'Operations', icon: 'factory', moduleNo: 7,
     subtitle: 'Fill runs by production line and shift.',
     searchPlaceholder: 'Search production runs or product',
@@ -148,7 +160,7 @@ export const MODULES: ModuleConfig[] = [
     ],
   },
   {
-    key: 'sales', label: 'Sales', group: 'Commercial', icon: 'cart', moduleNo: 9,
+    key: 'sales', label: 'Warehouse', group: 'Commercial', icon: 'cart', moduleNo: 9,
     subtitle: 'Customer orders across all channels.',
     searchPlaceholder: 'Search orders or customer',
     columns: [

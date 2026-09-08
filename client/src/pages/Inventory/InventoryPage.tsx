@@ -51,6 +51,8 @@ export default function InventoryPage() {
   const [reloadKey, setReloadKey] = useState(0);
   const [adjustTarget, setAdjustTarget] = useState<Balance | null>(null);
   const [txnRange, setTxnRange] = useState<DateRange | null>(null);
+  const [newItemOpen, setNewItemOpen] = useState(false);
+  const [receiveOpen, setReceiveOpen] = useState(false);
 
   const refresh = useCallback(() => setReloadKey(k => k + 1), []);
   useRegisterSearchFocus(useCallback(() => document.getElementById('inv-search')?.focus(), []));
@@ -115,6 +117,10 @@ export default function InventoryPage() {
       <PrintHeader />
       <div className="pagehead">
         <div><h1>Inventory</h1><p className="pagesub">Stock on hand, derived from every transaction ever posted against it. Click a row to adjust.</p></div>
+        <div className="no-print" style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-secondary" onClick={() => setReceiveOpen(true)}><Icon name="download" size={14} /> Receive goods</button>
+          <button className="btn btn-primary" onClick={() => setNewItemOpen(true)}><Icon name="plus" size={14} /> New item</button>
+        </div>
       </div>
 
       <KpiRow kpis={kpis} />
@@ -260,6 +266,19 @@ export default function InventoryPage() {
           onAdjusted={() => { setAdjustTarget(null); refresh(); ui.toast(`${adjustTarget.name} adjusted`); }}
         />
       )}
+      {newItemOpen && (
+        <NewItem
+          onClose={() => setNewItemOpen(false)}
+          onCreated={name => { setNewItemOpen(false); refresh(); ui.toast(`${name} added to inventory`); }}
+        />
+      )}
+      {receiveOpen && (
+        <ReceiveGoods
+          items={balances}
+          onClose={() => setReceiveOpen(false)}
+          onReceived={() => { setReceiveOpen(false); refresh(); ui.toast('Goods received into inventory'); }}
+        />
+      )}
     </>
   );
 }
@@ -293,6 +312,147 @@ function AdjustStock({ item, onClose, onAdjusted }: { item: Balance; onClose: ()
         <input id="adj-note" value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. Cycle count correction" required />
       </div>
       <p className="sub">This posts a real ADJUSTMENT transaction to the inventory ledger — it isn't a direct edit of the on-hand figure.</p>
+    </Modal>
+  );
+}
+
+/** Registers a brand-new SKU — raw material, packaging or consumable; finished
+ *  goods get their item record from Production's packaging flow instead, since
+ *  that ties the item to a batch. An optional starting quantity posts a single
+ *  RECEIPT-note ADJUSTMENT right after creation, so "add the item" and "record
+ *  what's physically here" can happen in one action instead of two. */
+function NewItem({ onClose, onCreated }: { onClose: () => void; onCreated: (name: string) => void }) {
+  const [name, setName] = useState('');
+  const [categories, setCategories] = useState<string[]>([]);
+  const [category, setCategory] = useState('');
+  const [customCategory, setCustomCategory] = useState('');
+  const [type, setType] = useState<'RAW_MATERIAL' | 'PACKAGING' | 'CONSUMABLE'>('RAW_MATERIAL');
+  const [uom, setUom] = useState('unit');
+  const [reorderPoint, setReorderPoint] = useState('0');
+  const [unitCost, setUnitCost] = useState('0');
+  const [openingQty, setOpeningQty] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api<string[]>('/masters/item-categories').then(rows => { setCategories(rows); setCategory(rows[0] ?? 'Other'); });
+  }, []);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setSaving(true); setError(null);
+    try {
+      const item = await apiPost<{ id: string; name: string }>('/masters/items', {
+        name, category: category === 'Other' && customCategory.trim() ? customCategory.trim() : category, type, uom: uom || 'unit',
+        reorderPoint: Number(reorderPoint) || 0, unitCost: Number(unitCost) || 0,
+      });
+      const qty = Number(openingQty) || 0;
+      if (qty > 0) await apiPost('/inventory/adjust', { itemId: item.id, delta: qty, note: 'Opening stock recorded on item creation' });
+      onCreated(name);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong');
+    } finally { setSaving(false); }
+  }
+
+  return (
+    <Modal title="New inventory item" onClose={onClose} onSubmit={submit} submitLabel="Add item" saving={saving} error={error} wide>
+      <div className="form-grid">
+        <div className="form-row">
+          <label htmlFor="newitem-name">Name</label>
+          <input id="newitem-name" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Shrink wrap roll" required autoFocus />
+        </div>
+        <div className="form-row">
+          <label htmlFor="newitem-category">Category</label>
+          <select id="newitem-category" value={category} onChange={e => setCategory(e.target.value)}>
+            {categories.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
+        {category === 'Other' && (
+          <div className="form-row">
+            <label htmlFor="newitem-category-other">Other category name</label>
+            <input id="newitem-category-other" value={customCategory} onChange={e => setCustomCategory(e.target.value)} placeholder="e.g. Spare parts" required />
+          </div>
+        )}
+        <div className="form-row">
+          <label htmlFor="newitem-type">Type</label>
+          <select id="newitem-type" value={type} onChange={e => setType(e.target.value as typeof type)}>
+            <option value="RAW_MATERIAL">Raw material</option>
+            <option value="PACKAGING">Packaging</option>
+            <option value="CONSUMABLE">Consumable (general inventory)</option>
+          </select>
+        </div>
+        <div className="form-row">
+          <label htmlFor="newitem-uom">Unit of measure</label>
+          <input id="newitem-uom" value={uom} onChange={e => setUom(e.target.value)} placeholder="e.g. kg, litre, carton, unit" required />
+        </div>
+        <div className="form-row">
+          <label htmlFor="newitem-reorder">Reorder point</label>
+          <NumberInput id="newitem-reorder" allowDecimal={false} value={reorderPoint} onChange={setReorderPoint} required />
+        </div>
+        <div className="form-row">
+          <label htmlFor="newitem-cost">Unit cost</label>
+          <NumberInput id="newitem-cost" value={unitCost} onChange={setUnitCost} required />
+        </div>
+        <div className="form-row">
+          <label htmlFor="newitem-opening">Opening quantity on hand (optional)</label>
+          <NumberInput id="newitem-opening" allowDecimal={false} value={openingQty} onChange={setOpeningQty} placeholder="Leave blank if none yet" />
+        </div>
+      </div>
+      <p className="sub">Finished goods aren't created here — they get their item record from Production &gt; Packaging instead.</p>
+    </Modal>
+  );
+}
+
+/** Posts received stock for an item that already exists in the system —
+ *  quantity is always a positive receipt (see AdjustStock for corrections/
+ *  removals, which also allow negative deltas). Reuses the same ADJUSTMENT
+ *  ledger entry AdjustStock posts; the note is what distinguishes a goods
+ *  receipt from a cycle-count correction in the Inventory Transactions tab. */
+function ReceiveGoods({ items, onClose, onReceived }: { items: Balance[]; onClose: () => void; onReceived: () => void }) {
+  const receivable = items.filter(i => i.type !== 'FINISHED_GOOD');
+  const [itemId, setItemId] = useState(receivable[0]?.id ?? '');
+  const [quantity, setQuantity] = useState('');
+  const [note, setNote] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const selected = receivable.find(i => i.id === itemId);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setSaving(true); setError(null);
+    try {
+      await apiPost('/inventory/adjust', { itemId, delta: Math.abs(Number(quantity)), note: note || 'Goods received' });
+      onReceived();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong');
+    } finally { setSaving(false); }
+  }
+
+  return (
+    <Modal title="Receive goods" onClose={onClose} onSubmit={submit} submitLabel="Post receipt" saving={saving} error={error}>
+      {receivable.length === 0 ? (
+        <p className="sub">No items yet — add one first with "New item".</p>
+      ) : (
+        <>
+          <div className="form-row">
+            <label htmlFor="recv-item">Item</label>
+            <select id="recv-item" value={itemId} onChange={e => setItemId(e.target.value)} required autoFocus>
+              {receivable.map(i => <option key={i.id} value={i.id}>{i.name} ({i.category})</option>)}
+            </select>
+          </div>
+          {selected && <p className="sub" style={{ marginTop: -6, marginBottom: 14 }}>Currently {selected.on_hand.toLocaleString('en-NG')} {selected.uom} on hand ({selected.id}).</p>}
+          <div className="form-row">
+            <label htmlFor="recv-qty">Quantity received</label>
+            <NumberInput id="recv-qty" allowDecimal value={quantity} onChange={setQuantity} placeholder="e.g. 50" required />
+          </div>
+          <div className="form-row">
+            <label htmlFor="recv-note">Note</label>
+            <input id="recv-note" value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. Walk-in supplier delivery, no PO" />
+          </div>
+          <p className="sub">Posts an inbound ADJUSTMENT transaction to the inventory ledger. For goods tied to a purchase order, use Procurement &gt; Goods Received instead so it reconciles against the PO.</p>
+        </>
+      )}
     </Modal>
   );
 }

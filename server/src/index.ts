@@ -47,6 +47,17 @@ import { driverPerformanceRouter } from './routes/driverPerformance.js';
 import { maintenanceReportsRouter } from './routes/maintenanceReports.js';
 import { notificationsRouter } from './routes/notifications.js';
 
+// Last line of defence: a stray rejected promise or a throw on some async
+// callback outside a request must not take the whole API down. Log it and keep
+// serving — a single broken operation is always better than a dead process that
+// 500s every request until someone notices and restarts it.
+process.on('unhandledRejection', (reason) => {
+  console.error('[process] unhandledRejection:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[process] uncaughtException:', err);
+});
+
 await migrate();
 // Demo/mock data is opt-in only (local dev), never automatic — a deployed
 // install must start virgin, with zero seed rows, so real business data is
@@ -106,6 +117,15 @@ app.use('/api/maintenance-reports', maintenanceReportsRouter);
 app.use('/api/notifications', notificationsRouter);
 
 app.use((_req, res) => res.status(404).json({ error: 'Not found' }));
+
+// Anything that reaches here is an error thrown outside a `safe()`-wrapped
+// handler (e.g. express.json parse failure). Return JSON, not Express's default
+// HTML page, so the client shows a real message instead of a bare 500.
+app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error('[api] unhandled route error:', err);
+  if (res.headersSent) return;
+  res.status(500).json({ error: err instanceof Error ? err.message : 'Internal server error' });
+});
 
 app.listen(PORT, () => {
   console.log(`Elim ERP API listening on http://localhost:${PORT}`);

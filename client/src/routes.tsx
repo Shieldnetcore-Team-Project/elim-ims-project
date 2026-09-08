@@ -8,6 +8,7 @@ import { ROUTED_GENERIC_MODULE_KEYS } from '@shared/moduleConfig';
 import ProcurementPage from './pages/Procurement/ProcurementPage';
 import QualityControlPage from './pages/QualityControl/QualityControlPage';
 import InventoryPage from './pages/Inventory/InventoryPage';
+import StorePage from './pages/Store/StorePage';
 import ProductionPage from './pages/Production/ProductionPage';
 import SalesPage from './pages/Sales/SalesPage';
 import FleetPage from './pages/Fleet/FleetPage';
@@ -29,6 +30,7 @@ export const router = createBrowserRouter([
       { path: 'procurement', element: <ProcurementPage /> },
       { path: 'quality-control', element: <QualityControlPage /> },
       { path: 'inventory', element: <InventoryPage /> },
+      { path: 'store', element: <StorePage /> },
       { path: 'production', element: <ProductionPage /> },
       { path: 'sales', element: <SalesPage channel="INVOICE" /> },
       { path: 'pos', element: <SalesPage channel="POS" /> },

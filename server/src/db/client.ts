@@ -15,7 +15,28 @@ pg.types.setTypeParser(20, (val: string) => parseInt(val, 10));
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) throw new Error('DATABASE_URL environment variable is required');
 
-const pool = new Pool({ connectionString, ssl: { rejectUnauthorized: false } });
+const pool = new Pool({
+  connectionString,
+  ssl: { rejectUnauthorized: false },
+  // Supabase's pooler closes idle server-side connections aggressively. Keep our
+  // own idle timeout shorter than theirs so pg retires a connection before the
+  // far end yanks it, enable TCP keep-alive to survive NAT/proxy idle drops, and
+  // cap connect time so a network blip fails fast instead of hanging a request.
+  max: 10,
+  idleTimeoutMillis: 10_000,
+  connectionTimeoutMillis: 10_000,
+  keepAlive: true,
+});
+
+// An idle client losing its connection (pooler recycle, network blip) emits
+// 'error' on the Pool. Node treats an unhandled EventEmitter 'error' as a fatal
+// uncaught exception — without this listener a routine idle-disconnect kills the
+// whole API process, and every subsequent request 500s until it's restarted.
+// pg discards the broken client itself; the next query just checks out a fresh
+// one, so logging and swallowing here is the correct behaviour.
+pool.on('error', (err) => {
+  console.error('[db] idle client error (connection dropped, will reconnect on next query):', err.message);
+});
 
 // Threads the single pooled client checked out by db.transaction() through every
 // nested db.prepare(...) call made inside its callback, so a multi-statement business
