@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { RequireAccess } from "@/components/layout/require-access";
+import { CreateUserDialog } from "@/components/admin/create-user-dialog";
 import { useAllRoles, usePermissions, type Role } from "@/lib/permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -246,11 +247,16 @@ export function UsersPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Users & Roles</h1>
-        <p className="text-sm text-muted-foreground">
-          Role changes are submitted for a second person's approval before they take effect.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Users & Roles</h1>
+          <p className="text-sm text-muted-foreground">
+            Role changes are submitted for a second person's approval before they take effect.
+          </p>
+        </div>
+        <div className="shrink-0">
+          <CreateUserDialog />
+        </div>
       </div>
 
       {(pendingRequests.data ?? []).length > 0 && (

@@ -14,8 +14,11 @@ import {
   type Role,
 } from "@/lib/permissions";
 import { UserPermissionOverridesEditor } from "@/components/permissions/user-permission-overrides";
+import { UserPageAccess } from "@/components/permissions/user-page-access";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   Select,
   SelectContent,
@@ -32,7 +35,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "sonner";
-import { KeyRound, ShieldAlert } from "lucide-react";
+import { KeyRound, ShieldAlert, SlidersHorizontal, UserCheck } from "lucide-react";
 
 export const Route = createFileRoute("/_app/permissions")({
   head: () => ({
@@ -195,14 +198,16 @@ function UserOverridesPicker({ isSuperAdmin }: { isSuperAdmin: boolean }) {
   return (
     <Card className="rounded-2xl">
       <CardHeader>
-        <CardTitle>Per-user overrides</CardTitle>
+        <CardTitle className="flex items-center gap-2">
+          <UserCheck className="h-4 w-4" /> Page access for one user
+        </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <div>
           <label className="text-xs text-muted-foreground">User</label>
           <Select value={userId} onValueChange={setUserId}>
             <SelectTrigger className="w-72">
-              <SelectValue placeholder="Choose a user to view/edit their overrides" />
+              <SelectValue placeholder="Choose a user to set their page access" />
             </SelectTrigger>
             <SelectContent>
               {(users.data ?? []).map((u) => (
@@ -213,7 +218,30 @@ function UserOverridesPicker({ isSuperAdmin }: { isSuperAdmin: boolean }) {
             </SelectContent>
           </Select>
         </div>
-        {userId && <UserPermissionOverridesEditor userId={userId} isSuperAdmin={isSuperAdmin} />}
+
+        {userId ? (
+          <>
+            <UserPageAccess userId={userId} canEdit={isSuperAdmin} />
+
+            {/* Page access is the `view` action only. This keeps the
+                action-level editor available for the finer exceptions
+                (approve, post, reverse …) on a single module. */}
+            <Collapsible>
+              <CollapsibleTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-1">
+                  <SlidersHorizontal className="h-3.5 w-3.5" /> Advanced: per-action overrides
+                </Button>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="pt-4">
+                <UserPermissionOverridesEditor userId={userId} isSuperAdmin={isSuperAdmin} />
+              </CollapsibleContent>
+            </Collapsible>
+          </>
+        ) : (
+          <p className="py-4 text-sm text-muted-foreground">
+            Pick a user above to tick the pages they should be able to open.
+          </p>
+        )}
       </CardContent>
     </Card>
   );

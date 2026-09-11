@@ -169,9 +169,7 @@ function Landing() {
 
     setLoading(false);
     if (error) return toast.error(error.message);
-    toast.success(
-      "Account created. An admin must approve your account before you can sign in.",
-    );
+    toast.success("Account created. An admin must approve your account before you can sign in.");
   };
 
   const forgot = async () => {

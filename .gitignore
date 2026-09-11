@@ -16,6 +16,12 @@ dist-ssr
 .nitro
 *.local
 
+# Secrets. SUPABASE_SECRET_KEY bypasses RLS entirely, so .env must never be
+# committed. Set env vars in the hosting provider's panel for deployments.
+.env
+.env.*
+!.env.example
+
 # Wrangler / Cloudflare
 .wrangler/
 .dev.vars

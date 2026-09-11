@@ -3536,6 +3536,16 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      admin_provision_user: {
+        Args: {
+          p_department?: string;
+          p_factory_id?: string;
+          p_production_scope?: string;
+          p_role: string;
+          target_id: string;
+        };
+        Returns: Json;
+      };
       approve_costing_sheet: {
         Args: { p_comment?: string; p_id: string };
         Returns: Json;

@@ -34,14 +34,19 @@ export function useIsSuperAdmin() {
     queryFn: async () => {
       const { data: userData } = await supabase.auth.getUser();
       if (!userData.user) return false;
+      // Deliberately not maybeSingle(): user_roles is UNIQUE(user_id, role,
+      // factory_id), and Postgres treats NULLs as distinct, so a factory-less
+      // role can legitimately appear more than once for the same user.
+      // maybeSingle() errors on >1 row, which made this query throw and every
+      // admin-only control render as disabled.
       const { data, error } = await supabase
         .from("user_roles")
         .select("role")
         .eq("user_id", userData.user.id)
         .eq("role", "super_admin")
-        .maybeSingle();
+        .limit(1);
       if (error) throw error;
-      return !!data;
+      return (data ?? []).length > 0;
     },
   });
 }

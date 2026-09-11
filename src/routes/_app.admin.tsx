@@ -180,7 +180,12 @@ function AdminPanelPage() {
   ).length;
 
   const stats = [
-    { label: "Pending approvals", value: pending.length, goto: "account-approvals", icon: UserCheck },
+    {
+      label: "Pending approvals",
+      value: pending.length,
+      goto: "account-approvals",
+      icon: UserCheck,
+    },
     { label: "Pending role changes", value: pendingRoleChanges, goto: "users", icon: UserCog },
     { label: "Total accounts", value: rows.length, goto: "account-approvals", icon: UsersIcon },
     {
@@ -235,7 +240,12 @@ function AdminPanelPage() {
         <TabsContent value="overview" className="space-y-6">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             {stats.map((s) => (
-              <button key={s.label} type="button" onClick={() => setTab(s.goto)} className="text-left">
+              <button
+                key={s.label}
+                type="button"
+                onClick={() => setTab(s.goto)}
+                className="text-left"
+              >
                 <Card className="rounded-2xl transition-colors hover:border-primary/40">
                   <CardContent className="flex items-center justify-between gap-2 py-4">
                     <div>
@@ -254,11 +264,7 @@ function AdminPanelPage() {
               <CardTitle className="flex items-center gap-2">
                 <UserCheck className="h-4 w-4" /> Accounts awaiting approval
               </CardTitle>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setTab("account-approvals")}
-              >
+              <Button variant="outline" size="sm" onClick={() => setTab("account-approvals")}>
                 Open Account Approvals
               </Button>
             </CardHeader>
@@ -310,8 +316,8 @@ function AdminPanelPage() {
             </CardHeader>
             <CardContent className="space-y-3">
               <p className="text-sm text-muted-foreground">
-                Emails the user a secure link to set a new password. They stay signed out until
-                they use it.
+                Emails the user a secure link to set a new password. They stay signed out until they
+                use it.
               </p>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
                 <div className="flex-1 space-y-1.5">
