@@ -1,1 +1,18 @@
 project_id = "cobphtrneghejlhtswlu"
+
+[auth]
+enable_signup = true
+
+# Signup confirmation emails are off on purpose. Access is already gated by the in-app
+# approval workflow (profiles.status starts at 'pending' and only approve_user clears it),
+# so a confirmation link adds nothing. It also costs us: Supabase's built-in email service
+# only allows a couple of auth emails per hour per project, so every signup past that
+# failed with "email rate limit exceeded". No mail on signup means no cap on how many
+# accounts can be created.
+#
+# Mirror this in the dashboard for the hosted project:
+#   Authentication -> Sign In / Providers -> Email -> "Confirm email" OFF
+# Password resets still send mail and remain subject to that hourly cap until custom SMTP
+# is configured under Project Settings -> Authentication -> SMTP Settings.
+[auth.email]
+enable_confirmations = false

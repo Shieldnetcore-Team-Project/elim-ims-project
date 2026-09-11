@@ -147,7 +147,7 @@ function Landing() {
     if (!suRole) return toast.error("Select the role you're requesting");
 
     setLoading(true);
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email: suEmail,
       password: suPassword,
       options: {
@@ -161,10 +161,16 @@ function Landing() {
         },
       },
     });
+
+    // With email confirmation turned off, signUp returns a live session straight away.
+    // New accounts are still 'pending' until an admin approves them, so drop that session
+    // instead of letting an unapproved user walk into the app.
+    if (data?.session) await supabase.auth.signOut();
+
     setLoading(false);
     if (error) return toast.error(error.message);
     toast.success(
-      "Account created. Check your email to confirm, then wait for an admin to approve your account before signing in.",
+      "Account created. An admin must approve your account before you can sign in.",
     );
   };
 
