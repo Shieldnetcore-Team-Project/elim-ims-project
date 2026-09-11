@@ -21,6 +21,7 @@ import { Route as AppCashLedgerRouteImport } from './routes/_app.cash-ledger'
 import { Route as AppCostingRouteImport } from './routes/_app.costing'
 import { Route as AppCustomersRouteImport } from './routes/_app.customers'
 import { Route as AppDashboardRouteImport } from './routes/_app.dashboard'
+import { Route as AppDistributionRouteImport } from './routes/_app.distribution'
 import { Route as AppEmployeesRouteImport } from './routes/_app.employees'
 import { Route as AppExpensesRouteImport } from './routes/_app.expenses'
 import { Route as AppFinanceRouteImport } from './routes/_app.finance'
@@ -100,6 +101,11 @@ const AppCustomersRoute = AppCustomersRouteImport.update({
 const AppDashboardRoute = AppDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppDistributionRoute = AppDistributionRouteImport.update({
+  id: '/distribution',
+  path: '/distribution',
   getParentRoute: () => AppRoute,
 } as any)
 const AppEmployeesRoute = AppEmployeesRouteImport.update({
@@ -220,6 +226,7 @@ export interface FileRoutesByFullPath {
   '/costing': typeof AppCostingRoute
   '/customers': typeof AppCustomersRoute
   '/dashboard': typeof AppDashboardRoute
+  '/distribution': typeof AppDistributionRoute
   '/employees': typeof AppEmployeesRoute
   '/expenses': typeof AppExpensesRoute
   '/finance': typeof AppFinanceRoute
@@ -253,6 +260,7 @@ export interface FileRoutesByTo {
   '/costing': typeof AppCostingRoute
   '/customers': typeof AppCustomersRoute
   '/dashboard': typeof AppDashboardRoute
+  '/distribution': typeof AppDistributionRoute
   '/employees': typeof AppEmployeesRoute
   '/expenses': typeof AppExpensesRoute
   '/finance': typeof AppFinanceRoute
@@ -289,6 +297,7 @@ export interface FileRoutesById {
   '/_app/costing': typeof AppCostingRoute
   '/_app/customers': typeof AppCustomersRoute
   '/_app/dashboard': typeof AppDashboardRoute
+  '/_app/distribution': typeof AppDistributionRoute
   '/_app/employees': typeof AppEmployeesRoute
   '/_app/expenses': typeof AppExpensesRoute
   '/_app/finance': typeof AppFinanceRoute
@@ -325,6 +334,7 @@ export interface FileRouteTypes {
     | '/costing'
     | '/customers'
     | '/dashboard'
+    | '/distribution'
     | '/employees'
     | '/expenses'
     | '/finance'
@@ -358,6 +368,7 @@ export interface FileRouteTypes {
     | '/costing'
     | '/customers'
     | '/dashboard'
+    | '/distribution'
     | '/employees'
     | '/expenses'
     | '/finance'
@@ -393,6 +404,7 @@ export interface FileRouteTypes {
     | '/_app/costing'
     | '/_app/customers'
     | '/_app/dashboard'
+    | '/_app/distribution'
     | '/_app/employees'
     | '/_app/expenses'
     | '/_app/finance'
@@ -506,6 +518,13 @@ declare module '@tanstack/react-router' {
       path: '/dashboard'
       fullPath: '/dashboard'
       preLoaderRoute: typeof AppDashboardRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/distribution': {
+      id: '/_app/distribution'
+      path: '/distribution'
+      fullPath: '/distribution'
+      preLoaderRoute: typeof AppDistributionRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/employees': {
@@ -684,6 +703,7 @@ interface AppRouteChildren {
   AppCostingRoute: typeof AppCostingRoute
   AppCustomersRoute: typeof AppCustomersRoute
   AppDashboardRoute: typeof AppDashboardRoute
+  AppDistributionRoute: typeof AppDistributionRoute
   AppEmployeesRoute: typeof AppEmployeesRoute
   AppExpensesRoute: typeof AppExpensesRoute
   AppFinanceRoute: typeof AppFinanceRoute
@@ -714,6 +734,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppCostingRoute: AppCostingRoute,
   AppCustomersRoute: AppCustomersRoute,
   AppDashboardRoute: AppDashboardRoute,
+  AppDistributionRoute: AppDistributionRoute,
   AppEmployeesRoute: AppEmployeesRoute,
   AppExpensesRoute: AppExpensesRoute,
   AppFinanceRoute: AppFinanceRoute,

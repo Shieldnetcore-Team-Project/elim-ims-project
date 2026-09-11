@@ -37,7 +37,20 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { money } from "@/lib/format";
 import { toast } from "sonner";
-import { Plus, Search, Pencil, FileText, Trash2, Upload, Download } from "lucide-react";
+import {
+  Plus,
+  Search,
+  Pencil,
+  FileText,
+  Trash2,
+  Upload,
+  Download,
+  HandCoins,
+  Check,
+  X,
+  Ban,
+  Loader2,
+} from "lucide-react";
 
 export const Route = createFileRoute("/_app/employees")({
   head: () => ({ meta: [{ title: "Employees — FMIS" }, { name: "robots", content: "noindex" }] }),
@@ -113,6 +126,7 @@ function EmployeesPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Employee | null>(null);
   const [docsTarget, setDocsTarget] = useState<Employee | null>(null);
+  const [loansTarget, setLoansTarget] = useState<Employee | null>(null);
 
   const list = useQuery({
     queryKey: ["employees-list", factoryId, q],
@@ -242,6 +256,14 @@ function EmployeesPage() {
                       <Button
                         variant="ghost"
                         size="icon"
+                        title="Loans & Deductions"
+                        onClick={() => setLoansTarget(e)}
+                      >
+                        <HandCoins className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
                         title="Edit"
                         onClick={() => {
                           setEditing(e);
@@ -276,6 +298,12 @@ function EmployeesPage() {
 
       <Dialog open={!!docsTarget} onOpenChange={(v) => !v && setDocsTarget(null)}>
         {docsTarget && factoryId && <DocumentsDialog employee={docsTarget} factoryId={factoryId} />}
+      </Dialog>
+
+      <Dialog open={!!loansTarget} onOpenChange={(v) => !v && setLoansTarget(null)}>
+        {loansTarget && factoryId && (
+          <LoansDeductionsDialog employee={loansTarget} factoryId={factoryId} />
+        )}
       </Dialog>
     </div>
   );
@@ -653,6 +681,570 @@ function DocumentsDialog({ employee, factoryId }: { employee: Employee; factoryI
             </p>
           )}
         </div>
+      </div>
+    </DialogContent>
+  );
+}
+
+const DED_MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+
+type LoanRow = {
+  id: string;
+  loan_number: string;
+  principal: number;
+  repayment_type: string;
+  installment_mode: string | null;
+  installment_amount: number | null;
+  installment_months: number | null;
+  amount_repaid: number;
+  outstanding: number;
+  status: string;
+  submitted_by: string | null;
+  reason: string | null;
+};
+type DeductionRow = {
+  id: string;
+  reference_number: string;
+  kind: string;
+  label: string;
+  amount: number;
+  period_month: number;
+  period_year: number;
+  status: string;
+  submitted_by: string | null;
+};
+
+const loanBadge = (s: string): "default" | "secondary" | "outline" | "destructive" =>
+  s === "settled"
+    ? "default"
+    : s === "active"
+      ? "secondary"
+      : s === "pending"
+        ? "outline"
+        : "destructive";
+
+function LoansDeductionsDialog({ employee, factoryId }: { employee: Employee; factoryId: string }) {
+  const qc = useQueryClient();
+  const { can } = usePermissions();
+  const canCreate = can("payroll", "create");
+  const canApprove = can("payroll", "approve");
+  const canReject = can("payroll", "reject");
+  const canCancel = can("payroll", "cancel");
+
+  const me = useQuery({
+    queryKey: ["current-user-id"],
+    queryFn: async () => (await supabase.auth.getUser()).data.user?.id ?? null,
+    staleTime: Infinity,
+  });
+
+  const loans = useQuery({
+    queryKey: ["staff-loans", employee.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("staff_loans")
+        .select(
+          "id,loan_number,principal,repayment_type,installment_mode,installment_amount,installment_months,amount_repaid,outstanding,status,submitted_by,reason",
+        )
+        .eq("employee_id", employee.id)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as LoanRow[];
+    },
+  });
+  const deductions = useQuery({
+    queryKey: ["staff-deductions", employee.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("staff_deductions")
+        .select(
+          "id,reference_number,kind,label,amount,period_month,period_year,status,submitted_by",
+        )
+        .eq("employee_id", employee.id)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as DeductionRow[];
+    },
+  });
+
+  const refreshLoans = () => qc.invalidateQueries({ queryKey: ["staff-loans", employee.id] });
+  const refreshDed = () => qc.invalidateQueries({ queryKey: ["staff-deductions", employee.id] });
+
+  // ---- loan form ----
+  const [principal, setPrincipal] = useState(0);
+  const [disbursedOn, setDisbursedOn] = useState(new Date().toISOString().slice(0, 10));
+  const [repayType, setRepayType] = useState<"one_time" | "installment">("one_time");
+  const [instMode, setInstMode] = useState<"amount" | "months">("amount");
+  const [instAmount, setInstAmount] = useState(0);
+  const [instMonths, setInstMonths] = useState(0);
+  const [loanReason, setLoanReason] = useState("");
+
+  const addLoan = useMutation({
+    mutationFn: async () => {
+      if (principal <= 0) throw new Error("Principal must be greater than 0");
+      const payload: Record<string, unknown> = {
+        factory_id: factoryId,
+        employee_id: employee.id,
+        principal,
+        disbursed_on: disbursedOn,
+        repayment_type: repayType,
+        reason: loanReason || undefined,
+      };
+      if (repayType === "installment") {
+        payload.installment_mode = instMode;
+        if (instMode === "amount") payload.installment_amount = instAmount;
+        else payload.installment_months = instMonths;
+      }
+      const { error } = await supabase.rpc("create_staff_loan", { payload: payload as never });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Loan recorded — awaiting approval");
+      setPrincipal(0);
+      setInstAmount(0);
+      setInstMonths(0);
+      setLoanReason("");
+      refreshLoans();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const runLoan = async (
+    action: "approve_staff_loan" | "reject_staff_loan" | "cancel_staff_loan",
+    id: string,
+  ) => {
+    let reason: string | undefined;
+    if (action !== "approve_staff_loan") {
+      reason =
+        window.prompt(
+          action === "reject_staff_loan" ? "Reason for rejecting:" : "Reason for cancelling:",
+        ) ?? undefined;
+      if (action === "reject_staff_loan" && !reason?.trim()) return;
+    }
+    const { error } =
+      action === "approve_staff_loan"
+        ? await supabase.rpc("approve_staff_loan", { p_id: id })
+        : action === "reject_staff_loan"
+          ? await supabase.rpc("reject_staff_loan", { p_id: id, p_reason: reason ?? "" })
+          : await supabase.rpc("cancel_staff_loan", { p_id: id, p_reason: reason });
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success("Loan updated");
+    refreshLoans();
+  };
+
+  // ---- deduction form ----
+  const now = new Date();
+  const [kind, setKind] = useState<"fine" | "contribution" | "other">("fine");
+  const [dedLabel, setDedLabel] = useState("");
+  const [dedAmount, setDedAmount] = useState(0);
+  const [pMonth, setPMonth] = useState(now.getMonth() + 1);
+  const [pYear, setPYear] = useState(now.getFullYear());
+  const [dedReason, setDedReason] = useState("");
+
+  const addDed = useMutation({
+    mutationFn: async () => {
+      if (!dedLabel.trim()) throw new Error("A label is required");
+      if (dedAmount <= 0) throw new Error("Amount must be greater than 0");
+      const { error } = await supabase.rpc("create_staff_deduction", {
+        payload: {
+          factory_id: factoryId,
+          employee_id: employee.id,
+          kind,
+          label: dedLabel.trim(),
+          amount: dedAmount,
+          period_month: pMonth,
+          period_year: pYear,
+          reason: dedReason || undefined,
+        } as never,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Recorded — awaiting approval");
+      setDedLabel("");
+      setDedAmount(0);
+      setDedReason("");
+      refreshDed();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const runDed = async (
+    action: "approve_staff_deduction" | "reject_staff_deduction",
+    id: string,
+  ) => {
+    let reason: string | undefined;
+    if (action === "reject_staff_deduction") {
+      reason = window.prompt("Reason for rejecting:") ?? undefined;
+      if (!reason?.trim()) return;
+    }
+    const { error } =
+      action === "approve_staff_deduction"
+        ? await supabase.rpc("approve_staff_deduction", { p_id: id })
+        : await supabase.rpc("reject_staff_deduction", { p_id: id, p_reason: reason ?? "" });
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success("Updated");
+    refreshDed();
+  };
+
+  const schedule = (l: LoanRow) =>
+    l.repayment_type === "one_time"
+      ? "One-time"
+      : l.installment_mode === "amount"
+        ? `${money(Number(l.installment_amount ?? 0))}/mo`
+        : `${l.installment_months} months`;
+
+  return (
+    <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+      <DialogHeader>
+        <DialogTitle>Loans &amp; Deductions — {employee.full_name}</DialogTitle>
+      </DialogHeader>
+
+      <div className="space-y-6">
+        {/* ---------------- Staff loans ---------------- */}
+        <section className="space-y-3">
+          <h3 className="text-sm font-semibold">Staff loans</h3>
+          <div className="overflow-x-auto rounded-lg border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Loan #</TableHead>
+                  <TableHead className="text-right">Principal</TableHead>
+                  <TableHead>Schedule</TableHead>
+                  <TableHead className="text-right">Repaid</TableHead>
+                  <TableHead className="text-right">Outstanding</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(loans.data ?? []).map((l) => (
+                  <TableRow key={l.id}>
+                    <TableCell className="font-mono text-xs">{l.loan_number}</TableCell>
+                    <TableCell className="text-right">{money(Number(l.principal))}</TableCell>
+                    <TableCell className="text-xs">{schedule(l)}</TableCell>
+                    <TableCell className="text-right">{money(Number(l.amount_repaid))}</TableCell>
+                    <TableCell className="text-right">{money(Number(l.outstanding))}</TableCell>
+                    <TableCell>
+                      <Badge variant={loanBadge(l.status)} className="capitalize">
+                        {l.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex justify-end gap-1">
+                        {l.status === "pending" && canApprove && l.submitted_by !== me.data && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Approve"
+                            onClick={() => runLoan("approve_staff_loan", l.id)}
+                          >
+                            <Check className="h-4 w-4 text-success" />
+                          </Button>
+                        )}
+                        {l.status === "pending" && canReject && l.submitted_by !== me.data && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Reject"
+                            onClick={() => runLoan("reject_staff_loan", l.id)}
+                          >
+                            <X className="h-4 w-4 text-destructive" />
+                          </Button>
+                        )}
+                        {l.status === "active" && canCancel && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Cancel"
+                            onClick={() => runLoan("cancel_staff_loan", l.id)}
+                          >
+                            <Ban className="h-4 w-4 text-muted-foreground" />
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {(loans.data ?? []).length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={7} className="py-6 text-center text-muted-foreground">
+                      No loans recorded.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+
+          {canCreate && (
+            <div className="grid gap-3 rounded-lg border p-3">
+              <p className="text-xs font-medium text-muted-foreground">Record a new loan</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Principal</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={principal || ""}
+                    onChange={(e) => setPrincipal(Number(e.target.value))}
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Disbursed on</Label>
+                  <Input
+                    type="date"
+                    value={disbursedOn}
+                    onChange={(e) => setDisbursedOn(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Repayment</Label>
+                  <Select
+                    value={repayType}
+                    onValueChange={(v) => setRepayType(v as "one_time" | "installment")}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="one_time">One-time (next payday)</SelectItem>
+                      <SelectItem value="installment">Installment</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {repayType === "installment" && (
+                  <div>
+                    <Label className="text-xs">Sized by</Label>
+                    <Select
+                      value={instMode}
+                      onValueChange={(v) => setInstMode(v as "amount" | "months")}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="amount">Amount per month</SelectItem>
+                        <SelectItem value="months">Number of months</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
+              {repayType === "installment" && (
+                <div>
+                  {instMode === "amount" ? (
+                    <>
+                      <Label className="text-xs">Deduct per month</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        value={instAmount || ""}
+                        onChange={(e) => setInstAmount(Number(e.target.value))}
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <Label className="text-xs">Number of months</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        value={instMonths || ""}
+                        onChange={(e) => setInstMonths(Number(e.target.value))}
+                      />
+                    </>
+                  )}
+                </div>
+              )}
+              <div>
+                <Label className="text-xs">Reason / note</Label>
+                <Input value={loanReason} onChange={(e) => setLoanReason(e.target.value)} />
+              </div>
+              <div className="flex justify-end">
+                <Button size="sm" disabled={addLoan.isPending} onClick={() => addLoan.mutate()}>
+                  {addLoan.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Record loan
+                </Button>
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* ---------------- Fines & contributions ---------------- */}
+        <section className="space-y-3">
+          <h3 className="text-sm font-semibold">Fines &amp; contributions</h3>
+          <div className="overflow-x-auto rounded-lg border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Ref</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Label</TableHead>
+                  <TableHead>Period</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(deductions.data ?? []).map((d) => (
+                  <TableRow key={d.id}>
+                    <TableCell className="font-mono text-xs">{d.reference_number}</TableCell>
+                    <TableCell className="capitalize">{d.kind}</TableCell>
+                    <TableCell>{d.label}</TableCell>
+                    <TableCell className="text-xs">
+                      {DED_MONTHS[d.period_month - 1]} {d.period_year}
+                    </TableCell>
+                    <TableCell className="text-right">{money(Number(d.amount))}</TableCell>
+                    <TableCell>
+                      <Badge
+                        variant={
+                          d.status === "rejected" || d.status === "void"
+                            ? "destructive"
+                            : d.status === "pending"
+                              ? "outline"
+                              : "secondary"
+                        }
+                        className="capitalize"
+                      >
+                        {d.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex justify-end gap-1">
+                        {d.status === "pending" && canApprove && d.submitted_by !== me.data && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Approve"
+                            onClick={() => runDed("approve_staff_deduction", d.id)}
+                          >
+                            <Check className="h-4 w-4 text-success" />
+                          </Button>
+                        )}
+                        {d.status === "pending" && canReject && d.submitted_by !== me.data && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Reject"
+                            onClick={() => runDed("reject_staff_deduction", d.id)}
+                          >
+                            <X className="h-4 w-4 text-destructive" />
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {(deductions.data ?? []).length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={7} className="py-6 text-center text-muted-foreground">
+                      Nothing recorded.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+
+          {canCreate && (
+            <div className="grid gap-3 rounded-lg border p-3">
+              <p className="text-xs font-medium text-muted-foreground">
+                Record a fine or contribution
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Type</Label>
+                  <Select
+                    value={kind}
+                    onValueChange={(v) => setKind(v as "fine" | "contribution" | "other")}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="fine">Fine (rule violation)</SelectItem>
+                      <SelectItem value="contribution">Contribution</SelectItem>
+                      <SelectItem value="other">Other deduction</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-xs">Amount</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={dedAmount || ""}
+                    onChange={(e) => setDedAmount(Number(e.target.value))}
+                  />
+                </div>
+              </div>
+              <div>
+                <Label className="text-xs">Label</Label>
+                <Input
+                  value={dedLabel}
+                  onChange={(e) => setDedLabel(e.target.value)}
+                  placeholder="e.g. Late to work — March"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Applies to month</Label>
+                  <Select value={String(pMonth)} onValueChange={(v) => setPMonth(Number(v))}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {DED_MONTHS.map((m, i) => (
+                        <SelectItem key={m} value={String(i + 1)}>
+                          {m}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-xs">Year</Label>
+                  <Input
+                    type="number"
+                    value={pYear}
+                    onChange={(e) => setPYear(Number(e.target.value))}
+                  />
+                </div>
+              </div>
+              <div>
+                <Label className="text-xs">Reason / note</Label>
+                <Input value={dedReason} onChange={(e) => setDedReason(e.target.value)} />
+              </div>
+              <div className="flex justify-end">
+                <Button size="sm" disabled={addDed.isPending} onClick={() => addDed.mutate()}>
+                  {addDed.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Record
+                </Button>
+              </div>
+            </div>
+          )}
+        </section>
       </div>
     </DialogContent>
   );

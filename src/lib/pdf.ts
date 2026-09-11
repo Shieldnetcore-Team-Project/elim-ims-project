@@ -35,6 +35,11 @@ export type InvoiceData = {
 
 export type PdfAction = "download" | "print" | "preview";
 
+// Bundled brand logo (public/assets/), served same-origin so it never taints
+// the canvas. Used on every receipt/print when a factory hasn't uploaded its
+// own logo in Settings, so nothing prints logo-less.
+const FALLBACK_LOGO_URL = "/assets/bluespring%20logo.jpeg";
+
 // jsPDF's built-in fonts have no glyph for the Naira sign (₦) -- it prints as
 // a broken box on thermal/receipt output. Use a plain currency-code prefix
 // for PDFs instead of the on-screen Intl currency symbol from format.ts.
@@ -78,6 +83,20 @@ async function loadLogo(
   }
 }
 
+// Loads the factory's uploaded logo, falling back to the bundled brand logo
+// when there's no custom one (or it fails to load). Returns null only if even
+// the fallback can't be decoded, so a genuinely broken logo never blocks a
+// print.
+async function resolveLogo(
+  url: string | null | undefined,
+): Promise<{ dataUrl: string; width: number; height: number } | null> {
+  if (url) {
+    const custom = await loadLogo(url);
+    if (custom) return custom;
+  }
+  return loadLogo(FALLBACK_LOGO_URL);
+}
+
 // Draws the company logo centered at the top of the page (any format/orientation)
 // and returns the y-coordinate the rest of the header should start from --
 // `baseTop` unchanged when there's no logo, pushed down by the logo's height
@@ -89,8 +108,7 @@ async function drawLogoHeader(
   maxW = 90,
   maxH = 34,
 ): Promise<number> {
-  if (!logoUrl) return baseTop;
-  const logo = await loadLogo(logoUrl);
+  const logo = await resolveLogo(logoUrl);
   if (!logo) return baseTop;
   const ratio = Math.min(maxW / logo.width, maxH / logo.height, 1);
   const w = logo.width * ratio,
@@ -107,7 +125,7 @@ async function drawLogoHeader(
 export async function generateInvoicePdf(data: InvoiceData, action: PdfAction = "download") {
   const currency = data.currency ?? "NGN";
   const cur = (n: number) => pdfMoney(n, currency);
-  const logo = data.company.logo_url ? await loadLogo(data.company.logo_url) : null;
+  const logo = await resolveLogo(data.company.logo_url);
 
   const W = 227;
   const M = 10;

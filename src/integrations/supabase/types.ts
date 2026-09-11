@@ -488,6 +488,7 @@ export type Database = {
           id: string;
           outstanding: number;
           sale_id: string | null;
+          sales_rep_id: string | null;
           status: Database["public"]["Enums"]["debt_status"];
           total_amount: number;
           updated_at: string;
@@ -508,6 +509,7 @@ export type Database = {
           id?: string;
           outstanding?: number;
           sale_id?: string | null;
+          sales_rep_id?: string | null;
           status?: Database["public"]["Enums"]["debt_status"];
           total_amount: number;
           updated_at?: string;
@@ -528,6 +530,7 @@ export type Database = {
           id?: string;
           outstanding?: number;
           sale_id?: string | null;
+          sales_rep_id?: string | null;
           status?: Database["public"]["Enums"]["debt_status"];
           total_amount?: number;
           updated_at?: string;
@@ -2466,6 +2469,7 @@ export type Database = {
           remarks: string | null;
           sale_date: string;
           sales_person: string | null;
+          sales_rep_id: string | null;
           subtotal: number;
           vat: number;
         };
@@ -2487,6 +2491,7 @@ export type Database = {
           remarks?: string | null;
           sale_date?: string;
           sales_person?: string | null;
+          sales_rep_id?: string | null;
           subtotal?: number;
           vat?: number;
         };
@@ -2508,6 +2513,7 @@ export type Database = {
           remarks?: string | null;
           sale_date?: string;
           sales_person?: string | null;
+          sales_rep_id?: string | null;
           subtotal?: number;
           vat?: number;
         };
@@ -2527,6 +2533,321 @@ export type Database = {
             referencedColumns: ["id"];
           },
         ];
+      };
+      rep_remittances: {
+        Row: {
+          amount: number;
+          created_at: string;
+          factory_id: string;
+          id: string;
+          payment_method: Database["public"]["Enums"]["payment_method"];
+          received_by: string | null;
+          remarks: string | null;
+          remittance_date: string;
+          remittance_number: string;
+          sales_rep_id: string;
+        };
+        Insert: {
+          amount: number;
+          created_at?: string;
+          factory_id: string;
+          id?: string;
+          payment_method?: Database["public"]["Enums"]["payment_method"];
+          received_by?: string | null;
+          remarks?: string | null;
+          remittance_date?: string;
+          remittance_number: string;
+          sales_rep_id: string;
+        };
+        Update: {
+          amount?: number;
+          created_at?: string;
+          factory_id?: string;
+          id?: string;
+          payment_method?: Database["public"]["Enums"]["payment_method"];
+          received_by?: string | null;
+          remarks?: string | null;
+          remittance_date?: string;
+          remittance_number?: string;
+          sales_rep_id?: string;
+        };
+        Relationships: [];
+      };
+      rep_return_items: {
+        Row: {
+          accepted_quantity: number | null;
+          charge_rep: boolean;
+          damaged_quantity: number;
+          id: string;
+          product_id: string;
+          quantity_returned: number;
+          rejected_quantity: number;
+          rep_return_id: string;
+          unit_price: number;
+        };
+        Insert: {
+          accepted_quantity?: number | null;
+          charge_rep?: boolean;
+          damaged_quantity?: number;
+          id?: string;
+          product_id: string;
+          quantity_returned: number;
+          rejected_quantity?: number;
+          rep_return_id: string;
+          unit_price?: number;
+        };
+        Update: {
+          accepted_quantity?: number | null;
+          charge_rep?: boolean;
+          damaged_quantity?: number;
+          id?: string;
+          product_id?: string;
+          quantity_returned?: number;
+          rejected_quantity?: number;
+          rep_return_id?: string;
+          unit_price?: number;
+        };
+        Relationships: [];
+      };
+      rep_returns: {
+        Row: {
+          created_at: string;
+          factory_id: string;
+          id: string;
+          inspected_at: string | null;
+          inspected_by: string | null;
+          notes: string | null;
+          received_at: string;
+          received_by: string;
+          return_date: string;
+          return_number: string;
+          sales_rep_id: string;
+          status: string;
+        };
+        Insert: {
+          created_at?: string;
+          factory_id: string;
+          id?: string;
+          inspected_at?: string | null;
+          inspected_by?: string | null;
+          notes?: string | null;
+          received_at?: string;
+          received_by: string;
+          return_date?: string;
+          return_number: string;
+          sales_rep_id: string;
+          status?: string;
+        };
+        Update: {
+          created_at?: string;
+          factory_id?: string;
+          id?: string;
+          inspected_at?: string | null;
+          inspected_by?: string | null;
+          notes?: string | null;
+          received_at?: string;
+          received_by?: string;
+          return_date?: string;
+          return_number?: string;
+          sales_rep_id?: string;
+          status?: string;
+        };
+        Relationships: [];
+      };
+      rep_stock: {
+        Row: {
+          factory_id: string;
+          product_id: string;
+          quantity: number;
+          sales_rep_id: string;
+          updated_at: string;
+        };
+        Insert: {
+          factory_id: string;
+          product_id: string;
+          quantity?: number;
+          sales_rep_id: string;
+          updated_at?: string;
+        };
+        Update: {
+          factory_id?: string;
+          product_id?: string;
+          quantity?: number;
+          sales_rep_id?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      rep_stock_movements: {
+        Row: {
+          created_at: string;
+          factory_id: string;
+          id: string;
+          movement_type: string;
+          product_id: string;
+          quantity: number;
+          quantity_after: number | null;
+          quantity_before: number | null;
+          reason: string | null;
+          reference: string | null;
+          sales_rep_id: string;
+          user_id: string | null;
+        };
+        Insert: {
+          created_at?: string;
+          factory_id: string;
+          id?: string;
+          movement_type: string;
+          product_id: string;
+          quantity: number;
+          quantity_after?: number | null;
+          quantity_before?: number | null;
+          reason?: string | null;
+          reference?: string | null;
+          sales_rep_id: string;
+          user_id?: string | null;
+        };
+        Update: {
+          created_at?: string;
+          factory_id?: string;
+          id?: string;
+          movement_type?: string;
+          product_id?: string;
+          quantity?: number;
+          quantity_after?: number | null;
+          quantity_before?: number | null;
+          reason?: string | null;
+          reference?: string | null;
+          sales_rep_id?: string;
+          user_id?: string | null;
+        };
+        Relationships: [];
+      };
+      sales_reps: {
+        Row: {
+          code: string | null;
+          created_at: string;
+          employee_id: string | null;
+          factory_id: string;
+          full_name: string;
+          id: string;
+          phone: string | null;
+          remarks: string | null;
+          status: string;
+          updated_at: string;
+          user_id: string | null;
+        };
+        Insert: {
+          code?: string | null;
+          created_at?: string;
+          employee_id?: string | null;
+          factory_id: string;
+          full_name: string;
+          id?: string;
+          phone?: string | null;
+          remarks?: string | null;
+          status?: string;
+          updated_at?: string;
+          user_id?: string | null;
+        };
+        Update: {
+          code?: string | null;
+          created_at?: string;
+          employee_id?: string | null;
+          factory_id?: string;
+          full_name?: string;
+          id?: string;
+          phone?: string | null;
+          remarks?: string | null;
+          status?: string;
+          updated_at?: string;
+          user_id?: string | null;
+        };
+        Relationships: [];
+      };
+      stock_dispatch_items: {
+        Row: {
+          dispatch_id: string;
+          id: string;
+          line_value: number;
+          product_id: string;
+          quantity: number;
+          unit_price: number;
+        };
+        Insert: {
+          dispatch_id: string;
+          id?: string;
+          line_value?: number;
+          product_id: string;
+          quantity: number;
+          unit_price?: number;
+        };
+        Update: {
+          dispatch_id?: string;
+          id?: string;
+          line_value?: number;
+          product_id?: string;
+          quantity?: number;
+          unit_price?: number;
+        };
+        Relationships: [];
+      };
+      stock_dispatches: {
+        Row: {
+          created_at: string;
+          created_by: string | null;
+          dispatch_date: string;
+          dispatch_number: string;
+          driver_id: string | null;
+          factory_id: string;
+          id: string;
+          notes: string | null;
+          reverse_reason: string | null;
+          reversed_at: string | null;
+          reversed_by: string | null;
+          route_id: string | null;
+          sales_rep_id: string;
+          status: string;
+          total_value: number;
+          vehicle_id: string | null;
+        };
+        Insert: {
+          created_at?: string;
+          created_by?: string | null;
+          dispatch_date?: string;
+          dispatch_number: string;
+          driver_id?: string | null;
+          factory_id: string;
+          id?: string;
+          notes?: string | null;
+          reverse_reason?: string | null;
+          reversed_at?: string | null;
+          reversed_by?: string | null;
+          route_id?: string | null;
+          sales_rep_id: string;
+          status?: string;
+          total_value?: number;
+          vehicle_id?: string | null;
+        };
+        Update: {
+          created_at?: string;
+          created_by?: string | null;
+          dispatch_date?: string;
+          dispatch_number?: string;
+          driver_id?: string | null;
+          factory_id?: string;
+          id?: string;
+          notes?: string | null;
+          reverse_reason?: string | null;
+          reversed_at?: string | null;
+          reversed_by?: string | null;
+          route_id?: string | null;
+          sales_rep_id?: string;
+          status?: string;
+          total_value?: number;
+          vehicle_id?: string | null;
+        };
+        Relationships: [];
       };
       sales_returns: {
         Row: {
@@ -2763,6 +3084,187 @@ export type Database = {
             referencedColumns: ["id"];
           },
         ];
+      };
+      staff_deductions: {
+        Row: {
+          amount: number;
+          applied_payroll_id: string | null;
+          approved_at: string | null;
+          approved_by: string | null;
+          created_at: string;
+          employee_id: string;
+          factory_id: string;
+          id: string;
+          kind: string;
+          label: string;
+          period_month: number;
+          period_year: number;
+          reason: string | null;
+          reference_number: string;
+          reject_reason: string | null;
+          status: string;
+          submitted_at: string;
+          submitted_by: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          amount: number;
+          applied_payroll_id?: string | null;
+          approved_at?: string | null;
+          approved_by?: string | null;
+          created_at?: string;
+          employee_id: string;
+          factory_id: string;
+          id?: string;
+          kind: string;
+          label: string;
+          period_month: number;
+          period_year: number;
+          reason?: string | null;
+          reference_number: string;
+          reject_reason?: string | null;
+          status?: string;
+          submitted_at?: string;
+          submitted_by?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          amount?: number;
+          applied_payroll_id?: string | null;
+          approved_at?: string | null;
+          approved_by?: string | null;
+          created_at?: string;
+          employee_id?: string;
+          factory_id?: string;
+          id?: string;
+          kind?: string;
+          label?: string;
+          period_month?: number;
+          period_year?: number;
+          reason?: string | null;
+          reference_number?: string;
+          reject_reason?: string | null;
+          status?: string;
+          submitted_at?: string;
+          submitted_by?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      staff_loan_repayments: {
+        Row: {
+          amount: number;
+          created_at: string;
+          created_by: string | null;
+          factory_id: string;
+          id: string;
+          loan_id: string;
+          paid_at: string | null;
+          payroll_id: string | null;
+          period_month: number;
+          period_year: number;
+          status: string;
+        };
+        Insert: {
+          amount: number;
+          created_at?: string;
+          created_by?: string | null;
+          factory_id: string;
+          id?: string;
+          loan_id: string;
+          paid_at?: string | null;
+          payroll_id?: string | null;
+          period_month: number;
+          period_year: number;
+          status?: string;
+        };
+        Update: {
+          amount?: number;
+          created_at?: string;
+          created_by?: string | null;
+          factory_id?: string;
+          id?: string;
+          loan_id?: string;
+          paid_at?: string | null;
+          payroll_id?: string | null;
+          period_month?: number;
+          period_year?: number;
+          status?: string;
+        };
+        Relationships: [];
+      };
+      staff_loans: {
+        Row: {
+          amount_repaid: number;
+          approved_at: string | null;
+          approved_by: string | null;
+          created_at: string;
+          disbursed_on: string;
+          employee_id: string;
+          factory_id: string;
+          id: string;
+          installment_amount: number | null;
+          installment_mode: string | null;
+          installment_months: number | null;
+          loan_number: string;
+          outstanding: number;
+          principal: number;
+          reason: string | null;
+          reject_reason: string | null;
+          remarks: string | null;
+          repayment_type: string;
+          status: string;
+          submitted_at: string;
+          submitted_by: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          amount_repaid?: number;
+          approved_at?: string | null;
+          approved_by?: string | null;
+          created_at?: string;
+          disbursed_on?: string;
+          employee_id: string;
+          factory_id: string;
+          id?: string;
+          installment_amount?: number | null;
+          installment_mode?: string | null;
+          installment_months?: number | null;
+          loan_number: string;
+          principal: number;
+          reason?: string | null;
+          reject_reason?: string | null;
+          remarks?: string | null;
+          repayment_type: string;
+          status?: string;
+          submitted_at?: string;
+          submitted_by?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          amount_repaid?: number;
+          approved_at?: string | null;
+          approved_by?: string | null;
+          created_at?: string;
+          disbursed_on?: string;
+          employee_id?: string;
+          factory_id?: string;
+          id?: string;
+          installment_amount?: number | null;
+          installment_mode?: string | null;
+          installment_months?: number | null;
+          loan_number?: string;
+          principal?: number;
+          reason?: string | null;
+          reject_reason?: string | null;
+          remarks?: string | null;
+          repayment_type?: string;
+          status?: string;
+          submitted_at?: string;
+          submitted_by?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [];
       };
       suppliers: {
         Row: {
@@ -3147,6 +3649,19 @@ export type Database = {
       create_purchase_order: { Args: { payload: Json }; Returns: Json };
       create_sale: { Args: { payload: Json }; Returns: Json };
       create_sales_return: { Args: { payload: Json }; Returns: Json };
+      create_rep_return: { Args: { payload: Json }; Returns: Json };
+      create_stock_dispatch: { Args: { payload: Json }; Returns: Json };
+      cancel_rep_return: { Args: { p_id: string; p_reason?: string }; Returns: Json };
+      inspect_rep_return: {
+        Args: { p_id: string; p_items: Json; p_notes?: string };
+        Returns: Json;
+      };
+      record_rep_remittance: { Args: { payload: Json }; Returns: Json };
+      rep_account_summary: {
+        Args: { p_sales_rep_id: string; p_from?: string; p_to?: string };
+        Returns: Json;
+      };
+      reverse_stock_dispatch: { Args: { p_id: string; p_reason?: string }; Returns: Json };
       delete_user_account: { Args: { target_id: string }; Returns: Json };
       flag_payment: { Args: { p_id: string; p_reason: string }; Returns: Json };
       get_all_users_last_login: {
@@ -3205,6 +3720,13 @@ export type Database = {
         Args: { p_comment?: string; p_id: string; p_payment_date?: string };
         Returns: Json;
       };
+      create_staff_loan: { Args: { payload: Json }; Returns: Json };
+      create_staff_deduction: { Args: { payload: Json }; Returns: Json };
+      approve_staff_loan: { Args: { p_id: string; p_comment?: string }; Returns: Json };
+      reject_staff_loan: { Args: { p_id: string; p_reason: string }; Returns: Json };
+      cancel_staff_loan: { Args: { p_id: string; p_reason?: string }; Returns: Json };
+      approve_staff_deduction: { Args: { p_id: string; p_comment?: string }; Returns: Json };
+      reject_staff_deduction: { Args: { p_id: string; p_reason: string }; Returns: Json };
       post_role_grant: {
         Args: { p_comment?: string; p_request_id: string };
         Returns: Json;

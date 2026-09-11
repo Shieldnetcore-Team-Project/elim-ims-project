@@ -480,6 +480,32 @@ function PayrollPage() {
   );
 }
 
+function DeductionBreakdown({ row }: { row: PayrollRow }) {
+  const lines = [
+    { label: "PAYE", value: Number(row.paye) },
+    { label: "Pension", value: Number(row.pension) },
+    { label: "Loan repayments", value: Number(row.loans) },
+    { label: "Advance", value: Number(row.advance) },
+    { label: "Fines / contributions / other", value: Number(row.other_deductions) },
+  ].filter((l) => l.value > 0);
+  if (lines.length === 0) return null;
+  return (
+    <div className="rounded-md border p-2 text-xs space-y-1">
+      <p className="font-medium text-muted-foreground">Deductions on this run</p>
+      {lines.map((l) => (
+        <div key={l.label} className="flex justify-between">
+          <span>{l.label}</span>
+          <span>{money(l.value)}</span>
+        </div>
+      ))}
+      <div className="flex justify-between border-t pt-1 font-medium">
+        <span>Gross</span>
+        <span>{money(Number(row.gross_salary))}</span>
+      </div>
+    </div>
+  );
+}
+
 function ApprovePayrollDialog({ row, onDone }: { row: PayrollRow; onDone: () => void }) {
   const submit = useMutation({
     mutationFn: async () => {
@@ -500,6 +526,7 @@ function ApprovePayrollDialog({ row, onDone }: { row: PayrollRow; onDone: () => 
       </DialogHeader>
       <div className="grid gap-3">
         <p className="text-sm text-muted-foreground">Net salary: {money(Number(row.net_salary))}</p>
+        <DeductionBreakdown row={row} />
         <p className="text-sm text-muted-foreground">
           This marks the payroll run reviewed. A post step (by you or someone else) still finalizes
           payment.
@@ -539,6 +566,7 @@ function PostPayrollDialog({ row, onDone }: { row: PayrollRow; onDone: () => voi
       </DialogHeader>
       <div className="grid gap-3">
         <p className="text-sm text-muted-foreground">Net salary: {money(Number(row.net_salary))}</p>
+        <DeductionBreakdown row={row} />
         <div>
           <Label>Payment date</Label>
           <Input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} />
@@ -689,10 +717,60 @@ function PayrollForm({
   const [overtime, setOvertime] = useState(0);
   const [paye, setPaye] = useState(0);
   const [pension, setPension] = useState(0);
-  const [loans, setLoans] = useState(0);
   const [advance, setAdvance] = useState(0);
   const [otherDed, setOtherDed] = useState(0);
   const [method, setMethod] = useState<PaymentMethod>("transfer");
+
+  // Loans and approved fines/contributions are pulled from the employee's
+  // records and recomputed on the server — shown here read-only so the person
+  // preparing the run sees exactly what will be deducted before it's paid.
+  const activeLoans = useQuery({
+    queryKey: ["payroll-emp-loans", employeeId],
+    enabled: !!employeeId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("staff_loans")
+        .select(
+          "id,loan_number,principal,repayment_type,installment_mode,installment_amount,installment_months,amount_repaid,outstanding",
+        )
+        .eq("employee_id", employeeId)
+        .eq("status", "active")
+        .gt("outstanding", 0);
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+  const periodDeductions = useQuery({
+    queryKey: ["payroll-emp-deductions", employeeId, month, year],
+    enabled: !!employeeId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("staff_deductions")
+        .select("id,kind,label,amount")
+        .eq("employee_id", employeeId)
+        .eq("period_month", month)
+        .eq("period_year", year)
+        .eq("status", "approved");
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  const loanLines = (activeLoans.data ?? []).map((l) => {
+    const outstanding = Number(l.outstanding);
+    const due =
+      l.repayment_type === "one_time"
+        ? outstanding
+        : l.installment_mode === "amount"
+          ? Math.min(Number(l.installment_amount ?? 0), outstanding)
+          : Math.min(
+              Math.round((Number(l.principal) / Number(l.installment_months ?? 1)) * 100) / 100,
+              outstanding,
+            );
+    return { id: l.id, loan_number: l.loan_number, due };
+  });
+  const loanTotal = loanLines.reduce((s, l) => s + l.due, 0);
+  const adjTotal = (periodDeductions.data ?? []).reduce((s, d) => s + Number(d.amount), 0);
 
   const basic = Number(selected?.basic_salary ?? 0);
   const housing = Number(selected?.housing_allowance ?? 0);
@@ -706,8 +784,8 @@ function PayrollForm({
     [basic, housing, transport, meal, medical, otherAllow, overtime],
   );
   const net = useMemo(
-    () => Math.max(gross - paye - pension - loans - advance - otherDed, 0),
-    [gross, paye, pension, loans, advance, otherDed],
+    () => Math.max(gross - paye - pension - loanTotal - advance - otherDed - adjTotal, 0),
+    [gross, paye, pension, loanTotal, advance, otherDed, adjTotal],
   );
 
   const selectEmployee = (id: string) => {
@@ -727,11 +805,10 @@ function PayrollForm({
           overtime,
           paye,
           pension,
-          loans,
           advance,
           other_deductions: otherDed,
           payment_method: method,
-        } as any,
+        } as never,
       });
       if (error) throw error;
     },
@@ -812,6 +889,32 @@ function PayrollForm({
           <span>{money(gross)}</span>
         </div>
 
+        {employeeId && (loanLines.length > 0 || (periodDeductions.data ?? []).length > 0) && (
+          <div className="rounded-md border p-3 text-sm space-y-1.5">
+            <p className="text-xs font-medium text-muted-foreground">
+              Pulled from records — deducted automatically this run
+            </p>
+            {loanLines.map((l) => (
+              <div key={l.id} className="flex justify-between">
+                <span>Loan repayment · {l.loan_number}</span>
+                <span>{money(l.due)}</span>
+              </div>
+            ))}
+            {(periodDeductions.data ?? []).map((d) => (
+              <div key={d.id} className="flex justify-between">
+                <span className="capitalize">
+                  {d.kind} · {d.label}
+                </span>
+                <span>{money(Number(d.amount))}</span>
+              </div>
+            ))}
+            <div className="flex justify-between border-t pt-1 font-medium">
+              <span>Total pulled</span>
+              <span>{money(loanTotal + adjTotal)}</span>
+            </div>
+          </div>
+        )}
+
         <div className="grid grid-cols-3 gap-3">
           <div>
             <Label>PAYE</Label>
@@ -834,14 +937,8 @@ function PayrollForm({
             />
           </div>
           <div>
-            <Label>Loans</Label>
-            <Input
-              type="number"
-              min={0}
-              step="0.01"
-              value={loans}
-              onChange={(e) => setLoans(Number(e.target.value))}
-            />
+            <Label>Loans (from records)</Label>
+            <Input value={money(loanTotal)} disabled />
           </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
@@ -856,7 +953,7 @@ function PayrollForm({
             />
           </div>
           <div>
-            <Label>Other deductions</Label>
+            <Label>Additional manual deduction</Label>
             <Input
               type="number"
               min={0}
@@ -864,6 +961,9 @@ function PayrollForm({
               value={otherDed}
               onChange={(e) => setOtherDed(Number(e.target.value))}
             />
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              + {money(adjTotal)} approved fines/contributions
+            </p>
           </div>
         </div>
 

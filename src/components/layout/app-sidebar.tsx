@@ -65,6 +65,7 @@ const nav: { section: string; items: NavItem[] }[] = [
       { title: "Production", url: "/production", icon: FactoryIcon, module: "production" },
       { title: "Inventory", url: "/raw-materials", icon: Boxes, module: "raw-materials" },
       { title: "Store", url: "/finished-goods", icon: Package, module: "finished-goods" },
+      { title: "Distribution", url: "/distribution", icon: Truck, module: "distribution" },
       { title: "Costing", url: "/costing", icon: Calculator, module: "costing" },
     ],
   },
@@ -185,7 +186,7 @@ export function AppSidebar() {
                             className={
                               active
                                 ? "flex items-center gap-2 bg-sidebar-accent text-sidebar-accent-foreground"
-                                : "flex items-center gap-2 hover:bg-white hover:text-sidebar"
+                                : "flex items-center gap-2 hover:bg-sidebar-accent/40 hover:text-sidebar-foreground"
                             }
                           >
                             <item.icon className="h-4 w-4" />

@@ -71,6 +71,7 @@ export type ModuleKey =
   | "settings"
   | "costing"
   | "logistics"
+  | "distribution"
   | "approvals"
   | "goods-receiving";
 
@@ -99,6 +100,7 @@ export const ALL_MODULES: ModuleKey[] = [
   "settings",
   "costing",
   "logistics",
+  "distribution",
   "approvals",
   "goods-receiving",
 ];
@@ -128,6 +130,7 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   settings: "Settings",
   costing: "Costing",
   logistics: "Logistics",
+  distribution: "Distribution (Sales Reps)",
   approvals: "Approvals",
   "goods-receiving": "Goods Receiving",
 };

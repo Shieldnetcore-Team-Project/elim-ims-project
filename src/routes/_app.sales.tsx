@@ -9,7 +9,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Table,
   TableBody,
@@ -315,6 +314,40 @@ function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: () => voi
   const [remarks, setRemarks] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [pickerId, setPickerId] = useState<string>("");
+  const [salesRepId, setSalesRepId] = useState<string>("none");
+
+  const reps = useQuery({
+    queryKey: ["sales-reps-active", factoryId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("sales_reps")
+        .select("id,full_name")
+        .eq("factory_id", factoryId)
+        .eq("status", "active")
+        .order("full_name");
+      if (error) throw error;
+      return (data ?? []) as { id: string; full_name: string }[];
+    },
+  });
+  const repStock = useQuery({
+    queryKey: ["sales-rep-stock", salesRepId],
+    enabled: salesRepId !== "none",
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("rep_stock")
+        .select("product_id,quantity")
+        .eq("sales_rep_id", salesRepId);
+      if (error) throw error;
+      return (data ?? []) as { product_id: string; quantity: number }[];
+    },
+  });
+  const repMode = salesRepId !== "none";
+  // When a rep is selling, the goods left the store at dispatch time, so the
+  // sellable quantity is what's on the rep's van — not products.current_stock.
+  const effStock = (p: { id: string; current_stock: number }) =>
+    repMode
+      ? Number(repStock.data?.find((r) => r.product_id === p.id)?.quantity ?? 0)
+      : Number(p.current_stock);
 
   const vatRate = Number(settings.data?.vat_rate ?? 0);
   const visibleProducts = useMemo(() => {
@@ -333,17 +366,18 @@ function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: () => voi
   const addProduct = (id: string) => {
     const p = products.data?.find((x) => x.id === id);
     if (!p) return;
+    const avail = effStock(p);
     setCart((prev) => {
       const existing = prev.find((c) => c.product_id === id);
       if (existing) {
-        if (existing.quantity + 1 > p.current_stock) {
-          toast.error(`Only ${p.current_stock} ${p.unit} in stock`);
+        if (existing.quantity + 1 > avail) {
+          toast.error(`Only ${avail} ${p.unit} ${repMode ? "on the van" : "in stock"}`);
           return prev;
         }
         return prev.map((c) => (c.product_id === id ? { ...c, quantity: c.quantity + 1 } : c));
       }
-      if (p.current_stock < 1) {
-        toast.error("Out of stock");
+      if (avail < 1) {
+        toast.error(repMode ? "Not on the van" : "Out of stock");
         return prev;
       }
       return [
@@ -354,7 +388,7 @@ function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: () => voi
           unit: p.unit,
           quantity: 1,
           unit_price: Number(p.unit_price),
-          stock: Number(p.current_stock),
+          stock: avail,
         },
       ];
     });
@@ -400,6 +434,7 @@ function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: () => voi
           amount_paid: amountPaid,
           payment_method: method,
           sales_person: salesPerson || null,
+          sales_rep_id: repMode ? salesRepId : null,
           remarks: remarks || null,
           items: cart.map((c) => ({
             product_id: c.product_id,
@@ -504,24 +539,24 @@ function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: () => voi
   };
 
   return (
-    <DialogContent className="max-w-4xl">
-      <DialogHeader>
+    <DialogContent className="flex max-h-[92vh] w-[95vw] max-w-4xl flex-col gap-0 overflow-hidden p-0">
+      <DialogHeader className="shrink-0 border-b px-6 py-4">
         <DialogTitle>New Sale</DialogTitle>
       </DialogHeader>
-      <div className="grid gap-4 md:grid-cols-[2fr_1fr]">
+      <div className="grid flex-1 gap-4 overflow-y-auto px-6 py-4 md:grid-cols-[2fr_1fr]">
         <div className="space-y-3">
           <div className="grid grid-cols-[1fr_auto] gap-2">
-            <div className="grid gap-2">
-              <Label>Add product</Label>
+            <div className="grid gap-1.5">
+              <Label className="text-xs">Add product</Label>
               <Select value={pickerId} onValueChange={addProduct}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select a product to add…" />
                 </SelectTrigger>
                 <SelectContent>
                   {visibleProducts.map((p) => (
-                    <SelectItem key={p.id} value={p.id} disabled={p.current_stock <= 0}>
-                      {p.name} · {money(Number(p.unit_price))} · stock{" "}
-                      {num(Number(p.current_stock))} {p.unit}
+                    <SelectItem key={p.id} value={p.id} disabled={effStock(p) <= 0}>
+                      {p.name} · {money(Number(p.unit_price))} · {repMode ? "van" : "stock"}{" "}
+                      {num(effStock(p))} {p.unit}
                     </SelectItem>
                   ))}
                   {visibleProducts.length === 0 && (
@@ -532,10 +567,10 @@ function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: () => voi
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid gap-2">
-              <Label>Category</Label>
+            <div className="grid gap-1.5">
+              <Label className="text-xs">Category</Label>
               <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                <SelectTrigger className="w-[160px]">
+                <SelectTrigger className="w-[150px]">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -550,7 +585,7 @@ function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: () => voi
             </div>
           </div>
 
-          <div className="rounded-lg border overflow-x-auto">
+          <div className="max-h-[40vh] overflow-auto rounded-lg border">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -616,54 +651,58 @@ function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: () => voi
           </div>
         </div>
 
-        <div className="space-y-3">
-          <div>
-            <Label>Sales date</Label>
-            <Input type="date" value={saleDate} onChange={(e) => setSaleDate(e.target.value)} />
-          </div>
-          <div>
-            <Label>Customer</Label>
-            <Select
-              value={customerId}
-              onValueChange={(v) => {
-                setCustomerId(v);
-                if (v === "walkin") {
-                  setCustomerName("");
-                  setCustomerPhone("");
-                  setCustomerAddress("");
-                } else {
-                  const c = customers.data?.find((x) => x.id === v);
-                  setCustomerName(c?.name ?? "");
-                  setCustomerPhone(c?.phone ?? "");
-                  setCustomerAddress(c?.address ?? "");
-                }
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="walkin">Walk-in</SelectItem>
-                {(customers.data ?? []).map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+        <div className="space-y-2.5">
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <Label className="text-xs">Sales date</Label>
+              <Input type="date" value={saleDate} onChange={(e) => setSaleDate(e.target.value)} />
+            </div>
+            <div>
+              <Label className="text-xs">Customer</Label>
+              <Select
+                value={customerId}
+                onValueChange={(v) => {
+                  setCustomerId(v);
+                  if (v === "walkin") {
+                    setCustomerName("");
+                    setCustomerPhone("");
+                    setCustomerAddress("");
+                  } else {
+                    const c = customers.data?.find((x) => x.id === v);
+                    setCustomerName(c?.name ?? "");
+                    setCustomerPhone(c?.phone ?? "");
+                    setCustomerAddress(c?.address ?? "");
+                  }
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="walkin">Walk-in</SelectItem>
+                  {(customers.data ?? []).map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           {customerId === "walkin" && (
             <>
-              <div>
-                <Label>Customer name</Label>
-                <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} />
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label className="text-xs">Customer name</Label>
+                  <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} />
+                </div>
+                <div>
+                  <Label className="text-xs">Phone</Label>
+                  <Input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} />
+                </div>
               </div>
               <div>
-                <Label>Phone</Label>
-                <Input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} />
-              </div>
-              <div>
-                <Label>Address</Label>
+                <Label className="text-xs">Address</Label>
                 <Input
                   value={customerAddress}
                   onChange={(e) => setCustomerAddress(e.target.value)}
@@ -673,7 +712,7 @@ function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: () => voi
           )}
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <Label>Discount</Label>
+              <Label className="text-xs">Discount</Label>
               <Input
                 type="number"
                 min={0}
@@ -683,7 +722,7 @@ function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: () => voi
               />
             </div>
             <div>
-              <Label>Paid</Label>
+              <Label className="text-xs">Paid</Label>
               <Input
                 type="number"
                 min={0}
@@ -693,30 +732,59 @@ function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: () => voi
               />
             </div>
           </div>
-          <div>
-            <Label>Payment method</Label>
-            <Select value={method} onValueChange={(v) => setMethod(v as PaymentMethod)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {(["cash", "transfer", "pos", "card", "cheque", "credit"] as PaymentMethod[]).map(
-                  (m) => (
-                    <SelectItem key={m} value={m} className="capitalize">
-                      {m}
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <Label className="text-xs">Payment method</Label>
+              <Select value={method} onValueChange={(v) => setMethod(v as PaymentMethod)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(["cash", "transfer", "pos", "card", "cheque", "credit"] as PaymentMethod[]).map(
+                    (m) => (
+                      <SelectItem key={m} value={m} className="capitalize">
+                        {m}
+                      </SelectItem>
+                    ),
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Sales rep (van stock)</Label>
+              <Select
+                value={salesRepId}
+                onValueChange={(v) => {
+                  setSalesRepId(v);
+                  if (cart.length > 0) {
+                    setCart([]);
+                    toast.info("Cart cleared — stock source changed");
+                  }
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Direct from store</SelectItem>
+                  {(reps.data ?? []).map((r) => (
+                    <SelectItem key={r.id} value={r.id}>
+                      {r.full_name}
                     </SelectItem>
-                  ),
-                )}
-              </SelectContent>
-            </Select>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
-          <div>
-            <Label>Sales person</Label>
-            <Input value={salesPerson} onChange={(e) => setSalesPerson(e.target.value)} />
-          </div>
-          <div>
-            <Label>Remarks</Label>
-            <Textarea value={remarks} onChange={(e) => setRemarks(e.target.value)} rows={2} />
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <Label className="text-xs">Sales person</Label>
+              <Input value={salesPerson} onChange={(e) => setSalesPerson(e.target.value)} />
+            </div>
+            <div>
+              <Label className="text-xs">Remarks</Label>
+              <Input value={remarks} onChange={(e) => setRemarks(e.target.value)} />
+            </div>
           </div>
 
           <div className="rounded-lg border p-3 text-sm space-y-1 bg-muted/30">
@@ -750,7 +818,7 @@ function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: () => voi
         </div>
       </div>
 
-      <DialogFooter>
+      <DialogFooter className="shrink-0 border-t px-6 py-4">
         <Button
           variant="outline"
           disabled={cart.length === 0}
