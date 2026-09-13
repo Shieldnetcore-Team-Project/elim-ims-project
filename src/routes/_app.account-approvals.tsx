@@ -106,6 +106,11 @@ export function AccountApprovalsPage() {
   const roles = useAllRoles();
   const roleLabel = (slug: string | null) =>
     slug ? (roles.data?.find((r) => r.slug === slug)?.label ?? slug) : "—";
+  const roleDisplay = (a: Account) => {
+    const granted = currentRoles(a.id);
+    if (granted.length > 0) return granted.map(roleLabel).join(", ");
+    return roleLabel(a.role_requested);
+  };
   const [tab, setTab] = useState<StatusTab>("pending");
   const [detail, setDetail] = useState<Account | null>(null);
   const [rejectTarget, setRejectTarget] = useState<Account | null>(null);
@@ -145,6 +150,27 @@ export function AccountApprovalsPage() {
       return (data ?? []) as Factory[];
     },
   });
+
+  // role_requested on profiles only ever reflects what was asked for at
+  // signup/creation time and is never updated afterwards (approve_user() and
+  // admin_provision_user() both write the grant to user_roles, not back onto
+  // this column) -- so for anyone whose role was changed since, or who was
+  // admin-created without a request, it's stale or null even though they hold
+  // a real role. user_roles is the actual source of truth (same table
+  // _app.users.tsx's Roles column reads), so the table/detail view below
+  // prefer it and only fall back to role_requested for accounts that haven't
+  // been granted anything yet (still pending).
+  const userRoles = useQuery({
+    queryKey: ["all-user-roles"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("user_roles").select("user_id,role");
+      if (error) throw error;
+      return (data ?? []) as { user_id: string; role: Role }[];
+    },
+  });
+
+  const currentRoles = (userId: string) =>
+    (userRoles.data ?? []).filter((r) => r.user_id === userId).map((r) => r.role);
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ["all-accounts"] });
 
@@ -335,7 +361,7 @@ export function AccountApprovalsPage() {
                   </TableCell>
                   <TableCell className="text-xs">{a.email ?? "—"}</TableCell>
                   <TableCell>{a.department ?? "—"}</TableCell>
-                  <TableCell>{roleLabel(a.role_requested)}</TableCell>
+                  <TableCell>{roleDisplay(a)}</TableCell>
                   <TableCell>
                     <Badge variant={statusVariant(a.status)} className="capitalize">
                       {a.status}
@@ -487,8 +513,10 @@ export function AccountApprovalsPage() {
                 {detail.department ?? "—"}
               </div>
               <div>
-                <span className="text-muted-foreground">Role requested:</span>{" "}
-                {roleLabel(detail.role_requested)}
+                <span className="text-muted-foreground">
+                  {currentRoles(detail.id).length > 0 ? "Role:" : "Role requested:"}
+                </span>{" "}
+                {roleDisplay(detail)}
               </div>
               <div>
                 <span className="text-muted-foreground">Factory:</span>{" "}

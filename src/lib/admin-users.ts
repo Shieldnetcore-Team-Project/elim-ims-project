@@ -148,3 +148,73 @@ export const adminCreateUser = createServerFn({ method: "POST" })
 
     return { ok: true, id: created.user.id, email: data.email };
   });
+
+const updateUserInput = z.object({
+  target_id: z.string().uuid(),
+  full_name: z.string().trim().min(1, "Full name is required"),
+  username: z.string().trim().optional(),
+  phone: z.string().trim().optional(),
+  department: z.string().trim().optional(),
+  email: z.string().trim().email("Enter a valid email").optional().or(z.literal("")),
+  password: z.string().min(8, "Password must be at least 8 characters").optional().or(z.literal("")),
+});
+
+export type AdminUpdateUserInput = z.infer<typeof updateUserInput>;
+export type AdminUpdateUserResult = { ok: true } | { ok: false; error: string };
+
+// Editing an account's name/phone/department/username is a plain profiles
+// update (admin_update_profile RPC, runs as the caller so has_permission +
+// audit_logs work like everywhere else). Email and password are different:
+// they live on auth.users, not profiles, and Supabase only lets the Admin API
+// (service-role key) touch them -- so those two fields, when present, go
+// through the same server-only admin client adminCreateUser uses above,
+// before the RPC call folds the (possibly new) email back into profiles.email
+// so it stays in sync with the real login address.
+export const adminUpdateUser = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((data: unknown) => updateUserInput.parse(data))
+  .handler(async ({ data, context }): Promise<AdminUpdateUserResult> => {
+    const { supabase } = context;
+
+    const { data: grants, error: grantsError } = await supabase.rpc("get_my_permissions");
+    if (grantsError) return { ok: false, error: grantsError.message };
+
+    const allowed = (grants ?? []).some(
+      (g) => g.module === "users" && (g.action === "edit" || g.action === "create"),
+    );
+    if (!allowed) return { ok: false, error: "You don't have permission to edit user accounts" };
+
+    const newEmail = data.email?.trim() || undefined;
+    const newPassword = data.password?.trim() || undefined;
+
+    if (newEmail || newPassword) {
+      let admin: ReturnType<typeof createAdminClient>;
+      try {
+        admin = createAdminClient();
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : "Server is not configured" };
+      }
+
+      const patch: { email?: string; password?: string; email_confirm?: boolean } = {};
+      if (newEmail) {
+        patch.email = newEmail;
+        patch.email_confirm = true;
+      }
+      if (newPassword) patch.password = newPassword;
+
+      const { error: authError } = await admin.auth.admin.updateUserById(data.target_id, patch);
+      if (authError) return { ok: false, error: authError.message };
+    }
+
+    const { error: profileError } = await supabase.rpc("admin_update_profile", {
+      target_id: data.target_id,
+      p_full_name: data.full_name,
+      p_phone: data.phone || undefined,
+      p_department: data.department || undefined,
+      p_username: data.username || undefined,
+      p_email: newEmail,
+    });
+    if (profileError) return { ok: false, error: profileError.message };
+
+    return { ok: true };
+  });

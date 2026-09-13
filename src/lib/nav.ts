@@ -15,11 +15,11 @@ import {
   PackageCheck,
   CheckSquare,
   HandCoins,
-  FileText,
   FileStack,
   Landmark,
   Undo2,
   LayoutGrid,
+  Warehouse,
 } from "lucide-react";
 import { type ModuleKey } from "@/lib/permissions";
 
@@ -32,11 +32,13 @@ export type NavItem = { title: string; url: string; icon: typeof LayoutDashboard
 
 // Mirrors the recommended nav tree (§10): Operations / Procurement / Finance /
 // Logistics / Reports / Administration. Sub-items that don't have their own
-// page reuse an existing route under a department-appropriate label (e.g.
-// Finance > Invoices links to the same Sales page Operations uses) rather
+// page reuse an existing route under a department-appropriate label rather
 // than duplicating a page — see the duplicate-page audit before this change.
+// (Finance used to carry an "Invoices" entry that just re-pointed at Sales;
+// removed as a redundant duplicate link rather than a real page.)
 // "Inventory" = raw materials, "Store" = finished goods, matching the
-// Inventory/Store dashboard split in §11.
+// Inventory/Store dashboard split in §11. "Inventory Overview" is a separate,
+// newer read-only page combining both for the active factory.
 export const nav: { section: string; items: NavItem[] }[] = [
   {
     section: "Overview",
@@ -51,6 +53,18 @@ export const nav: { section: string; items: NavItem[] }[] = [
       { title: "Sales", url: "/sales", icon: ShoppingCart, module: "sales" },
       { title: "Sales Returns", url: "/sales-returns", icon: Undo2, module: "sales" },
       { title: "Production", url: "/production", icon: FactoryIcon, module: "production" },
+      {
+        title: "Production Requests",
+        url: "/production-requests",
+        icon: ClipboardList,
+        module: "production-requests",
+      },
+      {
+        title: "Inventory Overview",
+        url: "/inventory",
+        icon: Warehouse,
+        modules: ["raw-materials", "finished-goods"],
+      },
       { title: "Inventory", url: "/raw-materials", icon: Boxes, module: "raw-materials" },
       { title: "Store", url: "/finished-goods", icon: Package, module: "finished-goods" },
       { title: "Distribution", url: "/distribution", icon: Truck, module: "distribution" },
@@ -61,16 +75,10 @@ export const nav: { section: string; items: NavItem[] }[] = [
     section: "Procurement",
     items: [
       {
-        title: "Purchase Requests",
-        url: "/production-requests",
-        icon: ClipboardList,
-        module: "production-requests",
-      },
-      {
-        title: "Purchase Orders",
-        url: "/purchase-orders",
+        title: "Procurement",
+        url: "/procurement",
         icon: FileStack,
-        module: "purchase-orders",
+        modules: ["production-requests", "purchase-orders"],
       },
     ],
   },
@@ -78,7 +86,6 @@ export const nav: { section: string; items: NavItem[] }[] = [
     section: "Finance",
     items: [
       { title: "Finance Overview", url: "/finance", icon: Landmark, module: "finance" },
-      { title: "Invoices", url: "/sales", icon: FileText, module: "sales" },
       {
         title: "Payments",
         url: "/cash-ledger",

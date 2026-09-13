@@ -92,6 +92,7 @@ type DebtPayment = {
   amount: number;
   payment_method: string;
   payment_date: string;
+  created_at: string;
   received_by: string | null;
   remarks: string | null;
 };
@@ -797,9 +798,9 @@ function HistoryDialog({ debt, profiles }: { debt: Debt; profiles: Record<string
     queryFn: async () => {
       const { data, error } = await supabase
         .from("debt_payments")
-        .select("id,amount,payment_method,payment_date,received_by,remarks")
+        .select("id,amount,payment_method,payment_date,created_at,received_by,remarks")
         .eq("debt_id", debt.id)
-        .order("payment_date", { ascending: false });
+        .order("created_at", { ascending: true });
       if (error) throw error;
       return (data ?? []) as DebtPayment[];
     },
@@ -846,7 +847,7 @@ function HistoryDialog({ debt, profiles }: { debt: Debt; profiles: Record<string
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Date</TableHead>
+                <TableHead>Date & Time</TableHead>
                 <TableHead className="text-right">Amount</TableHead>
                 <TableHead>Method</TableHead>
                 <TableHead>Received by</TableHead>
@@ -855,7 +856,9 @@ function HistoryDialog({ debt, profiles }: { debt: Debt; profiles: Record<string
             <TableBody>
               {(payments.data ?? []).map((p) => (
                 <TableRow key={p.id}>
-                  <TableCell>{p.payment_date}</TableCell>
+                  <TableCell className="whitespace-nowrap text-xs">
+                    {new Date(p.created_at).toLocaleString()}
+                  </TableCell>
                   <TableCell className="text-right">{money(Number(p.amount))}</TableCell>
                   <TableCell>
                     <Badge variant="outline" className="capitalize">

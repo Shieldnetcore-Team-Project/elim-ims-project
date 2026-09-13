@@ -55,10 +55,12 @@ import {
   X,
   Factory,
   Trash2,
+  ShoppingCart,
 } from "lucide-react";
 import { generateStockCardPdf } from "@/lib/pdf";
 import { useUnitsOfMeasure, UNIT_OPTIONS as UNIT_OPTIONS_FALLBACK } from "@/lib/units";
 import { ADJUSTMENT_REASONS } from "@/lib/adjustment-reasons";
+import { PosDialog } from "./_app.sales";
 
 export const Route = createFileRoute("/_app/finished-goods")({
   head: () => ({
@@ -155,12 +157,14 @@ function FinishedGoodsPage() {
   const qc = useQueryClient();
   const { canWrite, canApprove, canPost, canCancel, canConfirm, canReject } = usePermissions();
   const write = canWrite("finished-goods");
+  const canSell = canWrite("sales");
   const approve = canApprove("finished-goods");
   const post = canPost("finished-goods");
   const cancel = canCancel("finished-goods");
   const confirmBatchPerm = canConfirm("production");
   const rejectBatchPerm = canReject("production");
   const [formOpen, setFormOpen] = useState(false);
+  const [posOpen, setPosOpen] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
   const [typeFilter, setTypeFilter] = useState<"all" | "finished" | "semi_finished">("all");
   const [adjustTarget, setAdjustTarget] = useState<{
@@ -389,33 +393,54 @@ function FinishedGoodsPage() {
             Available stock plus production, sales, damages, returns, adjustments, and transfers.
           </p>
         </div>
-        {write && (
-          <Dialog
-            open={formOpen}
-            onOpenChange={(v) => {
-              setFormOpen(v);
-              if (!v) setEditing(null);
-            }}
-          >
-            <DialogTrigger asChild>
-              <Button className="gap-2" onClick={() => setEditing(null)}>
-                <Plus className="h-4 w-4" /> Add Product
-              </Button>
-            </DialogTrigger>
-            {formOpen && factoryId && (
-              <ProductForm
-                factoryId={factoryId}
-                categories={categories.data ?? []}
-                editing={editing}
-                onDone={() => {
-                  setFormOpen(false);
-                  setEditing(null);
-                  invalidateAll();
-                }}
-              />
-            )}
-          </Dialog>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {canSell && (
+            <Dialog open={posOpen} onOpenChange={setPosOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline" className="gap-2">
+                  <ShoppingCart className="h-4 w-4" /> New Sale
+                </Button>
+              </DialogTrigger>
+              {posOpen && factoryId && (
+                <PosDialog
+                  factoryId={factoryId}
+                  onDone={() => {
+                    setPosOpen(false);
+                    invalidateAll();
+                    qc.invalidateQueries({ queryKey: ["sales-list"] });
+                  }}
+                />
+              )}
+            </Dialog>
+          )}
+          {write && (
+            <Dialog
+              open={formOpen}
+              onOpenChange={(v) => {
+                setFormOpen(v);
+                if (!v) setEditing(null);
+              }}
+            >
+              <DialogTrigger asChild>
+                <Button className="gap-2" onClick={() => setEditing(null)}>
+                  <Plus className="h-4 w-4" /> Add Product
+                </Button>
+              </DialogTrigger>
+              {formOpen && factoryId && (
+                <ProductForm
+                  factoryId={factoryId}
+                  categories={categories.data ?? []}
+                  editing={editing}
+                  onDone={() => {
+                    setFormOpen(false);
+                    setEditing(null);
+                    invalidateAll();
+                  }}
+                />
+              )}
+            </Dialog>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">

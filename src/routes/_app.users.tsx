@@ -4,9 +4,11 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { RequireAccess } from "@/components/layout/require-access";
 import { CreateUserDialog } from "@/components/admin/create-user-dialog";
+import { adminUpdateUser } from "@/lib/admin-users";
 import { useAllRoles, usePermissions, type Role } from "@/lib/permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -33,7 +35,20 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { X, Plus, ShieldCheck, Check, Send, Ban, Undo2 } from "lucide-react";
+import {
+  X,
+  Plus,
+  ShieldCheck,
+  Check,
+  Send,
+  Ban,
+  Undo2,
+  Pencil,
+  Eye,
+  EyeOff,
+  RefreshCw,
+  Copy,
+} from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_app/users")({
@@ -47,12 +62,29 @@ export const Route = createFileRoute("/_app/users")({
   ),
 });
 
+// No departments table exists yet -- this mirrors the "Sales", "Production",
+// "Finance" already used on Employees/Production Requests, plus the two
+// factories, so the dropdown reflects how the business is actually organized.
+// "Other…" (below) covers anything that doesn't fit, and keeps this list from
+// blocking an edit just because it's incomplete.
+const DEPARTMENT_OPTIONS = [
+  "Admin",
+  "Sales",
+  "Production",
+  "Finance & Accounts",
+  "Inventory / Store",
+  "Water Factory",
+  "Nylon Factory",
+];
+
 type ProductionScope = "NYLON" | "WATER" | "BOTH";
 type Profile = {
   id: string;
   full_name: string | null;
   email: string | null;
   phone: string | null;
+  username: string | null;
+  department: string | null;
   production_scope: ProductionScope;
 };
 type UserRoleRow = { id: string; user_id: string; role: Role; factory_id: string | null };
@@ -80,13 +112,14 @@ export function UsersPage() {
   const reverse = canReverse("users");
   const [pendingRole, setPendingRole] = useState<Record<string, Role>>({});
   const [reverseTarget, setReverseTarget] = useState<RoleGrantRequest | null>(null);
+  const [editTarget, setEditTarget] = useState<Profile | null>(null);
 
   const profiles = useQuery({
     queryKey: ["all-profiles"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("profiles")
-        .select("id,full_name,email,phone,production_scope")
+        .select("id,full_name,email,phone,username,department,production_scope")
         .order("full_name");
       if (error) throw error;
       return (data ?? []) as Profile[];
@@ -395,8 +428,25 @@ export function UsersPage() {
                     </Avatar>
                   </TableCell>
                   <TableCell>
-                    <div className="font-medium">{p.full_name ?? "—"}</div>
-                    <div className="text-xs text-muted-foreground">{p.email ?? "—"}</div>
+                    {write ? (
+                      <button
+                        type="button"
+                        onClick={() => setEditTarget(p)}
+                        className="group text-left"
+                        title="Edit user"
+                      >
+                        <div className="flex items-center gap-1.5 font-medium group-hover:text-primary group-hover:underline">
+                          {p.full_name ?? "—"}
+                          <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-100" />
+                        </div>
+                        <div className="text-xs text-muted-foreground">{p.email ?? "—"}</div>
+                      </button>
+                    ) : (
+                      <>
+                        <div className="font-medium">{p.full_name ?? "—"}</div>
+                        <div className="text-xs text-muted-foreground">{p.email ?? "—"}</div>
+                      </>
+                    )}
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1">
@@ -511,7 +561,204 @@ export function UsersPage() {
           />
         )}
       </Dialog>
+
+      <Dialog open={!!editTarget} onOpenChange={(v) => !v && setEditTarget(null)}>
+        {editTarget && (
+          <EditUserDialog
+            profile={editTarget}
+            onDone={() => {
+              setEditTarget(null);
+              qc.invalidateQueries({ queryKey: ["all-profiles"] });
+            }}
+          />
+        )}
+      </Dialog>
     </div>
+  );
+}
+
+// Avoids look-alike characters (0/O, 1/l/I) so a password read off a screen
+// and typed by hand doesn't bounce. Mirrors create-user-dialog.tsx's helper.
+const PASSWORD_ALPHABET = "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%";
+function generatePassword(length = 14): string {
+  const bytes = new Uint32Array(length);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => PASSWORD_ALPHABET[b % PASSWORD_ALPHABET.length]).join("");
+}
+
+function EditUserDialog({ profile, onDone }: { profile: Profile; onDone: () => void }) {
+  const [fullName, setFullName] = useState(profile.full_name ?? "");
+  const [email, setEmail] = useState(profile.email ?? "");
+  const [username, setUsername] = useState(profile.username ?? "");
+  const [phone, setPhone] = useState(profile.phone ?? "");
+  const isKnownDepartment = profile.department && DEPARTMENT_OPTIONS.includes(profile.department);
+  const [departmentChoice, setDepartmentChoice] = useState(
+    !profile.department ? "none" : isKnownDepartment ? profile.department : "__custom__",
+  );
+  const [customDepartment, setCustomDepartment] = useState(
+    !isKnownDepartment ? (profile.department ?? "") : "",
+  );
+  const department =
+    departmentChoice === "none" ? "" : departmentChoice === "__custom__" ? customDepartment : departmentChoice;
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [savedPassword, setSavedPassword] = useState<string | null>(null);
+
+  const save = useMutation({
+    mutationFn: async () => {
+      return await adminUpdateUser({
+        data: {
+          target_id: profile.id,
+          full_name: fullName.trim(),
+          username: username.trim() || undefined,
+          phone: phone.trim() || undefined,
+          department: department.trim() || undefined,
+          email: email.trim() !== (profile.email ?? "") ? email.trim() : undefined,
+          password: password || undefined,
+        },
+      });
+    },
+    onSuccess: (result) => {
+      if (!result.ok) return toast.error(result.error);
+      toast.success("User updated");
+      if (password) {
+        setSavedPassword(password);
+        setPassword("");
+        return;
+      }
+      onDone();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const copyPassword = async () => {
+    if (!savedPassword) return;
+    await navigator.clipboard.writeText(savedPassword);
+    toast.success("Password copied");
+  };
+
+  const missing = !fullName.trim() || !/^\S+@\S+\.\S+$/.test(email.trim());
+
+  return (
+    <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+      <DialogHeader>
+        <DialogTitle>Edit User — {profile.full_name ?? profile.email}</DialogTitle>
+      </DialogHeader>
+
+      {savedPassword ? (
+        <div className="space-y-4">
+          <div className="rounded-xl border border-primary/30 bg-primary/5 p-3 text-sm">
+            <div className="font-medium">Password changed — share the new one now</div>
+            <div className="mt-1 font-mono text-xs break-all">{savedPassword}</div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              This won't be shown again. The user should sign in with it right away.
+            </p>
+            <Button size="sm" variant="outline" className="mt-2 gap-1" onClick={copyPassword}>
+              <Copy className="h-3.5 w-3.5" /> Copy
+            </Button>
+          </div>
+          <DialogFooter>
+            <Button onClick={onDone}>Done</Button>
+          </DialogFooter>
+        </div>
+      ) : (
+        <div className="grid gap-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>Full name</Label>
+              <Input value={fullName} onChange={(e) => setFullName(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Email</Label>
+              <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+              {email.trim() !== (profile.email ?? "") && (
+                <p className="text-[11px] text-warning">
+                  This changes their login email — no confirmation mail is sent.
+                </p>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <Label>Username</Label>
+              <Input value={username} onChange={(e) => setUsername(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Phone</Label>
+              <Input value={phone} onChange={(e) => setPhone(e.target.value)} />
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label>Department</Label>
+              <Select value={departmentChoice} onValueChange={setDepartmentChoice}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select department…" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">— None —</SelectItem>
+                  {DEPARTMENT_OPTIONS.map((d) => (
+                    <SelectItem key={d} value={d}>
+                      {d}
+                    </SelectItem>
+                  ))}
+                  <SelectItem value="__custom__">Other…</SelectItem>
+                </SelectContent>
+              </Select>
+              {departmentChoice === "__custom__" && (
+                <Input
+                  className="mt-1.5"
+                  value={customDepartment}
+                  onChange={(e) => setCustomDepartment(e.target.value)}
+                  placeholder="Enter department"
+                />
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-1.5 border-t pt-4">
+            <Label>Set a new password</Label>
+            <div className="flex gap-2">
+              <Input
+                type={showPassword ? "text" : "password"}
+                autoComplete="new-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Leave blank to keep the current password"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                title={showPassword ? "Hide password" : "Show password"}
+                onClick={() => setShowPassword((v) => !v)}
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="gap-1 whitespace-nowrap"
+                onClick={() => {
+                  setPassword(generatePassword());
+                  setShowPassword(true);
+                }}
+              >
+                <RefreshCw className="h-4 w-4" /> Generate
+              </Button>
+            </div>
+            {password && password.length < 8 && (
+              <p className="text-[11px] text-destructive">Password must be at least 8 characters.</p>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button
+              disabled={missing || (password.length > 0 && password.length < 8) || save.isPending}
+              onClick={() => save.mutate()}
+            >
+              {save.isPending ? "Saving…" : "Save changes"}
+            </Button>
+          </DialogFooter>
+        </div>
+      )}
+    </DialogContent>
   );
 }
 

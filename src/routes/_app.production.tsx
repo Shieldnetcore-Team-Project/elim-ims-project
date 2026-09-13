@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { RequireAccess } from "@/components/layout/require-access";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useFactoryId, useFactorySettings } from "@/lib/use-factory";
@@ -534,6 +534,18 @@ function ProductionPage() {
   );
 }
 
+function generateBatchNumber() {
+  const now = new Date();
+  const stamp =
+    now.getFullYear().toString() +
+    String(now.getMonth() + 1).padStart(2, "0") +
+    String(now.getDate()).padStart(2, "0") +
+    String(now.getHours()).padStart(2, "0") +
+    String(now.getMinutes()).padStart(2, "0");
+  const rand = Math.floor(100 + Math.random() * 900);
+  return `BATCH-${stamp}-${rand}`;
+}
+
 function ProductionForm({
   factoryId,
   factoryCode,
@@ -564,8 +576,30 @@ function ProductionForm({
   const [unit, setUnit] = useState(editing?.unit ?? "");
   const [cost, setCost] = useState(editing ? Number(editing.production_cost ?? 0) : 0);
   const [supervisor, setSupervisor] = useState(editing?.supervisor ?? "");
-  const [batch, setBatch] = useState(editing?.batch_number ?? "");
+  const [batch] = useState(editing?.batch_number ?? generateBatchNumber());
   const [remarks, setRemarks] = useState(editing?.remarks ?? "");
+
+  const currentUserName = useQuery({
+    queryKey: ["current-user-full-name"],
+    queryFn: async () => {
+      const { data: userData } = await supabase.auth.getUser();
+      if (!userData.user) return null;
+      const { data } = await supabase
+        .from("profiles")
+        .select("full_name")
+        .eq("id", userData.user.id)
+        .maybeSingle();
+      return data?.full_name || userData.user.email || null;
+    },
+    enabled: !editing,
+    staleTime: Infinity,
+  });
+
+  useEffect(() => {
+    if (!editing && currentUserName.data) {
+      setSupervisor(currentUserName.data);
+    }
+  }, [editing, currentUserName.data]);
 
   const selectedProduct = products.find((p) => p.id === productId);
   const scope = factoryCode ? factoryCode.toUpperCase() : null;
@@ -802,11 +836,15 @@ function ProductionForm({
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label>Supervisor</Label>
-            <Input value={supervisor} onChange={(e) => setSupervisor(e.target.value)} />
+            <Input value={supervisor} disabled className="disabled:opacity-100" />
+            <p className="mt-1 text-xs text-muted-foreground">
+              Auto-filled with your account name.
+            </p>
           </div>
           <div>
             <Label>Batch number</Label>
-            <Input value={batch} onChange={(e) => setBatch(e.target.value)} />
+            <Input value={batch} disabled className="disabled:opacity-100 font-mono" />
+            <p className="mt-1 text-xs text-muted-foreground">Auto-generated.</p>
           </div>
         </div>
         <div>

@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { RequireAccess } from "@/components/layout/require-access";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -44,7 +44,7 @@ import {
   Eye,
   ClipboardList,
   Loader2,
-  FileStack,
+  Sparkles,
 } from "lucide-react";
 import { num } from "@/lib/format";
 import { toast } from "sonner";
@@ -64,18 +64,13 @@ export const Route = createFileRoute("/_app/production-requests")({
 
 type Product = { id: string; name: string; unit: string; current_stock: number };
 type Material = { id: string; name: string; unit: string; current_stock: number };
-type Supplier = { id: string; name: string };
 type RequestRow = {
   id: string;
   request_number: string;
   requested_by: string | null;
   requested_by_name: string;
   department: string | null;
-  request_type: string;
   product_id: string | null;
-  material_id: string | null;
-  supplier_id: string | null;
-  po_number: string | null;
   quantity_requested: number;
   unit: string | null;
   request_date: string;
@@ -87,9 +82,8 @@ type RequestRow = {
   issued_at: string | null;
   production_status: string;
   remarks: string | null;
+  auto_generated: boolean;
   products: { name: string; unit: string } | null;
-  raw_materials: { name: string; unit: string } | null;
-  suppliers: { name: string } | null;
   production: { production_number: string } | null;
 };
 type RequestItem = {
@@ -113,11 +107,10 @@ const productionStatusBadge = (s: string): "default" | "secondary" | "outline" |
 
 function ProductionRequestsPage() {
   const { data: factoryId } = useFactoryId();
-  const { canSubmit, canApprove, canReject, canCreate } = usePermissions();
+  const { canSubmit, canApprove, canReject } = usePermissions();
   const submit = canSubmit("production-requests");
   const approvePerm = canApprove("production-requests");
   const rejectPerm = canReject("production-requests");
-  const createPoPerm = canCreate("purchase-orders");
   const settings = useFactorySettings(factoryId);
   const qc = useQueryClient();
   const [formOpen, setFormOpen] = useState(false);
@@ -157,20 +150,6 @@ function ProductionRequestsPage() {
     },
   });
 
-  const suppliers = useQuery({
-    queryKey: ["suppliers-brief", factoryId],
-    enabled: !!factoryId,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("suppliers")
-        .select("id,name")
-        .eq("factory_id", factoryId!)
-        .order("name");
-      if (error) throw error;
-      return (data ?? []) as Supplier[];
-    },
-  });
-
   const currentUser = useQuery({
     queryKey: ["current-user-id"],
     queryFn: async () => (await supabase.auth.getUser()).data.user?.id ?? null,
@@ -184,9 +163,10 @@ function ProductionRequestsPage() {
       const { data, error } = await supabase
         .from("production_requests")
         .select(
-          "id,request_number,requested_by,requested_by_name,department,request_type,product_id,material_id,supplier_id,po_number,quantity_requested,unit,request_date,approval_status,approved_by_name,approval_date,materials_issued,issued_by_name,issued_at,production_status,remarks,products(name,unit),raw_materials(name,unit),suppliers(name),production:production!production_requests_production_id_fkey(production_number)",
+          "id,request_number,requested_by,requested_by_name,department,product_id,quantity_requested,unit,request_date,approval_status,approved_by_name,approval_date,materials_issued,issued_by_name,issued_at,production_status,remarks,auto_generated,products(name,unit),production:production!production_requests_production_id_fkey(production_number)",
         )
         .eq("factory_id", factoryId!)
+        .eq("request_type", "production_material")
         .order("created_at", { ascending: false })
         .limit(300);
       if (error) throw error;
@@ -227,10 +207,7 @@ function ProductionRequestsPage() {
         request_date: new Date(row.request_date).toLocaleString(),
         requested_by_name: row.requested_by_name,
         department: row.department,
-        product_name:
-          row.request_type === "purchase"
-            ? (row.raw_materials?.name ?? "—")
-            : (row.products?.name ?? "—"),
+        product_name: row.products?.name ?? "—",
         quantity_requested: Number(row.quantity_requested),
         unit: row.unit ?? row.products?.unit ?? "",
         approval_status: row.approval_status,
@@ -275,7 +252,6 @@ function ProductionRequestsPage() {
                 factoryId={factoryId}
                 products={products.data ?? []}
                 materials={materials.data ?? []}
-                suppliers={suppliers.data ?? []}
                 onDone={() => {
                   setFormOpen(false);
                   invalidateAll();
@@ -315,12 +291,10 @@ function ProductionRequestsPage() {
                   <TableCell>{row.requested_by_name}</TableCell>
                   <TableCell>{row.department ?? "—"}</TableCell>
                   <TableCell className="font-medium">
-                    {row.request_type === "purchase"
-                      ? (row.raw_materials?.name ?? "—")
-                      : (row.products?.name ?? "—")}
-                    {row.request_type === "purchase" && (
-                      <Badge variant="outline" className="ml-2">
-                        Purchase
+                    {row.products?.name ?? "—"}
+                    {row.auto_generated && (
+                      <Badge variant="outline" className="ml-2 gap-1">
+                        <Sparkles className="h-3 w-3" /> Auto (low stock)
                       </Badge>
                     )}
                   </TableCell>
@@ -366,28 +340,16 @@ function ProductionRequestsPage() {
                             <X className="h-4 w-4 text-destructive" />
                           </Button>
                         )}
-                      {row.request_type === "production_material" &&
-                        row.approval_status === "approved" &&
-                        !row.materials_issued && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            title="Issue materials"
-                            onClick={() => setIssueTarget(row)}
-                          >
-                            <PackageMinus className="h-4 w-4 text-warning" />
-                          </Button>
-                        )}
-                      {row.request_type === "purchase" &&
-                        row.approval_status === "approved" &&
-                        !row.po_number &&
-                        createPoPerm && (
-                          <Button variant="ghost" size="icon" title="Issue purchase order" asChild>
-                            <Link to="/purchase-orders">
-                              <FileStack className="h-4 w-4 text-warning" />
-                            </Link>
-                          </Button>
-                        )}
+                      {row.approval_status === "approved" && !row.materials_issued && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="Issue materials"
+                          onClick={() => setIssueTarget(row)}
+                        >
+                          <PackageMinus className="h-4 w-4 text-warning" />
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="icon"
@@ -465,23 +427,16 @@ function RequestForm({
   factoryId,
   products,
   materials,
-  suppliers,
   onDone,
 }: {
   factoryId: string;
   products: Product[];
   materials: Material[];
-  suppliers: Supplier[];
   onDone: () => void;
 }) {
-  const [requestType, setRequestType] = useState<"production_material" | "purchase">(
-    "production_material",
-  );
   const [requestedBy, setRequestedBy] = useState("");
   const [department, setDepartment] = useState("");
   const [productId, setProductId] = useState("");
-  const [materialId, setMaterialId] = useState("");
-  const [supplierId, setSupplierId] = useState("none");
   const [quantity, setQuantity] = useState(0);
   const [unit, setUnit] = useState("");
   const [remarks, setRemarks] = useState("");
@@ -490,7 +445,6 @@ function RequestForm({
   ]);
 
   const selectedProduct = products.find((p) => p.id === productId);
-  const selectedMaterial = materials.find((m) => m.id === materialId);
 
   const updateItem = (i: number, patch: Partial<{ materialId: string; quantity: number }>) => {
     setItems((prev) => prev.map((it, idx) => (idx === i ? { ...it, ...patch } : it)));
@@ -502,26 +456,6 @@ function RequestForm({
     mutationFn: async () => {
       if (!requestedBy.trim()) throw new Error("Enter the requesting staff name");
       if (quantity <= 0) throw new Error("Quantity requested must be > 0");
-
-      if (requestType === "purchase") {
-        if (!materialId) throw new Error("Select the material to purchase");
-        const { data, error } = await supabase.rpc("create_production_request", {
-          payload: {
-            factory_id: factoryId,
-            requested_by_name: requestedBy.trim(),
-            department: department || null,
-            request_type: "purchase",
-            material_id: materialId,
-            quantity_requested: quantity,
-            unit: unit || selectedMaterial?.unit,
-            supplier_id: supplierId === "none" ? null : supplierId,
-            remarks: remarks || null,
-          } as any,
-        });
-        if (error) throw error;
-        return data as any;
-      }
-
       if (!productId) throw new Error("Select the product to be produced");
       const validItems = items.filter((it) => it.materialId && it.quantity > 0);
       if (validItems.length === 0) throw new Error("Add at least one raw material with a quantity");
@@ -552,7 +486,7 @@ function RequestForm({
         entity: "production_requests",
         entityId: data?.id,
         factoryId,
-        newValue: { request_type: requestType, quantity_requested: quantity },
+        newValue: { request_type: "production_material", quantity_requested: quantity },
       });
       onDone();
     },
@@ -565,21 +499,6 @@ function RequestForm({
         <DialogTitle>New Request</DialogTitle>
       </DialogHeader>
       <div className="grid gap-3 max-h-[70vh] overflow-y-auto pr-1">
-        <div>
-          <Label>Request type</Label>
-          <Select
-            value={requestType}
-            onValueChange={(v) => setRequestType(v as typeof requestType)}
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="production_material">Production materials (internal)</SelectItem>
-              <SelectItem value="purchase">Purchase from supplier</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label>Requesting staff</Label>
@@ -595,157 +514,94 @@ function RequestForm({
           </div>
         </div>
 
-        {requestType === "purchase" ? (
-          <>
-            <div>
-              <Label>Material to purchase</Label>
-              <Select
-                value={materialId}
-                onValueChange={(v) => {
-                  setMaterialId(v);
-                  const m = materials.find((x) => x.id === v);
-                  if (m) setUnit(m.unit);
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select material…" />
-                </SelectTrigger>
-                <SelectContent>
-                  {materials.map((m) => (
-                    <SelectItem key={m.id} value={m.id}>
-                      {m.name} · stock {num(Number(m.current_stock))} {m.unit}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label>Quantity requested</Label>
-                <Input
-                  type="number"
-                  min={0.001}
-                  step="0.001"
-                  value={quantity}
-                  onChange={(e) => setQuantity(Number(e.target.value))}
-                />
-              </div>
-              <div>
-                <Label>Unit</Label>
-                <Input value={unit} onChange={(e) => setUnit(e.target.value)} />
-              </div>
-            </div>
-            <div>
-              <Label>Supplier</Label>
-              <Select value={supplierId} onValueChange={setSupplierId}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">— None —</SelectItem>
-                  {suppliers.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>
-                      {s.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </>
-        ) : (
-          <>
-            <div>
-              <Label>Product to be produced</Label>
-              <Select
-                value={productId}
-                onValueChange={(v) => {
-                  setProductId(v);
-                  const p = products.find((x) => x.id === v);
-                  if (p) setUnit(p.unit);
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select product…" />
-                </SelectTrigger>
-                <SelectContent>
-                  {products.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.name} · stock {num(Number(p.current_stock))} {p.unit}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label>Quantity requested</Label>
-                <Input
-                  type="number"
-                  min={0.001}
-                  step="0.001"
-                  value={quantity}
-                  onChange={(e) => setQuantity(Number(e.target.value))}
-                />
-              </div>
-              <div>
-                <Label>Unit</Label>
-                <Input value={unit} onChange={(e) => setUnit(e.target.value)} />
-              </div>
-            </div>
+        <div>
+          <Label>Product to be produced</Label>
+          <Select
+            value={productId}
+            onValueChange={(v) => {
+              setProductId(v);
+              const p = products.find((x) => x.id === v);
+              if (p) setUnit(p.unit);
+            }}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Select product…" />
+            </SelectTrigger>
+            <SelectContent>
+              {products.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                  {p.name} · stock {num(Number(p.current_stock))} {p.unit}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label>Quantity requested</Label>
+            <Input
+              type="number"
+              min={0.001}
+              step="0.001"
+              value={quantity}
+              onChange={(e) => setQuantity(Number(e.target.value))}
+            />
+          </div>
+          <div>
+            <Label>Unit</Label>
+            <Input value={unit} onChange={(e) => setUnit(e.target.value)} />
+          </div>
+        </div>
 
-            <div className="flex items-center justify-between">
-              <Label>Raw materials required</Label>
-              <Button type="button" variant="outline" size="sm" className="gap-1" onClick={addItem}>
-                <Plus className="h-3.5 w-3.5" /> Add material
-              </Button>
-            </div>
-            <div className="grid gap-2">
-              {items.map((it, i) => {
-                const m = materials.find((mm) => mm.id === it.materialId);
-                return (
-                  <div key={i} className="flex items-center gap-2">
-                    <Select
-                      value={it.materialId}
-                      onValueChange={(v) => updateItem(i, { materialId: v })}
-                    >
-                      <SelectTrigger className="flex-1">
-                        <SelectValue placeholder="Select material…" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {materials.map((mat) => (
-                          <SelectItem key={mat.id} value={mat.id}>
-                            {mat.name} · stock {num(Number(mat.current_stock))} {mat.unit}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Input
-                      type="number"
-                      min={0.001}
-                      step="0.001"
-                      className="w-28"
-                      placeholder="Qty"
-                      value={it.quantity}
-                      onChange={(e) => updateItem(i, { quantity: Number(e.target.value) })}
-                    />
-                    <span className="w-12 shrink-0 text-xs text-muted-foreground">
-                      {m?.unit ?? ""}
-                    </span>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => removeItem(i)}
-                      disabled={items.length === 1}
-                    >
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
-                  </div>
-                );
-              })}
-            </div>
-          </>
-        )}
+        <div className="flex items-center justify-between">
+          <Label>Raw materials required</Label>
+          <Button type="button" variant="outline" size="sm" className="gap-1" onClick={addItem}>
+            <Plus className="h-3.5 w-3.5" /> Add material
+          </Button>
+        </div>
+        <div className="grid gap-2">
+          {items.map((it, i) => {
+            const m = materials.find((mm) => mm.id === it.materialId);
+            return (
+              <div key={i} className="flex items-center gap-2">
+                <Select
+                  value={it.materialId}
+                  onValueChange={(v) => updateItem(i, { materialId: v })}
+                >
+                  <SelectTrigger className="flex-1">
+                    <SelectValue placeholder="Select material…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {materials.map((mat) => (
+                      <SelectItem key={mat.id} value={mat.id}>
+                        {mat.name} · stock {num(Number(mat.current_stock))} {mat.unit}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Input
+                  type="number"
+                  min={0.001}
+                  step="0.001"
+                  className="w-28"
+                  placeholder="Qty"
+                  value={it.quantity}
+                  onChange={(e) => updateItem(i, { quantity: Number(e.target.value) })}
+                />
+                <span className="w-12 shrink-0 text-xs text-muted-foreground">{m?.unit ?? ""}</span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => removeItem(i)}
+                  disabled={items.length === 1}
+                >
+                  <Trash2 className="h-4 w-4 text-destructive" />
+                </Button>
+              </div>
+            );
+          })}
+        </div>
 
         <div>
           <Label>Remarks</Label>
@@ -798,8 +654,8 @@ function ApproveDialog({ row, onDone }: { row: RequestRow; onDone: () => void })
       </DialogHeader>
       <div className="grid gap-3">
         <p className="text-sm text-muted-foreground">
-          {row.request_type === "purchase" ? row.raw_materials?.name : row.products?.name} ·{" "}
-          {num(Number(row.quantity_requested))} {row.unit} · requested by {row.requested_by_name}
+          {row.products?.name} · {num(Number(row.quantity_requested))} {row.unit} · requested by{" "}
+          {row.requested_by_name}
         </p>
         <div>
           <Label>Approver name</Label>
@@ -1001,27 +857,12 @@ function DetailDialog({
             <span className="text-muted-foreground">Department:</span> {row.department ?? "—"}
           </div>
           <div>
-            <span className="text-muted-foreground">
-              {row.request_type === "purchase" ? "Material" : "Product"}:
-            </span>{" "}
-            {row.request_type === "purchase"
-              ? (row.raw_materials?.name ?? "—")
-              : (row.products?.name ?? "—")}
+            <span className="text-muted-foreground">Product:</span> {row.products?.name ?? "—"}
           </div>
           <div>
             <span className="text-muted-foreground">Quantity:</span>{" "}
             {num(Number(row.quantity_requested))} {row.unit}
           </div>
-          {row.request_type === "purchase" && (
-            <div>
-              <span className="text-muted-foreground">Supplier:</span> {row.suppliers?.name ?? "—"}
-            </div>
-          )}
-          {row.po_number && (
-            <div>
-              <span className="text-muted-foreground">PO #:</span> {row.po_number}
-            </div>
-          )}
           <div>
             <span className="text-muted-foreground">Requested:</span>{" "}
             {new Date(row.request_date).toLocaleString()}
@@ -1065,30 +906,28 @@ function DetailDialog({
             <span className="text-muted-foreground">Remarks:</span> {row.remarks}
           </div>
         )}
-        {row.request_type === "production_material" && (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Material</TableHead>
-                <TableHead className="text-right">Requested</TableHead>
-                <TableHead className="text-right">Issued</TableHead>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Material</TableHead>
+              <TableHead className="text-right">Requested</TableHead>
+              <TableHead className="text-right">Issued</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {(items.data ?? []).map((it) => (
+              <TableRow key={it.id}>
+                <TableCell>{it.raw_materials?.name ?? "—"}</TableCell>
+                <TableCell className="text-right">
+                  {num(Number(it.quantity_requested))} {it.unit ?? it.raw_materials?.unit}
+                </TableCell>
+                <TableCell className="text-right">
+                  {num(Number(it.quantity_issued))} {it.unit ?? it.raw_materials?.unit}
+                </TableCell>
               </TableRow>
-            </TableHeader>
-            <TableBody>
-              {(items.data ?? []).map((it) => (
-                <TableRow key={it.id}>
-                  <TableCell>{it.raw_materials?.name ?? "—"}</TableCell>
-                  <TableCell className="text-right">
-                    {num(Number(it.quantity_requested))} {it.unit ?? it.raw_materials?.unit}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {num(Number(it.quantity_issued))} {it.unit ?? it.raw_materials?.unit}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
+            ))}
+          </TableBody>
+        </Table>
       </div>
     </DialogContent>
   );

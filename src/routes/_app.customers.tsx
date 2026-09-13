@@ -28,9 +28,20 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Search, Pencil, Eye } from "lucide-react";
+import {
+  Plus,
+  Search,
+  Pencil,
+  Eye,
+  UserPlus,
+  Users,
+  Wallet,
+  HandCoins,
+  AlertTriangle,
+} from "lucide-react";
 import { money } from "@/lib/format";
 import { toast } from "sonner";
+import { KPI } from "@/lib/dashboard-kit";
 
 export const Route = createFileRoute("/_app/customers")({
   head: () => ({ meta: [{ title: "Customers — FMIS" }, { name: "robots", content: "noindex" }] }),
@@ -49,6 +60,8 @@ type Customer = {
   address: string | null;
   outstanding_balance: number;
   total_purchases: number;
+  total_transactions: number;
+  registered: boolean;
 };
 
 function CustomersPage() {
@@ -84,6 +97,10 @@ function CustomersPage() {
             phone: form.phone,
             email: form.email,
             address: form.address,
+            // Filling and saving this form is what "registering" a customer
+            // means here — applies whether reached via Edit or the Register
+            // action on an auto-created walk-in.
+            registered: true,
           })
           .eq("id", editing.id);
         if (error) throw error;
@@ -94,6 +111,7 @@ function CustomersPage() {
           phone: form.phone,
           email: form.email,
           address: form.address,
+          registered: true,
         });
         if (error) throw error;
       }
@@ -139,6 +157,32 @@ function CustomersPage() {
         )}
       </div>
 
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <KPI icon={Users} label="Total Customers" value={String(list.data?.length ?? 0)} />
+        <KPI
+          icon={Wallet}
+          label="Total Goods Value"
+          value={money((list.data ?? []).reduce((s, c) => s + Number(c.total_purchases), 0))}
+        />
+        <KPI
+          icon={HandCoins}
+          label="Total Amount Paid"
+          value={money(
+            (list.data ?? []).reduce(
+              (s, c) => s + (Number(c.total_purchases) - Number(c.outstanding_balance)),
+              0,
+            ),
+          )}
+          tone="success"
+        />
+        <KPI
+          icon={AlertTriangle}
+          label="Total Balance Due"
+          value={money((list.data ?? []).reduce((s, c) => s + Number(c.outstanding_balance), 0))}
+          tone="destructive"
+        />
+      </div>
+
       <Card className="rounded-2xl">
         <CardHeader className="flex-row items-center justify-between gap-3">
           <CardTitle>All Customers</CardTitle>
@@ -158,56 +202,89 @@ function CustomersPage() {
               <TableRow>
                 <TableHead>Name</TableHead>
                 <TableHead>Phone</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead className="text-right">Total Purchases</TableHead>
-                <TableHead className="text-right">Outstanding</TableHead>
-                <TableHead className="w-16"></TableHead>
+                <TableHead>Transactions</TableHead>
+                <TableHead className="text-right">Total Goods</TableHead>
+                <TableHead className="text-right">Paid</TableHead>
+                <TableHead className="text-right">Balance</TableHead>
+                <TableHead className="w-24"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(list.data ?? []).map((c) => (
-                <TableRow key={c.id}>
-                  <TableCell className="font-medium">{c.name}</TableCell>
-                  <TableCell>{c.phone ?? "—"}</TableCell>
-                  <TableCell>{c.email ?? "—"}</TableCell>
-                  <TableCell className="text-right">{money(Number(c.total_purchases))}</TableCell>
-                  <TableCell className="text-right">
-                    <span
-                      className={
-                        Number(c.outstanding_balance) > 0 ? "text-destructive font-medium" : ""
-                      }
-                    >
-                      {money(Number(c.outstanding_balance))}
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex justify-end gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        title="View profile"
-                        onClick={() => setViewing(c)}
+              {(list.data ?? []).map((c) => {
+                const paid = Number(c.total_purchases) - Number(c.outstanding_balance);
+                return (
+                  <TableRow key={c.id}>
+                    <TableCell className="font-medium">
+                      <div className="flex items-center gap-2">
+                        {c.name}
+                        {!c.registered && (
+                          <Badge variant="outline" className="text-muted-foreground">
+                            unregistered
+                          </Badge>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell>{c.phone ?? "—"}</TableCell>
+                    <TableCell>
+                      <Badge variant="secondary">
+                        {c.total_transactions} sale{c.total_transactions === 1 ? "" : "s"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">{money(Number(c.total_purchases))}</TableCell>
+                    <TableCell className="text-right text-success">{money(paid)}</TableCell>
+                    <TableCell className="text-right">
+                      <span
+                        className={
+                          Number(c.outstanding_balance) > 0 ? "text-destructive font-medium" : ""
+                        }
                       >
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        title="Edit"
-                        onClick={() => {
-                          setEditing(c);
-                          setOpen(true);
-                        }}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
+                        {Number(c.outstanding_balance) > 0
+                          ? money(Number(c.outstanding_balance))
+                          : "—"}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex justify-end gap-1">
+                        {!c.registered && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Complete registration"
+                            onClick={() => {
+                              setEditing(c);
+                              setOpen(true);
+                            }}
+                          >
+                            <UserPlus className="h-4 w-4" />
+                          </Button>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="View profile"
+                          onClick={() => setViewing(c)}
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="Edit"
+                          onClick={() => {
+                            setEditing(c);
+                            setOpen(true);
+                          }}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
               {(list.data ?? []).length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
                     No customers yet.
                   </TableCell>
                 </TableRow>
@@ -235,6 +312,7 @@ type Payment = {
   id: string;
   receipt_number: string;
   payment_date: string;
+  created_at: string;
   amount: number;
   payment_method: string;
 };
@@ -258,9 +336,9 @@ function CustomerProfileDialog({ customer }: { customer: Customer }) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("payments_received")
-        .select("id,receipt_number,payment_date,amount,payment_method")
+        .select("id,receipt_number,payment_date,created_at,amount,payment_method")
         .eq("customer_id", customer.id)
-        .order("payment_date", { ascending: false });
+        .order("created_at", { ascending: true });
       if (error) throw error;
       return (data ?? []) as Payment[];
     },
@@ -269,7 +347,12 @@ function CustomerProfileDialog({ customer }: { customer: Customer }) {
   return (
     <DialogContent className="max-w-2xl">
       <DialogHeader>
-        <DialogTitle>{customer.name}</DialogTitle>
+        <DialogTitle className="flex items-center gap-2">
+          {customer.name}
+          <Badge variant={customer.registered ? "secondary" : "outline"} className="font-normal">
+            {customer.registered ? "registered" : "unregistered"}
+          </Badge>
+        </DialogTitle>
       </DialogHeader>
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-3 rounded-md bg-muted/30 p-3 text-sm">
@@ -343,7 +426,7 @@ function CustomerProfileDialog({ customer }: { customer: Customer }) {
               <TableHeader>
                 <TableRow>
                   <TableHead>Receipt</TableHead>
-                  <TableHead>Date</TableHead>
+                  <TableHead>Date & Time</TableHead>
                   <TableHead>Method</TableHead>
                   <TableHead className="text-right">Amount</TableHead>
                 </TableRow>
@@ -352,7 +435,9 @@ function CustomerProfileDialog({ customer }: { customer: Customer }) {
                 {(payments.data ?? []).map((p) => (
                   <TableRow key={p.id}>
                     <TableCell className="font-mono text-xs">{p.receipt_number}</TableCell>
-                    <TableCell>{p.payment_date}</TableCell>
+                    <TableCell className="whitespace-nowrap text-xs">
+                      {new Date(p.created_at).toLocaleString()}
+                    </TableCell>
                     <TableCell>
                       <Badge variant="outline" className="capitalize">
                         {p.payment_method}

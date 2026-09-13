@@ -26,9 +26,11 @@ import { Route as AppEmployeesRouteImport } from './routes/_app.employees'
 import { Route as AppExpensesRouteImport } from './routes/_app.expenses'
 import { Route as AppFinanceRouteImport } from './routes/_app.finance'
 import { Route as AppFinishedGoodsRouteImport } from './routes/_app.finished-goods'
+import { Route as AppInventoryRouteImport } from './routes/_app.inventory'
 import { Route as AppLogisticsRouteImport } from './routes/_app.logistics'
 import { Route as AppPayrollRouteImport } from './routes/_app.payroll'
 import { Route as AppPermissionsRouteImport } from './routes/_app.permissions'
+import { Route as AppProcurementRouteImport } from './routes/_app.procurement'
 import { Route as AppProductionRouteImport } from './routes/_app.production'
 import { Route as AppProductionRequestsRouteImport } from './routes/_app.production-requests'
 import { Route as AppPurchaseOrdersRouteImport } from './routes/_app.purchase-orders'
@@ -128,6 +130,11 @@ const AppFinishedGoodsRoute = AppFinishedGoodsRouteImport.update({
   path: '/finished-goods',
   getParentRoute: () => AppRoute,
 } as any)
+const AppInventoryRoute = AppInventoryRouteImport.update({
+  id: '/inventory',
+  path: '/inventory',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppLogisticsRoute = AppLogisticsRouteImport.update({
   id: '/logistics',
   path: '/logistics',
@@ -141,6 +148,11 @@ const AppPayrollRoute = AppPayrollRouteImport.update({
 const AppPermissionsRoute = AppPermissionsRouteImport.update({
   id: '/permissions',
   path: '/permissions',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppProcurementRoute = AppProcurementRouteImport.update({
+  id: '/procurement',
+  path: '/procurement',
   getParentRoute: () => AppRoute,
 } as any)
 const AppProductionRoute = AppProductionRouteImport.update({
@@ -231,9 +243,11 @@ export interface FileRoutesByFullPath {
   '/expenses': typeof AppExpensesRoute
   '/finance': typeof AppFinanceRoute
   '/finished-goods': typeof AppFinishedGoodsRoute
+  '/inventory': typeof AppInventoryRoute
   '/logistics': typeof AppLogisticsRoute
   '/payroll': typeof AppPayrollRoute
   '/permissions': typeof AppPermissionsRoute
+  '/procurement': typeof AppProcurementRoute
   '/production': typeof AppProductionRoute
   '/production-requests': typeof AppProductionRequestsRoute
   '/purchase-orders': typeof AppPurchaseOrdersRoute
@@ -265,9 +279,11 @@ export interface FileRoutesByTo {
   '/expenses': typeof AppExpensesRoute
   '/finance': typeof AppFinanceRoute
   '/finished-goods': typeof AppFinishedGoodsRoute
+  '/inventory': typeof AppInventoryRoute
   '/logistics': typeof AppLogisticsRoute
   '/payroll': typeof AppPayrollRoute
   '/permissions': typeof AppPermissionsRoute
+  '/procurement': typeof AppProcurementRoute
   '/production': typeof AppProductionRoute
   '/production-requests': typeof AppProductionRequestsRoute
   '/purchase-orders': typeof AppPurchaseOrdersRoute
@@ -302,9 +318,11 @@ export interface FileRoutesById {
   '/_app/expenses': typeof AppExpensesRoute
   '/_app/finance': typeof AppFinanceRoute
   '/_app/finished-goods': typeof AppFinishedGoodsRoute
+  '/_app/inventory': typeof AppInventoryRoute
   '/_app/logistics': typeof AppLogisticsRoute
   '/_app/payroll': typeof AppPayrollRoute
   '/_app/permissions': typeof AppPermissionsRoute
+  '/_app/procurement': typeof AppProcurementRoute
   '/_app/production': typeof AppProductionRoute
   '/_app/production-requests': typeof AppProductionRequestsRoute
   '/_app/purchase-orders': typeof AppPurchaseOrdersRoute
@@ -339,9 +357,11 @@ export interface FileRouteTypes {
     | '/expenses'
     | '/finance'
     | '/finished-goods'
+    | '/inventory'
     | '/logistics'
     | '/payroll'
     | '/permissions'
+    | '/procurement'
     | '/production'
     | '/production-requests'
     | '/purchase-orders'
@@ -373,9 +393,11 @@ export interface FileRouteTypes {
     | '/expenses'
     | '/finance'
     | '/finished-goods'
+    | '/inventory'
     | '/logistics'
     | '/payroll'
     | '/permissions'
+    | '/procurement'
     | '/production'
     | '/production-requests'
     | '/purchase-orders'
@@ -409,9 +431,11 @@ export interface FileRouteTypes {
     | '/_app/expenses'
     | '/_app/finance'
     | '/_app/finished-goods'
+    | '/_app/inventory'
     | '/_app/logistics'
     | '/_app/payroll'
     | '/_app/permissions'
+    | '/_app/procurement'
     | '/_app/production'
     | '/_app/production-requests'
     | '/_app/purchase-orders'
@@ -555,6 +579,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppFinishedGoodsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/inventory': {
+      id: '/_app/inventory'
+      path: '/inventory'
+      fullPath: '/inventory'
+      preLoaderRoute: typeof AppInventoryRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/logistics': {
       id: '/_app/logistics'
       path: '/logistics'
@@ -574,6 +605,13 @@ declare module '@tanstack/react-router' {
       path: '/permissions'
       fullPath: '/permissions'
       preLoaderRoute: typeof AppPermissionsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/procurement': {
+      id: '/_app/procurement'
+      path: '/procurement'
+      fullPath: '/procurement'
+      preLoaderRoute: typeof AppProcurementRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/production': {
@@ -708,9 +746,11 @@ interface AppRouteChildren {
   AppExpensesRoute: typeof AppExpensesRoute
   AppFinanceRoute: typeof AppFinanceRoute
   AppFinishedGoodsRoute: typeof AppFinishedGoodsRoute
+  AppInventoryRoute: typeof AppInventoryRoute
   AppLogisticsRoute: typeof AppLogisticsRoute
   AppPayrollRoute: typeof AppPayrollRoute
   AppPermissionsRoute: typeof AppPermissionsRoute
+  AppProcurementRoute: typeof AppProcurementRoute
   AppProductionRoute: typeof AppProductionRoute
   AppProductionRequestsRoute: typeof AppProductionRequestsRoute
   AppPurchaseOrdersRoute: typeof AppPurchaseOrdersRoute
@@ -739,9 +779,11 @@ const AppRouteChildren: AppRouteChildren = {
   AppExpensesRoute: AppExpensesRoute,
   AppFinanceRoute: AppFinanceRoute,
   AppFinishedGoodsRoute: AppFinishedGoodsRoute,
+  AppInventoryRoute: AppInventoryRoute,
   AppLogisticsRoute: AppLogisticsRoute,
   AppPayrollRoute: AppPayrollRoute,
   AppPermissionsRoute: AppPermissionsRoute,
+  AppProcurementRoute: AppProcurementRoute,
   AppProductionRoute: AppProductionRoute,
   AppProductionRequestsRoute: AppProductionRequestsRoute,
   AppPurchaseOrdersRoute: AppPurchaseOrdersRoute,

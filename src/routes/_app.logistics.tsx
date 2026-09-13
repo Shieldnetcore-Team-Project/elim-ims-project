@@ -35,8 +35,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { Truck, Plus, UserRound, PackageCheck } from "lucide-react";
+import { Truck, Plus, UserRound, PackageCheck, Pencil, Trash2 } from "lucide-react";
 
 export const Route = createFileRoute("/_app/logistics")({
   head: () => ({ meta: [{ title: "Logistics — FMIS" }, { name: "robots", content: "noindex" }] }),
@@ -56,6 +67,45 @@ const statusVariant = (s: string): "default" | "secondary" | "outline" | "destru
         ? "default"
         : "outline";
 
+type DriverRow = {
+  id: string;
+  full_name: string;
+  phone: string | null;
+  license_number: string | null;
+  status: string;
+};
+
+type VehicleRow = {
+  id: string;
+  plate_number: string;
+  brand: string | null;
+  model: string | null;
+  vehicle_type: string | null;
+  year: number | null;
+  color: string | null;
+  capacity: string | null;
+  chassis_number: string | null;
+  engine_number: string | null;
+  registration_expiry_date: string | null;
+  insurance_expiry_date: string | null;
+  status: string;
+};
+
+const emptyVehicleForm = {
+  plate_number: "",
+  brand: "",
+  model: "",
+  vehicle_type: "",
+  year: "",
+  color: "",
+  capacity: "",
+  chassis_number: "",
+  engine_number: "",
+  registration_expiry_date: "",
+  insurance_expiry_date: "",
+  status: "active",
+};
+
 function LogisticsPage() {
   const qc = useQueryClient();
   const { canWrite } = usePermissions();
@@ -64,10 +114,17 @@ function LogisticsPage() {
   const write = canWrite("logistics");
 
   const [vehicleOpen, setVehicleOpen] = useState(false);
+  const [editingVehicle, setEditingVehicle] = useState<VehicleRow | null>(null);
   const [driverOpen, setDriverOpen] = useState(false);
+  const [editingDriver, setEditingDriver] = useState<DriverRow | null>(null);
   const [deliveryOpen, setDeliveryOpen] = useState(false);
-  const [vForm, setVForm] = useState({ plate_number: "", make_model: "", capacity: "" });
-  const [dForm, setDForm] = useState({ full_name: "", phone: "", license_number: "" });
+  const [vForm, setVForm] = useState(emptyVehicleForm);
+  const [dForm, setDForm] = useState({
+    full_name: "",
+    phone: "",
+    license_number: "",
+    status: "active",
+  });
   const [delForm, setDelForm] = useState({
     vehicle_id: "",
     driver_id: "",
@@ -133,11 +190,31 @@ function LogisticsPage() {
     },
   });
 
+  const resetVehicleForm = () => {
+    setEditingVehicle(null);
+    setVForm(emptyVehicleForm);
+  };
+
+  const vehiclePayload = () => ({
+    plate_number: vForm.plate_number,
+    brand: vForm.brand || null,
+    model: vForm.model || null,
+    vehicle_type: vForm.vehicle_type || null,
+    year: vForm.year === "" ? null : Number(vForm.year),
+    color: vForm.color || null,
+    capacity: vForm.capacity || null,
+    chassis_number: vForm.chassis_number || null,
+    engine_number: vForm.engine_number || null,
+    registration_expiry_date: vForm.registration_expiry_date || null,
+    insurance_expiry_date: vForm.insurance_expiry_date || null,
+    status: vForm.status,
+  });
+
   const addVehicle = useMutation({
     mutationFn: async () => {
       const { error } = await supabase
         .from("vehicles")
-        .insert({ factory_id: factoryId!, ...vForm });
+        .insert({ factory_id: factoryId!, ...vehiclePayload() });
       if (error) throw error;
     },
     onSuccess: () => {
@@ -145,10 +222,55 @@ function LogisticsPage() {
       logAudit({ action: "create", entity: "vehicles", factoryId });
       qc.invalidateQueries({ queryKey: ["logistics-vehicles"] });
       setVehicleOpen(false);
-      setVForm({ plate_number: "", make_model: "", capacity: "" });
+      resetVehicleForm();
     },
     onError: (e: Error) => toast.error(e.message),
   });
+
+  const updateVehicle = useMutation({
+    mutationFn: async () => {
+      if (!editingVehicle) throw new Error("No vehicle selected");
+      const { error } = await supabase
+        .from("vehicles")
+        .update(vehiclePayload())
+        .eq("id", editingVehicle.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Vehicle updated");
+      logAudit({ action: "update", entity: "vehicles", entityId: editingVehicle?.id, factoryId });
+      qc.invalidateQueries({ queryKey: ["logistics-vehicles"] });
+      setVehicleOpen(false);
+      resetVehicleForm();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const deleteVehicle = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("vehicles").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Vehicle removed");
+      logAudit({ action: "delete", entity: "vehicles", factoryId });
+      qc.invalidateQueries({ queryKey: ["logistics-vehicles"] });
+    },
+    onError: (e: { code?: string; message: string }) => {
+      if (e.code === "23503") {
+        toast.error(
+          "Can't delete — this vehicle has delivery records linked to it. Set its status to Inactive instead to keep that history while removing it from active use.",
+        );
+        return;
+      }
+      toast.error(e.message);
+    },
+  });
+
+  const resetDriverForm = () => {
+    setEditingDriver(null);
+    setDForm({ full_name: "", phone: "", license_number: "", status: "active" });
+  };
 
   const addDriver = useMutation({
     mutationFn: async () => {
@@ -160,9 +282,46 @@ function LogisticsPage() {
       logAudit({ action: "create", entity: "drivers", factoryId });
       qc.invalidateQueries({ queryKey: ["logistics-drivers"] });
       setDriverOpen(false);
-      setDForm({ full_name: "", phone: "", license_number: "" });
+      resetDriverForm();
     },
     onError: (e: Error) => toast.error(e.message),
+  });
+
+  const updateDriver = useMutation({
+    mutationFn: async () => {
+      if (!editingDriver) throw new Error("No driver selected");
+      const { error } = await supabase.from("drivers").update(dForm).eq("id", editingDriver.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Driver updated");
+      logAudit({ action: "update", entity: "drivers", entityId: editingDriver?.id, factoryId });
+      qc.invalidateQueries({ queryKey: ["logistics-drivers"] });
+      setDriverOpen(false);
+      resetDriverForm();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const deleteDriver = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("drivers").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Driver removed");
+      logAudit({ action: "delete", entity: "drivers", factoryId });
+      qc.invalidateQueries({ queryKey: ["logistics-drivers"] });
+    },
+    onError: (e: { code?: string; message: string }) => {
+      if (e.code === "23503") {
+        toast.error(
+          "Can't delete — this driver has delivery records linked to them. Set their status to Inactive instead to keep that history while removing them from active use.",
+        );
+        return;
+      }
+      toast.error(e.message);
+    },
   });
 
   const addDelivery = useMutation({
@@ -311,27 +470,89 @@ function LogisticsPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Plate</TableHead>
-                    <TableHead>Make/Model</TableHead>
+                    <TableHead>Brand / Model</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Year</TableHead>
                     <TableHead>Capacity</TableHead>
                     <TableHead>Status</TableHead>
+                    {write && <TableHead></TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {(vehicles.data ?? []).map((v) => (
                     <TableRow key={v.id}>
                       <TableCell className="font-medium">{v.plate_number}</TableCell>
-                      <TableCell>{v.make_model ?? "—"}</TableCell>
+                      <TableCell>{[v.brand, v.model].filter(Boolean).join(" ") || "—"}</TableCell>
+                      <TableCell className="capitalize">{v.vehicle_type ?? "—"}</TableCell>
+                      <TableCell>{v.year ?? "—"}</TableCell>
                       <TableCell>{v.capacity ?? "—"}</TableCell>
                       <TableCell>
                         <Badge variant="outline" className="capitalize">
                           {v.status}
                         </Badge>
                       </TableCell>
+                      {write && (
+                        <TableCell>
+                          <div className="flex justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title="Edit"
+                              onClick={() => {
+                                setEditingVehicle(v);
+                                setVForm({
+                                  plate_number: v.plate_number,
+                                  brand: v.brand ?? "",
+                                  model: v.model ?? "",
+                                  vehicle_type: v.vehicle_type ?? "",
+                                  year: v.year != null ? String(v.year) : "",
+                                  color: v.color ?? "",
+                                  capacity: v.capacity ?? "",
+                                  chassis_number: v.chassis_number ?? "",
+                                  engine_number: v.engine_number ?? "",
+                                  registration_expiry_date: v.registration_expiry_date ?? "",
+                                  insurance_expiry_date: v.insurance_expiry_date ?? "",
+                                  status: v.status,
+                                });
+                                setVehicleOpen(true);
+                              }}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button variant="ghost" size="icon" title="Remove">
+                                  <Trash2 className="h-4 w-4 text-destructive" />
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Remove {v.plate_number}?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    This deletes this vehicle record and cannot be undone. Vehicles
+                                    with delivery history can't be deleted — set their status to
+                                    Inactive instead.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction onClick={() => deleteVehicle.mutate(v.id)}>
+                                    Remove
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          </div>
+                        </TableCell>
+                      )}
                     </TableRow>
                   ))}
                   {(vehicles.data?.length ?? 0) === 0 && (
                     <TableRow>
-                      <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
+                      <TableCell
+                        colSpan={write ? 7 : 6}
+                        className="text-center text-muted-foreground py-8"
+                      >
                         No vehicles on file.
                       </TableCell>
                     </TableRow>
@@ -359,6 +580,7 @@ function LogisticsPage() {
                     <TableHead>Phone</TableHead>
                     <TableHead>License #</TableHead>
                     <TableHead>Status</TableHead>
+                    {write && <TableHead></TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -372,11 +594,60 @@ function LogisticsPage() {
                           {d.status}
                         </Badge>
                       </TableCell>
+                      {write && (
+                        <TableCell>
+                          <div className="flex justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title="Edit"
+                              onClick={() => {
+                                setEditingDriver(d);
+                                setDForm({
+                                  full_name: d.full_name,
+                                  phone: d.phone ?? "",
+                                  license_number: d.license_number ?? "",
+                                  status: d.status,
+                                });
+                                setDriverOpen(true);
+                              }}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button variant="ghost" size="icon" title="Remove">
+                                  <Trash2 className="h-4 w-4 text-destructive" />
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Remove {d.full_name}?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    This deletes their driver record and cannot be undone. Drivers
+                                    with delivery history can't be deleted — set their status to
+                                    Inactive instead.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction onClick={() => deleteDriver.mutate(d.id)}>
+                                    Remove
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          </div>
+                        </TableCell>
+                      )}
                     </TableRow>
                   ))}
                   {(drivers.data?.length ?? 0) === 0 && (
                     <TableRow>
-                      <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
+                      <TableCell
+                        colSpan={write ? 5 : 4}
+                        className="text-center text-muted-foreground py-8"
+                      >
                         No drivers on file.
                       </TableCell>
                     </TableRow>
@@ -388,38 +659,147 @@ function LogisticsPage() {
         </TabsContent>
       </Tabs>
 
-      <Dialog open={vehicleOpen} onOpenChange={setVehicleOpen}>
-        <DialogContent>
+      <Dialog
+        open={vehicleOpen}
+        onOpenChange={(v) => {
+          setVehicleOpen(v);
+          if (!v) resetVehicleForm();
+        }}
+      >
+        <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Add Vehicle</DialogTitle>
+            <DialogTitle>{editingVehicle ? "Edit Vehicle" : "Add Vehicle"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
-            <div className="space-y-2">
-              <Label>Plate number</Label>
-              <Input
-                value={vForm.plate_number}
-                onChange={(e) => setVForm({ ...vForm, plate_number: e.target.value })}
-              />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Plate number</Label>
+                <Input
+                  value={vForm.plate_number}
+                  onChange={(e) => setVForm({ ...vForm, plate_number: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Vehicle type</Label>
+                <Select
+                  value={vForm.vehicle_type}
+                  onValueChange={(v) => setVForm({ ...vForm, vehicle_type: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select type…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="van">Van</SelectItem>
+                    <SelectItem value="truck">Truck</SelectItem>
+                    <SelectItem value="bus">Bus</SelectItem>
+                    <SelectItem value="car">Car</SelectItem>
+                    <SelectItem value="motorcycle">Motorcycle</SelectItem>
+                    <SelectItem value="tricycle">Tricycle</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label>Make / model</Label>
-              <Input
-                value={vForm.make_model}
-                onChange={(e) => setVForm({ ...vForm, make_model: e.target.value })}
-              />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Brand</Label>
+                <Input
+                  placeholder="e.g. Toyota"
+                  value={vForm.brand}
+                  onChange={(e) => setVForm({ ...vForm, brand: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Model</Label>
+                <Input
+                  placeholder="e.g. Hiace"
+                  value={vForm.model}
+                  onChange={(e) => setVForm({ ...vForm, model: e.target.value })}
+                />
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label>Capacity</Label>
-              <Input
-                value={vForm.capacity}
-                onChange={(e) => setVForm({ ...vForm, capacity: e.target.value })}
-              />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Year</Label>
+                <Input
+                  type="number"
+                  value={vForm.year}
+                  onChange={(e) => setVForm({ ...vForm, year: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Color</Label>
+                <Input
+                  value={vForm.color}
+                  onChange={(e) => setVForm({ ...vForm, color: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Capacity</Label>
+                <Input
+                  placeholder="e.g. 1000kg"
+                  value={vForm.capacity}
+                  onChange={(e) => setVForm({ ...vForm, capacity: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Status</Label>
+                <Select
+                  value={vForm.status}
+                  onValueChange={(v) => setVForm({ ...vForm, status: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="maintenance">Maintenance</SelectItem>
+                    <SelectItem value="inactive">Inactive</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Chassis / VIN number</Label>
+                <Input
+                  value={vForm.chassis_number}
+                  onChange={(e) => setVForm({ ...vForm, chassis_number: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Engine number</Label>
+                <Input
+                  value={vForm.engine_number}
+                  onChange={(e) => setVForm({ ...vForm, engine_number: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Registration expiry</Label>
+                <Input
+                  type="date"
+                  value={vForm.registration_expiry_date}
+                  onChange={(e) => setVForm({ ...vForm, registration_expiry_date: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Insurance expiry</Label>
+                <Input
+                  type="date"
+                  value={vForm.insurance_expiry_date}
+                  onChange={(e) => setVForm({ ...vForm, insurance_expiry_date: e.target.value })}
+                />
+              </div>
             </div>
           </div>
           <DialogFooter>
             <Button
-              disabled={!vForm.plate_number || addVehicle.isPending}
-              onClick={() => addVehicle.mutate()}
+              disabled={!vForm.plate_number || addVehicle.isPending || updateVehicle.isPending}
+              onClick={() => (editingVehicle ? updateVehicle.mutate() : addVehicle.mutate())}
             >
               Save
             </Button>
@@ -427,10 +807,16 @@ function LogisticsPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={driverOpen} onOpenChange={setDriverOpen}>
+      <Dialog
+        open={driverOpen}
+        onOpenChange={(v) => {
+          setDriverOpen(v);
+          if (!v) resetDriverForm();
+        }}
+      >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add Driver</DialogTitle>
+            <DialogTitle>{editingDriver ? "Edit Driver" : "Add Driver"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-2">
@@ -454,11 +840,23 @@ function LogisticsPage() {
                 onChange={(e) => setDForm({ ...dForm, license_number: e.target.value })}
               />
             </div>
+            <div className="space-y-2">
+              <Label>Status</Label>
+              <Select value={dForm.status} onValueChange={(v) => setDForm({ ...dForm, status: v })}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="inactive">Inactive</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <DialogFooter>
             <Button
-              disabled={!dForm.full_name || addDriver.isPending}
-              onClick={() => addDriver.mutate()}
+              disabled={!dForm.full_name || addDriver.isPending || updateDriver.isPending}
+              onClick={() => (editingDriver ? updateDriver.mutate() : addDriver.mutate())}
             >
               Save
             </Button>

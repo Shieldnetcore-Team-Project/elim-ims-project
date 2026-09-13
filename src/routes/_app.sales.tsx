@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { RequireAccess } from "@/components/layout/require-access";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useFactoryId, useFactorySettings } from "@/lib/use-factory";
@@ -9,6 +9,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table,
   TableBody,
@@ -32,11 +34,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, FileDown, Printer, Eye, Receipt as ReceiptIcon } from "lucide-react";
+import {
+  Plus,
+  Trash2,
+  FileDown,
+  Printer,
+  Eye,
+  Receipt as ReceiptIcon,
+  HandCoins,
+  History,
+} from "lucide-react";
 import { money, num } from "@/lib/format";
 import { toast } from "sonner";
-import { generateInvoicePdf } from "@/lib/pdf";
+import { generateInvoicePdf, generateReceiptPdf } from "@/lib/pdf";
 import { logAudit } from "@/lib/audit";
 
 export const Route = createFileRoute("/_app/sales")({
@@ -61,6 +73,17 @@ type Product = {
 };
 type Category = { id: string; name: string };
 type Customer = { id: string; name: string; phone: string | null; address: string | null };
+type SaleRow = {
+  id: string;
+  invoice_number: string;
+  sale_date: string;
+  customer_id: string | null;
+  customer_name: string | null;
+  grand_total: number;
+  amount_paid: number;
+  balance: number;
+  payment_method: string;
+};
 type CartItem = {
   product_id: string;
   name: string;
@@ -86,6 +109,8 @@ function SalesPage() {
   const { canWrite } = usePermissions();
   const write = canWrite("sales");
   const [posOpen, setPosOpen] = useState(false);
+  const [payTarget, setPayTarget] = useState<SaleRow | null>(null);
+  const [historyTarget, setHistoryTarget] = useState<{ id: string; name: string } | null>(null);
 
   const sales = useQuery({
     queryKey: ["sales-list", factoryId],
@@ -94,7 +119,7 @@ function SalesPage() {
       const { data, error } = await supabase
         .from("sales")
         .select(
-          "id,invoice_number,sale_date,customer_name,grand_total,amount_paid,balance,payment_method,created_at",
+          "id,invoice_number,sale_date,customer_id,customer_name,grand_total,amount_paid,balance,payment_method,created_at",
         )
         .eq("factory_id", factoryId!)
         .order("created_at", { ascending: false })
@@ -152,6 +177,51 @@ function SalesPage() {
     );
   };
 
+  const pay = useMutation({
+    mutationFn: async (input: {
+      sale: SaleRow;
+      amount: number;
+      method: PaymentMethod;
+      remarks: string;
+    }) => {
+      const { data, error } = await supabase.rpc("record_payment", {
+        payload: {
+          factory_id: factoryId,
+          customer_id: input.sale.customer_id,
+          sale_id: input.sale.id,
+          amount: input.amount,
+          payment_method: input.method,
+          remarks: input.remarks,
+        } as any,
+      });
+      if (error) throw error;
+      return { res: data as any, input };
+    },
+    onSuccess: ({ res, input }) => {
+      toast.success(`Receipt ${res.receipt_number}`);
+      generateReceiptPdf({
+        company: {
+          name: settings.data?.company_name ?? "FMIS",
+          address: settings.data?.address,
+          phone: settings.data?.phone,
+          logo_url: settings.data?.logo_url,
+        },
+        receipt_number: res.receipt_number,
+        payment_date: new Date().toISOString().slice(0, 10),
+        customer_name: input.sale.customer_name ?? undefined,
+        invoice_number: input.sale.invoice_number,
+        amount: input.amount,
+        payment_method: input.method,
+        remarks: input.remarks,
+        currency: settings.data?.currency ?? "NGN",
+      });
+      qc.invalidateQueries({ queryKey: ["sales-list"] });
+      qc.invalidateQueries({ queryKey: ["customers"] });
+      setPayTarget(null);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -201,13 +271,31 @@ function SalesPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(sales.data ?? []).map((s: any) => {
+              {(sales.data ?? []).map((s: SaleRow) => {
                 const status = paymentStatus(Number(s.amount_paid), Number(s.balance));
                 return (
                   <TableRow key={s.id}>
                     <TableCell className="font-mono text-xs">{s.invoice_number}</TableCell>
                     <TableCell>{s.sale_date}</TableCell>
-                    <TableCell>{s.customer_name ?? "Walk-in"}</TableCell>
+                    <TableCell>
+                      {s.customer_id ? (
+                        <button
+                          type="button"
+                          className="text-left font-medium text-primary hover:underline"
+                          title="View this customer's products & transactions"
+                          onClick={() =>
+                            setHistoryTarget({
+                              id: s.customer_id!,
+                              name: s.customer_name ?? "Customer",
+                            })
+                          }
+                        >
+                          {s.customer_name ?? "Customer"}
+                        </button>
+                      ) : (
+                        (s.customer_name ?? "Walk-in")
+                      )}
+                    </TableCell>
                     <TableCell>
                       <Badge variant="outline" className="capitalize">
                         {s.payment_method}
@@ -225,6 +313,31 @@ function SalesPage() {
                     </TableCell>
                     <TableCell>
                       <div className="flex justify-end gap-1">
+                        {Number(s.balance) > 0 && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-1"
+                            onClick={() => setPayTarget(s)}
+                          >
+                            <HandCoins className="h-4 w-4" /> Receive
+                          </Button>
+                        )}
+                        {s.customer_id && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="gap-1"
+                            onClick={() =>
+                              setHistoryTarget({
+                                id: s.customer_id!,
+                                name: s.customer_name ?? "Customer",
+                              })
+                            }
+                          >
+                            <History className="h-4 w-4" /> History
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="sm"
@@ -257,11 +370,334 @@ function SalesPage() {
           </Table>
         </CardContent>
       </Card>
+
+      <Dialog open={!!payTarget} onOpenChange={(v) => !v && setPayTarget(null)}>
+        {payTarget && (
+          <PayDialog
+            sale={payTarget}
+            saving={pay.isPending}
+            onSubmit={(amount, method, remarks) =>
+              pay.mutate({ sale: payTarget, amount, method, remarks })
+            }
+          />
+        )}
+      </Dialog>
+
+      <Dialog open={!!historyTarget} onOpenChange={(v) => !v && setHistoryTarget(null)}>
+        {historyTarget && (
+          <CustomerHistoryDialog customerId={historyTarget.id} customerName={historyTarget.name} />
+        )}
+      </Dialog>
     </div>
   );
 }
 
-function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: () => void }) {
+function PayDialog({
+  sale,
+  onSubmit,
+  saving,
+}: {
+  sale: SaleRow;
+  onSubmit: (amount: number, method: PaymentMethod, remarks: string) => void;
+  saving: boolean;
+}) {
+  const [amount, setAmount] = useState(Number(sale.balance));
+  const [method, setMethod] = useState<PaymentMethod>("cash");
+  const [remarks, setRemarks] = useState("");
+  return (
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle>Receive Payment</DialogTitle>
+      </DialogHeader>
+      <div className="space-y-3">
+        <div className="rounded-md bg-muted/30 p-3 text-sm">
+          <div className="flex justify-between">
+            <span>Customer</span>
+            <span>{sale.customer_name ?? "Walk-in"}</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Invoice</span>
+            <span className="font-mono">{sale.invoice_number}</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Outstanding</span>
+            <span className="font-medium">{money(Number(sale.balance))}</span>
+          </div>
+        </div>
+        <div>
+          <Label>Amount</Label>
+          <Input
+            type="number"
+            min={0.01}
+            step="0.01"
+            max={Number(sale.balance)}
+            value={amount}
+            onChange={(e) => setAmount(Number(e.target.value))}
+          />
+        </div>
+        <div>
+          <Label>Method</Label>
+          <Select value={method} onValueChange={(v) => setMethod(v as PaymentMethod)}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(["cash", "transfer", "pos", "card", "cheque"] as PaymentMethod[]).map((m) => (
+                <SelectItem key={m} value={m} className="capitalize">
+                  {m}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <Label>Remarks</Label>
+          <Textarea rows={2} value={remarks} onChange={(e) => setRemarks(e.target.value)} />
+        </div>
+      </div>
+      <DialogFooter>
+        <Button
+          disabled={saving || amount <= 0 || amount > Number(sale.balance)}
+          onClick={() => onSubmit(amount, method, remarks)}
+        >
+          {saving ? "Saving…" : "Record & Print Receipt"}
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  );
+}
+
+type CustomerSaleRow = {
+  id: string;
+  invoice_number: string;
+  sale_date: string;
+  grand_total: number;
+  amount_paid: number;
+  balance: number;
+};
+type CustomerItemRow = {
+  sale_id: string;
+  quantity: number;
+  unit_price: number;
+  line_total: number;
+  products: { name: string; unit: string } | null;
+};
+type CustomerPaymentRow = {
+  id: string;
+  receipt_number: string;
+  payment_date: string;
+  created_at: string;
+  amount: number;
+  payment_method: string;
+};
+
+function CustomerHistoryDialog({
+  customerId,
+  customerName,
+}: {
+  customerId: string;
+  customerName: string;
+}) {
+  const invoices = useQuery({
+    queryKey: ["customer-sales-full", customerId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("sales")
+        .select("id,invoice_number,sale_date,grand_total,amount_paid,balance")
+        .eq("customer_id", customerId)
+        .order("sale_date", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as CustomerSaleRow[];
+    },
+  });
+
+  const saleIds = (invoices.data ?? []).map((s) => s.id);
+  const items = useQuery({
+    queryKey: ["customer-items-full", customerId, saleIds.join(",")],
+    enabled: saleIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("sale_items")
+        .select("sale_id,quantity,unit_price,line_total,products(name,unit)")
+        .in("sale_id", saleIds);
+      if (error) throw error;
+      return (data ?? []) as unknown as CustomerItemRow[];
+    },
+  });
+
+  const payments = useQuery({
+    queryKey: ["customer-payments-full", customerId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("payments_received")
+        .select("id,receipt_number,payment_date,created_at,amount,payment_method")
+        .eq("customer_id", customerId)
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as CustomerPaymentRow[];
+    },
+  });
+
+  const invoiceById = new Map((invoices.data ?? []).map((s) => [s.id, s]));
+  const totals = (invoices.data ?? []).reduce(
+    (acc, s) => ({
+      total: acc.total + Number(s.grand_total),
+      paid: acc.paid + Number(s.amount_paid),
+      balance: acc.balance + Number(s.balance),
+    }),
+    { total: 0, paid: 0, balance: 0 },
+  );
+
+  return (
+    <DialogContent className="max-w-3xl">
+      <DialogHeader>
+        <DialogTitle>{customerName} — Products & Transactions</DialogTitle>
+      </DialogHeader>
+      <div className="space-y-4">
+        <div className="grid grid-cols-3 gap-3 rounded-md bg-muted/30 p-3 text-sm">
+          <div>
+            <span className="text-muted-foreground block">Total purchased</span>
+            <span className="font-medium">{money(totals.total)}</span>
+          </div>
+          <div>
+            <span className="text-muted-foreground block">Total paid</span>
+            <span className="font-medium">{money(totals.paid)}</span>
+          </div>
+          <div>
+            <span className="text-muted-foreground block">Outstanding</span>
+            <span className={totals.balance > 0 ? "font-medium text-destructive" : "font-medium"}>
+              {money(totals.balance)}
+            </span>
+          </div>
+        </div>
+
+        <Tabs defaultValue="products">
+          <TabsList>
+            <TabsTrigger value="products">Products Purchased</TabsTrigger>
+            <TabsTrigger value="invoices">Invoices</TabsTrigger>
+            <TabsTrigger value="payments">Payment History</TabsTrigger>
+          </TabsList>
+          <TabsContent value="products">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Invoice</TableHead>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Product</TableHead>
+                  <TableHead className="text-right">Qty</TableHead>
+                  <TableHead className="text-right">Unit Price</TableHead>
+                  <TableHead className="text-right">Total</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(items.data ?? []).map((it, idx) => {
+                  const inv = invoiceById.get(it.sale_id);
+                  return (
+                    <TableRow key={`${it.sale_id}-${idx}`}>
+                      <TableCell className="font-mono text-xs">
+                        {inv?.invoice_number ?? "—"}
+                      </TableCell>
+                      <TableCell>{inv?.sale_date ?? "—"}</TableCell>
+                      <TableCell>
+                        {it.products?.name ?? "—"}
+                        {it.products?.unit ? ` (${it.products.unit})` : ""}
+                      </TableCell>
+                      <TableCell className="text-right">{num(Number(it.quantity))}</TableCell>
+                      <TableCell className="text-right">{money(Number(it.unit_price))}</TableCell>
+                      <TableCell className="text-right">{money(Number(it.line_total))}</TableCell>
+                    </TableRow>
+                  );
+                })}
+                {(items.data ?? []).length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center text-muted-foreground py-6">
+                      No products purchased yet.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </TabsContent>
+          <TabsContent value="invoices">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Invoice</TableHead>
+                  <TableHead>Date</TableHead>
+                  <TableHead className="text-right">Total</TableHead>
+                  <TableHead className="text-right">Balance</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(invoices.data ?? []).map((inv) => (
+                  <TableRow key={inv.id}>
+                    <TableCell className="font-mono text-xs">{inv.invoice_number}</TableCell>
+                    <TableCell>{inv.sale_date}</TableCell>
+                    <TableCell className="text-right">{money(Number(inv.grand_total))}</TableCell>
+                    <TableCell className="text-right">
+                      {Number(inv.balance) > 0 ? (
+                        <Badge variant="destructive">{money(Number(inv.balance))}</Badge>
+                      ) : (
+                        <Badge variant="secondary">Paid</Badge>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {(invoices.data ?? []).length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center text-muted-foreground py-6">
+                      No purchases yet.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </TabsContent>
+          <TabsContent value="payments">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Receipt</TableHead>
+                  <TableHead>Date & Time</TableHead>
+                  <TableHead>Method</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(payments.data ?? []).map((p) => (
+                  <TableRow key={p.id}>
+                    <TableCell className="font-mono text-xs">{p.receipt_number}</TableCell>
+                    <TableCell className="whitespace-nowrap text-xs">
+                      {new Date(p.created_at).toLocaleString()}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="capitalize">
+                        {p.payment_method}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">{money(Number(p.amount))}</TableCell>
+                  </TableRow>
+                ))}
+                {(payments.data ?? []).length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center text-muted-foreground py-6">
+                      No payments yet.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </TabsContent>
+        </Tabs>
+      </div>
+    </DialogContent>
+  );
+}
+
+// Exported so the Store (Finished Goods) page can offer the exact same
+// checkout flow -- same create_sale RPC, same stock/customer/debt effects --
+// rather than a second, divergent way to record a sale.
+export function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: () => void }) {
   const settings = useFactorySettings(factoryId);
   const products = useQuery({
     queryKey: ["products-active", factoryId],
@@ -271,6 +707,9 @@ function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: () => voi
         .select("id,name,sku,unit,unit_price,current_stock,category_id")
         .eq("factory_id", factoryId)
         .eq("active", true)
+        // Uncategorized products are usually semi-finished/internal items, not
+        // sellable SKUs — keep them out of the POS picker.
+        .not("category_id", "is", null)
         .order("name");
       if (error) throw error;
       return (data ?? []) as Product[];
@@ -308,6 +747,7 @@ function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: () => voi
   const [customerPhone, setCustomerPhone] = useState("");
   const [customerAddress, setCustomerAddress] = useState("");
   const [discount, setDiscount] = useState(0);
+  const [applyVat, setApplyVat] = useState(true);
   const [amountPaid, setAmountPaid] = useState(0);
   const [method, setMethod] = useState<PaymentMethod>("cash");
   const [salesPerson, setSalesPerson] = useState("");
@@ -315,6 +755,25 @@ function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: () => voi
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [pickerId, setPickerId] = useState<string>("");
   const [salesRepId, setSalesRepId] = useState<string>("none");
+
+  const currentUserName = useQuery({
+    queryKey: ["current-user-full-name"],
+    queryFn: async () => {
+      const { data: userData } = await supabase.auth.getUser();
+      if (!userData.user) return null;
+      const { data } = await supabase
+        .from("profiles")
+        .select("full_name")
+        .eq("id", userData.user.id)
+        .maybeSingle();
+      return data?.full_name || userData.user.email || null;
+    },
+    staleTime: Infinity,
+  });
+  useEffect(() => {
+    if (!salesPerson && currentUserName.data) setSalesPerson(currentUserName.data);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUserName.data]);
 
   const reps = useQuery({
     queryKey: ["sales-reps-active", factoryId],
@@ -357,11 +816,11 @@ function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: () => voi
 
   const totals = useMemo(() => {
     const subtotal = cart.reduce((s, i) => s + i.quantity * i.unit_price, 0);
-    const vat = Math.max(subtotal - discount, 0) * (vatRate / 100);
+    const vat = applyVat ? Math.max(subtotal - discount, 0) * (vatRate / 100) : 0;
     const grand = Math.max(subtotal - discount + vat, 0);
     const balance = Math.max(grand - amountPaid, 0);
     return { subtotal, vat, grand, balance };
-  }, [cart, discount, amountPaid, vatRate]);
+  }, [cart, discount, amountPaid, vatRate, applyVat]);
 
   const addProduct = (id: string) => {
     const p = products.data?.find((x) => x.id === id);
@@ -732,6 +1191,10 @@ function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: () => voi
               />
             </div>
           </div>
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox checked={applyVat} onCheckedChange={(v) => setApplyVat(!!v)} />
+            Apply VAT ({vatRate}%) to this sale
+          </label>
           <div className="grid grid-cols-2 gap-2">
             <div>
               <Label className="text-xs">Payment method</Label>
@@ -797,7 +1260,7 @@ function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: () => voi
               <span>-{money(discount)}</span>
             </div>
             <div className="flex justify-between">
-              <span>VAT ({vatRate}%)</span>
+              <span>VAT {applyVat ? `(${vatRate}%)` : "(not applied)"}</span>
               <span>{money(totals.vat)}</span>
             </div>
             <div className="flex justify-between text-base font-semibold pt-1 border-t">

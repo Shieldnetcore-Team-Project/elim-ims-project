@@ -118,17 +118,15 @@ async function drawLogoHeader(
   return baseTop + h + 10;
 }
 
-// 80mm thermal POS paper width. Height is computed from content (see
-// `draw` below run once against a tall scratch doc, then again against a
-// doc sized exactly to fit) so the receipt prints like a real till slip
-// instead of a mostly-blank A4/A5 page.
+// A4 page (printed on a standard office printer, not an 80mm thermal roll)
+// so the receipt fills the printout instead of appearing tiny in a corner.
 export async function generateInvoicePdf(data: InvoiceData, action: PdfAction = "download") {
   const currency = data.currency ?? "NGN";
   const cur = (n: number) => pdfMoney(n, currency);
   const logo = await resolveLogo(data.company.logo_url);
 
-  const W = 227;
-  const M = 10;
+  const W = 595; // A4 width in pt
+  const M = 40;
   const contentW = W - M * 2;
   const center = W / 2;
 
@@ -244,10 +242,13 @@ export async function generateInvoicePdf(data: InvoiceData, action: PdfAction = 
     return y;
   };
 
-  const scratch = new jsPDF({ unit: "pt", format: [W, 2000] });
+  const A4_H = 842; // A4 height in pt
+  const scratch = new jsPDF({ unit: "pt", format: [W, 4000] });
   const finalY = draw(scratch);
 
-  const doc = new jsPDF({ unit: "pt", format: [W, finalY + M] });
+  // Fill a full A4 page — only grow taller than A4 for an unusually long cart
+  // that wouldn't fit, rather than ever clipping content.
+  const doc = new jsPDF({ unit: "pt", format: [W, Math.max(A4_H, finalY + M)] });
   draw(doc);
 
   if (action === "download") {
@@ -278,7 +279,8 @@ export async function generateReceiptPdf(
   },
   action: PdfAction = "download",
 ) {
-  const doc = new jsPDF({ unit: "pt", format: "a5" });
+  // A4 (standard office printer paper) so the receipt fills the printout.
+  const doc = new jsPDF({ unit: "pt", format: "a4" });
   const currency = opts.currency ?? "NGN";
   const top = await drawLogoHeader(doc, opts.company.logo_url, 50);
   doc.setFontSize(16);
@@ -288,10 +290,10 @@ export async function generateReceiptPdf(
   if (opts.company.phone) doc.text(opts.company.phone, 40, top + 30);
 
   doc.setFontSize(18);
-  doc.text("RECEIPT", 380, top, { align: "right" });
+  doc.text("RECEIPT", 555, top, { align: "right" });
   doc.setFontSize(10);
-  doc.text(`# ${opts.receipt_number}`, 380, top + 16, { align: "right" });
-  doc.text(`Date: ${opts.payment_date}`, 380, top + 30, { align: "right" });
+  doc.text(`# ${opts.receipt_number}`, 555, top + 16, { align: "right" });
+  doc.text(`Date: ${opts.payment_date}`, 555, top + 30, { align: "right" });
 
   doc.setFontSize(11);
   let y = top + 80;

@@ -254,14 +254,59 @@ function ApprovalsPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("production_requests")
-        .select(
-          "id,request_number,quantity_requested,unit,request_type,requested_by,products(name),raw_materials(name)",
-        )
+        .select("id,request_number,quantity_requested,unit,requested_by,products(name)")
         .eq("approval_status", "pending")
+        .eq("request_type", "production_material")
         .order("request_date", { ascending: false })
         .limit(50);
       if (error) throw error;
       return (data ?? []).filter((r: any) => r.requested_by !== uid) as any[];
+    },
+  });
+
+  const purchaseRequests = useQuery({
+    queryKey: ["approvals-purchase-requests"],
+    enabled: canApprove("production-requests"),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("production_requests")
+        .select("id,request_number,quantity_requested,unit,requested_by,raw_materials(name)")
+        .eq("approval_status", "pending")
+        .eq("request_type", "purchase")
+        .order("request_date", { ascending: false })
+        .limit(50);
+      if (error) throw error;
+      return (data ?? []).filter((r: any) => r.requested_by !== uid) as any[];
+    },
+  });
+
+  const staffDeductions = useQuery({
+    queryKey: ["approvals-staff-deductions"],
+    enabled: canApprove("payroll"),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("staff_deductions")
+        .select("id,kind,label,amount,submitted_by,employees(full_name)")
+        .eq("status", "pending")
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (error) throw error;
+      return (data ?? []).filter((r: any) => r.submitted_by !== uid) as any[];
+    },
+  });
+
+  const staffLoans = useQuery({
+    queryKey: ["approvals-staff-loans"],
+    enabled: canApprove("payroll"),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("staff_loans")
+        .select("id,loan_number,principal,submitted_by,employees(full_name)")
+        .eq("status", "pending")
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (error) throw error;
+      return (data ?? []).filter((r: any) => r.submitted_by !== uid) as any[];
     },
   });
 
@@ -395,17 +440,61 @@ function ApprovalsPage() {
           {canApprove("production-requests") && (
             <QueueCard
               icon={ClipboardList}
-              title="Purchase / Production Requests"
+              title="Production Requests"
               to="/production-requests"
               empty="No requests awaiting approval."
               rows={(productionRequests.data ?? []).map((r: any) => ({
                 key: r.id,
                 cells: [
                   r.request_number,
-                  r.products?.name ?? r.raw_materials?.name ?? "—",
+                  r.products?.name ?? "—",
                   `${r.quantity_requested} ${r.unit ?? ""}`,
                 ],
               }))}
+            />
+          )}
+          {canApprove("production-requests") && (
+            <QueueCard
+              icon={ClipboardList}
+              title="Purchase Requests"
+              to="/procurement"
+              empty="No purchase requests awaiting approval."
+              rows={(purchaseRequests.data ?? []).map((r: any) => ({
+                key: r.id,
+                cells: [
+                  r.request_number,
+                  r.raw_materials?.name ?? "—",
+                  `${r.quantity_requested} ${r.unit ?? ""}`,
+                ],
+              }))}
+            />
+          )}
+          {canApprove("payroll") && (
+            <QueueCard
+              icon={HandCoins}
+              title="Staff Loans & Deductions"
+              to="/employees"
+              empty="No staff loans, fines, or contributions awaiting approval."
+              rows={[
+                ...(staffLoans.data ?? []).map((r: any) => ({
+                  key: r.id,
+                  cells: [
+                    r.employees?.full_name ?? "—",
+                    "Loan",
+                    r.loan_number,
+                    money(Number(r.principal)),
+                  ],
+                })),
+                ...(staffDeductions.data ?? []).map((r: any) => ({
+                  key: r.id,
+                  cells: [
+                    r.employees?.full_name ?? "—",
+                    <span className="capitalize">{r.kind}</span>,
+                    r.label,
+                    money(Number(r.amount)),
+                  ],
+                })),
+              ]}
             />
           )}
           {canConfirm("goods-receiving") && (
