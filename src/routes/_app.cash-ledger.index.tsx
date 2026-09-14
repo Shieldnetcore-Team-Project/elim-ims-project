@@ -28,7 +28,7 @@ import {
   Cell,
 } from "recharts";
 import { money } from "@/lib/format";
-import { TrendingUp, TrendingDown, Wallet } from "lucide-react";
+import { TrendingUp, TrendingDown, Wallet, Banknote, CreditCard, Landmark, Coins } from "lucide-react";
 import { startOfWeek, startOfMonth, startOfYear, format } from "date-fns";
 
 export const Route = createFileRoute("/_app/cash-ledger/")({
@@ -72,12 +72,24 @@ function CashFlowOverview() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("payments_received")
-        .select("amount")
+        .select("amount,payment_method")
         .eq("factory_id", factoryId!)
         .gte("payment_date", from)
         .lte("payment_date", to);
       if (error) throw error;
-      return (data ?? []).reduce((s, r) => s + Number(r.amount), 0);
+      const byMethod = { cash: 0, pos: 0, transfer: 0, other: 0 };
+      let total = 0;
+      (data ?? []).forEach((r) => {
+        const amt = Number(r.amount);
+        total += amt;
+        const method = r.payment_method as string;
+        if (method === "cash" || method === "pos" || method === "transfer") {
+          byMethod[method] += amt;
+        } else {
+          byMethod.other += amt;
+        }
+      });
+      return { total, ...byMethod };
     },
   });
 
@@ -175,7 +187,7 @@ function CashFlowOverview() {
         key: "sales_income",
         label: "Sales Income",
         direction: "in",
-        amount: salesIncome.data ?? 0,
+        amount: salesIncome.data?.total ?? 0,
       },
       {
         key: "other_income",
@@ -326,6 +338,69 @@ function CashFlowOverview() {
             </div>
             <div className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary">
               <Wallet className="h-5 w-5" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Card className="rounded-2xl">
+          <CardContent className="p-5 flex items-center justify-between">
+            <div>
+              <div className="text-xs uppercase tracking-wider text-muted-foreground">
+                Cash Flow
+              </div>
+              <div className="mt-2 text-2xl font-semibold text-success">
+                {money(salesIncome.data?.cash ?? 0, currency)}
+              </div>
+            </div>
+            <div className="grid h-10 w-10 place-items-center rounded-xl bg-success/10 text-success">
+              <Banknote className="h-5 w-5" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="rounded-2xl">
+          <CardContent className="p-5 flex items-center justify-between">
+            <div>
+              <div className="text-xs uppercase tracking-wider text-muted-foreground">
+                P.O.S Flow
+              </div>
+              <div className="mt-2 text-2xl font-semibold text-success">
+                {money(salesIncome.data?.pos ?? 0, currency)}
+              </div>
+            </div>
+            <div className="grid h-10 w-10 place-items-center rounded-xl bg-success/10 text-success">
+              <CreditCard className="h-5 w-5" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="rounded-2xl">
+          <CardContent className="p-5 flex items-center justify-between">
+            <div>
+              <div className="text-xs uppercase tracking-wider text-muted-foreground">
+                Transfer/Bank Flow
+              </div>
+              <div className="mt-2 text-2xl font-semibold text-success">
+                {money(salesIncome.data?.transfer ?? 0, currency)}
+              </div>
+            </div>
+            <div className="grid h-10 w-10 place-items-center rounded-xl bg-success/10 text-success">
+              <Landmark className="h-5 w-5" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="rounded-2xl">
+          <CardContent className="p-5 flex items-center justify-between">
+            <div>
+              <div className="text-xs uppercase tracking-wider text-muted-foreground">
+                Total Money Received
+              </div>
+              <div className="mt-2 text-2xl font-semibold text-primary">
+                {money(salesIncome.data?.total ?? 0, currency)}
+              </div>
+            </div>
+            <div className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary">
+              <Coins className="h-5 w-5" />
             </div>
           </CardContent>
         </Card>
