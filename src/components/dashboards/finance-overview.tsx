@@ -193,14 +193,14 @@ export function FinanceOverview({ factoryId }: { factoryId: string }) {
         />
         <KPI
           icon={TrendingDown}
-          label="Cash Out (this month)"
+          label="Total Out Flow (this month)"
           value={money(cashOutMonth)}
           hint="Expenses + payroll"
           tone="destructive"
         />
         <KPI
           icon={Wallet}
-          label="Net Cash Flow (this month)"
+          label="Total In Flow (this month)"
           value={money(netCashFlow)}
           tone={netCashFlow >= 0 ? "success" : "destructive"}
         />

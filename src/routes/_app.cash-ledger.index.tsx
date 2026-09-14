@@ -28,7 +28,7 @@ import {
   Cell,
 } from "recharts";
 import { money } from "@/lib/format";
-import { TrendingUp, TrendingDown, Wallet, Banknote, CreditCard, Landmark, Coins } from "lucide-react";
+import { TrendingDown, Banknote, CreditCard, Landmark, Coins } from "lucide-react";
 import { startOfWeek, startOfMonth, startOfYear, format } from "date-fns";
 
 export const Route = createFileRoute("/_app/cash-ledger/")({
@@ -251,8 +251,6 @@ function CashFlowOverview() {
   const totalOut = categories
     .filter((c) => c.direction === "out")
     .reduce((s, c) => s + c.amount, 0);
-  const net = totalIn - totalOut;
-
   const chartData = categories
     .filter((c) => c.amount > 0)
     .map((c) => ({
@@ -293,57 +291,7 @@ function CashFlowOverview() {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <Card className="rounded-2xl">
-          <CardContent className="p-5 flex items-center justify-between">
-            <div>
-              <div className="text-xs uppercase tracking-wider text-muted-foreground">
-                Total Cash In
-              </div>
-              <div className="mt-2 text-2xl font-semibold text-success">
-                {money(totalIn, currency)}
-              </div>
-            </div>
-            <div className="grid h-10 w-10 place-items-center rounded-xl bg-success/10 text-success">
-              <TrendingUp className="h-5 w-5" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="rounded-2xl">
-          <CardContent className="p-5 flex items-center justify-between">
-            <div>
-              <div className="text-xs uppercase tracking-wider text-muted-foreground">
-                Total Cash Out
-              </div>
-              <div className="mt-2 text-2xl font-semibold text-destructive">
-                {money(totalOut, currency)}
-              </div>
-            </div>
-            <div className="grid h-10 w-10 place-items-center rounded-xl bg-destructive/10 text-destructive">
-              <TrendingDown className="h-5 w-5" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="rounded-2xl">
-          <CardContent className="p-5 flex items-center justify-between">
-            <div>
-              <div className="text-xs uppercase tracking-wider text-muted-foreground">
-                Net Cash Flow
-              </div>
-              <div
-                className={`mt-2 text-2xl font-semibold ${net >= 0 ? "text-success" : "text-destructive"}`}
-              >
-                {money(net, currency)}
-              </div>
-            </div>
-            <div className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary">
-              <Wallet className="h-5 w-5" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <Card className="rounded-2xl">
           <CardContent className="p-5 flex items-center justify-between">
             <div>
@@ -386,6 +334,21 @@ function CashFlowOverview() {
             </div>
             <div className="grid h-10 w-10 place-items-center rounded-xl bg-success/10 text-success">
               <Landmark className="h-5 w-5" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="rounded-2xl">
+          <CardContent className="p-5 flex items-center justify-between">
+            <div>
+              <div className="text-xs uppercase tracking-wider text-muted-foreground">
+                Total Cash Out
+              </div>
+              <div className="mt-2 text-2xl font-semibold text-destructive">
+                {money(totalOut, currency)}
+              </div>
+            </div>
+            <div className="grid h-10 w-10 place-items-center rounded-xl bg-destructive/10 text-destructive">
+              <TrendingDown className="h-5 w-5" />
             </div>
           </CardContent>
         </Card>
