@@ -17,6 +17,10 @@ services:
         sync: false
       - key: SUPABASE_PUBLISHABLE_KEY
         sync: false
+      # Server-only. Required for admin user creation (src/lib/admin-users.ts).
+      # Bypasses RLS — never add a VITE_ prefixed copy of this.
+      - key: SUPABASE_SECRET_KEY
+        sync: false
       - key: VITE_SUPABASE_URL
         sync: false
       - key: VITE_SUPABASE_PROJECT_ID
