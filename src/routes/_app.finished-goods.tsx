@@ -483,7 +483,6 @@ function FinishedGoodsPage() {
                 <TableHead>Type</TableHead>
                 <TableHead>Category</TableHead>
                 <TableHead className="text-right">Available Stock</TableHead>
-                <TableHead className="text-right">Unit Price</TableHead>
                 <TableHead className="text-right">Cost Price</TableHead>
                 <TableHead></TableHead>
               </TableRow>
@@ -510,7 +509,6 @@ function FinishedGoodsPage() {
                         </Badge>
                       )}
                     </TableCell>
-                    <TableCell className="text-right">{money(Number(p.unit_price))}</TableCell>
                     <TableCell className="text-right">{money(Number(p.cost_price))}</TableCell>
                     <TableCell>
                       <div className="flex justify-end gap-1">
@@ -580,7 +578,7 @@ function FinishedGoodsPage() {
               })}
               {filteredList.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
                     No products yet.
                   </TableCell>
                 </TableRow>
