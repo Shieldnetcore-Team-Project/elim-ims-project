@@ -8,6 +8,7 @@ import { usePermissions } from "@/lib/permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { MoneyInput } from "@/components/ui/money-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -498,65 +499,29 @@ function EmployeeForm({
         <div className="grid grid-cols-3 gap-3">
           <div>
             <Label>Basic salary</Label>
-            <Input
-              type="number"
-              min={0}
-              step="0.01"
-              value={basicSalary}
-              onChange={(e) => setBasicSalary(Number(e.target.value))}
-            />
+            <MoneyInput value={basicSalary} onChange={setBasicSalary} />
           </div>
           <div>
             <Label>Housing</Label>
-            <Input
-              type="number"
-              min={0}
-              step="0.01"
-              value={housing}
-              onChange={(e) => setHousing(Number(e.target.value))}
-            />
+            <MoneyInput value={housing} onChange={setHousing} />
           </div>
           <div>
             <Label>Transport</Label>
-            <Input
-              type="number"
-              min={0}
-              step="0.01"
-              value={transport}
-              onChange={(e) => setTransport(Number(e.target.value))}
-            />
+            <MoneyInput value={transport} onChange={setTransport} />
           </div>
         </div>
         <div className="grid grid-cols-3 gap-3">
           <div>
             <Label>Meal</Label>
-            <Input
-              type="number"
-              min={0}
-              step="0.01"
-              value={meal}
-              onChange={(e) => setMeal(Number(e.target.value))}
-            />
+            <MoneyInput value={meal} onChange={setMeal} />
           </div>
           <div>
             <Label>Medical</Label>
-            <Input
-              type="number"
-              min={0}
-              step="0.01"
-              value={medical}
-              onChange={(e) => setMedical(Number(e.target.value))}
-            />
+            <MoneyInput value={medical} onChange={setMedical} />
           </div>
           <div>
             <Label>Other</Label>
-            <Input
-              type="number"
-              min={0}
-              step="0.01"
-              value={otherAllow}
-              onChange={(e) => setOtherAllow(Number(e.target.value))}
-            />
+            <MoneyInput value={otherAllow} onChange={setOtherAllow} />
           </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
@@ -1037,12 +1002,7 @@ function LoansDeductionsDialog({ employee, factoryId }: { employee: Employee; fa
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label className="text-xs">Principal</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    value={principal || ""}
-                    onChange={(e) => setPrincipal(Number(e.target.value))}
-                  />
+                  <MoneyInput value={principal} onChange={setPrincipal} />
                 </div>
                 <div>
                   <Label className="text-xs">Disbursed on</Label>
@@ -1092,12 +1052,7 @@ function LoansDeductionsDialog({ employee, factoryId }: { employee: Employee; fa
                   {instMode === "amount" ? (
                     <>
                       <Label className="text-xs">Deduct per month</Label>
-                      <Input
-                        type="number"
-                        min={0}
-                        value={instAmount || ""}
-                        onChange={(e) => setInstAmount(Number(e.target.value))}
-                      />
+                      <MoneyInput value={instAmount} onChange={setInstAmount} />
                     </>
                   ) : (
                     <>
@@ -1227,12 +1182,7 @@ function LoansDeductionsDialog({ employee, factoryId }: { employee: Employee; fa
                 </div>
                 <div>
                   <Label className="text-xs">Amount</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    value={dedAmount || ""}
-                    onChange={(e) => setDedAmount(Number(e.target.value))}
-                  />
+                  <MoneyInput value={dedAmount} onChange={setDedAmount} />
                 </div>
               </div>
               <div>

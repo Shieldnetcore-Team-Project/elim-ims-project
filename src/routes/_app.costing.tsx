@@ -12,6 +12,7 @@ import { WORKFLOW_STATUS_LABELS, type WorkflowStatus } from "@/lib/workflow";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { MoneyInput } from "@/components/ui/money-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -127,15 +128,12 @@ function PriceOptionsEditor({
         const margin = price > 0 ? price - costBasis : null;
         return (
           <div key={i} className="flex items-center gap-2">
-            <Input
+            <MoneyInput
               className="flex-1"
-              type="number"
-              min="0"
-              step="0.01"
               placeholder="Proposed price"
-              value={p}
-              onChange={(e) =>
-                setPriceOptions(priceOptions.map((x, j) => (j === i ? e.target.value : x)))
+              value={Number(p) || 0}
+              onChange={(v) =>
+                setPriceOptions(priceOptions.map((x, j) => (j === i ? String(v) : x)))
               }
             />
             {margin !== null && (
@@ -823,12 +821,9 @@ function WaterCostingDialog({
             </div>
             <div className="space-y-2">
               <Label>Shrink wrapper (₦/carton)</Label>
-              <Input
-                type="number"
-                min="0"
-                step="0.01"
-                value={shrinkWrapCost}
-                onChange={(e) => setShrinkWrapCost(e.target.value)}
+              <MoneyInput
+                value={Number(shrinkWrapCost) || 0}
+                onChange={(v) => setShrinkWrapCost(String(v))}
               />
             </div>
           </div>

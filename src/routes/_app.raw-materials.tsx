@@ -8,6 +8,7 @@ import { usePermissions } from "@/lib/permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { MoneyInput } from "@/components/ui/money-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -1202,13 +1203,7 @@ function MaterialForm({
           </div>
           <div>
             <Label>Unit cost</Label>
-            <Input
-              type="number"
-              min={0}
-              step="0.01"
-              value={unitCost}
-              onChange={(e) => setUnitCost(Number(e.target.value))}
-            />
+            <MoneyInput value={unitCost} onChange={setUnitCost} />
           </div>
         </div>
         <div>
@@ -1343,13 +1338,7 @@ function ReceiveDialog({
         </p>
         <div>
           <Label>Unit cost</Label>
-          <Input
-            type="number"
-            min={0}
-            step="0.01"
-            value={unitCost}
-            onChange={(e) => setUnitCost(Number(e.target.value))}
-          />
+          <MoneyInput value={unitCost} onChange={setUnitCost} />
         </div>
         <div>
           <Label>Delivery reference</Label>

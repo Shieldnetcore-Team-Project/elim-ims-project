@@ -20,14 +20,25 @@ import {
   Undo2,
   LayoutGrid,
   Warehouse,
+  Settings,
 } from "lucide-react";
 import { type ModuleKey } from "@/lib/permissions";
 
 // The app's navigation tree. Lives here rather than in app-sidebar.tsx so the
 // sidebar and the per-user "Page access" grid on the Roles & Permissions page
 // read the same definition instead of keeping copies that could drift.
+// `tabs` names the real sub-tab (or independently-grantable action) behind
+// each module in `modules`, purely for the per-user Page Access grid
+// (src/components/permissions/user-page-access.tsx) to render a page's tabs
+// nested under it. It's optional and additive -- `modules` alone still drives
+// sidebar visibility (app-sidebar.tsx), so leaving `tabs` off changes nothing.
 export type NavItem = { title: string; url: string; icon: typeof LayoutDashboard } & (
-  { module: ModuleKey; modules?: never } | { modules: ModuleKey[]; module?: never }
+  | { module: ModuleKey; modules?: never; tabs?: never }
+  | {
+      modules: ModuleKey[];
+      module?: never;
+      tabs?: { label: string; module: ModuleKey }[];
+    }
 );
 
 // Mirrors the recommended nav tree (§10): Operations / Procurement / Finance /
@@ -51,7 +62,7 @@ export const nav: { section: string; items: NavItem[] }[] = [
     section: "Operations",
     items: [
       { title: "Sales", url: "/sales", icon: ShoppingCart, module: "sales" },
-      { title: "Sales Returns", url: "/sales-returns", icon: Undo2, module: "sales" },
+      { title: "Sales Returns", url: "/sales-returns", icon: Undo2, module: "sales-returns" },
       { title: "Production", url: "/production", icon: FactoryIcon, module: "production" },
       {
         title: "Production Requests",
@@ -64,6 +75,10 @@ export const nav: { section: string; items: NavItem[] }[] = [
         url: "/inventory",
         icon: Warehouse,
         modules: ["raw-materials", "finished-goods"],
+        tabs: [
+          { label: "Raw Materials", module: "raw-materials" },
+          { label: "Finished Goods", module: "finished-goods" },
+        ],
       },
       { title: "Inventory", url: "/raw-materials", icon: Boxes, module: "raw-materials" },
       { title: "Store", url: "/finished-goods", icon: Package, module: "finished-goods" },
@@ -79,6 +94,10 @@ export const nav: { section: string; items: NavItem[] }[] = [
         url: "/procurement",
         icon: FileStack,
         modules: ["production-requests", "purchase-orders"],
+        tabs: [
+          { label: "Purchase Requests", module: "production-requests" },
+          { label: "Purchase Orders", module: "purchase-orders" },
+        ],
       },
     ],
   },
@@ -91,6 +110,12 @@ export const nav: { section: string; items: NavItem[] }[] = [
         url: "/cash-ledger",
         icon: Wallet,
         modules: ["payments", "receipts-payments", "cash-flow", "debts"],
+        tabs: [
+          { label: "Overview", module: "cash-flow" },
+          { label: "Ledger", module: "receipts-payments" },
+          { label: "Debts", module: "debts" },
+          { label: "Record & Approve Payments", module: "payments" },
+        ],
       },
       { title: "Financial Reports", url: "/reports", icon: FileBarChart, module: "reports" },
       { title: "Expenses", url: "/expenses", icon: Receipt, module: "expenses" },
@@ -123,10 +148,11 @@ export const nav: { section: string; items: NavItem[] }[] = [
   {
     section: "Administration",
     items: [
-      // Individual admin pages (Users, Role Management, Roles & Permissions,
-      // Approval Workflows, Account Approvals, Audit Logs, System Settings) are
-      // reached from inside the Admin Panel to keep the sidebar short.
+      // The Admin Panel consolidates Users, Pending, Permissions, Audit Log,
+      // and Auth Users into one tabbed page to keep the sidebar short.
+      // Settings gets its own entry here since nothing else links to it.
       { title: "Admin Panel", url: "/admin", icon: LayoutGrid, module: "users" },
+      { title: "System Settings", url: "/settings", icon: Settings, module: "settings" },
     ],
   },
 ];

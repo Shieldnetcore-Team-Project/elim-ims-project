@@ -8,6 +8,7 @@ import { usePermissions } from "@/lib/permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { MoneyInput } from "@/components/ui/money-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -37,7 +38,6 @@ import { money } from "@/lib/format";
 import { toast } from "sonner";
 import {
   HandCoins,
-  History,
   FileDown,
   Ban,
   Search,
@@ -49,8 +49,12 @@ import {
   X,
   Send,
   Undo2,
+  Pencil,
+  Plus,
+  Eye,
 } from "lucide-react";
 import { generateReceiptPdf, generateDebtStatementPdf } from "@/lib/pdf";
+import { CustomerProfileDialog, type Customer } from "@/routes/_app.customers";
 
 export const Route = createFileRoute("/_app/cash-ledger/debts")({
   head: () => ({
@@ -138,8 +142,8 @@ function DebtsPage() {
   const post = canPost("debts");
   const cancel = canCancel("debts");
   const reverse = canReverse("debts");
-  const [payTarget, setPayTarget] = useState<Debt | null>(null);
-  const [historyTarget, setHistoryTarget] = useState<Debt | null>(null);
+  const [detailTargetId, setDetailTargetId] = useState<string | null>(null);
+  const [customerViewId, setCustomerViewId] = useState<string | null>(null);
   const [writeoffTarget, setWriteoffTarget] = useState<Debt | null>(null);
   const [reverseTarget, setReverseTarget] = useState<Debt | null>(null);
   const [search, setSearch] = useState("");
@@ -185,6 +189,23 @@ function DebtsPage() {
     staleTime: Infinity,
   });
 
+  // Every one of this customer's transactions, across every invoice/debt --
+  // not just the single debt a row's edit icon is scoped to. Reuses the same
+  // profile dialog the Customers page shows, so the two stay in sync.
+  const customerView = useQuery({
+    queryKey: ["customer-full", customerViewId],
+    enabled: !!customerViewId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("customers")
+        .select("*")
+        .eq("id", customerViewId!)
+        .single();
+      if (error) throw error;
+      return data as Customer;
+    },
+  });
+
   const filtered = useMemo(() => {
     let rows = list.data ?? [];
     if (statusFilter !== "all") rows = rows.filter((d) => d.status === statusFilter);
@@ -216,6 +237,7 @@ function DebtsPage() {
     qc.invalidateQueries({ queryKey: ["debts"] });
     qc.invalidateQueries({ queryKey: ["customers"] });
     qc.invalidateQueries({ queryKey: ["rp-receipts"] });
+    qc.invalidateQueries({ queryKey: ["debt-payments"] });
   };
 
   const pay = useMutation({
@@ -258,7 +280,6 @@ function DebtsPage() {
         currency: settings.data?.currency ?? "NGN",
       });
       invalidateAll();
-      setPayTarget(null);
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -481,29 +502,21 @@ function DebtsPage() {
                   <TableCell>
                     <div className="flex justify-end gap-1">
                       <Button
-                        size="sm"
-                        variant="outline"
-                        className="gap-1"
-                        disabled={d.status === "paid"}
-                        onClick={() => setPayTarget(d)}
+                        size="icon"
+                        variant="ghost"
+                        title="Manage payments & history"
+                        onClick={() => setDetailTargetId(d.id)}
                       >
-                        <HandCoins className="h-4 w-4" /> Receive
+                        <Pencil className="h-4 w-4" />
                       </Button>
                       <Button
-                        size="sm"
+                        size="icon"
                         variant="ghost"
-                        className="gap-1"
-                        onClick={() => setHistoryTarget(d)}
+                        title="View all this customer's transactions"
+                        disabled={!d.customer_id}
+                        onClick={() => setCustomerViewId(d.customer_id)}
                       >
-                        <History className="h-4 w-4" /> History
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="gap-1"
-                        onClick={() => printStatement(d)}
-                      >
-                        <FileDown className="h-4 w-4" /> Statement
+                        <Eye className="h-4 w-4" />
                       </Button>
                       {d.writeoff_status === "pending_approval" &&
                         (approve && d.writeoff_requested_by !== currentUser.data ? (
@@ -592,16 +605,26 @@ function DebtsPage() {
         </CardContent>
       </Card>
 
-      <Dialog open={!!payTarget} onOpenChange={(v) => !v && setPayTarget(null)}>
-        {payTarget && (
-          <PayDialog
-            debt={payTarget}
-            onSubmit={(amount, method, remarks) =>
-              pay.mutate({ debt: payTarget, amount, method, remarks })
-            }
-            saving={pay.isPending}
-          />
-        )}
+      <Dialog open={!!detailTargetId} onOpenChange={(v) => !v && setDetailTargetId(null)}>
+        {detailTargetId &&
+          (() => {
+            const debt = (list.data ?? []).find((d) => d.id === detailTargetId);
+            if (!debt) return null;
+            return (
+              <DebtDetailDialog
+                debt={debt}
+                onAddPayment={(amount, method, remarks) =>
+                  pay.mutate({ debt, amount, method, remarks })
+                }
+                saving={pay.isPending}
+                onPrintStatement={() => printStatement(debt)}
+              />
+            );
+          })()}
+      </Dialog>
+
+      <Dialog open={!!customerViewId} onOpenChange={(v) => !v && setCustomerViewId(null)}>
+        {customerView.data && <CustomerProfileDialog customer={customerView.data} />}
       </Dialog>
 
       <Dialog open={!!writeoffTarget} onOpenChange={(v) => !v && setWriteoffTarget(null)}>
@@ -612,10 +635,6 @@ function DebtsPage() {
             saving={requestWriteoff.isPending}
           />
         )}
-      </Dialog>
-
-      <Dialog open={!!historyTarget} onOpenChange={(v) => !v && setHistoryTarget(null)}>
-        {historyTarget && <HistoryDialog debt={historyTarget} profiles={profiles.data ?? {}} />}
       </Dialog>
 
       <Dialog open={!!reverseTarget} onOpenChange={(v) => !v && setReverseTarget(null)}>
@@ -631,75 +650,166 @@ function DebtsPage() {
   );
 }
 
-function PayDialog({
+// One combined view of a debt: charged/paid/remaining, the full payment
+// history, and an inline "Add Payment" form — replaces the old separate
+// Receive/History buttons so subsequent payments and past records live
+// behind a single edit action per customer.
+function DebtDetailDialog({
   debt,
-  onSubmit,
+  onAddPayment,
   saving,
+  onPrintStatement,
 }: {
   debt: Debt;
-  onSubmit: (amount: number, method: PaymentMethod, remarks: string) => void;
+  onAddPayment: (amount: number, method: PaymentMethod, remarks: string) => void;
   saving: boolean;
+  onPrintStatement: () => void;
 }) {
-  const [amount, setAmount] = useState(Number(debt.outstanding));
+  const outstanding = Number(debt.outstanding);
+  const [adding, setAdding] = useState(false);
+  const [amount, setAmount] = useState(outstanding);
   const [method, setMethod] = useState<PaymentMethod>("cash");
   const [remarks, setRemarks] = useState("");
+
+  const payments = useQuery({
+    queryKey: ["debt-payments", debt.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("debt_payments")
+        .select("id,amount,payment_method,payment_date,created_at,received_by,remarks")
+        .eq("debt_id", debt.id)
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as DebtPayment[];
+    },
+  });
+
+  const startAdd = () => {
+    setAmount(outstanding);
+    setMethod("cash");
+    setRemarks("");
+    setAdding(true);
+  };
+
+  const submit = () => {
+    onAddPayment(amount, method, remarks);
+    setAdding(false);
+  };
+
   return (
-    <DialogContent>
+    <DialogContent className="max-w-2xl">
       <DialogHeader>
-        <DialogTitle>Receive Payment</DialogTitle>
+        <DialogTitle>{debt.customers?.name ?? "Debt"}</DialogTitle>
       </DialogHeader>
-      <div className="space-y-3">
+      <div className="space-y-4">
         <div className="rounded-md bg-muted/30 p-3 text-sm">
-          <div className="flex justify-between">
-            <span>Customer</span>
-            <span>{debt.customers?.name ?? "—"}</span>
-          </div>
           <div className="flex justify-between">
             <span>Invoice</span>
             <span className="font-mono">{debt.sales?.invoice_number ?? "—"}</span>
           </div>
           <div className="flex justify-between">
-            <span>Outstanding</span>
-            <span className="font-medium">{money(Number(debt.outstanding))}</span>
+            <span>Total Charged to Customer</span>
+            <span className="font-medium">{money(Number(debt.total_amount))}</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Amount Paid</span>
+            <span className="font-medium text-success">{money(Number(debt.amount_paid))}</span>
+          </div>
+          <div className="flex justify-between font-semibold">
+            <span>Balance Remaining</span>
+            <span className={outstanding > 0 ? "text-destructive" : "text-success"}>
+              {money(outstanding)}
+            </span>
           </div>
         </div>
+
         <div>
-          <Label>Amount</Label>
-          <Input
-            type="number"
-            min={0.01}
-            step="0.01"
-            max={Number(debt.outstanding)}
-            value={amount}
-            onChange={(e) => setAmount(Number(e.target.value))}
-          />
-        </div>
-        <div>
-          <Label>Method</Label>
-          <Select value={method} onValueChange={(v) => setMethod(v as PaymentMethod)}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {(["cash", "transfer", "pos", "card", "cheque"] as PaymentMethod[]).map((m) => (
-                <SelectItem key={m} value={m} className="capitalize">
-                  {m}
-                </SelectItem>
+          <div className="mb-2 text-sm font-medium">Payment history</div>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Date & Time</TableHead>
+                <TableHead>Method</TableHead>
+                <TableHead>Remarks</TableHead>
+                <TableHead className="text-right">Amount</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {(payments.data ?? []).map((p) => (
+                <TableRow key={p.id}>
+                  <TableCell className="whitespace-nowrap text-xs">
+                    {new Date(p.created_at).toLocaleString()}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="outline" className="capitalize">
+                      {p.payment_method}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
+                    {p.remarks || "—"}
+                  </TableCell>
+                  <TableCell className="text-right">{money(Number(p.amount))}</TableCell>
+                </TableRow>
               ))}
-            </SelectContent>
-          </Select>
+              {(payments.data ?? []).length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={4} className="text-center text-muted-foreground py-4">
+                    No payments recorded yet.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
         </div>
-        <div>
-          <Label>Remarks</Label>
-          <Textarea rows={2} value={remarks} onChange={(e) => setRemarks(e.target.value)} />
-        </div>
+
+        {adding ? (
+          <div className="space-y-3 rounded-md border p-3">
+            <div>
+              <Label>Amount</Label>
+              <MoneyInput value={amount} onChange={setAmount} />
+            </div>
+            <div>
+              <Label>Method</Label>
+              <Select value={method} onValueChange={(v) => setMethod(v as PaymentMethod)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(["cash", "transfer", "pos", "card", "cheque"] as PaymentMethod[]).map((m) => (
+                    <SelectItem key={m} value={m} className="capitalize">
+                      {m}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Remarks</Label>
+              <Textarea rows={2} value={remarks} onChange={(e) => setRemarks(e.target.value)} />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setAdding(false)}>
+                Cancel
+              </Button>
+              <Button disabled={saving || amount <= 0 || amount > outstanding} onClick={submit}>
+                {saving ? "Saving…" : "Record & Print Receipt"}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <Button
+            className="w-full gap-1.5 bg-success text-success-foreground hover:bg-success/90"
+            disabled={outstanding <= 0}
+            onClick={startAdd}
+          >
+            <Plus className="h-4 w-4" />
+            {outstanding > 0 ? `Add Payment — ${money(outstanding)} remaining` : "Fully Paid"}
+          </Button>
+        )}
       </div>
       <DialogFooter>
-        <Button
-          disabled={saving || amount <= 0 || amount > Number(debt.outstanding)}
-          onClick={() => onSubmit(amount, method, remarks)}
-        >
-          {saving ? "Saving…" : "Record & Print Receipt"}
+        <Button variant="outline" className="gap-1.5" onClick={onPrintStatement}>
+          <FileDown className="h-4 w-4" /> Print Statement
         </Button>
       </DialogFooter>
     </DialogContent>
@@ -788,97 +898,6 @@ function ReverseWriteoffDialog({
           {saving ? "Reversing…" : "Reverse write-off"}
         </Button>
       </DialogFooter>
-    </DialogContent>
-  );
-}
-
-function HistoryDialog({ debt, profiles }: { debt: Debt; profiles: Record<string, string> }) {
-  const payments = useQuery({
-    queryKey: ["debt-payments", debt.id],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("debt_payments")
-        .select("id,amount,payment_method,payment_date,created_at,received_by,remarks")
-        .eq("debt_id", debt.id)
-        .order("created_at", { ascending: true });
-      if (error) throw error;
-      return (data ?? []) as DebtPayment[];
-    },
-  });
-
-  return (
-    <DialogContent className="max-w-2xl">
-      <DialogHeader>
-        <DialogTitle>History — {debt.customers?.name ?? "Debt"}</DialogTitle>
-      </DialogHeader>
-      <div className="space-y-4">
-        <div>
-          <div className="mb-2 text-sm font-medium">Products purchased</div>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Product</TableHead>
-                <TableHead className="text-right">Qty</TableHead>
-                <TableHead className="text-right">Unit Price</TableHead>
-                <TableHead className="text-right">Total</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {(debt.sales?.sale_items ?? []).map((it, i) => (
-                <TableRow key={i}>
-                  <TableCell>{it.products?.name ?? "—"}</TableCell>
-                  <TableCell className="text-right">{it.quantity}</TableCell>
-                  <TableCell className="text-right">{money(Number(it.unit_price))}</TableCell>
-                  <TableCell className="text-right">{money(Number(it.line_total))}</TableCell>
-                </TableRow>
-              ))}
-              {(debt.sales?.sale_items ?? []).length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={4} className="text-center text-muted-foreground py-4">
-                    No line items.
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </div>
-        <div>
-          <div className="mb-2 text-sm font-medium">Payment history</div>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Date & Time</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
-                <TableHead>Method</TableHead>
-                <TableHead>Received by</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {(payments.data ?? []).map((p) => (
-                <TableRow key={p.id}>
-                  <TableCell className="whitespace-nowrap text-xs">
-                    {new Date(p.created_at).toLocaleString()}
-                  </TableCell>
-                  <TableCell className="text-right">{money(Number(p.amount))}</TableCell>
-                  <TableCell>
-                    <Badge variant="outline" className="capitalize">
-                      {p.payment_method}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>{p.received_by ? (profiles[p.received_by] ?? "—") : "—"}</TableCell>
-                </TableRow>
-              ))}
-              {(payments.data ?? []).length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={4} className="text-center text-muted-foreground py-4">
-                    No payments recorded yet.
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </div>
-      </div>
     </DialogContent>
   );
 }

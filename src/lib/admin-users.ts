@@ -156,7 +156,11 @@ const updateUserInput = z.object({
   phone: z.string().trim().optional(),
   department: z.string().trim().optional(),
   email: z.string().trim().email("Enter a valid email").optional().or(z.literal("")),
-  password: z.string().min(8, "Password must be at least 8 characters").optional().or(z.literal("")),
+  password: z
+    .string()
+    .min(8, "Password must be at least 8 characters")
+    .optional()
+    .or(z.literal("")),
 });
 
 export type AdminUpdateUserInput = z.infer<typeof updateUserInput>;
@@ -217,4 +221,110 @@ export const adminUpdateUser = createServerFn({ method: "POST" })
     if (profileError) return { ok: false, error: profileError.message };
 
     return { ok: true };
+  });
+
+const deleteUserInput = z.object({ target_id: z.string().uuid() });
+export type AdminDeleteUserResult = { ok: true } | { ok: false; error: string };
+
+// A "delete" that only removes profiles/user_roles (delete_user_account, the
+// RPC this calls first) leaves the auth.users credential behind. That's the
+// exact bug that motivated this function: the email becomes permanently
+// stuck -- a later signup with the same address silently no-ops (Supabase's
+// anti-enumeration behavior) instead of creating a fresh account. Purging
+// auth.users needs the Admin API, hence the service-role client below.
+export const adminDeleteUser = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((data: unknown) => deleteUserInput.parse(data))
+  .handler(async ({ data, context }): Promise<AdminDeleteUserResult> => {
+    const { supabase } = context;
+
+    const { data: grants, error: grantsError } = await supabase.rpc("get_my_permissions");
+    if (grantsError) return { ok: false, error: grantsError.message };
+
+    const allowed = (grants ?? []).some(
+      (g) =>
+        g.module === "account-approvals" &&
+        (g.action === "create" || g.action === "edit" || g.action === "delete"),
+    );
+    if (!allowed) return { ok: false, error: "You don't have permission to delete user accounts" };
+
+    // Cleans profiles/user_roles and writes the audit row as the calling
+    // admin. Safe to call even if the profile is already gone (an orphaned
+    // auth-only record) -- its DELETEs just affect 0 rows, no error.
+    const { error: rpcError } = await supabase.rpc("delete_user_account", {
+      target_id: data.target_id,
+    });
+    if (rpcError) return { ok: false, error: rpcError.message };
+
+    let admin: ReturnType<typeof createAdminClient>;
+    try {
+      admin = createAdminClient();
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : "Server is not configured" };
+    }
+
+    const { error: authError } = await admin.auth.admin.deleteUser(data.target_id);
+    // "User not found" just means the credential was already gone -- treat
+    // that as success rather than surfacing it as a failure to the admin.
+    if (authError && !/not.?found/i.test(authError.message)) {
+      return { ok: false, error: authError.message };
+    }
+
+    return { ok: true };
+  });
+
+export type AuthUserRow = {
+  id: string;
+  email: string | null;
+  created_at: string;
+  last_sign_in_at: string | null;
+  email_confirmed_at: string | null;
+};
+export type AdminListAuthUsersResult =
+  { ok: true; users: AuthUserRow[] } | { ok: false; error: string };
+
+// profiles/user_roles are readable straight from the client with the anon
+// key (RLS handles authorization there); the raw auth.users list is not --
+// it only exists via the Admin API. This is read-only and exists so the Auth
+// Users tab can show every real Supabase Auth record and flag any that have
+// no matching profile (an orphan, like the one that started this feature).
+export const adminListAuthUsers = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }): Promise<AdminListAuthUsersResult> => {
+    const { supabase } = context;
+
+    const { data: grants, error: grantsError } = await supabase.rpc("get_my_permissions");
+    if (grantsError) return { ok: false, error: grantsError.message };
+
+    const allowed = (grants ?? []).some(
+      (g) =>
+        g.module === "account-approvals" &&
+        (g.action === "view" ||
+          g.action === "create" ||
+          g.action === "edit" ||
+          g.action === "delete"),
+    );
+    if (!allowed) return { ok: false, error: "You don't have permission to view auth users" };
+
+    let admin: ReturnType<typeof createAdminClient>;
+    try {
+      admin = createAdminClient();
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : "Server is not configured" };
+    }
+
+    const { data: listed, error: listError } = await admin.auth.admin.listUsers({
+      perPage: 1000,
+    });
+    if (listError) return { ok: false, error: listError.message };
+
+    const users: AuthUserRow[] = listed.users.map((u) => ({
+      id: u.id,
+      email: u.email ?? null,
+      created_at: u.created_at,
+      last_sign_in_at: u.last_sign_in_at ?? null,
+      email_confirmed_at: u.email_confirmed_at ?? null,
+    }));
+
+    return { ok: true, users };
   });

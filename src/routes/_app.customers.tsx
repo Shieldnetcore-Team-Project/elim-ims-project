@@ -52,7 +52,7 @@ export const Route = createFileRoute("/_app/customers")({
   ),
 });
 
-type Customer = {
+export type Customer = {
   id: string;
   name: string;
   phone: string | null;
@@ -301,14 +301,14 @@ function CustomersPage() {
   );
 }
 
-type Invoice = {
+export type Invoice = {
   id: string;
   invoice_number: string;
   sale_date: string;
   grand_total: number;
   balance: number;
 };
-type Payment = {
+export type Payment = {
   id: string;
   receipt_number: string;
   payment_date: string;
@@ -317,7 +317,7 @@ type Payment = {
   payment_method: string;
 };
 
-function CustomerProfileDialog({ customer }: { customer: Customer }) {
+export function CustomerProfileDialog({ customer }: { customer: Customer }) {
   const invoices = useQuery({
     queryKey: ["customer-invoices", customer.id],
     queryFn: async () => {

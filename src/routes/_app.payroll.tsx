@@ -8,6 +8,7 @@ import { usePermissions } from "@/lib/permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { MoneyInput } from "@/components/ui/money-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -875,13 +876,7 @@ function PayrollForm({
         </div>
         <div>
           <Label>Overtime</Label>
-          <Input
-            type="number"
-            min={0}
-            step="0.01"
-            value={overtime}
-            onChange={(e) => setOvertime(Number(e.target.value))}
-          />
+          <MoneyInput value={overtime} onChange={setOvertime} />
         </div>
 
         <div className="rounded-md bg-muted/30 p-2 text-sm flex justify-between font-medium">
@@ -918,23 +913,11 @@ function PayrollForm({
         <div className="grid grid-cols-3 gap-3">
           <div>
             <Label>PAYE</Label>
-            <Input
-              type="number"
-              min={0}
-              step="0.01"
-              value={paye}
-              onChange={(e) => setPaye(Number(e.target.value))}
-            />
+            <MoneyInput value={paye} onChange={setPaye} />
           </div>
           <div>
             <Label>Pension</Label>
-            <Input
-              type="number"
-              min={0}
-              step="0.01"
-              value={pension}
-              onChange={(e) => setPension(Number(e.target.value))}
-            />
+            <MoneyInput value={pension} onChange={setPension} />
           </div>
           <div>
             <Label>Loans (from records)</Label>
@@ -944,23 +927,11 @@ function PayrollForm({
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label>Advance</Label>
-            <Input
-              type="number"
-              min={0}
-              step="0.01"
-              value={advance}
-              onChange={(e) => setAdvance(Number(e.target.value))}
-            />
+            <MoneyInput value={advance} onChange={setAdvance} />
           </div>
           <div>
             <Label>Additional manual deduction</Label>
-            <Input
-              type="number"
-              min={0}
-              step="0.01"
-              value={otherDed}
-              onChange={(e) => setOtherDed(Number(e.target.value))}
-            />
+            <MoneyInput value={otherDed} onChange={setOtherDed} />
             <p className="mt-1 text-[11px] text-muted-foreground">
               + {money(adjTotal)} approved fines/contributions
             </p>

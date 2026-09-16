@@ -10,44 +10,53 @@ import { toast } from "sonner";
 import { RotateCcw, ShieldCheck } from "lucide-react";
 
 // A page is visible when the user holds `view` on the module behind it — the
-// sidebar gates every entry on can(module) (i.e. can(module, 'view')). So one
-// checkbox per module is exactly "can this user open this page".
+// sidebar gates every entry on can(module) (i.e. can(module, 'view')). This
+// mirrors the sidebar one-to-one: one row per actual nav page, in the same
+// section order. A page with real internal tabs (Payments, Procurement,
+// Inventory Overview — see NavItem.tabs in src/lib/nav.ts) nests one checkbox
+// per tab underneath it, so an admin can grant the whole page but still deny
+// one tab inside it. A plain single-module page renders as one checkbox, same
+// as always. Modules with no sidebar entry of their own — the pages reached
+// from inside the Admin Panel — fall into OTHER_SECTION, one per module.
 const OTHER_SECTION = "Admin & other";
 
-// Each module is listed once, under the first sidebar section that uses it.
-// Several menu entries can share a module (Sales / Sales Returns / Invoices are
-// all `sales`), so the titles are collected to show what a single checkbox
-// actually controls. Modules with no sidebar entry of their own — the pages
-// reached from inside the Admin Panel — fall into OTHER_SECTION.
-function buildSections(): { section: string; modules: { module: ModuleKey; pages: string[] }[] }[] {
-  const sectionOf = new Map<ModuleKey, string>();
-  const pagesOf = new Map<ModuleKey, string[]>();
+type PageEntry = { title: string; items: { module: ModuleKey; label: string }[] };
+
+function buildSections(): { section: string; pages: PageEntry[] }[] {
+  const grouped = new Map<string, PageEntry[]>();
+  const seen = new Set<ModuleKey>();
+
+  const push = (section: string, page: PageEntry) => {
+    const list = grouped.get(section) ?? [];
+    list.push(page);
+    grouped.set(section, list);
+    for (const it of page.items) seen.add(it.module);
+  };
 
   for (const group of nav) {
     for (const item of group.items) {
-      const modules: ModuleKey[] = item.modules ?? [item.module];
-      for (const m of modules) {
-        if (!sectionOf.has(m)) sectionOf.set(m, group.section);
-        const titles = pagesOf.get(m) ?? [];
-        if (!titles.includes(item.title)) titles.push(item.title);
-        pagesOf.set(m, titles);
-      }
+      const items = item.tabs
+        ? item.tabs
+        : item.modules
+          ? item.modules.map((m) => ({ module: m, label: MODULE_LABELS[m] }))
+          : [{ module: item.module, label: item.title }];
+      push(group.section, { title: item.title, items });
+    }
+  }
+
+  for (const m of ALL_MODULES) {
+    if (!seen.has(m)) {
+      push(OTHER_SECTION, {
+        title: MODULE_LABELS[m],
+        items: [{ module: m, label: MODULE_LABELS[m] }],
+      });
     }
   }
 
   const order = [...new Set(nav.map((g) => g.section)), OTHER_SECTION];
-  const grouped = new Map<string, { module: ModuleKey; pages: string[] }[]>();
-
-  for (const m of ALL_MODULES) {
-    const section = sectionOf.get(m) ?? OTHER_SECTION;
-    const list = grouped.get(section) ?? [];
-    list.push({ module: m, pages: pagesOf.get(m) ?? [] });
-    grouped.set(section, list);
-  }
-
   return order
     .filter((s) => grouped.has(s))
-    .map((section) => ({ section, modules: grouped.get(section)! }));
+    .map((section) => ({ section, pages: grouped.get(section)! }));
 }
 
 export function UserPageAccess({ userId, canEdit }: { userId: string; canEdit: boolean }) {
@@ -199,73 +208,168 @@ export function UserPageAccess({ userId, canEdit }: { userId: string; canEdit: b
         <p className="py-6 text-center text-sm text-muted-foreground">Loading page access…</p>
       ) : (
         <div className="space-y-5">
-          {sections.map(({ section, modules }) => (
+          {sections.map(({ section, pages }) => (
             <div key={section}>
               <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 {section}
               </div>
               <div className="grid gap-2 sm:grid-cols-2">
-                {modules.map(({ module, pages }) => {
-                  const { checked, source } = state(module);
-                  return (
-                    <label
-                      key={module}
-                      htmlFor={`pa-${module}`}
-                      className="flex items-start gap-3 rounded-xl border p-3 transition-colors hover:border-primary/40"
-                    >
-                      <Checkbox
-                        id={`pa-${module}`}
-                        className="mt-0.5"
-                        checked={checked}
-                        disabled={!canEdit || busy}
-                        onCheckedChange={(v) => setAccess.mutate({ module, granted: !!v })}
+                {pages.map((page) =>
+                  page.items.length === 1 ? (
+                    <ModuleRow
+                      key={page.title}
+                      module={page.items[0].module}
+                      label={page.title}
+                      state={state}
+                      canEdit={canEdit}
+                      busy={busy}
+                      onToggle={(module, granted) => setAccess.mutate({ module, granted })}
+                      onReset={(module) => clearOverride.mutate(module)}
+                    />
+                  ) : (
+                    <div key={page.title} className="space-y-2 rounded-xl border p-3 sm:col-span-2">
+                      <PageHeaderRow
+                        title={page.title}
+                        items={page.items}
+                        state={state}
+                        canEdit={canEdit}
+                        busy={busy}
+                        onToggleAll={(granted) =>
+                          page.items.forEach((it) =>
+                            setAccess.mutate({ module: it.module, granted }),
+                          )
+                        }
                       />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-sm font-medium">{MODULE_LABELS[module]}</span>
-                          {source === "granted" && (
-                            <Badge variant="secondary" className="text-[10px]">
-                              Granted
-                            </Badge>
-                          )}
-                          {source === "blocked" && (
-                            <Badge variant="destructive" className="text-[10px]">
-                              Blocked
-                            </Badge>
-                          )}
-                        </div>
-                        {pages.length > 0 && (
-                          <div className="mt-0.5 truncate text-xs text-muted-foreground">
-                            {pages.join(" · ")}
-                          </div>
-                        )}
-                        {source === "role" && (
-                          <div className="mt-0.5 text-xs text-muted-foreground">
-                            {checked ? "Allowed by role" : "Not allowed by role"}
-                          </div>
-                        )}
-                        {source !== "role" && canEdit && (
-                          <button
-                            type="button"
-                            className="mt-1 text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              clearOverride.mutate(module);
-                            }}
-                            disabled={busy}
-                          >
-                            Reset to role default
-                          </button>
-                        )}
+                      <div className="grid gap-2 pl-6 sm:grid-cols-2">
+                        {page.items.map((it) => (
+                          <ModuleRow
+                            key={it.module}
+                            module={it.module}
+                            label={it.label}
+                            state={state}
+                            canEdit={canEdit}
+                            busy={busy}
+                            onToggle={(module, granted) => setAccess.mutate({ module, granted })}
+                            onReset={(module) => clearOverride.mutate(module)}
+                          />
+                        ))}
                       </div>
-                    </label>
-                  );
-                })}
+                    </div>
+                  ),
+                )}
               </div>
             </div>
           ))}
         </div>
       )}
     </div>
+  );
+}
+
+type PageState = (module: ModuleKey) => {
+  checked: boolean;
+  source: "role" | "granted" | "blocked";
+};
+
+function PageHeaderRow({
+  title,
+  items,
+  state,
+  canEdit,
+  busy,
+  onToggleAll,
+}: {
+  title: string;
+  items: { module: ModuleKey; label: string }[];
+  state: PageState;
+  canEdit: boolean;
+  busy: boolean;
+  onToggleAll: (granted: boolean) => void;
+}) {
+  const checkedCount = items.filter((it) => state(it.module).checked).length;
+  const allChecked = checkedCount === items.length;
+  return (
+    <label className="flex items-center gap-3">
+      <Checkbox
+        checked={allChecked}
+        disabled={!canEdit || busy}
+        onCheckedChange={(v) => onToggleAll(!!v)}
+      />
+      <span className="text-sm font-semibold">{title}</span>
+      <span className="text-xs text-muted-foreground">
+        {allChecked
+          ? "Full page access"
+          : checkedCount === 0
+            ? "No access"
+            : `${checkedCount} of ${items.length} tabs granted`}
+      </span>
+    </label>
+  );
+}
+
+function ModuleRow({
+  module,
+  label,
+  state,
+  canEdit,
+  busy,
+  onToggle,
+  onReset,
+}: {
+  module: ModuleKey;
+  label: string;
+  state: PageState;
+  canEdit: boolean;
+  busy: boolean;
+  onToggle: (module: ModuleKey, granted: boolean) => void;
+  onReset: (module: ModuleKey) => void;
+}) {
+  const { checked, source } = state(module);
+  return (
+    <label
+      htmlFor={`pa-${module}`}
+      className="flex items-start gap-3 rounded-xl border p-3 transition-colors hover:border-primary/40"
+    >
+      <Checkbox
+        id={`pa-${module}`}
+        className="mt-0.5"
+        checked={checked}
+        disabled={!canEdit || busy}
+        onCheckedChange={(v) => onToggle(module, !!v)}
+      />
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-medium">{label}</span>
+          {source === "granted" && (
+            <Badge variant="secondary" className="text-[10px]">
+              Granted
+            </Badge>
+          )}
+          {source === "blocked" && (
+            <Badge variant="destructive" className="text-[10px]">
+              Blocked
+            </Badge>
+          )}
+        </div>
+        {source === "role" && (
+          <div className="mt-0.5 text-xs text-muted-foreground">
+            {checked ? "Allowed by role" : "Not allowed by role"}
+          </div>
+        )}
+        {source !== "role" && canEdit && (
+          <button
+            type="button"
+            className="mt-1 text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+            onClick={(e) => {
+              e.preventDefault();
+              onReset(module);
+            }}
+            disabled={busy}
+          >
+            Reset to role default
+          </button>
+        )}
+      </div>
+    </label>
   );
 }

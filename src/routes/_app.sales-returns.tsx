@@ -43,7 +43,7 @@ export const Route = createFileRoute("/_app/sales-returns")({
     meta: [{ title: "Sales Returns — FMIS" }, { name: "robots", content: "noindex" }],
   }),
   component: () => (
-    <RequireAccess module="sales">
+    <RequireAccess module="sales-returns">
       <SalesReturnsPage />
     </RequireAccess>
   ),
@@ -84,9 +84,9 @@ const statusBadge = (s: string): "default" | "secondary" | "outline" | "destruct
 function SalesReturnsPage() {
   const { data: factoryId } = useFactoryId();
   const { canSubmit, canConfirm, canCancel } = usePermissions();
-  const submitPerm = canSubmit("sales");
-  const inspectPerm = canConfirm("sales");
-  const cancelPerm = canCancel("sales");
+  const submitPerm = canSubmit("sales-returns");
+  const inspectPerm = canConfirm("sales-returns");
+  const cancelPerm = canCancel("sales-returns");
   const qc = useQueryClient();
   const [formOpen, setFormOpen] = useState(false);
   const [inspectTarget, setInspectTarget] = useState<ReturnRow | null>(null);

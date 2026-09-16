@@ -8,6 +8,7 @@ import { usePermissions } from "@/lib/permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { MoneyInput } from "@/components/ui/money-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -45,7 +46,6 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import { money } from "@/lib/format";
 import { toast } from "sonner";
 import {
@@ -61,8 +61,14 @@ import {
   Send,
   Ban,
   Undo2,
+  Search,
+  TrendingUp,
+  TrendingDown,
+  Wallet,
+  ArrowDownToLine,
+  ArrowUpFromLine,
 } from "lucide-react";
-import { generateExpenseVoucherPdf } from "@/lib/pdf";
+import { generateExpenseVoucherPdf, generateReportPdf } from "@/lib/pdf";
 import { logAudit } from "@/lib/audit";
 import { ApprovalHistory } from "@/components/workflow/approval-history";
 import { startOfDay, startOfWeek, startOfMonth, startOfYear, format } from "date-fns";
@@ -77,6 +83,7 @@ export const Route = createFileRoute("/_app/expenses")({
 });
 
 type PaymentMethod = "cash" | "transfer" | "pos" | "card" | "cheque" | "credit";
+type EntryType = "cash_out" | "cash_in";
 type Category = { id: string; name: string };
 type Expense = {
   id: string;
@@ -99,6 +106,19 @@ type Expense = {
   status: string;
   expense_categories: { name: string } | null;
 };
+type CashIn = {
+  id: string;
+  transaction_number: string;
+  transaction_date: string;
+  category: string;
+  description: string | null;
+  amount: number;
+  payment_method: string;
+  payer_payee: string | null;
+  recorded_by_name: string;
+  recorded_by: string | null;
+  created_at: string;
+};
 
 const statusBadge = (s: string): "default" | "secondary" | "outline" | "destructive" =>
   s === "posted"
@@ -106,6 +126,9 @@ const statusBadge = (s: string): "default" | "secondary" | "outline" | "destruct
     : s === "rejected" || s === "cancelled" || s === "reversed"
       ? "destructive"
       : "outline";
+
+const UNCOUNTED_STATUSES = new Set(["rejected", "cancelled", "reversed"]);
+
 type RangeKey = "all" | "today" | "week" | "month" | "year";
 
 const RANGES: { key: RangeKey; label: string }[] = [
@@ -125,9 +148,28 @@ function rangeStart(key: RangeKey): Date | null {
   return null;
 }
 
+type LedgerRow = {
+  key: string;
+  date: string;
+  createdAt: string;
+  kind: EntryType;
+  details: string;
+  sub: string | null;
+  category: string;
+  amount: number;
+  counts: boolean;
+  statusLabel: string | null;
+  statusVariant: "default" | "secondary" | "outline" | "destructive";
+  expense?: Expense;
+  cashIn?: CashIn;
+  balanceAfter?: number;
+  totalExpensesAfter?: number;
+};
+
 function ExpensesPage() {
   const { data: factoryId } = useFactoryId();
   const settings = useFactorySettings(factoryId);
+  const currency = settings.data?.currency ?? "NGN";
   const qc = useQueryClient();
   const { canWrite, canApprove, canReject, canPost, canCancel, canReverse } = usePermissions();
   const write = canWrite("expenses");
@@ -137,8 +179,12 @@ function ExpensesPage() {
   const cancel = canCancel("expenses");
   const reverse = canReverse("expenses");
   const [formOpen, setFormOpen] = useState(false);
-  const [editing, setEditing] = useState<Expense | null>(null);
+  const [defaultEntryType, setDefaultEntryType] = useState<EntryType>("cash_out");
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
+  const [editingCashIn, setEditingCashIn] = useState<CashIn | null>(null);
   const [range, setRange] = useState<RangeKey>("month");
+  const [q, setQ] = useState("");
+  const [typeFilter, setTypeFilter] = useState("all");
   const [approveTarget, setApproveTarget] = useState<Expense | null>(null);
   const [rejectTarget, setRejectTarget] = useState<Expense | null>(null);
   const [postTarget, setPostTarget] = useState<Expense | null>(null);
@@ -176,6 +222,24 @@ function ExpensesPage() {
     },
   });
 
+  const cashIns = useQuery({
+    queryKey: ["expenses-cash-in", factoryId],
+    enabled: !!factoryId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("cash_transactions")
+        .select(
+          "id,transaction_number,transaction_date,category,description,amount,payment_method,payer_payee,recorded_by_name,recorded_by,created_at",
+        )
+        .eq("factory_id", factoryId!)
+        .eq("transaction_type", "receipt")
+        .order("transaction_date", { ascending: false })
+        .limit(500);
+      if (error) throw error;
+      return (data ?? []) as CashIn[];
+    },
+  });
+
   const profiles = useQuery({
     queryKey: ["profiles-map"],
     queryFn: async () => {
@@ -195,31 +259,113 @@ function ExpensesPage() {
     staleTime: Infinity,
   });
 
-  const filtered = useMemo(() => {
+  const currentUserName = (currentUser.data && profiles.data?.[currentUser.data]) || "";
+
+  // Chronological (oldest→newest) so cumulative Balance/Total Expenses read
+  // naturally; the table then displays this reversed (newest first) while
+  // keeping each row's already-computed running totals.
+  const rangeFiltered = useMemo(() => {
     const since = rangeStart(range);
-    const rows = list.data ?? [];
-    if (!since) return rows;
-    return rows.filter((e) => new Date(e.expense_date) >= since);
-  }, [list.data, range]);
-
-  const total = filtered
-    .filter((e) => e.status === "posted")
-    .reduce((s, e) => s + Number(e.amount), 0);
-
-  const byCategory = useMemo(() => {
-    const bucket: Record<string, number> = {};
-    filtered
-      .filter((e) => e.status === "posted")
-      .forEach((e) => {
-        const name = e.expense_categories?.name ?? "Uncategorized";
-        bucket[name] = (bucket[name] ?? 0) + Number(e.amount);
+    const rows: LedgerRow[] = [];
+    (list.data ?? []).forEach((e) => {
+      if (since && new Date(e.expense_date) < since) return;
+      rows.push({
+        key: `e-${e.id}`,
+        date: e.expense_date,
+        createdAt: e.created_at,
+        kind: "cash_out",
+        details: e.description ?? "—",
+        sub: e.vendor ?? null,
+        category: e.expense_categories?.name ?? "Uncategorized",
+        amount: Number(e.amount),
+        counts: !UNCOUNTED_STATUSES.has(e.status),
+        statusLabel: e.status === "posted" ? null : e.status.replace(/_/g, " "),
+        statusVariant: statusBadge(e.status),
+        expense: e,
       });
-    return Object.entries(bucket)
-      .map(([name, total]) => ({ name, total }))
-      .sort((a, b) => b.total - a.total);
-  }, [filtered]);
+    });
+    (cashIns.data ?? []).forEach((c) => {
+      if (since && new Date(c.transaction_date) < since) return;
+      rows.push({
+        key: `c-${c.id}`,
+        date: c.transaction_date,
+        createdAt: c.created_at,
+        kind: "cash_in",
+        details: c.description ?? "Cash in",
+        sub: c.payer_payee ? `From: ${c.payer_payee}` : null,
+        category: "Cash In",
+        amount: Number(c.amount),
+        counts: true,
+        statusLabel: null,
+        statusVariant: "outline",
+        cashIn: c,
+      });
+    });
+    rows.sort((a, b) => {
+      const d = new Date(a.date).getTime() - new Date(b.date).getTime();
+      if (d !== 0) return d;
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    });
 
-  const invalidateAll = () => qc.invalidateQueries({ queryKey: ["expenses-list"] });
+    let runningBalance = 0;
+    let runningExpenses = 0;
+    for (const row of rows) {
+      if (row.counts) {
+        if (row.kind === "cash_in") runningBalance += row.amount;
+        else {
+          runningBalance -= row.amount;
+          runningExpenses += row.amount;
+        }
+      }
+      row.balanceAfter = runningBalance;
+      row.totalExpensesAfter = runningExpenses;
+    }
+    return rows;
+  }, [list.data, cashIns.data, range]);
+
+  const categoryColumns = useMemo(() => {
+    const totals: Record<string, number> = {};
+    rangeFiltered.forEach((r) => {
+      if (r.kind === "cash_out" && r.counts)
+        totals[r.category] = (totals[r.category] ?? 0) + r.amount;
+    });
+    return Object.entries(totals)
+      .sort((a, b) => b[1] - a[1])
+      .map(([name]) => name);
+  }, [rangeFiltered]);
+
+  const totalExpenses = rangeFiltered.length
+    ? (rangeFiltered[rangeFiltered.length - 1].totalExpensesAfter ?? 0)
+    : 0;
+  const totalCashIn = useMemo(
+    () => rangeFiltered.filter((r) => r.kind === "cash_in").reduce((s, r) => s + r.amount, 0),
+    [rangeFiltered],
+  );
+  const balance = totalCashIn - totalExpenses;
+  const expenseCount = rangeFiltered.filter((r) => r.kind === "cash_out").length;
+  const cashInCount = rangeFiltered.filter((r) => r.kind === "cash_in").length;
+
+  const displayRows = useMemo(() => {
+    let rows = [...rangeFiltered].reverse();
+    if (typeFilter === "cash_in") rows = rows.filter((r) => r.kind === "cash_in");
+    else if (typeFilter !== "all")
+      rows = rows.filter((r) => r.kind === "cash_out" && r.category === typeFilter);
+    const query = q.trim().toLowerCase();
+    if (query) {
+      rows = rows.filter(
+        (r) =>
+          r.details.toLowerCase().includes(query) ||
+          (r.sub ?? "").toLowerCase().includes(query) ||
+          r.category.toLowerCase().includes(query),
+      );
+    }
+    return rows;
+  }, [rangeFiltered, typeFilter, q]);
+
+  const invalidateAll = () => {
+    qc.invalidateQueries({ queryKey: ["expenses-list"] });
+    qc.invalidateQueries({ queryKey: ["expenses-cash-in"] });
+  };
 
   const del = useMutation({
     mutationFn: async (e: Expense) => {
@@ -237,6 +383,26 @@ function ExpensesPage() {
         entityId: e.id,
         factoryId,
         oldValue: { amount: e.amount, description: e.description },
+      });
+      invalidateAll();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const delCashIn = useMutation({
+    mutationFn: async (c: CashIn) => {
+      const { error } = await supabase.from("cash_transactions").delete().eq("id", c.id);
+      if (error) throw error;
+      return c;
+    },
+    onSuccess: (c) => {
+      toast.success("Cash-in entry deleted");
+      logAudit({
+        action: "delete",
+        entity: "cash_transactions",
+        entityId: c.id,
+        factoryId,
+        oldValue: { amount: c.amount, description: c.description },
       });
       invalidateAll();
     },
@@ -270,6 +436,37 @@ function ExpensesPage() {
     );
   };
 
+  const printLedger = (action: "print" | "download") => {
+    const columns = [
+      { key: "date", label: "Date" },
+      { key: "details", label: "Details" },
+      { key: "cash_in", label: "Cash In" },
+      ...categoryColumns.map((c) => ({ key: c, label: `Cash Out — ${c}` })),
+      { key: "balance", label: "Balance" },
+      { key: "total_expenses", label: "Total Expenses" },
+    ];
+    const rows = rangeFiltered.map((r) => {
+      const row: Record<string, unknown> = {
+        date: r.date,
+        details: r.details,
+        cash_in: r.kind === "cash_in" ? money(r.amount, currency) : "",
+        balance: money(r.balanceAfter ?? 0, currency),
+        total_expenses: money(r.totalExpensesAfter ?? 0, currency),
+      };
+      categoryColumns.forEach((c) => {
+        row[c] = r.kind === "cash_out" && r.category === c ? money(r.amount, currency) : "";
+      });
+      return row;
+    });
+    generateReportPdf(
+      `Expense Ledger — ${RANGES.find((rg) => rg.key === range)?.label}`,
+      columns,
+      rows,
+      action,
+      { name: settings.data?.company_name, logo_url: settings.data?.logo_url },
+    );
+  };
+
   const viewAttachment = async (path: string) => {
     const { data, error } = await supabase.storage
       .from("expense-attachments")
@@ -281,43 +478,63 @@ function ExpensesPage() {
     window.open(data.signedUrl, "_blank");
   };
 
+  const openAdd = (type: EntryType) => {
+    setEditingExpense(null);
+    setEditingCashIn(null);
+    setDefaultEntryType(type);
+    setFormOpen(true);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Expenses</h1>
           <p className="text-sm text-muted-foreground">
-            Submit → Approve → Post, with cancel/reverse for corrections.
+            Cash-out entries go for admin approval before they're finalized; cash-in entries post
+            immediately.
           </p>
         </div>
-        {write && (
-          <Dialog
-            open={formOpen}
-            onOpenChange={(v) => {
-              setFormOpen(v);
-              if (!v) setEditing(null);
-            }}
-          >
-            <DialogTrigger asChild>
-              <Button className="gap-2" onClick={() => setEditing(null)}>
-                <Plus className="h-4 w-4" /> Record Expense
-              </Button>
-            </DialogTrigger>
-            {formOpen && factoryId && (
-              <ExpenseForm
-                factoryId={factoryId}
-                categories={categories.data ?? []}
-                editing={editing}
-                onDone={() => {
-                  setFormOpen(false);
-                  setEditing(null);
-                  invalidateAll();
-                  qc.invalidateQueries({ queryKey: ["expense-categories"] });
-                }}
-              />
-            )}
-          </Dialog>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" className="gap-2" onClick={() => printLedger("print")}>
+            <Printer className="h-4 w-4" /> Print
+          </Button>
+          {write && (
+            <Dialog
+              open={formOpen}
+              onOpenChange={(v) => {
+                setFormOpen(v);
+                if (!v) {
+                  setEditingExpense(null);
+                  setEditingCashIn(null);
+                }
+              }}
+            >
+              <DialogTrigger asChild>
+                <Button className="gap-2" onClick={() => openAdd("cash_out")}>
+                  <Plus className="h-4 w-4" /> Add Entry
+                </Button>
+              </DialogTrigger>
+              {formOpen && factoryId && (
+                <EntryForm
+                  factoryId={factoryId}
+                  categories={categories.data ?? []}
+                  editingExpense={editingExpense}
+                  editingCashIn={editingCashIn}
+                  defaultType={defaultEntryType}
+                  currentUserName={currentUserName}
+                  onDone={() => {
+                    setFormOpen(false);
+                    setEditingExpense(null);
+                    setEditingCashIn(null);
+                    invalidateAll();
+                    qc.invalidateQueries({ queryKey: ["expense-categories"] });
+                  }}
+                />
+              )}
+            </Dialog>
+          )}
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -333,98 +550,141 @@ function ExpensesPage() {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Card className="rounded-2xl">
-          <CardContent className="p-5">
-            <div className="text-xs uppercase tracking-wider text-muted-foreground">
-              Posted Total ({RANGES.find((r) => r.key === range)?.label})
+          <CardContent className="p-5 flex items-center justify-between">
+            <div>
+              <div className="text-xs uppercase tracking-wider text-muted-foreground">
+                Total Expenses
+              </div>
+              <div className="mt-2 text-2xl font-semibold text-destructive">
+                {money(totalExpenses, currency)}
+              </div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                {expenseCount} expense entr{expenseCount === 1 ? "y" : "ies"}
+              </div>
             </div>
-            <div className="mt-2 text-3xl font-semibold">{money(total)}</div>
-            <div className="mt-1 text-xs text-muted-foreground">
-              {filtered.length} expense{filtered.length === 1 ? "" : "s"}
+            <div className="grid h-10 w-10 place-items-center rounded-xl bg-destructive/10 text-destructive">
+              <TrendingDown className="h-5 w-5" />
             </div>
           </CardContent>
         </Card>
-        <Card className="rounded-2xl lg:col-span-2">
-          <CardHeader>
-            <CardTitle>By Category (posted only)</CardTitle>
-          </CardHeader>
-          <CardContent className="h-56">
-            {byCategory.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No posted expenses in this range.</p>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={byCategory} layout="vertical" margin={{ left: 16 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-                  <XAxis type="number" stroke="var(--color-muted-foreground)" fontSize={12} />
-                  <YAxis
-                    type="category"
-                    dataKey="name"
-                    width={110}
-                    stroke="var(--color-muted-foreground)"
-                    fontSize={12}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      background: "var(--color-card)",
-                      border: "1px solid var(--color-border)",
-                      borderRadius: 8,
-                    }}
-                    formatter={(v: number) => money(v)}
-                  />
-                  <Bar dataKey="total" fill="var(--color-warning)" radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
+        <Card className="rounded-2xl">
+          <CardContent className="p-5 flex items-center justify-between">
+            <div>
+              <div className="text-xs uppercase tracking-wider text-muted-foreground">Cash In</div>
+              <div className="mt-2 text-2xl font-semibold text-success">
+                {money(totalCashIn, currency)}
+              </div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                {cashInCount} cash-in entr{cashInCount === 1 ? "y" : "ies"}
+              </div>
+            </div>
+            <div className="grid h-10 w-10 place-items-center rounded-xl bg-success/10 text-success">
+              <TrendingUp className="h-5 w-5" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="rounded-2xl">
+          <CardContent className="p-5 flex items-center justify-between">
+            <div>
+              <div className="text-xs uppercase tracking-wider text-muted-foreground">Balance</div>
+              <div
+                className={`mt-2 text-2xl font-semibold ${balance >= 0 ? "" : "text-destructive"}`}
+              >
+                {money(balance, currency)}
+              </div>
+            </div>
+            <div className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary">
+              <Wallet className="h-5 w-5" />
+            </div>
           </CardContent>
         </Card>
       </div>
 
       <Card className="rounded-2xl">
-        <CardHeader>
-          <CardTitle>Expense Records</CardTitle>
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <CardTitle>Ledger</CardTitle>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search entries…"
+                className="pl-8 h-9 w-48"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+              />
+            </div>
+            <Select value={typeFilter} onValueChange={setTypeFilter}>
+              <SelectTrigger className="h-9 w-[170px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Types</SelectItem>
+                <SelectItem value="cash_in">Cash In</SelectItem>
+                {categoryColumns.map((c) => (
+                  <SelectItem key={c} value={c}>
+                    Cash Out — {c}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </CardHeader>
         <CardContent className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Date</TableHead>
-                <TableHead>Category</TableHead>
-                <TableHead>Description</TableHead>
-                <TableHead>Vendor</TableHead>
-                <TableHead>Method</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
-                <TableHead>Requested By</TableHead>
-                <TableHead>Status</TableHead>
+                <TableHead>Details</TableHead>
+                <TableHead className="text-right">Cash In (₦)</TableHead>
+                {categoryColumns.map((c) => (
+                  <TableHead key={c} className="text-right whitespace-nowrap">
+                    Cash Out — {c}
+                  </TableHead>
+                ))}
+                <TableHead className="text-right">Balance</TableHead>
+                <TableHead className="text-right">Total Expenses</TableHead>
                 <TableHead></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((e) => {
-                const isSelf = e.submitted_by === currentUser.data;
+              {displayRows.map((row) => {
+                const e = row.expense;
+                const c = row.cashIn;
+                const isSelf = e ? e.submitted_by === currentUser.data : false;
+                const canEditCashIn = c && write && (c.recorded_by === currentUser.data || reverse);
                 return (
-                  <TableRow key={e.id}>
-                    <TableCell>{e.expense_date}</TableCell>
-                    <TableCell>{e.expense_categories?.name ?? "—"}</TableCell>
-                    <TableCell className="max-w-[200px] truncate">{e.description ?? "—"}</TableCell>
-                    <TableCell>{e.vendor ?? "—"}</TableCell>
+                  <TableRow key={row.key}>
+                    <TableCell className="whitespace-nowrap">{row.date}</TableCell>
                     <TableCell>
-                      <Badge variant="outline" className="capitalize">
-                        {e.payment_method}
-                      </Badge>
+                      <div className="font-medium">{row.details}</div>
+                      {row.sub && <div className="text-xs text-muted-foreground">{row.sub}</div>}
+                      {row.statusLabel && (
+                        <Badge variant={row.statusVariant} className="mt-1 capitalize">
+                          {row.statusLabel}
+                        </Badge>
+                      )}
                     </TableCell>
-                    <TableCell className="text-right font-medium">
-                      {money(Number(e.amount))}
+                    <TableCell className="text-right font-medium text-success">
+                      {row.kind === "cash_in" ? money(row.amount, currency) : ""}
                     </TableCell>
-                    <TableCell>{e.requested_by_name ?? "—"}</TableCell>
-                    <TableCell>
-                      <Badge variant={statusBadge(e.status)} className="capitalize">
-                        {e.status.replace(/_/g, " ")}
-                      </Badge>
+                    {categoryColumns.map((cat) => (
+                      <TableCell key={cat} className="text-right font-medium text-warning">
+                        {row.kind === "cash_out" && row.category === cat
+                          ? money(row.amount, currency)
+                          : ""}
+                      </TableCell>
+                    ))}
+                    <TableCell className="text-right font-semibold">
+                      {money(row.balanceAfter ?? 0, currency)}
+                    </TableCell>
+                    <TableCell className="text-right text-destructive">
+                      {money(row.totalExpensesAfter ?? 0, currency)}
                     </TableCell>
                     <TableCell>
                       <div className="flex justify-end gap-1">
-                        {e.status === "pending_approval" && approve && !isSelf && (
+                        {e && e.status === "pending_approval" && approve && !isSelf && (
                           <Button
                             variant="ghost"
                             size="icon"
@@ -434,7 +694,7 @@ function ExpensesPage() {
                             <Check className="h-4 w-4 text-success" />
                           </Button>
                         )}
-                        {e.status === "pending_approval" && reject && !isSelf && (
+                        {e && e.status === "pending_approval" && reject && !isSelf && (
                           <Button
                             variant="ghost"
                             size="icon"
@@ -444,7 +704,7 @@ function ExpensesPage() {
                             <X className="h-4 w-4 text-destructive" />
                           </Button>
                         )}
-                        {e.status === "approved" && post && !isSelf && (
+                        {e && e.status === "approved" && post && !isSelf && (
                           <Button
                             variant="ghost"
                             size="icon"
@@ -454,17 +714,19 @@ function ExpensesPage() {
                             <Send className="h-4 w-4 text-success" />
                           </Button>
                         )}
-                        {(e.status === "pending_approval" || e.status === "approved") && cancel && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            title="Cancel"
-                            onClick={() => setCancelTarget(e)}
-                          >
-                            <Ban className="h-4 w-4 text-muted-foreground" />
-                          </Button>
-                        )}
-                        {e.status === "posted" && reverse && !isSelf && (
+                        {e &&
+                          (e.status === "pending_approval" || e.status === "approved") &&
+                          cancel && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title="Cancel"
+                              onClick={() => setCancelTarget(e)}
+                            >
+                              <Ban className="h-4 w-4 text-muted-foreground" />
+                            </Button>
+                          )}
+                        {e && e.status === "posted" && reverse && !isSelf && (
                           <Button
                             variant="ghost"
                             size="icon"
@@ -474,7 +736,7 @@ function ExpensesPage() {
                             <Undo2 className="h-4 w-4 text-destructive" />
                           </Button>
                         )}
-                        {e.attachment_url && (
+                        {e && e.attachment_url && (
                           <Button
                             variant="ghost"
                             size="icon"
@@ -484,30 +746,35 @@ function ExpensesPage() {
                             <Paperclip className="h-4 w-4" />
                           </Button>
                         )}
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          title="Print"
-                          onClick={() => printExpense(e, "print")}
-                        >
-                          <Printer className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          title="Download PDF"
-                          onClick={() => printExpense(e, "download")}
-                        >
-                          <FileDown className="h-4 w-4" />
-                        </Button>
-                        {e.status === "pending_approval" && (
+                        {e && (
+                          <>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title="Print"
+                              onClick={() => printExpense(e, "print")}
+                            >
+                              <Printer className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title="Download PDF"
+                              onClick={() => printExpense(e, "download")}
+                            >
+                              <FileDown className="h-4 w-4" />
+                            </Button>
+                          </>
+                        )}
+                        {e && e.status === "pending_approval" && (
                           <>
                             <Button
                               variant="ghost"
                               size="icon"
                               title="Edit"
                               onClick={() => {
-                                setEditing(e);
+                                setEditingExpense(e);
+                                setEditingCashIn(null);
                                 setFormOpen(true);
                               }}
                             >
@@ -537,15 +804,55 @@ function ExpensesPage() {
                             </AlertDialog>
                           </>
                         )}
+                        {c && canEditCashIn && (
+                          <>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title="Edit"
+                              onClick={() => {
+                                setEditingCashIn(c);
+                                setEditingExpense(null);
+                                setFormOpen(true);
+                              }}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button variant="ghost" size="icon" title="Delete">
+                                  <Trash2 className="h-4 w-4 text-destructive" />
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Delete this cash-in entry?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    This permanently removes the record.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction onClick={() => delCashIn.mutate(c)}>
+                                    Delete
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          </>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
                 );
               })}
-              {filtered.length === 0 && (
+              {displayRows.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
-                    No expenses in this range.
+                  <TableCell
+                    colSpan={5 + categoryColumns.length}
+                    className="text-center text-muted-foreground py-8"
+                  >
+                    No entries in this range.
                   </TableCell>
                 </TableRow>
               )}
@@ -849,34 +1156,96 @@ function ReverseDialog({ expense, onDone }: { expense: Expense; onDone: () => vo
   );
 }
 
-function ExpenseForm({
+function EntryForm({
   factoryId,
   categories,
-  editing,
+  editingExpense,
+  editingCashIn,
+  defaultType,
+  currentUserName,
   onDone,
 }: {
   factoryId: string;
   categories: Category[];
-  editing: Expense | null;
+  editingExpense: Expense | null;
+  editingCashIn: CashIn | null;
+  defaultType: EntryType;
+  currentUserName: string;
   onDone: () => void;
 }) {
-  const [date, setDate] = useState(editing?.expense_date ?? format(new Date(), "yyyy-MM-dd"));
-  const [categoryId, setCategoryId] = useState(editing?.category_id ?? "none");
-  const [newCategory, setNewCategory] = useState("");
-  const [description, setDescription] = useState(editing?.description ?? "");
-  const [vendor, setVendor] = useState(editing?.vendor ?? "");
-  const [receiptNumber, setReceiptNumber] = useState(editing?.receipt_number ?? "");
-  const [method, setMethod] = useState<PaymentMethod>(
-    (editing?.payment_method as PaymentMethod) ?? "cash",
+  const isEditing = !!editingExpense || !!editingCashIn;
+  const [type, setType] = useState<EntryType>(
+    editingExpense ? "cash_out" : editingCashIn ? "cash_in" : defaultType,
   );
-  const [amount, setAmount] = useState(editing ? Number(editing.amount) : 0);
-  const [requestedBy, setRequestedBy] = useState(editing?.requested_by_name ?? "");
-  const [remarks, setRemarks] = useState(editing?.remarks ?? "");
+
+  // Cash-out (expense) fields
+  const [date, setDate] = useState(
+    editingExpense?.expense_date ??
+      editingCashIn?.transaction_date ??
+      format(new Date(), "yyyy-MM-dd"),
+  );
+  const [categoryId, setCategoryId] = useState(editingExpense?.category_id ?? "none");
+  const [newCategory, setNewCategory] = useState("");
+  const [description, setDescription] = useState(
+    editingExpense?.description ?? editingCashIn?.description ?? "",
+  );
+  const [vendor, setVendor] = useState(editingExpense?.vendor ?? "");
+  const [receiptNumber, setReceiptNumber] = useState(editingExpense?.receipt_number ?? "");
+  const [method, setMethod] = useState<PaymentMethod>(
+    ((editingExpense?.payment_method ?? editingCashIn?.payment_method) as PaymentMethod) ?? "cash",
+  );
+  const [amount, setAmount] = useState(
+    editingExpense
+      ? Number(editingExpense.amount)
+      : editingCashIn
+        ? Number(editingCashIn.amount)
+        : 0,
+  );
+  const [requestedBy, setRequestedBy] = useState(editingExpense?.requested_by_name ?? "");
+  const [remarks, setRemarks] = useState(editingExpense?.remarks ?? "");
   const [file, setFile] = useState<File | null>(null);
+
+  // Cash-in fields
+  const [payerPayee, setPayerPayee] = useState(editingCashIn?.payer_payee ?? "");
+  const [recordedBy, setRecordedBy] = useState(editingCashIn?.recorded_by_name ?? currentUserName);
 
   const save = useMutation({
     mutationFn: async () => {
       if (amount <= 0) throw new Error("Amount must be greater than 0");
+
+      if (type === "cash_in") {
+        if (!recordedBy.trim()) throw new Error("Enter who is recording this entry");
+        if (editingCashIn) {
+          const { error } = await supabase
+            .from("cash_transactions")
+            .update({
+              transaction_date: date,
+              description: description || null,
+              amount,
+              payment_method: method,
+              payer_payee: payerPayee || null,
+              recorded_by_name: recordedBy.trim(),
+            })
+            .eq("id", editingCashIn.id);
+          if (error) throw error;
+          return;
+        }
+        const { error } = await supabase.rpc("create_cash_transaction", {
+          payload: {
+            factory_id: factoryId,
+            transaction_type: "receipt",
+            category: "other_inflow",
+            transaction_date: date,
+            description: description || null,
+            amount,
+            payment_method: method,
+            payer_payee: payerPayee || null,
+            recorded_by_name: recordedBy.trim(),
+          } as any,
+        });
+        if (error) throw error;
+        return;
+      }
 
       let finalCategoryId = categoryId === "none" ? null : categoryId;
       if (categoryId === "__new__") {
@@ -890,7 +1259,7 @@ function ExpenseForm({
         finalCategoryId = data.id;
       }
 
-      let attachmentPath = editing?.attachment_url ?? null;
+      let attachmentPath = editingExpense?.attachment_url ?? null;
       if (file) {
         const { data: userData } = await supabase.auth.getUser();
         const path = `${factoryId}/${userData.user?.id ?? "anon"}-${Date.now()}-${file.name}`;
@@ -914,8 +1283,11 @@ function ExpenseForm({
         attachment_url: attachmentPath,
       };
 
-      if (editing) {
-        const { error } = await supabase.from("expenses").update(payload).eq("id", editing.id);
+      if (editingExpense) {
+        const { error } = await supabase
+          .from("expenses")
+          .update(payload)
+          .eq("id", editingExpense.id);
         if (error) throw error;
       } else {
         const { data: userData } = await supabase.auth.getUser();
@@ -929,17 +1301,28 @@ function ExpenseForm({
       }
     },
     onSuccess: () => {
-      toast.success(editing ? "Expense updated" : "Expense submitted for approval");
-      logAudit({
-        action: editing ? "update" : "create",
-        entity: "expenses",
-        entityId: editing?.id,
-        factoryId,
-        oldValue: editing
-          ? { amount: editing.amount, description: editing.description }
-          : undefined,
-        newValue: { amount, description },
-      });
+      if (type === "cash_in") {
+        toast.success(editingCashIn ? "Cash-in entry updated" : "Cash-in entry recorded");
+        logAudit({
+          action: editingCashIn ? "update" : "create",
+          entity: "cash_transactions",
+          entityId: editingCashIn?.id,
+          factoryId,
+          newValue: { amount, description },
+        });
+      } else {
+        toast.success(editingExpense ? "Expense updated" : "Expense submitted for approval");
+        logAudit({
+          action: editingExpense ? "update" : "create",
+          entity: "expenses",
+          entityId: editingExpense?.id,
+          factoryId,
+          oldValue: editingExpense
+            ? { amount: editingExpense.amount, description: editingExpense.description }
+            : undefined,
+          newValue: { amount, description },
+        });
+      }
       onDone();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -948,117 +1331,188 @@ function ExpenseForm({
   return (
     <DialogContent>
       <DialogHeader>
-        <DialogTitle>{editing ? "Edit Expense" : "Record Expense"}</DialogTitle>
+        <DialogTitle>{isEditing ? "Edit Entry" : "Add Entry"}</DialogTitle>
       </DialogHeader>
       <div className="grid gap-3 max-h-[70vh] overflow-y-auto pr-1">
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <Label>Expense date</Label>
-            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-          </div>
-          <div>
-            <Label>Category</Label>
-            <Select value={categoryId} onValueChange={setCategoryId}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">— None —</SelectItem>
-                {categories.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.name}
-                  </SelectItem>
-                ))}
-                <SelectItem value="__new__">+ Add new category…</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-        {categoryId === "__new__" && (
-          <div>
-            <Label>New category name</Label>
-            <Input value={newCategory} onChange={(e) => setNewCategory(e.target.value)} />
+        {!isEditing && (
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              type="button"
+              variant={type === "cash_out" ? "default" : "outline"}
+              className="gap-2"
+              onClick={() => setType("cash_out")}
+            >
+              <ArrowUpFromLine className="h-4 w-4" /> Cash Out (Expense)
+            </Button>
+            <Button
+              type="button"
+              variant={type === "cash_in" ? "default" : "outline"}
+              className="gap-2"
+              onClick={() => setType("cash_in")}
+            >
+              <ArrowDownToLine className="h-4 w-4" /> Cash In
+            </Button>
           </div>
         )}
-        <div>
-          <Label>Description</Label>
-          <Input value={description} onChange={(e) => setDescription(e.target.value)} />
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <Label>Vendor</Label>
-            <Input value={vendor} onChange={(e) => setVendor(e.target.value)} />
-          </div>
-          <div>
-            <Label>Receipt number</Label>
-            <Input value={receiptNumber} onChange={(e) => setReceiptNumber(e.target.value)} />
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <Label>Payment method</Label>
-            <Select value={method} onValueChange={(v) => setMethod(v as PaymentMethod)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {(["cash", "transfer", "pos", "card", "cheque", "credit"] as PaymentMethod[]).map(
-                  (m) => (
-                    <SelectItem key={m} value={m} className="capitalize">
-                      {m}
-                    </SelectItem>
-                  ),
-                )}
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label>Amount</Label>
-            <Input
-              type="number"
-              min={0.01}
-              step="0.01"
-              value={amount}
-              onChange={(e) => setAmount(Number(e.target.value))}
-            />
-          </div>
-        </div>
-        <div>
-          <Label>Requested by</Label>
-          <Input
-            value={requestedBy}
-            onChange={(e) => setRequestedBy(e.target.value)}
-            placeholder="Person requesting this expense"
-          />
-        </div>
-        {editing && editing.status !== "pending_approval" && (
-          <p className="text-xs text-muted-foreground">
-            Status: {editing.status.replace(/_/g, " ")}
-            {editing.approved_at ? ` · ${new Date(editing.approved_at).toLocaleString()}` : ""}
-          </p>
-        )}
-        <div>
-          <Label>Attachment</Label>
-          <Input
-            type="file"
-            accept="image/*,.pdf"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-          />
-          {editing?.attachment_url && !file && (
-            <p className="mt-1 text-xs text-muted-foreground">
-              A file is already attached. Choose a new one to replace it.
+
+        {type === "cash_out" ? (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Expense date</Label>
+                <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+              </div>
+              <div>
+                <Label>Category</Label>
+                <Select value={categoryId} onValueChange={setCategoryId}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">— None —</SelectItem>
+                    {categories.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value="__new__">+ Add new category…</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            {categoryId === "__new__" && (
+              <div>
+                <Label>New category name</Label>
+                <Input value={newCategory} onChange={(e) => setNewCategory(e.target.value)} />
+              </div>
+            )}
+            <div>
+              <Label>Description</Label>
+              <Input value={description} onChange={(e) => setDescription(e.target.value)} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Vendor</Label>
+                <Input value={vendor} onChange={(e) => setVendor(e.target.value)} />
+              </div>
+              <div>
+                <Label>Receipt number</Label>
+                <Input value={receiptNumber} onChange={(e) => setReceiptNumber(e.target.value)} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Payment method</Label>
+                <Select value={method} onValueChange={(v) => setMethod(v as PaymentMethod)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(
+                      ["cash", "transfer", "pos", "card", "cheque", "credit"] as PaymentMethod[]
+                    ).map((m) => (
+                      <SelectItem key={m} value={m} className="capitalize">
+                        {m}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Amount</Label>
+                <MoneyInput value={amount} onChange={setAmount} />
+              </div>
+            </div>
+            <div>
+              <Label>Requested by</Label>
+              <Input
+                value={requestedBy}
+                onChange={(e) => setRequestedBy(e.target.value)}
+                placeholder="Person requesting this expense"
+              />
+            </div>
+            {editingExpense && editingExpense.status !== "pending_approval" && (
+              <p className="text-xs text-muted-foreground">
+                Status: {editingExpense.status.replace(/_/g, " ")}
+                {editingExpense.approved_at
+                  ? ` · ${new Date(editingExpense.approved_at).toLocaleString()}`
+                  : ""}
+              </p>
+            )}
+            <div>
+              <Label>Attachment</Label>
+              <Input
+                type="file"
+                accept="image/*,.pdf"
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              />
+              {editingExpense?.attachment_url && !file && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  A file is already attached. Choose a new one to replace it.
+                </p>
+              )}
+            </div>
+            <div>
+              <Label>Remarks</Label>
+              <Textarea rows={2} value={remarks} onChange={(e) => setRemarks(e.target.value)} />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              This entry appears in the ledger immediately, but still needs admin approval to be
+              finalized.
             </p>
-          )}
-        </div>
-        <div>
-          <Label>Remarks</Label>
-          <Textarea rows={2} value={remarks} onChange={(e) => setRemarks(e.target.value)} />
-        </div>
+          </>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Date</Label>
+                <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+              </div>
+              <div>
+                <Label>Amount</Label>
+                <MoneyInput value={amount} onChange={setAmount} />
+              </div>
+            </div>
+            <div>
+              <Label>Description</Label>
+              <Textarea
+                rows={2}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Payment method</Label>
+                <Select value={method} onValueChange={(v) => setMethod(v as PaymentMethod)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(["cash", "transfer", "pos", "card", "cheque"] as PaymentMethod[]).map((m) => (
+                      <SelectItem key={m} value={m} className="capitalize">
+                        {m}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>From (payer, optional)</Label>
+                <Input value={payerPayee} onChange={(e) => setPayerPayee(e.target.value)} />
+              </div>
+            </div>
+            <div>
+              <Label>Recorded by</Label>
+              <Input value={recordedBy} onChange={(e) => setRecordedBy(e.target.value)} />
+            </div>
+          </>
+        )}
       </div>
       <DialogFooter>
         <Button disabled={save.isPending} onClick={() => save.mutate()} className="gap-2">
           <Receipt className="h-4 w-4" />{" "}
-          {save.isPending ? "Saving…" : editing ? "Save changes" : "Save"}
+          {save.isPending ? "Saving…" : isEditing ? "Save changes" : "Save"}
         </Button>
       </DialogFooter>
     </DialogContent>

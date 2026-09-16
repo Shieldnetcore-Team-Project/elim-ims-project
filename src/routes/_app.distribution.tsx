@@ -8,6 +8,7 @@ import { usePermissions } from "@/lib/permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { MoneyInput } from "@/components/ui/money-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -1518,12 +1519,7 @@ function RemittanceDialog({
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label>Amount</Label>
-            <Input
-              type="number"
-              min={0}
-              value={amount || ""}
-              onChange={(e) => setAmount(Number(e.target.value))}
-            />
+            <MoneyInput value={amount} onChange={setAmount} />
           </div>
           <div>
             <Label>Method</Label>

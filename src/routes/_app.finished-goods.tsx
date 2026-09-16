@@ -8,6 +8,7 @@ import { usePermissions } from "@/lib/permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { MoneyInput } from "@/components/ui/money-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -949,31 +950,24 @@ function ProductForm({
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label>Selling price</Label>
-            <Input
-              type="number"
-              min={0}
-              step="0.01"
-              value={unitPrice}
-              onChange={(e) => setUnitPrice(Number(e.target.value))}
-            />
+            <MoneyInput value={unitPrice} onChange={setUnitPrice} />
           </div>
           <div>
             <Label>Cost price</Label>
             {editing ? (
               <>
-                <Input type="number" value={costPrice} disabled className="bg-muted" />
+                <MoneyInput
+                  value={costPrice}
+                  onChange={setCostPrice}
+                  disabled
+                  className="bg-muted"
+                />
                 <p className="mt-1 text-xs text-muted-foreground">
                   Set via an approved Costing sheet — see the Costing page.
                 </p>
               </>
             ) : (
-              <Input
-                type="number"
-                min={0}
-                step="0.01"
-                value={costPrice}
-                onChange={(e) => setCostPrice(Number(e.target.value))}
-              />
+              <MoneyInput value={costPrice} onChange={setCostPrice} />
             )}
           </div>
         </div>

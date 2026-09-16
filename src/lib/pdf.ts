@@ -31,6 +31,7 @@ export type InvoiceData = {
   currency?: string;
   remarks?: string | null;
   sales_person?: string | null;
+  is_pr?: boolean;
 };
 
 export type PdfAction = "download" | "print" | "preview";
@@ -167,7 +168,9 @@ export async function generateInvoicePdf(data: InvoiceData, action: PdfAction = 
 
     doc.setFont("helvetica", "bold");
     doc.setFontSize(10);
-    doc.text("SALES RECEIPT", center, y, { align: "center" });
+    doc.text(data.is_pr ? "PR — COMPLIMENTARY (NO CHARGE)" : "SALES RECEIPT", center, y, {
+      align: "center",
+    });
     y += 14;
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
@@ -210,12 +213,17 @@ export async function generateInvoicePdf(data: InvoiceData, action: PdfAction = 
       doc.text(value, W - M, y, { align: "right" });
       y += bold ? 16 : 12;
     };
-    row("Subtotal", cur(data.subtotal));
-    if (data.discount > 0) row("Discount", `-${cur(data.discount)}`);
-    if (data.vat > 0) row("VAT", cur(data.vat));
-    row("GRAND TOTAL", cur(data.grand_total), true, 10);
-    row("Amount Paid", cur(data.amount_paid));
-    row("Balance Due", cur(data.balance), data.balance > 0);
+    if (data.is_pr) {
+      row("Value of goods issued", cur(data.subtotal));
+      row("NOT BILLED — no payment due", "N/A", true, 10);
+    } else {
+      row("Subtotal", cur(data.subtotal));
+      if (data.discount > 0) row("Discount", `-${cur(data.discount)}`);
+      if (data.vat > 0) row("VAT", cur(data.vat));
+      row("GRAND TOTAL", cur(data.grand_total), true, 10);
+      row("Amount Paid", cur(data.amount_paid));
+      row("Balance Due", cur(data.balance), data.balance > 0);
+    }
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);

@@ -8,6 +8,7 @@ import { usePermissions, useMyProductionScope } from "@/lib/permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { MoneyInput } from "@/components/ui/money-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -138,13 +139,6 @@ type ProductionRow = {
   production_requests: { request_number: string } | null;
   production_types: { name: string } | null;
 };
-type ProductionType = {
-  id: string;
-  name: string;
-  code: string;
-  production_scope: string;
-  unit_of_measure: string | null;
-};
 type ProductUnit = { id: string; packaging_unit: string; conversion_factor: number };
 
 const statusBadge = (s: string): "default" | "secondary" | "outline" | "destructive" => {
@@ -207,19 +201,6 @@ function ProductionPage() {
     },
   });
 
-  const productionTypes = useQuery({
-    queryKey: ["production-types-active"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("production_types")
-        .select("id,name,code,production_scope,unit_of_measure")
-        .eq("active", true)
-        .order("name");
-      if (error) throw error;
-      return (data ?? []) as ProductionType[];
-    },
-  });
-
   const eligibleRequests = useQuery({
     queryKey: ["eligible-production-requests", factoryId],
     enabled: !!factoryId,
@@ -234,20 +215,6 @@ function ProductionPage() {
         .order("request_date", { ascending: false });
       if (error) throw error;
       return (data ?? []) as unknown as EligibleRequest[];
-    },
-  });
-
-  const factoryCode = useQuery({
-    queryKey: ["factory-code", factoryId],
-    enabled: !!factoryId,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("factories")
-        .select("code")
-        .eq("id", factoryId!)
-        .maybeSingle();
-      if (error) throw error;
-      return data?.code ?? null;
     },
   });
 
@@ -356,9 +323,7 @@ function ProductionPage() {
               (factoryId ? (
                 <ProductionForm
                   factoryId={factoryId}
-                  factoryCode={factoryCode.data ?? null}
                   products={products.data ?? []}
-                  productionTypes={productionTypes.data ?? []}
                   eligibleRequests={eligibleRequests.data ?? []}
                   editing={editing}
                   onDone={() => {
@@ -548,23 +513,18 @@ function generateBatchNumber() {
 
 function ProductionForm({
   factoryId,
-  factoryCode,
   products,
-  productionTypes,
   eligibleRequests,
   editing,
   onDone,
 }: {
   factoryId: string;
-  factoryCode: string | null;
   products: Product[];
-  productionTypes: ProductionType[];
   eligibleRequests: EligibleRequest[];
   editing: ProductionRow | null;
   onDone: () => void;
 }) {
   const [requestId, setRequestId] = useState("");
-  const [productionTypeId, setProductionTypeId] = useState("");
   const [productId, setProductId] = useState(editing?.product_id ?? "");
   const [date, setDate] = useState(
     editing?.production_date ?? new Date().toISOString().slice(0, 10),
@@ -602,10 +562,6 @@ function ProductionForm({
   }, [editing, currentUserName.data]);
 
   const selectedProduct = products.find((p) => p.id === productId);
-  const scope = factoryCode ? factoryCode.toUpperCase() : null;
-  const eligibleTypes = productionTypes.filter(
-    (t) => !scope || t.production_scope === "BOTH" || t.production_scope === scope,
-  );
 
   const productUnits = useQuery({
     queryKey: ["product-units-for-production", productId],
@@ -643,7 +599,6 @@ function ProductionForm({
   const save = useMutation({
     mutationFn: async () => {
       if (!productId) throw new Error("Select a finished product");
-      if (!editing && !productionTypeId) throw new Error("Select a production type");
       if (quantity <= 0) throw new Error("Quantity must be greater than 0");
       if (editing) {
         const { error } = await supabase.rpc("update_production", {
@@ -664,7 +619,6 @@ function ProductionForm({
           payload: {
             factory_id: factoryId,
             product_id: productId,
-            production_type_id: productionTypeId,
             quantity_produced: selectedPackaging ? undefined : quantity,
             packaging_unit: selectedPackaging ? quantityUnit : undefined,
             packaging_quantity: selectedPackaging ? quantity : undefined,
@@ -710,29 +664,6 @@ function ProductionForm({
         <DialogTitle>{editing ? "Update Production" : "New Production"}</DialogTitle>
       </DialogHeader>
       <div className="grid gap-3 max-h-[75vh] overflow-y-auto pr-1">
-        {!editing && (
-          <div>
-            <Label>Production type</Label>
-            <Select value={productionTypeId} onValueChange={setProductionTypeId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select production type…" />
-              </SelectTrigger>
-              <SelectContent>
-                {eligibleTypes.map((t) => (
-                  <SelectItem key={t.id} value={t.id}>
-                    {t.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {eligibleTypes.length === 0 && (
-              <p className="mt-1 text-xs text-destructive">
-                No production types are configured for this factory yet — ask an Admin to add
-                one in Settings.
-              </p>
-            )}
-          </div>
-        )}
         <div>
           <Label>Production date</Label>
           <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
@@ -825,13 +756,7 @@ function ProductionForm({
         </div>
         <div>
           <Label>Production cost</Label>
-          <Input
-            type="number"
-            min={0}
-            step="0.01"
-            value={cost}
-            onChange={(e) => setCost(Number(e.target.value))}
-          />
+          <MoneyInput value={cost} onChange={setCost} />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -853,10 +778,7 @@ function ProductionForm({
         </div>
       </div>
       <DialogFooter>
-        <Button
-          disabled={save.isPending || (!editing && eligibleTypes.length === 0)}
-          onClick={() => save.mutate()}
-        >
+        <Button disabled={save.isPending} onClick={() => save.mutate()}>
           {save.isPending ? "Saving…" : editing ? "Update" : "Save"}
         </Button>
       </DialogFooter>

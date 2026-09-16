@@ -54,6 +54,7 @@ export function useIsSuperAdmin() {
 export type ModuleKey =
   | "dashboard"
   | "sales"
+  | "sales-returns"
   | "production"
   | "production-requests"
   | "purchase-orders"
@@ -83,6 +84,7 @@ export type ModuleKey =
 export const ALL_MODULES: ModuleKey[] = [
   "dashboard",
   "sales",
+  "sales-returns",
   "production",
   "production-requests",
   "purchase-orders",
@@ -113,6 +115,7 @@ export const ALL_MODULES: ModuleKey[] = [
 export const MODULE_LABELS: Record<ModuleKey, string> = {
   dashboard: "Dashboard",
   sales: "Sales",
+  "sales-returns": "Sales Returns",
   production: "Production",
   "production-requests": "Purchase/Production Requests",
   "purchase-orders": "Purchase Orders",

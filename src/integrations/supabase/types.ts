@@ -2765,6 +2765,7 @@ export type Database = {
           grand_total: number
           id: string
           invoice_number: string
+          is_pr: boolean
           payment_method: Database["public"]["Enums"]["payment_method"]
           remarks: string | null
           sale_date: string
@@ -2787,6 +2788,7 @@ export type Database = {
           grand_total?: number
           id?: string
           invoice_number: string
+          is_pr?: boolean
           payment_method?: Database["public"]["Enums"]["payment_method"]
           remarks?: string | null
           sale_date?: string
@@ -2809,6 +2811,7 @@ export type Database = {
           grand_total?: number
           id?: string
           invoice_number?: string
+          is_pr?: boolean
           payment_method?: Database["public"]["Enums"]["payment_method"]
           remarks?: string | null
           sale_date?: string
@@ -3816,6 +3819,10 @@ export type Database = {
           p_role: string
           target_id: string
         }
+        Returns: Json
+      }
+      admin_set_user_role: {
+        Args: { new_role: string; target_user_id: string }
         Returns: Json
       }
       admin_update_profile: {

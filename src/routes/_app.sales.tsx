@@ -8,6 +8,7 @@ import { usePermissions } from "@/lib/permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { MoneyInput } from "@/components/ui/money-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -83,6 +84,7 @@ type SaleRow = {
   amount_paid: number;
   balance: number;
   payment_method: string;
+  is_pr: boolean;
 };
 type CartItem = {
   product_id: string;
@@ -119,7 +121,7 @@ function SalesPage() {
       const { data, error } = await supabase
         .from("sales")
         .select(
-          "id,invoice_number,sale_date,customer_id,customer_name,grand_total,amount_paid,balance,payment_method,created_at",
+          "id,invoice_number,sale_date,customer_id,customer_name,grand_total,amount_paid,balance,payment_method,created_at,is_pr",
         )
         .eq("factory_id", factoryId!)
         .order("created_at", { ascending: false })
@@ -172,6 +174,7 @@ function SalesPage() {
         currency: settings.data?.currency ?? "NGN",
         remarks: s.remarks,
         sales_person: s.sales_person,
+        is_pr: s.is_pr,
       },
       action,
     );
@@ -309,7 +312,13 @@ function SalesPage() {
                       </span>
                     </TableCell>
                     <TableCell>
-                      <Badge variant={status.variant}>{status.label}</Badge>
+                      {s.is_pr ? (
+                        <Badge variant="outline" className="text-warning">
+                          PR — no charge
+                        </Badge>
+                      ) : (
+                        <Badge variant={status.variant}>{status.label}</Badge>
+                      )}
                     </TableCell>
                     <TableCell>
                       <div className="flex justify-end gap-1">
@@ -426,14 +435,7 @@ function PayDialog({
         </div>
         <div>
           <Label>Amount</Label>
-          <Input
-            type="number"
-            min={0.01}
-            step="0.01"
-            max={Number(sale.balance)}
-            value={amount}
-            onChange={(e) => setAmount(Number(e.target.value))}
-          />
+          <MoneyInput value={amount} onChange={setAmount} />
         </div>
         <div>
           <Label>Method</Label>
@@ -746,8 +748,10 @@ export function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [customerAddress, setCustomerAddress] = useState("");
-  const [discount, setDiscount] = useState(0);
+  const [discountInput, setDiscountInput] = useState(0);
+  const [discountType, setDiscountType] = useState<"amount" | "percent">("amount");
   const [applyVat, setApplyVat] = useState(true);
+  const [isPr, setIsPr] = useState(false);
   const [amountPaid, setAmountPaid] = useState(0);
   const [method, setMethod] = useState<PaymentMethod>("cash");
   const [salesPerson, setSalesPerson] = useState("");
@@ -816,11 +820,29 @@ export function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
 
   const totals = useMemo(() => {
     const subtotal = cart.reduce((s, i) => s + i.quantity * i.unit_price, 0);
+    // Percentage discount is always taken off the subtotal, not off a
+    // previously-discounted amount -- there's only ever one discount here.
+    const discount =
+      discountType === "percent"
+        ? Math.min(subtotal * (Math.max(discountInput, 0) / 100), subtotal)
+        : Math.min(Math.max(discountInput, 0), subtotal);
+    // PR: stock still goes out (the cart/subtotal above is unaffected), but
+    // nothing is billed, paid, or owed -- everything money-related is 0.
+    if (isPr) return { subtotal, discount, vat: 0, grand: 0, balance: 0 };
     const vat = applyVat ? Math.max(subtotal - discount, 0) * (vatRate / 100) : 0;
     const grand = Math.max(subtotal - discount + vat, 0);
     const balance = Math.max(grand - amountPaid, 0);
-    return { subtotal, vat, grand, balance };
-  }, [cart, discount, amountPaid, vatRate, applyVat]);
+    return { subtotal, discount, vat, grand, balance };
+  }, [cart, discountInput, discountType, amountPaid, vatRate, applyVat, isPr]);
+
+  // Ticking PR clears anything that implies money changed hands, so the form
+  // can't show a half-billed, half-free sale.
+  useEffect(() => {
+    if (isPr) {
+      setAmountPaid(0);
+      setApplyVat(false);
+    }
+  }, [isPr]);
 
   const addProduct = (id: string) => {
     const p = products.data?.find((x) => x.id === id);
@@ -888,12 +910,13 @@ export function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
           customer_name: displayName || null,
           customer_phone: customerPhone || null,
           customer_address: customerAddress || null,
-          discount,
+          discount: totals.discount,
           vat: totals.vat,
           amount_paid: amountPaid,
           payment_method: method,
           sales_person: salesPerson || null,
           sales_rep_id: repMode ? salesRepId : null,
+          is_pr: isPr,
           remarks: remarks || null,
           items: cart.map((c) => ({
             product_id: c.product_id,
@@ -941,7 +964,7 @@ export function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
           line_total: c.quantity * c.unit_price,
         })),
         subtotal: totals.subtotal,
-        discount,
+        discount: totals.discount,
         vat: totals.vat,
         grand_total: totals.grand,
         amount_paid: amountPaid,
@@ -949,6 +972,7 @@ export function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
         currency: settings.data?.currency ?? "NGN",
         remarks,
         sales_person: salesPerson,
+        is_pr: isPr,
       });
       onDone();
     },
@@ -984,7 +1008,7 @@ export function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
           line_total: c.quantity * c.unit_price,
         })),
         subtotal: totals.subtotal,
-        discount,
+        discount: totals.discount,
         vat: totals.vat,
         grand_total: totals.grand,
         amount_paid: amountPaid,
@@ -992,6 +1016,7 @@ export function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
         currency: settings.data?.currency ?? "NGN",
         remarks,
         sales_person: salesPerson,
+        is_pr: isPr,
       },
       "preview",
     );
@@ -1075,12 +1100,9 @@ export function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
                       />
                     </TableCell>
                     <TableCell>
-                      <Input
-                        type="number"
-                        min={0}
-                        step="0.01"
+                      <MoneyInput
                         value={c.unit_price}
-                        onChange={(e) => updatePrice(c.product_id, Number(e.target.value))}
+                        onChange={(v) => updatePrice(c.product_id, v)}
                         className="h-8"
                       />
                     </TableCell>
@@ -1172,28 +1194,49 @@ export function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
           <div className="grid grid-cols-2 gap-2">
             <div>
               <Label className="text-xs">Discount</Label>
-              <Input
-                type="number"
-                min={0}
-                step="0.01"
-                value={discount}
-                onChange={(e) => setDiscount(Number(e.target.value))}
-              />
+              <div className="flex gap-1.5">
+                {discountType === "percent" ? (
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step="0.01"
+                    value={discountInput}
+                    onChange={(e) => setDiscountInput(Number(e.target.value))}
+                  />
+                ) : (
+                  <MoneyInput value={discountInput} onChange={setDiscountInput} />
+                )}
+                <Select
+                  value={discountType}
+                  onValueChange={(v) => setDiscountType(v as "amount" | "percent")}
+                >
+                  <SelectTrigger className="w-16 shrink-0">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="amount">₦</SelectItem>
+                    <SelectItem value="percent">%</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             <div>
               <Label className="text-xs">Paid</Label>
-              <Input
-                type="number"
-                min={0}
-                step="0.01"
-                value={amountPaid}
-                onChange={(e) => setAmountPaid(Number(e.target.value))}
-              />
+              <MoneyInput value={amountPaid} onChange={setAmountPaid} disabled={isPr} />
             </div>
           </div>
           <label className="flex items-center gap-2 text-sm">
-            <Checkbox checked={applyVat} onCheckedChange={(v) => setApplyVat(!!v)} />
-            Apply VAT ({vatRate}%) to this sale
+            <Checkbox
+              checked={applyVat}
+              disabled={isPr}
+              onCheckedChange={(v) => setApplyVat(!!v)}
+            />
+            VAT
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox checked={isPr} onCheckedChange={(v) => setIsPr(!!v)} />
+            PR
           </label>
           <div className="grid grid-cols-2 gap-2">
             <div>
@@ -1251,18 +1294,27 @@ export function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
           </div>
 
           <div className="rounded-lg border p-3 text-sm space-y-1 bg-muted/30">
+            {isPr && (
+              <div className="mb-1 rounded-md bg-warning/15 px-2 py-1 text-xs font-medium text-warning">
+                PR — complimentary. Stock value below is for record only; nothing is billed.
+              </div>
+            )}
             <div className="flex justify-between">
-              <span>Subtotal</span>
+              <span>{isPr ? "Value of goods issued" : "Subtotal"}</span>
               <span>{money(totals.subtotal)}</span>
             </div>
-            <div className="flex justify-between">
-              <span>Discount</span>
-              <span>-{money(discount)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>VAT {applyVat ? `(${vatRate}%)` : "(not applied)"}</span>
-              <span>{money(totals.vat)}</span>
-            </div>
+            {!isPr && (
+              <>
+                <div className="flex justify-between">
+                  <span>Discount{discountType === "percent" ? ` (${discountInput}%)` : ""}</span>
+                  <span>-{money(totals.discount)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>VAT {applyVat ? `(${vatRate}%)` : "(not applied)"}</span>
+                  <span>{money(totals.vat)}</span>
+                </div>
+              </>
+            )}
             <div className="flex justify-between text-base font-semibold pt-1 border-t">
               <span>Total</span>
               <span>{money(totals.grand)}</span>
