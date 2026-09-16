@@ -7,7 +7,7 @@ import {
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { Toaster } from "@/components/ui/sonner";
 
 import appCss from "../styles.css?url";
@@ -113,6 +113,27 @@ function RootShell({ children }: { children: ReactNode }) {
         <HeadContent />
       </head>
       <body>
+        {/* Server-rendered, so this paints the instant the HTML arrives —
+            before the JS bundle loads — masking the real page underneath
+            until the app has hydrated. RootComponent's effect fades and
+            removes it once React takes over; the <noscript> rule below
+            keeps a no-JS visitor from being stuck behind it forever. */}
+        <div
+          id="app-splash"
+          className="fixed inset-0 z-[9999] flex flex-col items-center justify-center gap-6 bg-sidebar"
+        >
+          <div className="h-28 w-56 overflow-hidden rounded-2xl bg-white p-3 shadow-lg animate-pulse">
+            <img
+              src="/assets/bluespring%20logo.jpeg"
+              alt="Bluespring Total Connect"
+              className="h-full w-full object-contain"
+            />
+          </div>
+          <p className="text-sm text-sidebar-foreground/70">Loading your workspace…</p>
+        </div>
+        <noscript>
+          <style>{`#app-splash { display: none; }`}</style>
+        </noscript>
         {children}
         <Scripts />
       </body>
@@ -122,6 +143,15 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+
+  useEffect(() => {
+    const splash = document.getElementById("app-splash");
+    if (!splash) return;
+    splash.style.transition = "opacity 300ms ease";
+    splash.style.opacity = "0";
+    const timer = setTimeout(() => splash.remove(), 300);
+    return () => clearTimeout(timer);
+  }, []);
 
   return (
     <QueryClientProvider client={queryClient}>
