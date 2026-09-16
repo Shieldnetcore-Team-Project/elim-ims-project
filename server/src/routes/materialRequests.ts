@@ -23,6 +23,15 @@ materialRequestsRouter.post('/', safe(async (req, res) => {
   res.status(201).json(await materialRequests.createRequest({ requestedBy, department, neededBy, items }));
 }));
 
+materialRequestsRouter.post('/:id/raise-po', safe(async (req, res) => {
+  const { supplierId, requestedBy, requestedByUserId, items, actor } = req.body ?? {};
+  if (!supplierId || !requestedBy || !Array.isArray(items) || items.length === 0) {
+    res.status(400).json({ error: 'supplierId, requestedBy and at least one priced item are required' });
+    return;
+  }
+  res.json(await materialRequests.raisePurchaseOrder(req.params.id, { supplierId, requestedBy, requestedByUserId, items, actor }));
+}));
+
 materialRequestsRouter.post('/:id/issue', safe(async (req, res) => {
   res.json(await materialRequests.approveAndIssue(req.params.id, req.body?.actor));
 }));
@@ -34,6 +43,6 @@ materialRequestsRouter.post('/:id/reject', safe(async (req, res) => {
 
 materialRequestsRouter.post('/:id/reverse', safe(async (req, res) => {
   const { reason, userId } = req.body ?? {};
-  const approver = await accessControl.requireRole(userId, ['Warehouse Manager']);
+  const approver = await accessControl.requireApproval(userId, 'warehouse-reverse', ['Warehouse Manager'], 'Warehouse reversals');
   res.json(await materialRequests.reverseIssue(req.params.id, { reason, actor: approver.name }));
 }));

@@ -7,7 +7,7 @@ export interface BomComponent { itemId: string; itemName: string; qtyPerUnit: nu
  *  services/production.ts recordBatch) when a batch's output is recorded. */
 export async function getComponents(productItemId: string): Promise<BomComponent[]> {
   return await db.prepare(`
-    SELECT bc.component_item_id AS itemId, i.name AS itemName, bc.qty_per_unit AS qtyPerUnit
+    SELECT bc.component_item_id AS "itemId", i.name AS "itemName", bc.qty_per_unit AS "qtyPerUnit"
     FROM bom_components bc JOIN items i ON i.id = bc.component_item_id
     WHERE bc.product_item_id = ?
     ORDER BY i.name

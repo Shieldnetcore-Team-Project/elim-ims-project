@@ -46,14 +46,20 @@ interface Item {
   id: string; name: string; category: string; type: string; unit_cost: number;
   manufacturer_id?: string | null; pieces_per_bag?: number | null;
 }
+interface MaterialRequest {
+  id: string; requested_by: string; department: string; status: string;
+  po_id: string | null; needed_by: string | null; created_at: string;
+}
+interface MaterialRequestItem { item_id: string; quantity: number }
 
 export default function ProcurementPage() {
   const ui = useUi();
-  const { user, isSuperAdmin, hasAccess } = useCurrentUser();
-  const canApprove = isSuperAdmin || hasAccess('procurement-approve');
+  const { user, isSuperAdmin } = useCurrentUser();
+  const canApprove = isSuperAdmin;
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
   const [receipts, setReceipts] = useState<GoodsReceived[]>([]);
   const [returns, setReturns] = useState<SupplierReturn[]>([]);
+  const [requests, setRequests] = useState<MaterialRequest[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [payables, setPayables] = useState<PayableRow[]>([]);
   const [items, setItems] = useState<Item[]>([]);
@@ -62,6 +68,7 @@ export default function ProcurementPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [receiveFor, setReceiveFor] = useState<PurchaseOrder | null>(null);
   const [inspectFor, setInspectFor] = useState<GoodsReceived | null>(null);
+  const [raisePoFor, setRaisePoFor] = useState<MaterialRequest | null>(null);
   const [newManufacturerOpen, setNewManufacturerOpen] = useState(false);
   const [newMaterialOpen, setNewMaterialOpen] = useState(false);
   const [mastersReloadKey, setMastersReloadKey] = useState(0);
@@ -76,6 +83,7 @@ export default function ProcurementPage() {
     api<PurchaseOrder[]>('/purchase-orders').then(setOrders);
     api<GoodsReceived[]>('/goods-received').then(setReceipts);
     api<SupplierReturn[]>('/supplier-returns').then(setReturns);
+    api<MaterialRequest[]>('/material-requests').then(setRequests);
   }, [reloadKey]);
 
   useEffect(() => {
@@ -89,8 +97,9 @@ export default function ProcurementPage() {
     { key: 'value', label: 'Order value', icon: 'chart' as const, value: naira(orders.reduce((s, o) => s + o.total_amount, 0)) },
     { key: 'awaiting', label: 'Awaiting approval', icon: 'clock' as const, value: number(orders.filter(o => o.status === 'AWAITING_APPROVAL').length) },
     { key: 'pending-inspection', label: 'Pending inspection', icon: 'box' as const, value: number(receipts.filter(r => r.status === 'PENDING_INSPECTION').length) },
+    { key: 'requests', label: 'Requests to action', icon: 'clock' as const, value: number(requests.filter(r => r.status === 'PENDING').length) },
     { key: 'open-returns', label: 'Open supplier returns', icon: 'clock' as const, value: number(returns.filter(r => r.status === 'PENDING').length) },
-  ], [orders, receipts, returns]);
+  ], [orders, receipts, returns, requests]);
 
   async function approve(id: string, status: string) {
     try {
@@ -115,6 +124,35 @@ export default function ProcurementPage() {
       <KpiRow kpis={kpis} />
 
       <Tabs tabs={[
+        {
+          key: 'requests', label: 'Requests from departments', badge: requests.filter(r => r.status === 'PENDING').length, content: (
+            <Card title="Material requests" description="Every request raised by another department — Procurement raises a purchase order for it rather than issuing straight from stock.">
+              <div className="table-wrap">
+                <table>
+                  <thead><tr><th>Request</th><th>Department</th><th>Requested by</th><th>Requested</th><th>Purchase order</th><th>Status</th><th className="no-print">Action</th></tr></thead>
+                  <tbody>
+                    {requests.map(r => (
+                      <tr key={r.id}>
+                        <td className="mono" style={{ fontSize: 12, color: 'rgb(var(--aqua-700))' }}>{r.id}</td>
+                        <td>{r.department}</td>
+                        <td>{r.requested_by}</td>
+                        <td className="sub">{r.created_at}</td>
+                        <td className="mono" style={{ fontSize: 12 }}>{r.po_id ?? '—'}</td>
+                        <td><Pill status={r.status} /></td>
+                        <td className="no-print">
+                          {r.status === 'PENDING' && (
+                            <button className="btn btn-secondary btn-sm" onClick={() => setRaisePoFor(r)}>Raise purchase order</button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {requests.length === 0 && <EmptyState title="No requests yet" description="Requests raised by Production and other departments land here." onClear={() => {}} />}
+            </Card>
+          ),
+        },
         {
           key: 'orders', label: 'Purchase orders', badge: orders.filter(o => o.status === 'AWAITING_APPROVAL').length, content: (
             <Card title="Purchase orders" description="Every order raised against a supplier. Click a row to see its line items.">
@@ -254,6 +292,13 @@ export default function ProcurementPage() {
           onCreated={() => { setCreateOpen(false); refresh(); ui.toast('Purchase order created'); }}
         />
       )}
+      {raisePoFor && (
+        <RaisePurchaseOrderFromRequest
+          request={raisePoFor} suppliers={suppliers} items={items}
+          onClose={() => setRaisePoFor(null)}
+          onRaised={() => { setRaisePoFor(null); refresh(); ui.toast(`${raisePoFor.id} raised as a purchase order, awaiting Super Admin approval`); }}
+        />
+      )}
       {receiveFor && (
         <ReceiveGoods
           order={receiveFor}
@@ -327,6 +372,76 @@ function CreatePurchaseOrder({ suppliers, items, onClose, onCreated }: {
         </div>
       </div>
       <LineItemsInput items={lines} options={items} onChange={setLines} />
+    </Modal>
+  );
+}
+
+function RaisePurchaseOrderFromRequest({ request, suppliers, items, onClose, onRaised }: {
+  request: MaterialRequest; suppliers: Supplier[]; items: Item[]; onClose: () => void; onRaised: () => void;
+}) {
+  const { user } = useCurrentUser();
+  const [supplierId, setSupplierId] = useState(suppliers[0]?.id ?? '');
+  const [requestedBy, setRequestedBy] = useState(user?.name ?? '');
+  const [lines, setLines] = useState<{ itemId: string; quantity: number; unitPrice: string }[] | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api<{ items: MaterialRequestItem[] }>(`/material-requests/${encodeURIComponent(request.id)}`).then(full => {
+      setLines(full.items.map(it => ({
+        itemId: it.item_id, quantity: it.quantity,
+        unitPrice: String(items.find(i => i.id === it.item_id)?.unit_cost ?? 0),
+      })));
+    });
+  }, [request.id, items]);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!lines) return;
+    setSaving(true); setError(null);
+    try {
+      await apiPost(`/material-requests/${encodeURIComponent(request.id)}/raise-po`, {
+        supplierId, requestedBy, requestedByUserId: user?.id,
+        items: lines.map(l => ({ itemId: l.itemId, unitPrice: Number(l.unitPrice) })),
+      });
+      onRaised();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong');
+    } finally { setSaving(false); }
+  }
+
+  return (
+    <Modal title={`Raise purchase order for ${request.id}`} onClose={onClose} onSubmit={submit} submitLabel="Raise purchase order" saving={saving} error={error} wide>
+      <div className="form-grid">
+        <div className="form-row">
+          <label htmlFor="rpo-supplier">Supplier</label>
+          <select id="rpo-supplier" value={supplierId} onChange={e => setSupplierId(e.target.value)}>
+            {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        </div>
+        <div className="form-row">
+          <label htmlFor="rpo-requestedby">Requested by</label>
+          <input id="rpo-requestedby" value={requestedBy} onChange={e => setRequestedBy(e.target.value)} required autoFocus />
+        </div>
+      </div>
+      <div className="form-row">
+        <label>Items requested by {request.department}</label>
+        {lines === null && <p className="sub">Loading request lines…</p>}
+        {lines?.map((l, i) => {
+          const item = items.find(it => it.id === l.itemId);
+          return (
+            <div className="lineitem-row" key={l.itemId}>
+              <div style={{ flex: 2 }}><p style={{ fontSize: 13 }}>{item?.name ?? l.itemId}</p></div>
+              <p className="sub" style={{ width: 100, fontSize: 12 }}>{l.quantity.toLocaleString('en-NG')} requested</p>
+              <div style={{ width: 110 }}>
+                <NumberInput ariaLabel={`Unit price for ${item?.name ?? l.itemId}`} value={l.unitPrice}
+                  onChange={v => setLines(ls => ls!.map((x, idx) => idx === i ? { ...x, unitPrice: v } : x))} required />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <p className="sub">Quantities come from the original request and can't be changed here. This purchase order needs Super Admin approval before it can be received.</p>
     </Modal>
   );
 }

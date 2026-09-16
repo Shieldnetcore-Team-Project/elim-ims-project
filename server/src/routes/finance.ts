@@ -31,13 +31,13 @@ financeRouter.post('/receipts', safe(async (req, res) => {
 
 financeRouter.post('/payments/:id/reverse', safe(async (req, res) => {
   const { reason, userId } = req.body ?? {};
-  const approver = await accessControl.requireRole(userId, ['Finance manager']);
+  const approver = await accessControl.requireApproval(userId, 'finance-reverse', ['Finance manager'], 'Finance reversals');
   res.json(await finance.reversePayment(req.params.id, { reason, actor: approver.name }));
 }));
 
 financeRouter.post('/receipts/:id/reverse', safe(async (req, res) => {
   const { reason, userId } = req.body ?? {};
-  const approver = await accessControl.requireRole(userId, ['Finance manager']);
+  const approver = await accessControl.requireApproval(userId, 'finance-reverse', ['Finance manager'], 'Finance reversals');
   res.json(await finance.reverseReceipt(req.params.id, { reason, actor: approver.name }));
 }));
 

@@ -38,7 +38,6 @@ interface TableSpec { table: string; idPrefix: string; idDigits: number; hasStat
 // so building SQL by string-joining them is safe.
 const TABLES: Record<string, TableSpec> = {
   'water-treatment': { table: 'water_treatment_runs', idPrefix: 'TR-', idDigits: 4, hasStatus: true },
-  warehouse: { table: 'warehouse_requisitions', idPrefix: 'WR-', idDigits: 4, hasStatus: true },
   hr: { table: 'employees', idPrefix: 'EMP-', idDigits: 4, hasStatus: true },
   reports: { table: 'reports', idPrefix: 'RPT-', idDigits: 3, hasStatus: true },
   users: { table: 'users', idPrefix: 'USR-', idDigits: 4, hasStatus: true },

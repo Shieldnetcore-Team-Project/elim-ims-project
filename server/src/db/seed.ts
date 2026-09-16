@@ -4,7 +4,7 @@
 import { db } from './client.js';
 import { mulberry32, pick, int } from '../lib/rng.js';
 import { fullName, businessName, emailFor, LOCATIONS } from '../data/pools.js';
-import { RAW_MATERIALS, DELIVERY_PRODUCTS, DEPARTMENTS, JOB_ROLES, PRIORITY_LEVELS } from '../../../shared/src/moduleConfig.js';
+import { RAW_MATERIALS, DELIVERY_PRODUCTS, DEPARTMENTS, JOB_ROLES } from '../../../shared/src/moduleConfig.js';
 
 import * as inventory from '../services/inventory.js';
 import * as procurement from '../services/procurement.js';
@@ -47,16 +47,9 @@ async function seedMasters() {
       type: RAW_MATERIAL_TYPE[name], uom: 'unit', reorder_point: int(rng, 200, 1500), unit_cost: int(rng, 150, 4500),
     });
   }
-  for (const [i, name] of DELIVERY_PRODUCTS.entries()) {
-    await inventory.createItem({
-      id: `FG-${String(i + 1).padStart(2, '0')}`, name, category: 'Finished goods',
-      type: 'FINISHED_GOOD', uom: 'case', reorder_point: int(rng, 100, 400), unit_cost: int(rng, 800, 4200),
-    });
-  }
-  // migrate.ts backfills is_returnable_asset on the 20L Dispenser for existing
-  // installs, but that runs before this item exists on a fresh one — flag it
-  // here too so dispenserBottles' custody tracking works from a clean DB.
-  await db.prepare(`UPDATE items SET is_returnable_asset = 1 WHERE name = '20L Dispenser'`).run();
+  // Finished-good products (FG-01..FG-05, including the returnable 20L Dispenser)
+  // are seeded idempotently by migrate()'s REFERENCE_DATA_SQL now, so every
+  // install has them whether or not demo data runs — nothing to create here.
 
   for (let i = 0; i < 5; i++) {
     await procurement.createSupplier({ id: `SUP-${String(i + 1).padStart(2, '0')}`, name: businessName(rng), location: pick(rng, LOCATIONS) });
@@ -225,7 +218,8 @@ async function seedSalesAndFleet() {
     })),
   )).filter(it => it.quantity > 0);
   if (retailIntakeItems.length > 0) {
-    await retailStock.postIntake({ issuedBy: 'Warehouse Manager', items: retailIntakeItems });
+    const transfer = await retailStock.dispatchToRetail({ issuedBy: 'Warehouse Manager', items: retailIntakeItems });
+    await retailStock.confirmIntake(transfer.id, { confirmedBy: 'Retail Supervisor' });
   }
 
   for (let i = 0; i < 22; i++) {
@@ -609,17 +603,6 @@ async function seedPeripherals() {
     await peripheral.create('settings', 'System Administrator', name, 'ACTIVE', { description, value, updated_by });
   }
 
-  const requisitionReasons = [
-    'Stock running low ahead of next delivery', 'Needed for scheduled maintenance', 'Replenishing safety stock',
-    'Urgent shortfall on the line', 'Routine monthly top-up', 'New batch requires additional supply',
-  ];
-  for (let i = 0; i < 12; i++) {
-    const expected = new Date(Date.now() + int(rng, 2, 21) * 86400000).toISOString().slice(0, 10);
-    await peripheral.create('warehouse', 'System Administrator', undefined, pick(rng, ['PENDING', 'PENDING', 'APPROVED', 'ISSUED', 'REJECTED']), {
-      item: pick(rng, RAW_MATERIALS), quantity: int(rng, 20, 500), expected_delivery: expected,
-      priority: pick(rng, PRIORITY_LEVELS), reason: pick(rng, requisitionReasons), department: pick(rng, DEPARTMENTS),
-    });
-  }
 }
 
 async function seedWaterTreatment(): Promise<string[]> {

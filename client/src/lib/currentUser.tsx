@@ -1,10 +1,13 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { api } from './apiClient';
 
 export interface AppUser { id: string; name: string; email: string | null; role: string; status: string }
 
 const STORAGE_KEY = 'elim.currentUserId';
 const SUPER_ADMIN_ROLE = 'System admin';
+/** Backoff before giving up on the user-list fetch and showing the error screen.
+ *  Spans ~5s total, comfortably longer than an API restart's migrate-then-listen gap. */
+const RETRY_DELAYS_MS = [500, 1500, 3000];
 
 interface CurrentUserState {
   user: AppUser | null;
@@ -36,13 +39,40 @@ export function CurrentUserProvider({ children }: { children: ReactNode }) {
   const [allowedPages, setAllowedPages] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Invalidates an in-flight retry chain when a newer refresh starts, so a
+  // focus event mid-backoff doesn't leave two chains racing to set state.
+  const attemptRef = useRef(0);
+
   const refreshUsers = useCallback(() => {
-    api<AppUser[]>('/masters/users')
-      .then(res => { setUsers(res); setError(null); setLoading(false); })
-      // Without this, a failed fetch left `loading` stuck true forever —
-      // AppShell renders nothing while loading, so the whole app just went
-      // blank with no indication anything was wrong.
-      .catch((err: unknown) => { setError(err instanceof Error ? err.message : 'Failed to load users'); setLoading(false); });
+    const generation = ++attemptRef.current;
+    const attempt = (n: number) => {
+      api<AppUser[]>('/masters/users')
+        .then(res => {
+          if (attemptRef.current !== generation) return;
+          setUsers(res); setError(null); setLoading(false);
+        })
+        // A failure here is usually transient rather than a real outage: in dev
+        // `tsx watch` reboots the API on every save and it runs migrations
+        // before it starts listening, so the Vite proxy answers ECONNREFUSED
+        // with a 500 for a second or two; a deployed install has the same gap on
+        // cold start or a connection-pooler blip. Retry with backoff before
+        // surfacing anything, so a routine restart no longer kicks the whole app
+        // out to the full-screen "Couldn't reach the server" (which then sat
+        // there until the 15s poll below happened to clear it).
+        .catch((err: unknown) => {
+          if (attemptRef.current !== generation) return;
+          if (n < RETRY_DELAYS_MS.length) {
+            setTimeout(() => attempt(n + 1), RETRY_DELAYS_MS[n]);
+            return;
+          }
+          // Without this, a failed fetch left `loading` stuck true forever —
+          // AppShell renders nothing while loading, so the whole app just went
+          // blank with no indication anything was wrong.
+          setError(err instanceof Error ? err.message : 'Failed to load users');
+          setLoading(false);
+        });
+    };
+    attempt(0);
   }, []);
   // Refetch on focus too — someone sitting on the sign-in gate waiting for a
   // System admin to approve their account (or flip PENDING_APPROVAL to

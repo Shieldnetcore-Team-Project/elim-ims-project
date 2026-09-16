@@ -6,6 +6,7 @@ import { todayLagos } from '../../lib/format';
 import type { ThemePref } from '../../lib/theme';
 import { SignInAsPicker } from './SignInAsPicker';
 import { NotificationCenter, useNotifications } from './NotificationCenter';
+import builderLogo from '../../images/shieldnetcore-logo.png';
 
 const THEME_OPTIONS: { value: ThemePref; icon: 'sun' | 'moon' | 'monitor'; label: string }[] = [
   { value: 'light', icon: 'sun', label: 'Light' },
@@ -47,6 +48,11 @@ export function Topbar() {
       </button>
 
       <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
+        <span className="topbar-built-by datewrap" title="Built by ShieldNetCore Tech">
+          <img src={builderLogo} alt="ShieldNetCore Tech" />
+          Built by ShieldNetCore Tech
+        </span>
+
         <span className="mono datewrap" style={{ fontSize: 12, color: 'rgb(var(--muted))' }}>{today}</span>
 
         <div className="seg segwrap" role="radiogroup" aria-label="Colour theme">

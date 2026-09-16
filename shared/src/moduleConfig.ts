@@ -20,8 +20,6 @@ export const JOB_ROLES = [
   'Operator', 'Supervisor', 'Analyst', 'Driver', 'Accountant', 'Sales rep', 'Manager', 'Technician',
 ];
 
-export const PRIORITY_LEVELS = ['Low', 'Medium', 'High', 'Urgent'];
-
 /** Per-module, per-field pick-lists — a field with an entry here renders as a <select> in
  *  RecordForm and is drawn from here in mock data generation, instead of being free text. */
 const USER_ROLES = [
@@ -35,7 +33,6 @@ export const FIELD_OPTIONS: Record<string, Record<string, string[]>> = {
   procurement: { item: RAW_MATERIALS },
   users: { role: USER_ROLES },
   hr: { department: DEPARTMENTS, role: JOB_ROLES },
-  warehouse: { item: RAW_MATERIALS, department: DEPARTMENTS, priority: PRIORITY_LEVELS },
 };
 
 export interface NavItem {
@@ -81,23 +78,6 @@ export const MODULES: ModuleConfig[] = [
     statusOptions: [
       { value: 'DRAFT', label: 'Draft' }, { value: 'AWAITING_APPROVAL', label: 'Awaiting approval' },
       { value: 'APPROVED', label: 'Approved' }, { value: 'REJECTED', label: 'Rejected' },
-    ],
-  },
-  {
-    key: 'warehouse', label: 'Stock Requisitions', group: 'Operations', icon: 'warehouse', moduleNo: 17,
-    subtitle: 'Departments requesting stock from the Raw Material Store and Finished Goods Warehouse.',
-    searchPlaceholder: 'Search requisitions or item',
-    columns: [
-      { key: 'id', label: 'Requisition', kind: 'mono' },
-      { key: 'item', label: 'Item & department', kind: 'text', subKey: 'department' },
-      { key: 'quantity', label: 'Quantity', kind: 'num' },
-      { key: 'priority', label: 'Priority & expected delivery', kind: 'text', subKey: 'expected_delivery' },
-      { key: 'reason', label: 'Reason for request', kind: 'text' },
-      { key: 'status', label: 'Status', kind: 'status' },
-    ],
-    statusOptions: [
-      { value: 'PENDING', label: 'Pending' }, { value: 'APPROVED', label: 'Approved' },
-      { value: 'ISSUED', label: 'Issued' }, { value: 'REJECTED', label: 'Rejected' },
     ],
   },
   {
@@ -411,14 +391,14 @@ export const NAV_GROUPS: { group: string; items: NavItem[] }[] = MODULE_GROUP_OR
 
 export const moduleByKey = (key: string): ModuleConfig | undefined => MODULES.find(m => m.key === key);
 
-/** The 9 modules with no natural multi-step business process — they keep the generic
+/** The 7 modules with no natural multi-step business process — they keep the generic
  *  ModulePage/RecordForm CRUD UI, now reading/writing a real table via the peripheral
  *  service instead of an in-memory array. The other 8 (production, quality-control,
  *  inventory, procurement, sales, pos, fleet, finance) get dedicated workflow pages.
- *  Of these 9, users/roles/activity-log (see CONTROL_PANEL_TAB_KEYS) are embedded in
+ *  Of these 7, users/roles/activity-log (see CONTROL_PANEL_TAB_KEYS) are embedded in
  *  the Control Panel instead of being routed on their own. */
 export const GENERIC_MODULE_KEYS = [
-  'water-treatment', 'warehouse', 'hr', 'reports', 'users', 'roles', 'activity-log', 'settings',
+  'water-treatment', 'hr', 'reports', 'users', 'roles', 'activity-log', 'settings',
 ];
 export const GENERIC_MODULES: ModuleConfig[] = MODULES.filter(m => GENERIC_MODULE_KEYS.includes(m.key));
 export const ROUTED_GENERIC_MODULE_KEYS = GENERIC_MODULE_KEYS.filter(k => !CONTROL_PANEL_TAB_KEYS.includes(k));

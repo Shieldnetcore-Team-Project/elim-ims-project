@@ -26,7 +26,8 @@ describe('tillClose (Section 23)', () => {
 
     const itemId = await makeItem({ type: 'FINISHED_GOOD' });
     await inventory.adjustStock(itemId, 100, 'seed for test');
-    await retailStock.postIntake({ issuedBy: 'Test Warehouse', items: [{ itemId, quantity: 100, unitCost: 50 }] });
+    const rtiTc = await retailStock.dispatchToRetail({ issuedBy: 'Test Warehouse', items: [{ itemId, quantity: 100, unitCost: 50 }] });
+    await retailStock.confirmIntake(rtiTc.id, { confirmedBy: 'Test Retail' });
     await sellCash(itemId, 10, 200); // 2,000 cash sale
 
     const expectedCashReceived = before.cashReceived + 2000;

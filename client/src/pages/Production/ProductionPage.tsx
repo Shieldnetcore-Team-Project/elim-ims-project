@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { api, apiPost, apiPut } from '../../lib/apiClient';
 import { number } from '../../lib/format';
+import { exportCsv } from '../../lib/csv';
 import { useUi } from '../../lib/uiState';
+import { useCurrentUser } from '../../lib/currentUser';
 import { Card } from '../../components/ui/Card';
 import { KpiRow } from '../../components/ui/KpiCard';
 import { Pill } from '../../components/ui/Pill';
@@ -19,7 +21,7 @@ import { useReversedEntities } from '../../lib/reversedEntities';
 import { refreshPendingCounts } from '../../lib/pendingCounts';
 import type { ModuleRow, Paginated } from '@shared/types';
 
-interface MaterialRequest { id: string; requested_by: string; department: string; status: string; needed_by: string | null; created_at: string }
+interface MaterialRequest { id: string; requested_by: string; department: string; status: string; po_id: string | null; needed_by: string | null; created_at: string }
 interface ProductionBatch {
   id: string; product_item_id: string; product_name: string; line: string; shift: string; operator: string;
   units_target: number; units_actual: number; status: string; qc_verdict: 'PASS' | 'FAIL' | null; packaged_units: number;
@@ -29,6 +31,11 @@ interface ProductionBatch {
 }
 interface FinishedGood { id: string; item_name: string; batch_id: string; quantity: number; packaged_by: string | null; packaged_at: string }
 interface Item { id: string; name: string; type: string }
+interface ProductionLogItemRow { item_id: string; item_name: string; quantity: number }
+interface ProductionLogEntry {
+  id: string; recorded_by: string | null; note: string | null; recorded_at: string;
+  items: ProductionLogItemRow[]; total_quantity: number;
+}
 interface BomComponent { itemId: string; itemName: string; qtyPerUnit: number }
 interface EmptyBottleRun {
   id: string; quantity_issued: number; issued_by: string | null; status: 'OPEN' | 'RECONCILED';
@@ -43,6 +50,7 @@ export default function ProductionPage() {
   const [batches, setBatches] = useState<ProductionBatch[]>([]);
   const [readyToPackage, setReadyToPackage] = useState<ProductionBatch[]>([]);
   const [finishedGoods, setFinishedGoods] = useState<FinishedGood[]>([]);
+  const [logEntries, setLogEntries] = useState<ProductionLogEntry[]>([]);
   const [rawItems, setRawItems] = useState<Item[]>([]);
   const [finishedItems, setFinishedItems] = useState<Item[]>([]);
   const [waterRuns, setWaterRuns] = useState<{ id: string }[]>([]);
@@ -58,19 +66,21 @@ export default function ProductionPage() {
   const requestsReversed = useReversedEntities('material_requests', reloadKey);
   const batchesReversed = useReversedEntities('production_batches', reloadKey);
   const finishedGoodsReversed = useReversedEntities('finished_goods', reloadKey);
+  const logReversed = useReversedEntities('production_log_entries', reloadKey);
 
   useEffect(() => {
     api<MaterialRequest[]>('/material-requests').then(setRequests);
     api<ProductionBatch[]>('/production-batches').then(setBatches);
     api<ProductionBatch[]>('/production-batches/ready-to-package').then(setReadyToPackage);
     api<FinishedGood[]>('/finished-goods').then(setFinishedGoods);
-  }, [reloadKey]);
-
-  useEffect(() => {
+    api<ProductionLogEntry[]>('/production-log').then(setLogEntries);
     api<Item[]>('/masters/items').then(all => {
       setRawItems(all.filter(i => i.type !== 'FINISHED_GOOD'));
       setFinishedItems(all.filter(i => i.type === 'FINISHED_GOOD'));
     });
+  }, [reloadKey]);
+
+  useEffect(() => {
     api<{ config: unknown; kpis: unknown; data: Paginated<ModuleRow> }>('/modules/water-treatment')
       .then(res => setWaterRuns(res.data.rows.map(r => ({ id: r.id }))));
   }, []);
@@ -89,21 +99,29 @@ export default function ProductionPage() {
     <>
       <PrintHeader />
       <div className="pagehead">
-        <div><h1>Production</h1><p className="pagesub">Materials issued to the floor, batches manufactured, and what's been packaged.</p></div>
+        <div><h1>Production</h1><p className="pagesub">Log what's produced as it happens, plus materials issued to the floor, batches manufactured, and what's been packaged.</p></div>
       </div>
 
       <KpiRow kpis={kpis} />
 
       <Tabs tabs={[
         {
+          key: 'production-log', label: 'Production log', content: (
+            <ProductionLogTab
+              entries={logEntries} products={finishedItems} reversed={logReversed}
+              onChanged={refresh}
+            />
+          ),
+        },
+        {
           key: 'requests', label: 'Material requests', badge: requests.filter(r => r.status === 'PENDING').length, content: (
             <Card
-              title="Material requests" description="Raw materials drawn from the warehouse to the production floor."
+              title="Material requests" description="Raw materials needed on the floor — every request is routed to Procurement, which raises a purchase order for it."
               action={<button className="btn btn-primary no-print" onClick={() => setRequestOpen(true)}><Icon name="plus" size={14} /> New request</button>}
             >
               <div className="table-wrap">
                 <table>
-                  <thead><tr><th>Request</th><th>Department</th><th>Requested by</th><th>Requested</th><th>Status</th><th className="no-print">Action</th><th className="no-print" /></tr></thead>
+                  <thead><tr><th>Request</th><th>Department</th><th>Requested by</th><th>Requested</th><th>Purchase order</th><th>Status</th><th className="no-print">Action</th><th className="no-print" /></tr></thead>
                   <tbody>
                     {requests.map(r => (
                       <tr key={r.id}>
@@ -111,13 +129,14 @@ export default function ProductionPage() {
                         <td>{r.department}</td>
                         <td>{r.requested_by}</td>
                         <td className="sub">{r.created_at}</td>
+                        <td className="mono" style={{ fontSize: 12 }}>{r.po_id ?? '—'}</td>
                         <td><Pill status={r.status} /></td>
                         <td className="no-print">
                           {r.status === 'PENDING' && (
-                            <div style={{ display: 'flex', gap: 6 }}>
-                              <button className="btn btn-secondary btn-sm" onClick={() => issue(r.id)}>Approve &amp; issue</button>
-                              <button className="btn btn-secondary btn-sm" onClick={() => reject(r.id)}>Reject</button>
-                            </div>
+                            <button className="btn btn-secondary btn-sm" onClick={() => reject(r.id)}>Reject</button>
+                          )}
+                          {r.status === 'ORDERED' && (
+                            <button className="btn btn-secondary btn-sm" onClick={() => issue(r.id)}>Issue to floor</button>
                           )}
                         </td>
                         <td className="no-print">
@@ -132,7 +151,7 @@ export default function ProductionPage() {
                   </tbody>
                 </table>
               </div>
-              {requests.length === 0 && <EmptyState title="No material requests yet" description="Raise one to draw materials from the warehouse." onClear={() => {}} />}
+              {requests.length === 0 && <EmptyState title="No material requests yet" description="Raise one to send it to Procurement." onClear={() => {}} />}
             </Card>
           ),
         },
@@ -705,6 +724,275 @@ function CompleteRepair({ repairable, onClose, onRepaired }: { repairable: numbe
       <div className="form-row"><label htmlFor="ebr-repair-qty">Quantity repaired</label><NumberInput id="ebr-repair-qty" allowDecimal={false} value={quantity} onChange={setQuantity} required autoFocus /></div>
       <div className="form-row"><label htmlFor="ebr-repair-by">Actor</label><input id="ebr-repair-by" value={actor} onChange={e => setActor(e.target.value)} required /></div>
       <p className="sub">Returns this quantity to the Empty Bottle Warehouse as Good Empty stock.</p>
+    </Modal>
+  );
+}
+
+/** One flattened production-log row per product line — what the activity report
+ *  table filters, totals and exports. */
+interface LogLine {
+  entryId: string; recordedBy: string; recordedAt: string; day: string; note: string;
+  itemId: string; itemName: string; quantity: number; reversed: boolean;
+}
+
+/** Section: direct production log. The day-to-day "what did we produce" entry —
+ *  timestamped automatically, posts straight into the Finished Goods Warehouse,
+ *  and doubles as a per-period activity report via the date/product filters. */
+function ProductionLogTab({ entries, products, reversed, onChanged }: {
+  entries: ProductionLogEntry[];
+  products: Item[];
+  reversed: Set<string>;
+  onChanged: () => void;
+}) {
+  const ui = useUi();
+  const [recordOpen, setRecordOpen] = useState(false);
+  const [newProductOpen, setNewProductOpen] = useState(false);
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [productId, setProductId] = useState('');
+
+  const lines = useMemo<LogLine[]>(() => entries.flatMap(e =>
+    e.items.map(it => ({
+      entryId: e.id,
+      recordedBy: e.recorded_by ?? '',
+      recordedAt: e.recorded_at,
+      day: e.recorded_at.slice(0, 10),
+      note: e.note ?? '',
+      itemId: it.item_id,
+      itemName: it.item_name,
+      quantity: it.quantity,
+      reversed: reversed.has(e.id),
+    })),
+  ), [entries, reversed]);
+
+  const filtered = useMemo(() => lines.filter(l =>
+    (!from || l.day >= from) && (!to || l.day <= to) && (!productId || l.itemId === productId),
+  ), [lines, from, to, productId]);
+
+  const totals = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const l of filtered) m.set(l.itemName, (m.get(l.itemName) ?? 0) + l.quantity);
+    return [...m.entries()].sort((a, b) => b[1] - a[1]);
+  }, [filtered]);
+  const grandTotal = filtered.reduce((s, l) => s + l.quantity, 0);
+  const hasFilter = !!(from || to || productId);
+  function clearFilters() { setFrom(''); setTo(''); setProductId(''); }
+
+  function handleExport() {
+    exportCsv<LogLine>('elim-production-log.csv', [
+      { label: 'Entry', get: l => l.entryId },
+      { label: 'Recorded at (UTC)', get: l => l.recordedAt },
+      { label: 'Product', get: l => l.itemName },
+      { label: 'Quantity', get: l => l.quantity },
+      { label: 'Recorded by', get: l => l.recordedBy },
+      { label: 'Note', get: l => l.note },
+      { label: 'Reversed', get: l => (l.reversed ? 'Yes' : 'No') },
+    ], filtered);
+  }
+
+  return (
+    <Card
+      title="Production log"
+      description="Every production entry, fully timestamped — filter by date and product for an activity report per period. Each line is posted to the Finished Goods Warehouse as it's recorded."
+      action={
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }} className="no-print">
+          <button className="btn btn-secondary btn-sm" onClick={() => setNewProductOpen(true)}><Icon name="plus" size={14} /> New product</button>
+          <button className="btn btn-primary btn-sm" onClick={() => setRecordOpen(true)} disabled={products.length === 0}><Icon name="plus" size={14} /> Record production</button>
+        </div>
+      }
+    >
+      <div className="no-print" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'end', padding: '0 20px 12px' }}>
+        <label style={{ display: 'grid', gap: 4, fontSize: 12, color: 'rgb(var(--muted))' }}>
+          From
+          <input type="date" value={from} onChange={e => setFrom(e.target.value)} />
+        </label>
+        <label style={{ display: 'grid', gap: 4, fontSize: 12, color: 'rgb(var(--muted))' }}>
+          To
+          <input type="date" value={to} onChange={e => setTo(e.target.value)} />
+        </label>
+        <label style={{ display: 'grid', gap: 4, fontSize: 12, color: 'rgb(var(--muted))' }}>
+          Product
+          <select value={productId} onChange={e => setProductId(e.target.value)}>
+            <option value="">All products</option>
+            {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </label>
+        {hasFilter && <button type="button" className="btn btn-secondary btn-sm" onClick={clearFilters}>Clear</button>}
+        <button type="button" className="btn btn-secondary btn-sm" style={{ marginLeft: 'auto' }} onClick={handleExport} disabled={filtered.length === 0}>
+          <Icon name="download" size={12} /> Export CSV
+        </button>
+      </div>
+
+      {filtered.length > 0 && (
+        <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', padding: '0 20px 14px' }}>
+          {totals.map(([name, qty]) => (
+            <p key={name} className="sub">{name} <strong style={{ color: 'rgb(var(--ink))' }}>{number(qty)}</strong></p>
+          ))}
+          <p className="sub">Total <strong style={{ color: 'rgb(var(--ink))' }}>{number(grandTotal)}</strong> · {number(filtered.length)} line(s)</p>
+        </div>
+      )}
+
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Entry</th><th>Recorded at</th><th>Product</th><th className="num">Quantity</th>
+              <th>Recorded by</th><th>Note</th><th className="no-print" />
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((l, i) => (
+              <tr key={`${l.entryId}-${l.itemId}-${i}`}>
+                <td className="mono" style={{ fontSize: 12, color: 'rgb(var(--aqua-700))' }}>{l.entryId}</td>
+                <td className="sub">{l.recordedAt}</td>
+                <td>{l.itemName}</td>
+                <td className="num tnum">{number(l.quantity)}</td>
+                <td>{l.recordedBy}</td>
+                <td className="sub">{l.note}</td>
+                <td className="no-print">
+                  <ReverseButton
+                    entityType="production_log_entries" entityId={l.entryId} entityLabel={l.entryId}
+                    reversed={l.reversed}
+                    onReversed={() => { onChanged(); ui.toast(`${l.entryId} reversed`); }}
+                  />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {filtered.length === 0 && (
+        <EmptyState
+          title={lines.length === 0 ? 'No production logged yet' : 'Nothing matches these filters'}
+          description={lines.length === 0
+            ? (products.length === 0
+              ? 'Add your products first with “New product”, then record what the floor produces.'
+              : 'Record what the floor produces — each entry is timestamped and posted to the Finished Goods Warehouse.')
+            : 'Widen the date range or clear the product filter.'}
+          onClear={clearFilters}
+        />
+      )}
+
+      {recordOpen && (
+        <RecordProductionModal
+          products={products}
+          onClose={() => setRecordOpen(false)}
+          onRecorded={() => { setRecordOpen(false); onChanged(); ui.toast('Production recorded'); }}
+        />
+      )}
+      {newProductOpen && (
+        <NewProductModal
+          onClose={() => setNewProductOpen(false)}
+          onCreated={name => { setNewProductOpen(false); onChanged(); ui.toast(`${name} added`); }}
+        />
+      )}
+    </Card>
+  );
+}
+
+/** Creates a finished-good product (sachet / bottle size / dispenser) so it can
+ *  be produced, logged and sold. Posts to the same /masters/items endpoint the
+ *  rest of the app reads its product catalogue from. */
+function NewProductModal({ onClose, onCreated }: { onClose: () => void; onCreated: (name: string) => void }) {
+  const [name, setName] = useState('');
+  const [uom, setUom] = useState('case');
+  const [unitCost, setUnitCost] = useState('0');
+  const [reorderPoint, setReorderPoint] = useState('0');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    if (!name.trim()) { setError('Give the product a name.'); return; }
+    setSaving(true); setError(null);
+    try {
+      await apiPost('/masters/items', {
+        name: name.trim(), category: 'Finished goods', type: 'FINISHED_GOOD',
+        uom: uom.trim() || 'unit', unitCost: Number(unitCost) || 0, reorderPoint: Number(reorderPoint) || 0,
+      });
+      onCreated(name.trim());
+    } catch (err) { setError(err instanceof Error ? err.message : 'Something went wrong'); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <Modal title="New product" onClose={onClose} onSubmit={submit} submitLabel="Add product" saving={saving} error={error}>
+      <div className="form-row">
+        <label htmlFor="np-name">Name</label>
+        <input id="np-name" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. 50cl PET, Sachet (bags), 20L Dispenser" required autoFocus />
+      </div>
+      <div className="form-grid">
+        <div className="form-row"><label htmlFor="np-uom">Unit</label><input id="np-uom" value={uom} onChange={e => setUom(e.target.value)} placeholder="case, bag, bottle" required /></div>
+        <div className="form-row"><label htmlFor="np-cost">Unit price</label><NumberInput id="np-cost" value={unitCost} onChange={setUnitCost} required /></div>
+        <div className="form-row"><label htmlFor="np-reorder">Reorder point</label><NumberInput id="np-reorder" allowDecimal={false} value={reorderPoint} onChange={setReorderPoint} /></div>
+      </div>
+      <p className="sub">Becomes available everywhere a product is picked — production log, batches and sales.</p>
+    </Modal>
+  );
+}
+
+function RecordProductionModal({ products, onClose, onRecorded }: {
+  products: Item[];
+  onClose: () => void;
+  onRecorded: () => void;
+}) {
+  const { user } = useCurrentUser();
+  const [recordedBy, setRecordedBy] = useState(user?.name ?? '');
+  const [note, setNote] = useState('');
+  const [lines, setLines] = useState<{ itemId: string; quantity: string }[]>([
+    { itemId: products[0]?.id ?? '', quantity: '' },
+  ]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function updateLine(i: number, patch: Partial<{ itemId: string; quantity: string }>) {
+    setLines(ls => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
+  }
+  function addLine() { setLines(ls => [...ls, { itemId: products[0]?.id ?? '', quantity: '' }]); }
+  function removeLine(i: number) { setLines(ls => ls.filter((_, idx) => idx !== i)); }
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    const items = lines
+      .filter(l => l.itemId && Number(l.quantity) > 0)
+      .map(l => ({ itemId: l.itemId, quantity: Number(l.quantity) }));
+    if (items.length === 0) { setError('Add at least one product with a quantity greater than zero.'); return; }
+    setSaving(true); setError(null);
+    try {
+      await apiPost('/production-log', { recordedBy, note: note.trim() || undefined, items });
+      onRecorded();
+    } catch (err) { setError(err instanceof Error ? err.message : 'Something went wrong'); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <Modal title="Record production" onClose={onClose} onSubmit={submit} submitLabel="Record" saving={saving} error={error}>
+      <p className="sub" style={{ marginBottom: 14 }}>Timestamped automatically. Every line is added to the Finished Goods Warehouse straight away.</p>
+      <div className="form-row"><label htmlFor="pl-by">Recorded by</label><input id="pl-by" value={recordedBy} onChange={e => setRecordedBy(e.target.value)} required autoFocus /></div>
+
+      <div className="form-row">
+        <label>Products produced</label>
+        {lines.map((l, i) => (
+          <div className="lineitem-row" key={i}>
+            <div style={{ flex: 2 }}>
+              <select aria-label="Product type" value={l.itemId} onChange={e => updateLine(i, { itemId: e.target.value })}>
+                {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+            <div style={{ width: 120 }}>
+              <NumberInput ariaLabel="Quantity" allowDecimal={false} value={l.quantity} onChange={v => updateLine(i, { quantity: v })} required />
+            </div>
+            <button type="button" className="iconbtn" onClick={() => removeLine(i)} aria-label="Remove product" disabled={lines.length <= 1}>
+              <Icon name="x" size={16} />
+            </button>
+          </div>
+        ))}
+        <button type="button" className="btn btn-secondary btn-sm" onClick={addLine} style={{ marginTop: 4 }}>
+          <Icon name="plus" size={12} /> Add product
+        </button>
+      </div>
+
+      <div className="form-row"><label htmlFor="pl-note">Note (optional)</label><textarea id="pl-note" value={note} onChange={e => setNote(e.target.value)} rows={2} /></div>
     </Modal>
   );
 }

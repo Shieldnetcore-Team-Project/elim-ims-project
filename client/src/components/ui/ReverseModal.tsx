@@ -11,6 +11,7 @@ const REVERSE_PATH: Record<string, (id: string) => string> = {
   sales: id => `/sales/${encodeURIComponent(id)}/reverse`,
   goods_received: id => `/goods-received/${encodeURIComponent(id)}/reverse`,
   production_batches: id => `/production-batches/${encodeURIComponent(id)}/reverse`,
+  production_log_entries: id => `/production-log/${encodeURIComponent(id)}/reverse`,
   finished_goods: id => `/finished-goods/${encodeURIComponent(id)}/reverse`,
   material_requests: id => `/material-requests/${encodeURIComponent(id)}/reverse`,
 };

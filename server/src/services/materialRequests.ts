@@ -3,10 +3,11 @@ import { nextBusinessId } from '../db/ids.js';
 import * as activityLog from './activityLog.js';
 import * as inventory from './inventory.js';
 import * as reversals from './reversals.js';
+import * as procurement from './procurement.js';
 
 export interface MaterialRequest {
   id: string; requested_by: string | null; department: string | null; status: string;
-  needed_by: string | null; created_at: string;
+  po_id: string | null; needed_by: string | null; created_at: string;
 }
 export interface MaterialRequestItem { id: number; request_id: string; item_id: string; quantity: number }
 
@@ -31,12 +32,52 @@ export async function listRequestItems(requestId: string): Promise<MaterialReque
   return await db.prepare('SELECT * FROM material_request_items WHERE request_id = ?').all(requestId) as unknown as MaterialRequestItem[];
 }
 
+/** Procurement's response to a pending Production request: rather than issuing
+ *  straight from whatever's already in stock, the request is turned into a
+ *  purchase order for its items, which then runs the normal procurement
+ *  lifecycle (Super Admin approval, receiving, inspection) before this request
+ *  can actually be issued — see approveAndIssue below. */
+export async function raisePurchaseOrder(id: string, params: {
+  supplierId: string; requestedBy: string; requestedByUserId?: string;
+  items: { itemId: string; unitPrice: number; bagQuantity?: number }[]; actor?: string;
+}): Promise<MaterialRequest> {
+  const request = await getRequest(id);
+  if (!request) throw new Error(`Unknown material request ${id}`);
+  if (request.status !== 'PENDING') throw new Error(`${id} is ${request.status} — only a pending request can be raised as a purchase order`);
+
+  const requestItems = await listRequestItems(id);
+  const priceFor = new Map(params.items.map(it => [it.itemId, it]));
+  const missing = requestItems.find(it => !priceFor.has(it.item_id));
+  if (missing) throw new Error(`No unit price supplied for ${missing.item_id}`);
+
+  const po = await procurement.createPurchaseOrder({
+    supplierId: params.supplierId, requestedBy: params.requestedBy, requestedByUserId: params.requestedByUserId,
+    items: requestItems.map(it => {
+      const priced = priceFor.get(it.item_id)!;
+      return { itemId: it.item_id, quantity: it.quantity, unitPrice: priced.unitPrice, bagQuantity: priced.bagQuantity };
+    }),
+    actor: params.actor,
+  });
+
+  await db.prepare(`UPDATE material_requests SET status = 'ORDERED', po_id = ? WHERE id = ?`).run(po.id, id);
+  await activityLog.record(
+    params.actor ?? params.requestedBy, 'raised purchase order for', 'material_request', id,
+    `Material request ${id} (${request.department}) → purchase order ${po.id}, awaiting Super Admin approval`,
+  );
+  return (await getRequest(id))!;
+}
+
 /** Approving and issuing are one step here — this is the only place that writes
  *  stock_movements, and the only place besides QC-approval and Sales/Packaging that
- *  is allowed to post an inventory_transactions OUT. */
+ *  is allowed to post an inventory_transactions OUT. A Production request can only
+ *  reach here once it's gone through Procurement (raisePurchaseOrder set its po_id) —
+ *  it isn't issued straight from stock like other departments' requests still are. */
 export async function approveAndIssue(id: string, actor = 'System Administrator'): Promise<MaterialRequest> {
   const request = await getRequest(id);
   if (!request) throw new Error(`Unknown material request ${id}`);
+  if (request.department === 'Production' && !request.po_id) {
+    throw new Error(`${id} must be raised as a purchase order through Procurement before it can be issued`);
+  }
   const items = await listRequestItems(id);
   const insertMovement = db.prepare(
     `INSERT INTO stock_movements (request_id, item_id, quantity, from_location, to_location, moved_by) VALUES (?,?,?,?,?,?)`,
@@ -87,6 +128,11 @@ export async function reverseIssue(id: string, params: { reason: string; actor: 
 }
 
 export async function reject(id: string, actor = 'System Administrator'): Promise<void> {
+  const request = await getRequest(id);
+  if (!request) throw new Error(`Unknown material request ${id}`);
+  if (request.status !== 'PENDING') {
+    throw new Error(`${id} is ${request.status} — once a purchase order has been raised, reject it there instead`);
+  }
   await db.prepare(`UPDATE material_requests SET status = 'REJECTED' WHERE id = ?`).run(id);
   await activityLog.record(actor, 'rejected', 'material_request', id, `Material request ${id} rejected`);
 }

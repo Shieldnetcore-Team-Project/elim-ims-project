@@ -37,7 +37,7 @@ interface Remark { id: number; sale_id: string; remark: string; actor: string | 
 const REPORT_VIEWS = ['aging', 'dormant', 'inactive', 'credit', 'cash', 'reminders'] as const;
 type ReportView = typeof REPORT_VIEWS[number];
 
-export function CustomersTab({ customers }: { customers: Customer[] }) {
+export function CustomersTab({ customers, onAddCompanyCustomer }: { customers: Customer[]; onAddCompanyCustomer: () => void }) {
   const ui = useUi();
   const marketers = useMemo(() => customers.filter(c => c.customer_type === 'MARKETER'), [customers]);
   const [marketerId, setMarketerId] = useState('');
@@ -81,14 +81,18 @@ export function CustomersTab({ customers }: { customers: Customer[] }) {
         title="Customers" description="Each marketer's own field customers — profile, credit limit, and running balance."
         action={
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }} className="no-print">
-            <select aria-label="Marketer" value={marketerId} onChange={e => { setMarketerId(e.target.value); setSelectedId(null); }} style={{ minWidth: 160 }}>
-              {marketers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-            </select>
-            <button className="btn btn-primary btn-sm" onClick={() => setNewCustOpen(true)} disabled={!marketerId}><Icon name="plus" size={14} /> New customer</button>
+            {marketers.length > 0 && (
+              <select aria-label="Marketer" value={marketerId} onChange={e => { setMarketerId(e.target.value); setSelectedId(null); }} style={{ minWidth: 160 }}>
+                {marketers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
+            )}
+            <button className="btn btn-primary btn-sm" onClick={() => (marketerId ? setNewCustOpen(true) : onAddCompanyCustomer())}>
+              <Icon name="plus" size={14} /> {marketerId ? 'New field customer' : 'New customer'}
+            </button>
           </div>
         }
       >
-        {marketers.length === 0 && <EmptyState title="No marketers yet" description="Add a customer of type Marketer to manage their own customer base." onClear={() => {}} />}
+        {marketers.length === 0 && <EmptyState title="No marketers yet" description="Use “New customer” above to add a Marketer — then you can manage their own field customers here." onClear={() => {}} />}
         <div className="table-wrap">
           <table>
             <thead><tr><th>Name</th><th>Phone</th><th>Route</th><th className="num">Credit limit</th><th className="num">Outstanding</th><th>Status</th></tr></thead>

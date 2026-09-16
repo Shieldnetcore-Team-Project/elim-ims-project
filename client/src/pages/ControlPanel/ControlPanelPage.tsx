@@ -13,16 +13,21 @@ const ASSIGNABLE_GROUPS = NAV_GROUPS
   .map(g => ({ group: g.group, items: g.items.filter(i => i.key !== 'dashboard' && !ADMIN_ONLY_NAV_KEYS.includes(i.key)) }))
   .filter(g => g.items.length > 0);
 
-/** Not page-access — these gate the Approve/Reject action inside a page the
- *  requester and approver can both otherwise see (procurement, sales). Kept
- *  as separate grants (same user_page_access table, just page keys with no
- *  nav item) so a Procurement Officer can be given the "procurement" page
- *  without also being able to approve their own purchase orders — dual
- *  control, enforced server-side too (see requirePageAccess). */
-const APPROVAL_CAPABILITIES: { key: string; label: string; description: string }[] = [
-  { key: 'procurement-approve', label: 'Procurement approvals', description: 'Approve or reject purchase orders. Leave this off for whoever raises the PO.' },
-  { key: 'sales-approve', label: 'Sales approvals', description: 'Approve or reject credit sales orders. Leave this off for the rep who created the order.' },
+/** Not page-access — these gate an Approve/Reject or Reverse action inside a
+ *  page the requester and approver can both otherwise see. Kept as separate
+ *  grants (same user_page_access table, just keys with no nav item) so the
+ *  person who raises a transaction isn't also the one who approves or reverses
+ *  it — dual control, enforced server-side too (accessControl.requireApproval /
+ *  requirePageAccess). A user's own role (e.g. "Sales manager", "Warehouse
+ *  Manager") still works without an explicit grant; these let an admin delegate
+ *  the same right to a specific person. Unticking one and saving removes it. */
+const APPROVAL_CAPABILITIES: { section: string; key: string; label: string; description: string }[] = [
+  { section: 'Approvals', key: 'sales-approve', label: 'Sales approvals', description: 'Approve or reject credit sales orders. Leave off for the rep who created the order.' },
+  { section: 'Reversals (post-correction)', key: 'sales-reverse', label: 'Sales reversals', description: 'Reverse a posted sales order. Normally a Sales manager.' },
+  { section: 'Reversals (post-correction)', key: 'finance-reverse', label: 'Finance reversals', description: 'Reverse a payment or receipt. Normally a Finance manager.' },
+  { section: 'Reversals (post-correction)', key: 'warehouse-reverse', label: 'Warehouse reversals', description: 'Reverse a goods-received inspection, material issue, production batch, production-log entry or packaging record. Normally a Warehouse Manager.' },
 ];
+const APPROVAL_SECTIONS = [...new Set(APPROVAL_CAPABILITIES.map(c => c.section))];
 
 export default function ControlPanelPage() {
   return (
@@ -85,7 +90,7 @@ function AccessControlTab() {
   const selectedUser = assignable.find(u => u.id === selectedId);
 
   return (
-    <Card title="Page access" description="Dashboard is always visible to everyone; every other page is opt-in per user.">
+    <Card title="Page & approval access" description="Pick a user, tick the pages they may open and any approval/reversal rights, then Save. Unticking and saving removes access. Dashboard is always visible; every other page is opt-in per user. System admins have everything and aren't listed.">
       <div style={{ padding: 20, display: 'grid', gap: 20 }}>
         <div className="form-row" style={{ maxWidth: 380, marginBottom: 0 }}>
           <label htmlFor="cp-user">User</label>
@@ -93,6 +98,11 @@ function AccessControlTab() {
             {assignable.map(u => <option key={u.id} value={u.id}>{u.name} — {u.role}</option>)}
           </select>
         </div>
+        {selectedUser && loaded && (
+          <p className="sub" style={{ margin: 0 }}>
+            {selectedUser.name} currently has <strong>{[...checked].length}</strong> grant{[...checked].length === 1 ? '' : 's'}.
+          </p>
+        )}
 
         {selectedUser && loaded && (
           <>
@@ -111,25 +121,31 @@ function AccessControlTab() {
             </div>
             <div>
               <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase', color: 'rgb(var(--muted))', marginBottom: 4 }}>
-                Approvals — dual control
+                Approval &amp; reversal rights — dual control
               </p>
-              <p className="sub" style={{ marginBottom: 10 }}>
-                Separate from page access above, so the person who requests something isn't also the one who approves it.
+              <p className="sub" style={{ marginBottom: 12 }}>
+                Separate from the page checkboxes above, so the person who raises a transaction isn't also the one who approves or reverses it.
+                The user's own role still works without a grant; these delegate the same right to a specific person. Untick and save to remove.
               </p>
-              <div style={{ display: 'grid', gap: 8, maxWidth: 480 }}>
-                {APPROVAL_CAPABILITIES.map(cap => (
-                  <label
-                    key={cap.key}
-                    style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 10px', border: '1px solid rgb(var(--line))', borderRadius: 8, cursor: 'pointer' }}
-                  >
-                    <input type="checkbox" checked={checked.has(cap.key)} onChange={() => toggle(cap.key)} style={{ marginTop: 2 }} />
-                    <span>
-                      <span style={{ display: 'block', fontSize: 13, fontWeight: 500 }}>{cap.label}</span>
-                      <span className="sub">{cap.description}</span>
-                    </span>
-                  </label>
-                ))}
-              </div>
+              {APPROVAL_SECTIONS.map(section => (
+                <div key={section} style={{ marginBottom: 12 }}>
+                  <p style={{ fontSize: 11, fontWeight: 600, color: 'rgb(var(--muted))', marginBottom: 6 }}>{section}</p>
+                  <div style={{ display: 'grid', gap: 8, maxWidth: 520 }}>
+                    {APPROVAL_CAPABILITIES.filter(c => c.section === section).map(cap => (
+                      <label
+                        key={cap.key}
+                        style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 10px', border: '1px solid rgb(var(--line))', borderRadius: 8, cursor: 'pointer' }}
+                      >
+                        <input type="checkbox" checked={checked.has(cap.key)} onChange={() => toggle(cap.key)} style={{ marginTop: 2 }} />
+                        <span>
+                          <span style={{ display: 'block', fontSize: 13, fontWeight: 500 }}>{cap.label}</span>
+                          <span className="sub">{cap.description}</span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
 
             <div>

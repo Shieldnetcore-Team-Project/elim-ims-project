@@ -20,7 +20,7 @@ productionBatchesRouter.post('/', safe(async (req, res) => {
 
 productionBatchesRouter.post('/:id/reverse', safe(async (req, res) => {
   const { reason, userId } = req.body ?? {};
-  const approver = await accessControl.requireRole(userId, ['Warehouse Manager']);
+  const approver = await accessControl.requireApproval(userId, 'warehouse-reverse', ['Warehouse Manager'], 'Warehouse reversals');
   res.json(await production.reverseBatch(req.params.id, { reason, actor: approver.name }));
 }));
 

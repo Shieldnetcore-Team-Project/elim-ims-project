@@ -19,6 +19,6 @@ finishedGoodsRouter.post('/', safe(async (req, res) => {
 
 finishedGoodsRouter.post('/:id/reverse', safe(async (req, res) => {
   const { reason, userId } = req.body ?? {};
-  const approver = await accessControl.requireRole(userId, ['Warehouse Manager']);
+  const approver = await accessControl.requireApproval(userId, 'warehouse-reverse', ['Warehouse Manager'], 'Warehouse reversals');
   res.json(await packaging.reverseFinishedGoods(req.params.id, { reason, actor: approver.name }));
 }));

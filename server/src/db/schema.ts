@@ -294,25 +294,17 @@ SELECT item_id, SUM(CASE WHEN direction = 'IN' THEN quantity ELSE -quantity END)
 FROM inventory_transactions
 GROUP BY item_id;
 
--- ===================== Warehouse =====================
-CREATE TABLE IF NOT EXISTS warehouse_requisitions (
-  id TEXT PRIMARY KEY,
-  item TEXT NOT NULL,
-  quantity DOUBLE PRECISION NOT NULL DEFAULT 0,
-  expected_delivery TEXT,
-  priority TEXT NOT NULL DEFAULT 'Medium',
-  reason TEXT,
-  department TEXT,
-  status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','APPROVED','ISSUED','REJECTED')),
-  created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')
-);
-
 -- ===================== Production: material requests =====================
+-- Every request raises a purchase order rather than being issued straight
+-- from stock (see services/materialRequests.ts raisePurchaseOrder) — po_id
+-- links to the PO Procurement raises for it, once Procurement has reviewed
+-- the request; ISSUED is only reachable after that PO exists.
 CREATE TABLE IF NOT EXISTS material_requests (
   id TEXT PRIMARY KEY,
   requested_by TEXT,
   department TEXT,
-  status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','ISSUED','REJECTED')),
+  status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','ORDERED','ISSUED','REJECTED')),
+  po_id TEXT,
   needed_by TEXT,
   created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')
 );
@@ -406,9 +398,30 @@ CREATE TABLE IF NOT EXISTS empty_bottle_condition_events (
 );
 CREATE INDEX IF NOT EXISTS idx_empty_bottle_condition_item ON empty_bottle_condition_events(item_id);
 
+-- Direct production log: the day-to-day "what did we produce" entry, recorded
+-- at any time with no line/shift/QC gate. Each line posts straight into the
+-- Finished Goods Warehouse ledger (inventory_transactions, source_type
+-- PRODUCTION). recorded_at is the full timestamp the activity report filters on.
+-- production_batches stays for runs that need formal QC/packaging tracking.
+CREATE TABLE IF NOT EXISTS production_log_entries (
+  id TEXT PRIMARY KEY,
+  recorded_by TEXT,
+  note TEXT,
+  recorded_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')
+);
+
+CREATE TABLE IF NOT EXISTS production_log_items (
+  id SERIAL PRIMARY KEY,
+  entry_id TEXT NOT NULL,
+  item_id TEXT NOT NULL,
+  quantity DOUBLE PRECISION NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_production_log_items_entry ON production_log_items(entry_id);
+
 -- ===================== Sales =====================
 -- Sales and Point-of-Sale are the same table distinguished by channel.
--- customer_id is nullable: a Retail POS sale needs no customer profile.
+-- customer_id is nullable: a Retail POS sale needs no customer profile — a
+-- walk-in's name (if given) is captured free-text in walk_in_name instead.
 -- AWAITING_APPROVAL: a Distributor buying on credit sits here until
 -- services/sales.ts's approveCreditSale/rejectCreditSale resolves it.
 CREATE TABLE IF NOT EXISTS sales (
@@ -422,6 +435,7 @@ CREATE TABLE IF NOT EXISTS sales (
   approved_at TEXT,
   branch_id TEXT,
   manual_invoice_number TEXT,
+  walk_in_name TEXT,
   total_amount DOUBLE PRECISION NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')
 );
@@ -634,10 +648,18 @@ CREATE TABLE IF NOT EXISTS retail_stock_transactions (
 );
 CREATE INDEX IF NOT EXISTS idx_retail_stock_txn_item ON retail_stock_transactions(item_id);
 
+-- Warehouse -> Retail transfer, two steps: the warehouse dispatches (status
+-- SENT, stock physically leaves the central ledger now) and Retail reviews and
+-- confirms what actually arrived (status CONFIRMED, received quantity per line
+-- posts to retail_stock_transactions). A shortfall is recorded, never silently
+-- absorbed. Mirrors marketer_stock_issues' ASSIGNED -> VERIFIED shape.
 CREATE TABLE IF NOT EXISTS retail_intakes (
   id TEXT PRIMARY KEY,
   issued_by TEXT,
   actor TEXT,
+  status TEXT NOT NULL DEFAULT 'SENT' CHECK (status IN ('SENT','CONFIRMED')),
+  confirmed_by TEXT,
+  confirmed_at TEXT,
   created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')
 );
 CREATE TABLE IF NOT EXISTS retail_intake_items (
@@ -645,6 +667,7 @@ CREATE TABLE IF NOT EXISTS retail_intake_items (
   intake_id TEXT NOT NULL,
   item_id TEXT NOT NULL,
   quantity DOUBLE PRECISION NOT NULL,
+  received_quantity DOUBLE PRECISION,
   unit_cost DOUBLE PRECISION NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_retail_intake_items_intake ON retail_intake_items(intake_id);
@@ -969,6 +992,30 @@ CREATE TABLE IF NOT EXISTS vehicle_documents (
 CREATE INDEX IF NOT EXISTS idx_vehicle_documents_vehicle ON vehicle_documents(vehicle_id);
 `;
 
+// Columns added to a table after its first release. A fresh install already
+// has them (they're in the CREATE TABLE above); this catches databases created
+// before the column existed. Every statement is ADD COLUMN IF NOT EXISTS, so
+// re-running is a no-op — the same idempotence guarantee the rest of migrate()
+// relies on. Append new one-liners here rather than editing only the CREATE.
+export const SCHEMA_UPGRADES_SQL = `
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS walk_in_name TEXT;
+ALTER TABLE retail_intakes ADD COLUMN IF NOT EXISTS status TEXT;
+ALTER TABLE retail_intakes ADD COLUMN IF NOT EXISTS confirmed_by TEXT;
+ALTER TABLE retail_intakes ADD COLUMN IF NOT EXISTS confirmed_at TEXT;
+ALTER TABLE retail_intake_items ADD COLUMN IF NOT EXISTS received_quantity DOUBLE PRECISION;
+-- Intakes created before the review step existed already posted straight to
+-- retail stock, so they count as CONFIRMED with received = sent. Scoped to
+-- status IS NULL / CONFIRMED intakes so a genuinely pending SENT intake keeps
+-- its NULL received_quantity across restarts.
+UPDATE retail_intakes SET status = 'CONFIRMED', confirmed_by = COALESCE(confirmed_by, actor), confirmed_at = COALESCE(confirmed_at, created_at) WHERE status IS NULL;
+UPDATE retail_intake_items rii SET received_quantity = rii.quantity
+  FROM retail_intakes ri
+  WHERE ri.id = rii.intake_id AND ri.status = 'CONFIRMED' AND rii.received_quantity IS NULL;
+ALTER TABLE material_requests ADD COLUMN IF NOT EXISTS po_id TEXT;
+ALTER TABLE material_requests DROP CONSTRAINT IF EXISTS material_requests_status_check;
+ALTER TABLE material_requests ADD CONSTRAINT material_requests_status_check CHECK (status IN ('PENDING','ORDERED','ISSUED','REJECTED'));
+`;
+
 // Second pass: foreign keys, added only after every table above exists —
 // unlike SQLite, Postgres requires a REFERENCES target to already exist at
 // constraint-creation time, so these can't be inline without solving a
@@ -993,6 +1040,7 @@ const FK_SPECS: [table: string, column: string, refTable: string][] = [
   ['inventory_transactions', 'item_id', 'items'],
   ['material_request_items', 'request_id', 'material_requests'],
   ['material_request_items', 'item_id', 'items'],
+  ['material_requests', 'po_id', 'purchase_orders'],
   ['stock_movements', 'request_id', 'material_requests'],
   ['stock_movements', 'item_id', 'items'],
   ['production_batches', 'product_item_id', 'items'],
@@ -1001,6 +1049,8 @@ const FK_SPECS: [table: string, column: string, refTable: string][] = [
   ['bom_components', 'component_item_id', 'items'],
   ['finished_goods', 'batch_id', 'production_batches'],
   ['finished_goods', 'item_id', 'items'],
+  ['production_log_items', 'entry_id', 'production_log_entries'],
+  ['production_log_items', 'item_id', 'items'],
   ['empty_bottle_condition_events', 'item_id', 'items'],
   ['empty_bottle_condition_events', 'run_id', 'empty_bottle_runs'],
   ['sales', 'customer_id', 'customers'],
@@ -1085,5 +1135,21 @@ INSERT INTO settings (id, description, value, updated_by, status) VALUES
   ('Vehicle documents - Commercial', 'Comma-separated document types required for Commercial vehicles', 'AMAC documentation,Local Government documentation,Registration,Insurance,Roadworthiness,Speed Limiting Device', 'System Administrator', 'ACTIVE'),
   ('Vehicle documents - Private', 'Comma-separated document types required for Private vehicles', 'Registration,Insurance,Roadworthiness', 'System Administrator', 'ACTIVE'),
   ('Document expiry notification days', 'How many days before a vehicle document expires its notification appears', '7', 'System Administrator', 'ACTIVE')
+ON CONFLICT (id) DO NOTHING;
+
+-- Standard finished-good catalogue — the five products this plant makes. Every
+-- product picker in the app reads items WHERE type = 'FINISHED_GOOD', so seeding
+-- these here (idempotently) means a fresh install has a populated product
+-- dropdown everywhere without a demo-data run. IDs FG-01..FG-05 match the order
+-- the old seed.ts used (and nextBusinessId('items','FG-',2) continues from FG-06
+-- for anything added later via "New product"). unit_cost is a sane default in
+-- Naira per pack; reorder_point stays 0 (no low-stock alert) until an admin sets
+-- a real level. Both editable like any other item.
+INSERT INTO items (id, name, category, type, uom, reorder_point, unit_cost, is_returnable_asset) VALUES
+  ('FG-01', '50cl PET', 'Finished goods', 'FINISHED_GOOD', 'case', 0, 2500, 0),
+  ('FG-02', 'Sachet (bags)', 'Finished goods', 'FINISHED_GOOD', 'bag', 0, 900, 0),
+  ('FG-03', '20L Dispenser', 'Finished goods', 'FINISHED_GOOD', 'bottle', 0, 1800, 1),
+  ('FG-04', '1.5L PET', 'Finished goods', 'FINISHED_GOOD', 'case', 0, 3500, 0),
+  ('FG-05', '75cl PET', 'Finished goods', 'FINISHED_GOOD', 'case', 0, 3000, 0)
 ON CONFLICT (id) DO NOTHING;
 `;

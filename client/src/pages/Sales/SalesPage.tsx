@@ -9,6 +9,7 @@ import { Pill } from '../../components/ui/Pill';
 import { Tabs } from '../../components/ui/Tabs';
 import { Modal } from '../../components/ui/Modal';
 import { LineItemsInput, type LineItemValue } from '../../components/ui/LineItemsInput';
+import { CustomerPicker } from '../../components/ui/CustomerPicker';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { Icon } from '../../components/ui/Icon';
 import { PrintHeader } from '../../components/ui/PrintHeader';
@@ -41,7 +42,7 @@ type PosMethod = typeof POS_METHODS[number];
 interface SalesOrder {
   id: string; customer_id: string | null; customer_name: string; customer_location: string | null; customer_type: CustomerType | null;
   channel: 'INVOICE' | 'POS'; rep: string; status: string; payment_terms: PaymentTerms; total_amount: number; created_at: string;
-  branch_id: string | null; manual_invoice_number: string | null;
+  branch_id: string | null; manual_invoice_number: string | null; walk_in_name: string | null;
 }
 interface Customer { id: string; name: string; location: string | null; phone: string | null; customer_type: CustomerType }
 interface Item { id: string; name: string; type: string; unit_cost: number }
@@ -265,7 +266,7 @@ export default function SalesPage({ channel }: { channel: 'INVOICE' | 'POS' }) {
           { key: 'credit-sales', label: 'Credit sales', content: <CreditSalesTab reloadKey={reloadKey} /> },
           { key: 'marketer-performance', label: 'Performance & commission', content: <MarketerPerformanceTab reloadKey={reloadKey} /> },
           { key: 'bottle-tracking', label: 'Bottle tracking', content: <BottleTrackingTab customers={customers} /> },
-          { key: 'customers', label: 'Customers', content: <CustomersTab customers={customers} /> },
+          { key: 'customers', label: 'Customers', content: <CustomersTab customers={customers} onAddCompanyCustomer={() => setNewCustomerOpen(true)} /> },
           { key: 'distributor-branches', label: 'Distributor branches', content: <DistributorBranchesTab customers={customers} /> },
         ]} />
       ) : (
@@ -283,6 +284,7 @@ export default function SalesPage({ channel }: { channel: 'INVOICE' | 'POS' }) {
           channel={channel} customers={eligibleCustomers} items={items}
           initialItemId={assignItemId}
           preferCustomerType={assignItemId && channel === 'INVOICE' ? 'DISTRIBUTOR' : undefined}
+          onCustomerCreated={() => { refreshMasters(); ui.toast('Customer added'); }}
           onClose={() => setCreateOpen(false)}
           onCreated={() => { setCreateOpen(false); refresh(); ui.toast(`${copy.newLabel} created`); }}
         />
@@ -329,12 +331,18 @@ export default function SalesPage({ channel }: { channel: 'INVOICE' | 'POS' }) {
   );
 }
 
-function NewOrder({ channel, customers, items, initialItemId, preferCustomerType, onClose, onCreated }: {
-  channel: 'INVOICE' | 'POS'; customers: Customer[]; items: Item[]; initialItemId?: string; preferCustomerType?: CustomerType; onClose: () => void; onCreated: () => void;
+function NewOrder({ channel, customers, items, initialItemId, preferCustomerType, onCustomerCreated, onClose, onCreated }: {
+  channel: 'INVOICE' | 'POS'; customers: Customer[]; items: Item[]; initialItemId?: string; preferCustomerType?: CustomerType;
+  onCustomerCreated: () => void; onClose: () => void; onCreated: () => void;
 }) {
-  const [customerId, setCustomerId] = useState(() => (preferCustomerType && customers.find(c => c.customer_type === preferCustomerType)?.id) || customers[0]?.id || '');
+  const [customerId, setCustomerId] = useState(() =>
+    channel === 'POS' ? '' : ((preferCustomerType && customers.find(c => c.customer_type === preferCustomerType)?.id) || customers[0]?.id || ''),
+  );
+  // Retail walk-in: free-text name, no customer profile required.
+  const [walkInName, setWalkInName] = useState('');
   const [paymentTerms, setPaymentTerms] = useState<PaymentTerms>('CREDIT');
   const [rep, setRep] = useState('');
+  const [repOptions, setRepOptions] = useState<string[]>([]);
   const [lines, setLines] = useState<LineItemValue[]>(() => {
     const preselected = initialItemId ? items.find(i => i.id === initialItemId) : undefined;
     return [{ itemId: preselected?.id ?? items[0]?.id ?? '', quantity: '10', unitPrice: String(preselected?.unit_cost ?? items[0]?.unit_cost ?? 0) }];
@@ -356,6 +364,17 @@ function NewOrder({ channel, customers, items, initialItemId, preferCustomerType
     api<{ id: string; name: string }[]>('/distributor-branches', { companyId: customerId }).then(rows => { setBranches(rows); setBranchId(''); });
   }, [isDistributor, customerId]);
 
+  useEffect(() => { api<string[]>('/sales/reps').then(setRepOptions).catch(() => setRepOptions([])); }, []);
+
+  // Invoice number is generated for the user — no manual entry needed. Still
+  // editable (e.g. to match a paper invoice book).
+  useEffect(() => {
+    if (channel !== 'INVOICE') return;
+    api<{ invoiceNumber: string }>('/sales/next-invoice-no')
+      .then(r => setManualInvoiceNumber(prev => prev || r.invoiceNumber))
+      .catch(() => {});
+  }, [channel]);
+
   function updatePayLine(i: number, patch: Partial<{ method: PosMethod; amount: string }>) {
     setPayLines(ls => ls.map((l, idx) => idx === i ? { ...l, ...patch } : l));
   }
@@ -369,8 +388,11 @@ function NewOrder({ channel, customers, items, initialItemId, preferCustomerType
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    if (channel === 'POS' && !customerId) {
-      setError('Select or add a customer — every retail sale needs one');
+    const validLines = lines.filter(l => l.itemId && Number(l.quantity) > 0);
+    if (validLines.length === 0) {
+      setError(items.length === 0
+        ? 'No products exist yet — add finished-good products on the Production page first.'
+        : 'Add at least one product line with a quantity greater than zero.');
       return;
     }
     if (channel === 'POS' && payLines.length > 1 && Math.abs(payTotal - orderTotal) > 0.01) {
@@ -381,8 +403,9 @@ function NewOrder({ channel, customers, items, initialItemId, preferCustomerType
     try {
       await apiPost('/sales', {
         customerId: customerId || undefined, channel, rep,
+        walkInName: channel === 'POS' ? (walkInName.trim() || undefined) : undefined,
         paymentTerms: channel === 'INVOICE' ? (isDistributor ? paymentTerms : 'CREDIT') : undefined,
-        items: lines.map(l => ({ itemId: l.itemId, quantity: Number(l.quantity), unitPrice: Number(l.unitPrice) })),
+        items: validLines.map(l => ({ itemId: l.itemId, quantity: Number(l.quantity), unitPrice: Number(l.unitPrice) })),
         branchId: isDistributor ? (branchId || undefined) : undefined,
         manualInvoiceNumber: channel === 'INVOICE' ? (manualInvoiceNumber || undefined) : undefined,
         payments: channel === 'POS'
@@ -398,13 +421,37 @@ function NewOrder({ channel, customers, items, initialItemId, preferCustomerType
     <Modal title={channel === 'POS' ? 'New retail sale' : 'New sales order'} onClose={onClose} onSubmit={submit} submitLabel="Create" saving={saving} error={error} wide>
       <div className="form-grid">
         <div className="form-row">
-          <label htmlFor="so-customer">Customer</label>
-          <select id="so-customer" value={customerId} onChange={e => setCustomerId(e.target.value)} required={channel === 'POS'}>
-            {customers.length === 0 && <option value="" disabled>No customers yet — add one first</option>}
-            {customers.map(c => <option key={c.id} value={c.id}>{c.name} ({c.customer_type.toLowerCase()})</option>)}
-          </select>
+          <label htmlFor="so-customer">{channel === 'POS' ? 'Customer name' : 'Customer'}</label>
+          {channel === 'POS' ? (
+            <>
+              <input
+                id="so-customer" value={walkInName} onChange={e => setWalkInName(e.target.value)}
+                placeholder="Walk-in customer" autoComplete="off"
+              />
+              <p className="sub" style={{ fontSize: 11, marginTop: 2 }}>Type the walk-in's name, or leave blank for an anonymous sale.</p>
+            </>
+          ) : (
+            <CustomerPicker
+              id="so-customer"
+              customers={customers}
+              value={customerId}
+              onChange={setCustomerId}
+              onCreated={onCustomerCreated}
+              createType="MARKETER"
+            />
+          )}
         </div>
-        <div className="form-row"><label htmlFor="so-rep">{channel === 'POS' ? 'Cashier' : 'Sales rep'}</label><input id="so-rep" value={rep} onChange={e => setRep(e.target.value)} required autoFocus /></div>
+        <div className="form-row">
+          <label htmlFor="so-rep">{channel === 'POS' ? 'Cashier' : 'Sales rep'}</label>
+          <input
+            id="so-rep" value={rep} onChange={e => setRep(e.target.value)} required autoFocus
+            list="so-rep-options" placeholder="Type a name — reused names appear as you go"
+            autoComplete="off"
+          />
+          <datalist id="so-rep-options">
+            {repOptions.map(r => <option key={r} value={r} />)}
+          </datalist>
+        </div>
         {isDistributor && (
           <div className="form-row">
             <label htmlFor="so-terms">Payment terms</label>
@@ -426,8 +473,9 @@ function NewOrder({ channel, customers, items, initialItemId, preferCustomerType
         )}
         {channel === 'INVOICE' && (
           <div className="form-row">
-            <label htmlFor="so-manual-invoice">Manual invoice number</label>
-            <input id="so-manual-invoice" value={manualInvoiceNumber} onChange={e => setManualInvoiceNumber(e.target.value)} placeholder="Paper invoice book reference" />
+            <label htmlFor="so-manual-invoice">Invoice number</label>
+            <input id="so-manual-invoice" value={manualInvoiceNumber} onChange={e => setManualInvoiceNumber(e.target.value)} placeholder="Generating…" />
+            <p className="sub" style={{ fontSize: 11, marginTop: 2 }}>Generated automatically — change only to match a paper invoice book.</p>
           </div>
         )}
       </div>

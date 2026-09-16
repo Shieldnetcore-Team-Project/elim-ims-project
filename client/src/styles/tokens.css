@@ -14,19 +14,19 @@
   --shadow-pop:0 12px 32px -8px rgb(10 37 64/.18);
 }
 html.dark{
-  --ink-900:226 236 243; --ink-800:205 219 231; --ink-700:178 196 212;
-  --aqua-700:125 211 232; --aqua-500:45 184 214; --aqua-300:22 118 143; --aqua-100:12 51 66;
+  --ink-900:237 242 247; --ink-800:203 213 225; --ink-700:148 163 184;
+  --aqua-700:29 99 237; --aqua-500:59 130 246; --aqua-300:96 165 250; --aqua-100:15 33 66;
   --mineral:214 189 116;
-  --surface:7 22 36; --card:14 35 52; --raised:22 48 74; --line:30 58 82; --muted:126 149 171;
-  --rail:4 15 26; --rail-hover:18 42 62; --rail-text:226 236 243; --rail-dim:126 149 171;
-  --ok:74 222 128; --ok-soft:18 50 31;
-  --wait:251 191 36; --wait-soft:58 42 8;
-  --stop:248 113 113; --stop-soft:58 21 21;
-  --live:56 189 248; --live-soft:12 42 56;
-  --chart-1:45 184 214; --chart-2:148 170 190; --chart-3:214 189 116;
-  --shadow-card:0 1px 2px 0 rgb(0 0 0/.3);
-  --shadow-raised:0 4px 14px -2px rgb(0 0 0/.45);
-  --shadow-pop:0 16px 40px -10px rgb(0 0 0/.6);
+  --surface:13 17 23; --card:22 27 34; --raised:30 36 45; --line:45 51 61; --muted:139 148 158;
+  --rail:8 11 15; --rail-hover:22 27 34; --rail-text:237 242 247; --rail-dim:110 118 129;
+  --ok:63 185 80; --ok-soft:15 35 20;
+  --wait:219 154 44; --wait-soft:45 33 10;
+  --stop:229 83 75; --stop-soft:45 15 15;
+  --live:59 130 246; --live-soft:12 26 46;
+  --chart-1:59 130 246; --chart-2:148 163 184; --chart-3:214 189 116;
+  --shadow-card:0 1px 2px 0 rgb(0 0 0/.4);
+  --shadow-raised:0 4px 14px -2px rgb(0 0 0/.5);
+  --shadow-pop:0 16px 40px -10px rgb(0 0 0/.7);
 }
 html{color-scheme:light;-webkit-text-size-adjust:100%}
 html.dark{color-scheme:dark}

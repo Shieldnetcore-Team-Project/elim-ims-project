@@ -51,6 +51,37 @@ export async function requirePageAccess(userId: string | undefined, pageKey: str
   }
 }
 
+/** Purchase order approval is Super-Admin-only — unlike requirePageAccess above,
+ *  there's no capability grant that can extend this to anyone else. Returns the
+ *  resolved user so the caller can use their real name as the record's actor. */
+export async function requireSuperAdmin(userId: string | undefined, actionLabel: string): Promise<{ id: string; name: string; role: string }> {
+  const user = userId ? await getUser(userId) : undefined;
+  if (!user || !isSuperAdminRole(user.role)) {
+    throw new Error(`Only a System admin can ${actionLabel}`);
+  }
+  return user;
+}
+
+/** Dual-control gate satisfied three ways, in order: System admin; a role in
+ *  `fallbackRoles` (the legacy hard-coded check — kept so existing setups don't
+ *  break); or an explicit capability grant (a user_page_access row with a key
+ *  that has no nav item — the Admin Panel's "Approvals & reversals" section
+ *  manages these). Lets an admin hand one person an approval/reversal right
+ *  without renaming their role. Returns the resolved user so the caller can use
+ *  their real name as the `actor` on the record. */
+export async function requireApproval(
+  userId: string | undefined,
+  capabilityKey: string,
+  fallbackRoles: string[],
+  actionLabel: string,
+): Promise<{ id: string; name: string; role: string }> {
+  const user = userId ? await getUser(userId) : undefined;
+  if (user && (isSuperAdminRole(user.role) || fallbackRoles.includes(user.role))) return user;
+  if (user && (await getAccess(user.id)).includes(capabilityKey)) return user;
+  const who = fallbackRoles.length > 0 ? `a ${fallbackRoles.join(' / ')}, ` : '';
+  throw new Error(`Only ${who}a System admin, or someone granted "${actionLabel}" can do this`);
+}
+
 export async function setAccess(userId: string, pageKeys: string[], actor: string): Promise<string[]> {
   await db.prepare('DELETE FROM user_page_access WHERE user_id = ?').run(userId);
   const insert = db.prepare('INSERT INTO user_page_access (user_id, page_key) VALUES (?,?)');

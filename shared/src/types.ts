@@ -12,10 +12,11 @@ export type Tone = 'ok' | 'wait' | 'stop' | 'live';
 export const STATUS_TONE: Record<string, Tone> = {
   DELIVERED: 'ok', PAID: 'ok', APPROVED: 'ok', COMPLETED: 'ok', PASS: 'ok',
   IN_STOCK: 'ok', RESOLVED: 'ok', ACTIVE: 'ok', CLEARED: 'ok', ACCEPTED: 'ok', RETURNED: 'ok',
-  IN_TRANSIT: 'live', RUNNING: 'live', IN_PROGRESS: 'live', ONLINE: 'live', PROCESSING: 'live', DISPATCHED: 'live',
+  IN_TRANSIT: 'live', RUNNING: 'live', IN_PROGRESS: 'live', ONLINE: 'live', PROCESSING: 'live', DISPATCHED: 'live', ORDERED: 'live',
   PENDING: 'wait', ON_HOLD: 'wait', SCHEDULED: 'wait', DRAFT: 'wait', OPEN: 'wait', READY: 'wait',
   LOW_STOCK: 'wait', INVITED: 'wait', AWAITING_APPROVAL: 'wait', PENDING_APPROVAL: 'wait',
   PENDING_INSPECTION: 'wait', PARTIALLY_ACCEPTED: 'wait', PENDING_VERIFICATION: 'wait', VERIFIED: 'ok', RECONCILED: 'ok',
+  SENT: 'wait', CONFIRMED: 'ok',
   DUE_SOON: 'wait', NO_DUE_DATE: 'wait', ON_TRACK: 'ok',
   PENDING_RETURN: 'wait', BALANCED: 'ok',
   CREDIT: 'wait', PARTIALLY_PAID: 'wait', FULLY_PAID: 'ok',

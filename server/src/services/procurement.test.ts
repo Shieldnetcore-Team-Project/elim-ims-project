@@ -9,7 +9,6 @@ beforeAll(async () => { await ensureMigrated(); });
 async function makeApprover() {
   const id = uniqueId('TST-USR-');
   await db.prepare(`INSERT INTO users (id, name, role, status) VALUES (?,?,?,'ACTIVE')`).run(id, 'Test Approver', 'Procurement');
-  await db.prepare(`INSERT INTO user_page_access (user_id, page_key) VALUES (?, 'procurement-approve')`).run(id);
   return id;
 }
 
@@ -51,7 +50,7 @@ describe('procurement approval self-check + configurable categories', () => {
   it('carries requested_by_user_id through so the approval route can block self-approval', async () => {
     const itemId = await makeItem({ type: 'RAW_MATERIAL' });
     const supplierId = await makeSupplier();
-    const officerId = await makeApprover(); // also grant 'procurement-approve' so the capability check alone wouldn't have blocked them
+    const officerId = await makeApprover();
     const po = await procurement.createPurchaseOrder({
       supplierId, requestedBy: 'Test Officer', requestedByUserId: officerId, items: [{ itemId, quantity: 10, unitPrice: 20 }],
     });

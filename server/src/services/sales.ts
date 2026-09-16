@@ -17,6 +17,7 @@ export interface SalesOrder {
   id: string; customer_id: string | null; channel: 'INVOICE' | 'POS'; rep: string | null;
   status: string; payment_terms: PaymentTerms; approved_by: string | null; approved_at: string | null;
   total_amount: number; created_at: string; branch_id: string | null; manual_invoice_number: string | null;
+  walk_in_name: string | null;
 }
 export interface SalesItem { id: number; sales_id: string; item_id: string; quantity: number; unit_price: number; line_total: number }
 export interface SalesPayment { id: number; sales_id: string; method: PosPaymentMethod; amount: number }
@@ -70,13 +71,14 @@ export type PosPaymentMethod = 'Cash' | 'Transfer' | 'POS Terminal';
 export async function createOrder(params: {
   customerId?: string; channel: 'INVOICE' | 'POS'; rep: string; paymentTerms?: PaymentTerms;
   items: { itemId: string; quantity: number; unitPrice: number }[]; actor?: string;
-  branchId?: string; manualInvoiceNumber?: string; payments?: { method: PosPaymentMethod; amount: number }[];
+  branchId?: string; manualInvoiceNumber?: string; walkInName?: string;
+  payments?: { method: PosPaymentMethod; amount: number }[];
 }): Promise<SalesOrder> {
-  // Every Retail sale needs a real customer record now — the one hard rule
-  // the spec states outright rather than leaving to caller discretion.
-  if (params.channel === 'POS' && !params.customerId) {
-    throw new Error('A customer is required for every retail sale');
-  }
+  // A Retail (POS) sale can be an anonymous walk-in: no customer_id needed, and
+  // the walk-in's name (if the cashier captured one) is kept free-text in
+  // walk_in_name. Named repeat retail customers still get a profile via the
+  // Customers tab; that just isn't a precondition for ringing up a sale.
+  const walkInName = params.channel === 'POS' ? (params.walkInName?.trim() || null) : null;
   const customerType: CustomerType = params.customerId ? ((await getCustomer(params.customerId))?.customer_type ?? 'RETAIL') : 'RETAIL';
   // Retail POS is always cash, regardless of what's sent — the one hard rule
   // the spec states outright rather than leaving to caller discretion.
@@ -126,8 +128,8 @@ export async function createOrder(params: {
     }
   }
 
-  await db.prepare('INSERT INTO sales (id, customer_id, channel, rep, status, payment_terms, total_amount, branch_id, manual_invoice_number) VALUES (?,?,?,?,?,?,?,?,?)')
-    .run(id, params.customerId ?? null, params.channel, params.rep, status, paymentTerms, total, params.branchId ?? null, params.manualInvoiceNumber ?? null);
+  await db.prepare('INSERT INTO sales (id, customer_id, channel, rep, status, payment_terms, total_amount, branch_id, manual_invoice_number, walk_in_name) VALUES (?,?,?,?,?,?,?,?,?,?)')
+    .run(id, params.customerId ?? null, params.channel, params.rep, status, paymentTerms, total, params.branchId ?? null, params.manualInvoiceNumber ?? null, walkInName);
 
   const insertItem = db.prepare('INSERT INTO sales_items (sales_id, item_id, quantity, unit_price, line_total) VALUES (?,?,?,?,?)');
   for (const it of params.items) await insertItem.run(id, it.itemId, it.quantity, it.unitPrice, it.quantity * it.unitPrice);
@@ -169,13 +171,13 @@ export async function createOrder(params: {
     if (params.payments) {
       for (const p of params.payments) {
         await finance.recordReceipt({
-          receivedFrom: params.customerId ?? 'Walk-in customer', amount: p.amount, method: p.method,
+          receivedFrom: params.customerId ?? walkInName ?? 'Walk-in customer', amount: p.amount, method: p.method,
           referenceType: 'sales', referenceId: id, actor,
         });
       }
     } else {
       await finance.recordReceipt({
-        receivedFrom: params.customerId ?? 'Walk-in customer', amount: total,
+        receivedFrom: params.customerId ?? walkInName ?? 'Walk-in customer', amount: total,
         method: params.channel === 'POS' ? 'Cash' : paymentTerms === 'ADVANCE' ? 'Advance payment' : 'Cash',
         referenceType: 'sales', referenceId: id, actor,
       });
@@ -264,7 +266,7 @@ export async function reverseOrder(salesId: string, params: { reason: string; ac
 
 export async function pendingCreditApproval() {
   return await db.prepare(`
-    SELECT s.*, COALESCE(c.name, 'Walk-in customer') AS customer_name, c.location AS customer_location
+    SELECT s.*, COALESCE(c.name, NULLIF(s.walk_in_name, ''), 'Walk-in customer') AS customer_name, c.location AS customer_location
     FROM sales s LEFT JOIN customers c ON c.id = s.customer_id
     WHERE s.status = 'AWAITING_APPROVAL'
     ORDER BY s.id DESC
@@ -292,8 +294,34 @@ export async function listPaymentsFor(salesId: string): Promise<SalesPayment[]> 
 export async function listOrders(channel?: 'INVOICE' | 'POS') {
   // LEFT JOIN: a Retail walk-in sale has no customer_id — an INNER JOIN would
   // silently drop it from every listing.
-  const base = `SELECT s.*, COALESCE(c.name, 'Walk-in customer') AS customer_name, c.location AS customer_location, c.customer_type
+  const base = `SELECT s.*, COALESCE(c.name, NULLIF(s.walk_in_name, ''), 'Walk-in customer') AS customer_name, c.location AS customer_location, c.customer_type
     FROM sales s LEFT JOIN customers c ON c.id = s.customer_id`;
   if (channel) return await db.prepare(`${base} WHERE s.channel = ? ORDER BY s.id DESC`).all(channel);
   return await db.prepare(`${base} ORDER BY s.id DESC`).all();
+}
+
+/** Distinct sales-rep / cashier names already used on an order — powers the
+ *  type-ahead on the New order form so a name entered once can be reused. */
+export async function listReps(): Promise<string[]> {
+  const rows = await db.prepare(
+    `SELECT DISTINCT TRIM(rep) AS rep FROM sales WHERE rep IS NOT NULL AND TRIM(rep) <> '' ORDER BY rep`,
+  ).all() as { rep: string }[];
+  return rows.map(r => r.rep);
+}
+
+/** Next auto invoice number (INV-<year>-NNNNN) for the New sales order form —
+ *  a running series kept in sales.manual_invoice_number, separate from the
+ *  internal order id. Peek only (never consumed), and the field stays editable
+ *  so a paper invoice-book reference can still override it. */
+export async function nextInvoiceNumber(): Promise<string> {
+  const prefix = `INV-${new Date().getUTCFullYear()}-`;
+  const row = await db.prepare(
+    `SELECT manual_invoice_number AS n FROM sales WHERE manual_invoice_number LIKE ? ORDER BY manual_invoice_number DESC LIMIT 1`,
+  ).get(prefix + '%') as { n: string } | undefined;
+  let next = 1;
+  if (row?.n) {
+    const parsed = parseInt(row.n.slice(prefix.length), 10);
+    if (!Number.isNaN(parsed)) next = parsed + 1;
+  }
+  return prefix + String(next).padStart(5, '0');
 }

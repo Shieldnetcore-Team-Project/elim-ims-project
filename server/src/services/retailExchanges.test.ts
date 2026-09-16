@@ -10,7 +10,8 @@ beforeAll(async () => { await ensureMigrated(); });
 async function seedRetailSale(quantity: number, unitPrice: number) {
   const itemId = await makeItem({ type: 'FINISHED_GOOD' });
   await inventory.adjustStock(itemId, 1000, 'seed for test');
-  await retailStock.postIntake({ issuedBy: 'Test Warehouse', items: [{ itemId, quantity: 1000, unitCost: 100 }] });
+  const rti = await retailStock.dispatchToRetail({ issuedBy: 'Test Warehouse', items: [{ itemId, quantity: 1000, unitCost: 100 }] });
+  await retailStock.confirmIntake(rti.id, { confirmedBy: 'Test Retail' });
   const customerId = uniqueId('TST-RTL-');
   await sales.createCustomer({ id: customerId, name: 'Test Walk-in', location: null, phone: null, customer_type: 'RETAIL' });
   const order = await sales.createOrder({

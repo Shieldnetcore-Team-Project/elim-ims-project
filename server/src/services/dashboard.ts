@@ -139,7 +139,7 @@ export async function profitLoss(days: number): Promise<ProfitLossPoint[]> {
  *  the route can run them through deletionRequests.filterDeleted before trimming to a top N. */
 export async function lowStockAlertRows(): Promise<LowStockAlert[]> {
   return await db.prepare(`
-    SELECT i.id, i.name, i.uom, i.reorder_point AS reorderPoint, COALESCE(b.on_hand, 0) AS onHand
+    SELECT i.id, i.name, i.uom, i.reorder_point AS "reorderPoint", COALESCE(b.on_hand, 0) AS "onHand"
     FROM items i LEFT JOIN inventory_balances b ON b.item_id = i.id
     WHERE COALESCE(b.on_hand, 0) <= i.reorder_point
     ORDER BY (COALESCE(b.on_hand, 0) - i.reorder_point) ASC
@@ -150,21 +150,21 @@ export async function lowStockAlertRows(): Promise<LowStockAlert[]> {
  *  route can filter out deleted items before aggregating into counts. */
 export async function stockStatusRows(): Promise<(LowStockAlert & { id: string })[]> {
   return await db.prepare(`
-    SELECT i.id, i.name, i.uom, i.reorder_point AS reorderPoint, COALESCE(b.on_hand, 0) AS onHand
+    SELECT i.id, i.name, i.uom, i.reorder_point AS "reorderPoint", COALESCE(b.on_hand, 0) AS "onHand"
     FROM items i LEFT JOIN inventory_balances b ON b.item_id = i.id
   `).all() as unknown as (LowStockAlert & { id: string })[];
 }
 
 export async function topProducts(limit = 5): Promise<TopProduct[]> {
   const recent = await db.prepare(`
-    SELECT i.id, i.name, SUM(si.quantity) AS unitsSold
+    SELECT i.id, i.name, SUM(si.quantity) AS "unitsSold"
     FROM sales_items si JOIN items i ON i.id = si.item_id JOIN sales s ON s.id = si.sales_id
-    WHERE s.created_at >= ? GROUP BY i.id ORDER BY unitsSold DESC LIMIT ?
+    WHERE s.created_at >= ? GROUP BY i.id ORDER BY "unitsSold" DESC LIMIT ?
   `).all(isoCutoff(30), limit) as unknown as TopProduct[];
   if (recent.length > 0) return recent;
   return await db.prepare(`
-    SELECT i.id, i.name, SUM(si.quantity) AS unitsSold
-    FROM sales_items si JOIN items i ON i.id = si.item_id GROUP BY i.id ORDER BY unitsSold DESC LIMIT ?
+    SELECT i.id, i.name, SUM(si.quantity) AS "unitsSold"
+    FROM sales_items si JOIN items i ON i.id = si.item_id GROUP BY i.id ORDER BY "unitsSold" DESC LIMIT ?
   `).all(limit) as unknown as TopProduct[];
 }
 
