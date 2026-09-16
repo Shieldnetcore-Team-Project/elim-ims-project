@@ -7,7 +7,9 @@ import { PendingTab } from "@/components/admin/pending-tab";
 import { PermissionsTab } from "@/components/admin/permissions-tab";
 import { FactoryTab } from "@/components/admin/factory-tab";
 import { AuthUsersTab } from "@/components/admin/auth-users-tab";
+import { DeleteRequestsTab } from "@/components/admin/delete-requests-tab";
 import { AuditLogsPage } from "./_app.audit-logs";
+import { useIsSuperAdmin } from "@/lib/permissions";
 
 export const Route = createFileRoute("/_app/admin")({
   head: () => ({
@@ -22,6 +24,7 @@ export const Route = createFileRoute("/_app/admin")({
 
 function AdminPanelPage() {
   const [tab, setTab] = useState("users");
+  const isSuperAdmin = useIsSuperAdmin();
 
   return (
     <div className="space-y-6">
@@ -35,6 +38,9 @@ function AdminPanelPage() {
           <TabsList className="w-max">
             <TabsTrigger value="users">Users</TabsTrigger>
             <TabsTrigger value="pending">Pending</TabsTrigger>
+            {isSuperAdmin.data && (
+              <TabsTrigger value="delete-requests">Delete Requests</TabsTrigger>
+            )}
             <TabsTrigger value="permissions">Permissions</TabsTrigger>
             <TabsTrigger value="audit-log">Audit Log</TabsTrigger>
             <TabsTrigger value="factory">Factory</TabsTrigger>
@@ -48,6 +54,11 @@ function AdminPanelPage() {
         <TabsContent value="pending">
           <PendingTab />
         </TabsContent>
+        {isSuperAdmin.data && (
+          <TabsContent value="delete-requests">
+            <DeleteRequestsTab />
+          </TabsContent>
+        )}
         <TabsContent value="permissions">
           <PermissionsTab />
         </TabsContent>

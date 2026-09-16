@@ -34,19 +34,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { money } from "@/lib/format";
+import { requestDelete } from "@/lib/request-delete";
+import { RequestDeleteDialog } from "@/components/shared/request-delete-dialog";
 import { toast } from "sonner";
 import {
   Plus,
@@ -182,6 +173,8 @@ function ExpensesPage() {
   const [defaultEntryType, setDefaultEntryType] = useState<EntryType>("cash_out");
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   const [editingCashIn, setEditingCashIn] = useState<CashIn | null>(null);
+  const [deleteExpenseTarget, setDeleteExpenseTarget] = useState<Expense | null>(null);
+  const [deleteCashInTarget, setDeleteCashInTarget] = useState<CashIn | null>(null);
   const [range, setRange] = useState<RangeKey>("month");
   const [q, setQ] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
@@ -380,42 +373,24 @@ function ExpensesPage() {
   };
 
   const del = useMutation({
-    mutationFn: async (e: Expense) => {
-      if (e.attachment_url)
-        await supabase.storage.from("expense-attachments").remove([e.attachment_url]);
-      const { error } = await supabase.from("expenses").delete().eq("id", e.id);
-      if (error) throw error;
-      return e;
+    mutationFn: async ({ expense, reason }: { expense: Expense; reason: string }) => {
+      await requestDelete("expenses", expense.id, reason);
     },
-    onSuccess: (e) => {
-      toast.success("Expense deleted");
-      logAudit({
-        action: "delete",
-        entity: "expenses",
-        entityId: e.id,
-        factoryId,
-        oldValue: { amount: e.amount, description: e.description },
-      });
+    onSuccess: () => {
+      toast.success("Deletion requested — pending admin approval");
+      setDeleteExpenseTarget(null);
       invalidateAll();
     },
     onError: (e: Error) => toast.error(e.message),
   });
 
   const delCashIn = useMutation({
-    mutationFn: async (c: CashIn) => {
-      const { error } = await supabase.from("cash_transactions").delete().eq("id", c.id);
-      if (error) throw error;
-      return c;
+    mutationFn: async ({ cashIn, reason }: { cashIn: CashIn; reason: string }) => {
+      await requestDelete("cash_transactions", cashIn.id, reason);
     },
-    onSuccess: (c) => {
-      toast.success("Cash-in entry deleted");
-      logAudit({
-        action: "delete",
-        entity: "cash_transactions",
-        entityId: c.id,
-        factoryId,
-        oldValue: { amount: c.amount, description: c.description },
-      });
+    onSuccess: () => {
+      toast.success("Deletion requested — pending admin approval");
+      setDeleteCashInTarget(null);
       invalidateAll();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -793,28 +768,14 @@ function ExpensesPage() {
                             >
                               <Pencil className="h-4 w-4" />
                             </Button>
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button variant="ghost" size="icon" title="Delete">
-                                  <Trash2 className="h-4 w-4 text-destructive" />
-                                </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>Delete this expense?</AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                    This permanently removes the record
-                                    {e.attachment_url ? " and its attachment" : ""}.
-                                  </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                  <AlertDialogAction onClick={() => del.mutate(e)}>
-                                    Delete
-                                  </AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title="Delete"
+                              onClick={() => setDeleteExpenseTarget(e)}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
                           </>
                         )}
                         {c && canEditCashIn && (
@@ -831,27 +792,14 @@ function ExpensesPage() {
                             >
                               <Pencil className="h-4 w-4" />
                             </Button>
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button variant="ghost" size="icon" title="Delete">
-                                  <Trash2 className="h-4 w-4 text-destructive" />
-                                </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>Delete this cash-in entry?</AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                    This permanently removes the record.
-                                  </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                  <AlertDialogAction onClick={() => delCashIn.mutate(c)}>
-                                    Delete
-                                  </AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title="Delete"
+                              onClick={() => setDeleteCashInTarget(c)}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
                           </>
                         )}
                       </div>
@@ -929,6 +877,33 @@ function ExpensesPage() {
           />
         )}
       </Dialog>
+
+      <RequestDeleteDialog
+        open={!!deleteExpenseTarget}
+        onOpenChange={(v) => !v && setDeleteExpenseTarget(null)}
+        isPending={del.isPending}
+        title={
+          deleteExpenseTarget
+            ? `Request deletion — ${deleteExpenseTarget.description ?? "Expense"}`
+            : "Request deletion"
+        }
+        onConfirm={(reason) =>
+          deleteExpenseTarget && del.mutate({ expense: deleteExpenseTarget, reason })
+        }
+      />
+      <RequestDeleteDialog
+        open={!!deleteCashInTarget}
+        onOpenChange={(v) => !v && setDeleteCashInTarget(null)}
+        isPending={delCashIn.isPending}
+        title={
+          deleteCashInTarget
+            ? `Request deletion — ${deleteCashInTarget.description ?? "Cash-in entry"}`
+            : "Request deletion"
+        }
+        onConfirm={(reason) =>
+          deleteCashInTarget && delCashIn.mutate({ cashIn: deleteCashInTarget, reason })
+        }
+      />
     </div>
   );
 }

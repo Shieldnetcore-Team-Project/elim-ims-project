@@ -586,6 +586,65 @@ export type Database = {
           },
         ]
       }
+      delete_requests: {
+        Row: {
+          entity_id: string
+          entity_label: string
+          factory_id: string | null
+          id: string
+          module: string
+          payload: Json | null
+          reason: string
+          requested_at: string
+          requested_by: string
+          review_reason: string | null
+          review_status: string
+          reviewed_at: string | null
+          reviewed_by: string | null
+          table_name: string
+        }
+        Insert: {
+          entity_id: string
+          entity_label: string
+          factory_id?: string | null
+          id?: string
+          module: string
+          payload?: Json | null
+          reason: string
+          requested_at?: string
+          requested_by: string
+          review_reason?: string | null
+          review_status?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          table_name: string
+        }
+        Update: {
+          entity_id?: string
+          entity_label?: string
+          factory_id?: string | null
+          id?: string
+          module?: string
+          payload?: Json | null
+          reason?: string
+          requested_at?: string
+          requested_by?: string
+          review_reason?: string | null
+          review_status?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          table_name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "delete_requests_factory_id_fkey"
+            columns: ["factory_id"]
+            isOneToOne: false
+            referencedRelation: "factories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       deliveries: {
         Row: {
           created_at: string
@@ -3844,6 +3903,10 @@ export type Database = {
         Args: { p_comment?: string; p_debt_id: string }
         Returns: Json
       }
+      approve_delete: {
+        Args: { p_id: string }
+        Returns: Json
+      }
       approve_expense: {
         Args: { p_comment?: string; p_id: string }
         Returns: Json
@@ -3985,6 +4048,20 @@ export type Database = {
           module: unknown
         }[]
       }
+      get_stock_movement_summary: {
+        Args: { p_end: string; p_factory_id: string; p_start: string }
+        Returns: {
+          closing_stock: number
+          damages: number
+          new_production: number
+          opening_stock: number
+          pr: number
+          product_id: string
+          product_name: string
+          quantity_sold: number
+          unit: string
+        }[]
+      }
       has_permission:
         | {
             Args: { _action?: unknown; _module: unknown; _user_id: string }
@@ -4061,6 +4138,10 @@ export type Database = {
         Args: { p_debt_id: string; p_reason?: string }
         Returns: Json
       }
+      reject_delete: {
+        Args: { p_id: string; p_reason?: string }
+        Returns: Json
+      }
       reject_expense: {
         Args: { p_id: string; p_reason?: string }
         Returns: Json
@@ -4115,6 +4196,10 @@ export type Database = {
       }
       request_debt_writeoff: {
         Args: { p_debt_id: string; p_reason?: string }
+        Returns: Json
+      }
+      request_delete: {
+        Args: { p_entity_id: string; p_reason: string; p_table_name: string }
         Returns: Json
       }
       request_new_material: { Args: { payload: Json }; Returns: Json }

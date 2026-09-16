@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { RequireAccess } from "@/components/layout/require-access";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useFactoryId } from "@/lib/use-factory";
@@ -37,6 +37,15 @@ import { Plus, Eye, Ban, Undo2, Loader2 } from "lucide-react";
 import { num } from "@/lib/format";
 import { toast } from "sonner";
 import { logAudit } from "@/lib/audit";
+import {
+  startOfDay,
+  endOfDay,
+  subDays,
+  startOfWeek,
+  startOfMonth,
+  startOfYear,
+  format,
+} from "date-fns";
 
 export const Route = createFileRoute("/_app/sales-returns")({
   head: () => ({
@@ -81,6 +90,48 @@ const statusBadge = (s: string): "default" | "secondary" | "outline" | "destruct
   return "outline";
 };
 
+type StockRow = {
+  product_id: string;
+  product_name: string;
+  unit: string;
+  opening_stock: number;
+  new_production: number;
+  quantity_sold: number;
+  pr: number;
+  damages: number;
+  closing_stock: number;
+};
+
+type RangeKey = "today" | "yesterday" | "weekly" | "monthly" | "yearly" | "custom";
+const RANGES: { key: RangeKey; label: string }[] = [
+  { key: "today", label: "Today" },
+  { key: "yesterday", label: "Yesterday" },
+  { key: "weekly", label: "This Week" },
+  { key: "monthly", label: "This Month" },
+  { key: "yearly", label: "This Year" },
+  { key: "custom", label: "Custom Date" },
+];
+
+function rangeBounds(key: RangeKey, from: string, to: string): { start: string; end: string } {
+  const now = new Date();
+  if (key === "yesterday") {
+    const y = subDays(now, 1);
+    return { start: startOfDay(y).toISOString(), end: endOfDay(y).toISOString() };
+  }
+  if (key === "weekly")
+    return { start: startOfWeek(now).toISOString(), end: endOfDay(now).toISOString() };
+  if (key === "monthly")
+    return { start: startOfMonth(now).toISOString(), end: endOfDay(now).toISOString() };
+  if (key === "yearly")
+    return { start: startOfYear(now).toISOString(), end: endOfDay(now).toISOString() };
+  if (key === "custom")
+    return {
+      start: from ? new Date(from).toISOString() : startOfDay(now).toISOString(),
+      end: to ? new Date(to + "T23:59:59").toISOString() : endOfDay(now).toISOString(),
+    };
+  return { start: startOfDay(now).toISOString(), end: endOfDay(now).toISOString() };
+}
+
 function SalesReturnsPage() {
   const { data: factoryId } = useFactoryId();
   const { canSubmit, canConfirm, canCancel } = usePermissions();
@@ -92,6 +143,13 @@ function SalesReturnsPage() {
   const [inspectTarget, setInspectTarget] = useState<ReturnRow | null>(null);
   const [detailTarget, setDetailTarget] = useState<ReturnRow | null>(null);
   const [cancelTarget, setCancelTarget] = useState<ReturnRow | null>(null);
+  const [stockRange, setStockRange] = useState<RangeKey>("today");
+  const [stockFrom, setStockFrom] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [stockTo, setStockTo] = useState(format(new Date(), "yyyy-MM-dd"));
+  const stockBounds = useMemo(
+    () => rangeBounds(stockRange, stockFrom, stockTo),
+    [stockRange, stockFrom, stockTo],
+  );
 
   const currentUser = useQuery({
     queryKey: ["current-user-id"],
@@ -160,10 +218,25 @@ function SalesReturnsPage() {
     },
   });
 
+  const stockSummary = useQuery({
+    queryKey: ["stock-movement-summary", factoryId, stockBounds.start, stockBounds.end],
+    enabled: !!factoryId,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("get_stock_movement_summary", {
+        p_factory_id: factoryId!,
+        p_start: stockBounds.start,
+        p_end: stockBounds.end,
+      });
+      if (error) throw error;
+      return (data ?? []) as StockRow[];
+    },
+  });
+
   const invalidateAll = () => {
     qc.invalidateQueries({ queryKey: ["sales-returns-list"] });
     qc.invalidateQueries({ queryKey: ["finished-goods"] });
     qc.invalidateQueries({ queryKey: ["products-for-returns"] });
+    qc.invalidateQueries({ queryKey: ["stock-movement-summary"] });
   };
 
   return (
@@ -182,6 +255,89 @@ function SalesReturnsPage() {
           </Button>
         )}
       </div>
+
+      <Card className="rounded-2xl">
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
+          <CardTitle>Stock Movement Summary</CardTitle>
+          <div className="flex flex-wrap items-center gap-2">
+            <Select value={stockRange} onValueChange={(v) => setStockRange(v as RangeKey)}>
+              <SelectTrigger className="w-[150px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {RANGES.map((r) => (
+                  <SelectItem key={r.key} value={r.key}>
+                    {r.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {stockRange === "custom" && (
+              <>
+                <Input
+                  type="date"
+                  className="w-[150px]"
+                  value={stockFrom}
+                  onChange={(e) => setStockFrom(e.target.value)}
+                />
+                <Input
+                  type="date"
+                  className="w-[150px]"
+                  value={stockTo}
+                  onChange={(e) => setStockTo(e.target.value)}
+                />
+              </>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Product</TableHead>
+                <TableHead className="text-right">Opening Stock</TableHead>
+                <TableHead className="text-right">New Production</TableHead>
+                <TableHead className="text-right">Quantity Sold</TableHead>
+                <TableHead className="text-right">PR</TableHead>
+                <TableHead className="text-right">Damages</TableHead>
+                <TableHead className="text-right">Closing Stock</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {(stockSummary.data ?? []).map((r) => (
+                <TableRow key={r.product_id}>
+                  <TableCell className="font-medium">{r.product_name}</TableCell>
+                  <TableCell className="text-right">
+                    {num(r.opening_stock)} {r.unit}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {num(r.new_production)} {r.unit}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {num(r.quantity_sold)} {r.unit}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {num(r.pr)} {r.unit}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {num(r.damages)} {r.unit}
+                  </TableCell>
+                  <TableCell className="text-right font-medium">
+                    {num(r.closing_stock)} {r.unit}
+                  </TableCell>
+                </TableRow>
+              ))}
+              {(stockSummary.data ?? []).length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                    No active products for this factory.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
 
       <Card className="rounded-2xl">
         <CardHeader>

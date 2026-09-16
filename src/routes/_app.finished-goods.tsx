@@ -37,6 +37,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { money, num } from "@/lib/format";
 import { toast } from "sonner";
+import { requestDelete } from "@/lib/request-delete";
+import { RequestDeleteDialog } from "@/components/shared/request-delete-dialog";
 import {
   SlidersHorizontal,
   PackageX,
@@ -1474,6 +1476,7 @@ function PackagingDialog({
   const qc = useQueryClient();
   const [packagingUnit, setPackagingUnit] = useState("");
   const [conversionFactor, setConversionFactor] = useState<number | "">("");
+  const [deleteTarget, setDeleteTarget] = useState<ProductUnitRow | null>(null);
 
   const rules = useQuery({
     queryKey: ["product-units", product.id],
@@ -1525,12 +1528,12 @@ function PackagingDialog({
   });
 
   const remove = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from("product_units").delete().eq("id", id);
-      if (error) throw error;
+    mutationFn: async ({ id, reason }: { id: string; reason: string }) => {
+      await requestDelete("product_units", id, reason);
     },
     onSuccess: () => {
-      toast.success("Packaging rule removed");
+      toast.success("Deletion requested — pending admin approval");
+      setDeleteTarget(null);
       invalidate();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -1574,7 +1577,7 @@ function PackagingDialog({
                       <Button variant="ghost" size="sm" onClick={() => toggleActive.mutate(r)}>
                         {r.active ? "Deactivate" : "Activate"}
                       </Button>
-                      <Button variant="ghost" size="icon" onClick={() => remove.mutate(r.id)}>
+                      <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(r)}>
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
                     </div>
@@ -1633,6 +1636,16 @@ function PackagingDialog({
           Close
         </Button>
       </DialogFooter>
+
+      <RequestDeleteDialog
+        open={!!deleteTarget}
+        onOpenChange={(v) => !v && setDeleteTarget(null)}
+        isPending={remove.isPending}
+        title={
+          deleteTarget ? `Request deletion — ${deleteTarget.packaging_unit}` : "Request deletion"
+        }
+        onConfirm={(reason) => deleteTarget && remove.mutate({ id: deleteTarget.id, reason })}
+      />
     </DialogContent>
   );
 }

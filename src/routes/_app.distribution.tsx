@@ -41,6 +41,8 @@ import { money, num } from "@/lib/format";
 import { exportCsv } from "@/lib/export";
 import { toast } from "sonner";
 import { logAudit } from "@/lib/audit";
+import { requestDelete } from "@/lib/request-delete";
+import { RequestDeleteDialog } from "@/components/shared/request-delete-dialog";
 
 export const Route = createFileRoute("/_app/distribution")({
   head: () => ({
@@ -264,6 +266,7 @@ function RepsTab({ factoryId, reps, perms }: { factoryId: string; reps: Rep[]; p
   const qc = useQueryClient();
   const [editing, setEditing] = useState<Rep | null>(null);
   const [open, setOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Rep | null>(null);
   const canCreate = perms.canCreate("distribution");
   const canEdit = perms.canEdit("distribution");
   const canDelete = perms.canDelete("distribution");
@@ -271,12 +274,12 @@ function RepsTab({ factoryId, reps, perms }: { factoryId: string; reps: Rep[]; p
   const refresh = () => qc.invalidateQueries({ queryKey: ["dist-reps"] });
 
   const del = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from("sales_reps").delete().eq("id", id);
-      if (error) throw error;
+    mutationFn: async ({ id, reason }: { id: string; reason: string }) => {
+      await requestDelete("sales_reps", id, reason);
     },
     onSuccess: () => {
-      toast.success("Rep removed");
+      toast.success("Deletion requested — pending admin approval");
+      setDeleteTarget(null);
       refresh();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -341,7 +344,7 @@ function RepsTab({ factoryId, reps, perms }: { factoryId: string; reps: Rep[]; p
                         variant="ghost"
                         size="icon"
                         title="Delete"
-                        onClick={() => del.mutate(r.id)}
+                        onClick={() => setDeleteTarget(r)}
                       >
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
@@ -373,6 +376,14 @@ function RepsTab({ factoryId, reps, perms }: { factoryId: string; reps: Rep[]; p
           />
         )}
       </Dialog>
+
+      <RequestDeleteDialog
+        open={!!deleteTarget}
+        onOpenChange={(v) => !v && setDeleteTarget(null)}
+        isPending={del.isPending}
+        title={deleteTarget ? `Request deletion — ${deleteTarget.full_name}` : "Request deletion"}
+        onConfirm={(reason) => deleteTarget && del.mutate({ id: deleteTarget.id, reason })}
+      />
     </Card>
   );
 }

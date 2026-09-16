@@ -35,19 +35,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { Truck, Plus, UserRound, PackageCheck, Pencil, Trash2 } from "lucide-react";
+import { requestDelete } from "@/lib/request-delete";
+import { RequestDeleteDialog } from "@/components/shared/request-delete-dialog";
 
 export const Route = createFileRoute("/_app/logistics")({
   head: () => ({ meta: [{ title: "Logistics — FMIS" }, { name: "robots", content: "noindex" }] }),
@@ -118,6 +109,8 @@ function LogisticsPage() {
   const [driverOpen, setDriverOpen] = useState(false);
   const [editingDriver, setEditingDriver] = useState<DriverRow | null>(null);
   const [deliveryOpen, setDeliveryOpen] = useState(false);
+  const [deleteVehicleTarget, setDeleteVehicleTarget] = useState<VehicleRow | null>(null);
+  const [deleteDriverTarget, setDeleteDriverTarget] = useState<DriverRow | null>(null);
   const [vForm, setVForm] = useState(emptyVehicleForm);
   const [dForm, setDForm] = useState({
     full_name: "",
@@ -247,24 +240,15 @@ function LogisticsPage() {
   });
 
   const deleteVehicle = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from("vehicles").delete().eq("id", id);
-      if (error) throw error;
+    mutationFn: async ({ id, reason }: { id: string; reason: string }) => {
+      await requestDelete("vehicles", id, reason);
     },
     onSuccess: () => {
-      toast.success("Vehicle removed");
-      logAudit({ action: "delete", entity: "vehicles", factoryId });
+      toast.success("Deletion requested — pending admin approval");
+      setDeleteVehicleTarget(null);
       qc.invalidateQueries({ queryKey: ["logistics-vehicles"] });
     },
-    onError: (e: { code?: string; message: string }) => {
-      if (e.code === "23503") {
-        toast.error(
-          "Can't delete — this vehicle has delivery records linked to it. Set its status to Inactive instead to keep that history while removing it from active use.",
-        );
-        return;
-      }
-      toast.error(e.message);
-    },
+    onError: (e: Error) => toast.error(e.message),
   });
 
   const resetDriverForm = () => {
@@ -304,24 +288,15 @@ function LogisticsPage() {
   });
 
   const deleteDriver = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from("drivers").delete().eq("id", id);
-      if (error) throw error;
+    mutationFn: async ({ id, reason }: { id: string; reason: string }) => {
+      await requestDelete("drivers", id, reason);
     },
     onSuccess: () => {
-      toast.success("Driver removed");
-      logAudit({ action: "delete", entity: "drivers", factoryId });
+      toast.success("Deletion requested — pending admin approval");
+      setDeleteDriverTarget(null);
       qc.invalidateQueries({ queryKey: ["logistics-drivers"] });
     },
-    onError: (e: { code?: string; message: string }) => {
-      if (e.code === "23503") {
-        toast.error(
-          "Can't delete — this driver has delivery records linked to them. Set their status to Inactive instead to keep that history while removing them from active use.",
-        );
-        return;
-      }
-      toast.error(e.message);
-    },
+    onError: (e: Error) => toast.error(e.message),
   });
 
   const addDelivery = useMutation({
@@ -519,29 +494,14 @@ function LogisticsPage() {
                             >
                               <Pencil className="h-4 w-4" />
                             </Button>
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button variant="ghost" size="icon" title="Remove">
-                                  <Trash2 className="h-4 w-4 text-destructive" />
-                                </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>Remove {v.plate_number}?</AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                    This deletes this vehicle record and cannot be undone. Vehicles
-                                    with delivery history can't be deleted — set their status to
-                                    Inactive instead.
-                                  </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                  <AlertDialogAction onClick={() => deleteVehicle.mutate(v.id)}>
-                                    Remove
-                                  </AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title="Remove"
+                              onClick={() => setDeleteVehicleTarget(v)}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
                           </div>
                         </TableCell>
                       )}
@@ -614,29 +574,14 @@ function LogisticsPage() {
                             >
                               <Pencil className="h-4 w-4" />
                             </Button>
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button variant="ghost" size="icon" title="Remove">
-                                  <Trash2 className="h-4 w-4 text-destructive" />
-                                </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>Remove {d.full_name}?</AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                    This deletes their driver record and cannot be undone. Drivers
-                                    with delivery history can't be deleted — set their status to
-                                    Inactive instead.
-                                  </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                  <AlertDialogAction onClick={() => deleteDriver.mutate(d.id)}>
-                                    Remove
-                                  </AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title="Remove"
+                              onClick={() => setDeleteDriverTarget(d)}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
                           </div>
                         </TableCell>
                       )}
@@ -947,6 +892,33 @@ function LogisticsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <RequestDeleteDialog
+        open={!!deleteVehicleTarget}
+        onOpenChange={(v) => !v && setDeleteVehicleTarget(null)}
+        isPending={deleteVehicle.isPending}
+        title={
+          deleteVehicleTarget
+            ? `Request deletion — ${deleteVehicleTarget.plate_number}`
+            : "Request deletion"
+        }
+        onConfirm={(reason) =>
+          deleteVehicleTarget && deleteVehicle.mutate({ id: deleteVehicleTarget.id, reason })
+        }
+      />
+      <RequestDeleteDialog
+        open={!!deleteDriverTarget}
+        onOpenChange={(v) => !v && setDeleteDriverTarget(null)}
+        isPending={deleteDriver.isPending}
+        title={
+          deleteDriverTarget
+            ? `Request deletion — ${deleteDriverTarget.full_name}`
+            : "Request deletion"
+        }
+        onConfirm={(reason) =>
+          deleteDriverTarget && deleteDriver.mutate({ id: deleteDriverTarget.id, reason })
+        }
+      />
     </div>
   );
 }

@@ -48,6 +48,8 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { money } from "@/lib/format";
+import { requestDelete } from "@/lib/request-delete";
+import { RequestDeleteDialog } from "@/components/shared/request-delete-dialog";
 import { toast } from "sonner";
 import {
   Plus,
@@ -139,6 +141,7 @@ function EmployeesPage() {
   const [editing, setEditing] = useState<Employee | null>(null);
   const [docsTarget, setDocsTarget] = useState<Employee | null>(null);
   const [loansTarget, setLoansTarget] = useState<Employee | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Employee | null>(null);
 
   const list = useQuery({
     queryKey: ["employees-list", factoryId, q],
@@ -159,24 +162,15 @@ function EmployeesPage() {
   const invalidateAll = () => qc.invalidateQueries({ queryKey: ["employees-list"] });
 
   const del = useMutation({
-    mutationFn: async (emp: Employee) => {
-      if (emp.photo_url) await supabase.storage.from("employee-files").remove([emp.photo_url]);
-      const { error } = await supabase.from("employees").delete().eq("id", emp.id);
-      if (error) throw error;
+    mutationFn: async ({ emp, reason }: { emp: Employee; reason: string }) => {
+      await requestDelete("employees", emp.id, reason);
     },
     onSuccess: () => {
-      toast.success("Employee removed");
+      toast.success("Deletion requested — pending admin approval");
+      setDeleteTarget(null);
       invalidateAll();
     },
-    onError: (e: { code?: string; message: string }) => {
-      if (e.code === "23503") {
-        toast.error(
-          "Can't delete — this employee has payroll, loan, or other linked records. Set their status to Terminated instead to keep that history while removing them from active lists.",
-        );
-        return;
-      }
-      toast.error(e.message);
-    },
+    onError: (e: Error) => toast.error(e.message),
   });
 
   return (
@@ -292,29 +286,14 @@ function EmployeesPage() {
                       >
                         <Pencil className="h-4 w-4" />
                       </Button>
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button variant="ghost" size="icon" title="Remove">
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Remove {e.full_name}?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              This deletes their employee record and cannot be undone. Employees
-                              with payroll, loan, or other linked records can't be deleted — set
-                              their status to Terminated instead.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => del.mutate(e)}>
-                              Remove
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title="Remove"
+                        onClick={() => setDeleteTarget(e)}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -340,6 +319,14 @@ function EmployeesPage() {
           <LoansDeductionsDialog employee={loansTarget} factoryId={factoryId} />
         )}
       </Dialog>
+
+      <RequestDeleteDialog
+        open={!!deleteTarget}
+        onOpenChange={(v) => !v && setDeleteTarget(null)}
+        isPending={del.isPending}
+        title={deleteTarget ? `Request deletion — ${deleteTarget.full_name}` : "Request deletion"}
+        onConfirm={(reason) => deleteTarget && del.mutate({ emp: deleteTarget, reason })}
+      />
     </div>
   );
 }
@@ -579,6 +566,7 @@ function EmployeeForm({
 function DocumentsDialog({ employee, factoryId }: { employee: Employee; factoryId: string }) {
   const qc = useQueryClient();
   const [file, setFile] = useState<File | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<EmployeeDoc | null>(null);
 
   const docs = useQuery({
     queryKey: ["employee-documents", employee.id],
@@ -620,13 +608,12 @@ function DocumentsDialog({ employee, factoryId }: { employee: Employee; factoryI
   });
 
   const remove = useMutation({
-    mutationFn: async (doc: EmployeeDoc) => {
-      await supabase.storage.from("employee-files").remove([doc.file_path]);
-      const { error } = await supabase.from("employee_documents").delete().eq("id", doc.id);
-      if (error) throw error;
+    mutationFn: async ({ doc, reason }: { doc: EmployeeDoc; reason: string }) => {
+      await requestDelete("employee_documents", doc.id, reason);
     },
     onSuccess: () => {
-      toast.success("Document removed");
+      toast.success("Deletion requested — pending admin approval");
+      setDeleteTarget(null);
       qc.invalidateQueries({ queryKey: ["employee-documents", employee.id] });
     },
     onError: (e: Error) => toast.error(e.message),
@@ -671,7 +658,7 @@ function DocumentsDialog({ employee, factoryId }: { employee: Employee; factoryI
               >
                 <Download className="h-4 w-4" /> {d.file_name}
               </button>
-              <Button variant="ghost" size="icon" onClick={() => remove.mutate(d)}>
+              <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(d)}>
                 <Trash2 className="h-4 w-4 text-destructive" />
               </Button>
             </div>
@@ -683,6 +670,14 @@ function DocumentsDialog({ employee, factoryId }: { employee: Employee; factoryI
           )}
         </div>
       </div>
+
+      <RequestDeleteDialog
+        open={!!deleteTarget}
+        onOpenChange={(v) => !v && setDeleteTarget(null)}
+        isPending={remove.isPending}
+        title={deleteTarget ? `Request deletion — ${deleteTarget.file_name}` : "Request deletion"}
+        onConfirm={(reason) => deleteTarget && remove.mutate({ doc: deleteTarget, reason })}
+      />
     </DialogContent>
   );
 }
