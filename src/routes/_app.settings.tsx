@@ -5,11 +5,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { useActiveFactoryCode } from "@/lib/factory-store";
 import { getFactoryIdByCode } from "@/lib/factories";
 import { useTheme } from "@/lib/theme";
-import { RequireAccess } from "@/components/layout/require-access";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { Loader2, Sun, Moon, Download, Upload, AlertTriangle, Plus } from "lucide-react";
-import { usePermissions } from "@/lib/permissions";
+import { usePermissions, useIsSuperAdmin } from "@/lib/permissions";
 import {
   Table,
   TableBody,
@@ -43,11 +43,7 @@ import { Badge } from "@/components/ui/badge";
 
 export const Route = createFileRoute("/_app/settings")({
   head: () => ({ meta: [{ title: "Settings — FMIS" }, { name: "robots", content: "noindex" }] }),
-  component: () => (
-    <RequireAccess module="settings">
-      <SettingsPage />
-    </RequireAccess>
-  ),
+  component: SettingsPage,
 });
 
 const BACKUP_TABLES = [
@@ -65,6 +61,8 @@ export function SettingsPage() {
   const code = useActiveFactoryCode();
   const { theme, setTheme } = useTheme();
   const qc = useQueryClient();
+  const isSuperAdmin = useIsSuperAdmin();
+  const isAdmin = isSuperAdmin.data ?? false;
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [factoryId, setFactoryId] = useState<string>("");
@@ -85,6 +83,7 @@ export function SettingsPage() {
 
   const factories = useQuery({
     queryKey: ["factories-all"],
+    enabled: isAdmin,
     queryFn: async () => {
       const { data, error } = await supabase.from("factories").select("id,code,name").order("name");
       if (error) throw error;
@@ -93,6 +92,7 @@ export function SettingsPage() {
   });
 
   useEffect(() => {
+    if (!isAdmin) return;
     let cancelled = false;
     (async () => {
       setLoading(true);
@@ -124,7 +124,7 @@ export function SettingsPage() {
     return () => {
       cancelled = true;
     };
-  }, [code]);
+  }, [code, isAdmin]);
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -175,121 +175,13 @@ export function SettingsPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
         <p className="text-sm text-muted-foreground">
-          Company, tax, and factory settings apply to the currently selected factory.
+          {isAdmin
+            ? "Manage your account, plus company, tax, and factory settings for the currently selected factory."
+            : "Manage your account."}
         </p>
       </div>
 
-      {loading ? (
-        <div className="flex justify-center py-10">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-        </div>
-      ) : (
-        <form onSubmit={save} className="space-y-6">
-          <Card className="rounded-2xl">
-            <CardHeader>
-              <CardTitle>Company</CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2 md:col-span-2">
-                <Label>Company logo</Label>
-                <div className="flex items-center gap-3">
-                  {logoUrl && (
-                    <img
-                      src={logoUrl}
-                      alt="Company logo"
-                      className="h-12 w-12 rounded-md border object-contain bg-white"
-                    />
-                  )}
-                  <Input
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => setLogoFile(e.target.files?.[0] ?? null)}
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Company name</Label>
-                <Input {...field("company_name")} />
-              </div>
-              <div className="space-y-2">
-                <Label>Phone</Label>
-                <Input {...field("phone")} />
-              </div>
-              <div className="space-y-2 md:col-span-2">
-                <Label>Address</Label>
-                <Input {...field("address")} />
-              </div>
-              <div className="space-y-2">
-                <Label>Email</Label>
-                <Input type="email" {...field("email")} />
-              </div>
-              <div className="space-y-2">
-                <Label>Currency</Label>
-                <Input {...field("currency")} />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="rounded-2xl">
-            <CardHeader>
-              <CardTitle>Tax & numbering</CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-4 md:grid-cols-3">
-              <div className="space-y-2">
-                <Label>VAT / Tax rate (%)</Label>
-                <Input type="number" step="0.01" {...field("vat_rate")} />
-              </div>
-              <div className="space-y-2">
-                <Label>Invoice prefix</Label>
-                <Input {...field("invoice_prefix")} />
-              </div>
-              <div className="space-y-2">
-                <Label>Receipt prefix</Label>
-                <Input {...field("receipt_prefix")} />
-              </div>
-              <div className="space-y-2">
-                <Label>Production prefix</Label>
-                <Input {...field("production_prefix")} />
-              </div>
-              <div className="space-y-2">
-                <Label>Employee prefix</Label>
-                <Input {...field("employee_prefix")} />
-              </div>
-            </CardContent>
-          </Card>
-
-          <div className="flex justify-end">
-            <Button type="submit" disabled={saving}>
-              {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Save settings
-            </Button>
-          </div>
-        </form>
-      )}
-
-      <Card className="rounded-2xl">
-        <CardHeader>
-          <CardTitle>Factory Management</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <p className="text-sm text-muted-foreground">
-            Rename the two factories. Each keeps fully separate data — Water and Nylon can't be
-            merged or removed here.
-          </p>
-          {(factories.data ?? []).map((f) => (
-            <FactoryRow
-              key={f.id}
-              id={f.id}
-              code={f.code}
-              name={f.name}
-              onSaved={() => qc.invalidateQueries({ queryKey: ["factories-all"] })}
-            />
-          ))}
-        </CardContent>
-      </Card>
-
-      <ProductionTypesCard />
-      <UnitsOfMeasureCard />
+      <PersonalSettingsCard />
 
       <Card className="rounded-2xl">
         <CardHeader>
@@ -313,8 +205,295 @@ export function SettingsPage() {
         </CardContent>
       </Card>
 
-      <BackupRestoreCard factoryId={factoryId} />
+      {isAdmin && (
+        <>
+          {loading ? (
+            <div className="flex justify-center py-10">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <form onSubmit={save} className="space-y-6">
+              <Card className="rounded-2xl">
+                <CardHeader>
+                  <CardTitle>Company</CardTitle>
+                </CardHeader>
+                <CardContent className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2 md:col-span-2">
+                    <Label>Company logo</Label>
+                    <div className="flex items-center gap-3">
+                      {logoUrl && (
+                        <img
+                          src={logoUrl}
+                          alt="Company logo"
+                          className="h-12 w-12 rounded-md border object-contain bg-white"
+                        />
+                      )}
+                      <Input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => setLogoFile(e.target.files?.[0] ?? null)}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Company name</Label>
+                    <Input {...field("company_name")} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Phone</Label>
+                    <Input {...field("phone")} />
+                  </div>
+                  <div className="space-y-2 md:col-span-2">
+                    <Label>Address</Label>
+                    <Input {...field("address")} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Email</Label>
+                    <Input type="email" {...field("email")} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Currency</Label>
+                    <Input {...field("currency")} />
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="rounded-2xl">
+                <CardHeader>
+                  <CardTitle>Tax & numbering</CardTitle>
+                </CardHeader>
+                <CardContent className="grid gap-4 md:grid-cols-3">
+                  <div className="space-y-2">
+                    <Label>VAT / Tax rate (%)</Label>
+                    <Input type="number" step="0.01" {...field("vat_rate")} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Invoice prefix</Label>
+                    <Input {...field("invoice_prefix")} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Receipt prefix</Label>
+                    <Input {...field("receipt_prefix")} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Production prefix</Label>
+                    <Input {...field("production_prefix")} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Employee prefix</Label>
+                    <Input {...field("employee_prefix")} />
+                  </div>
+                </CardContent>
+              </Card>
+
+              <div className="flex justify-end">
+                <Button type="submit" disabled={saving}>
+                  {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Save settings
+                </Button>
+              </div>
+            </form>
+          )}
+
+          <Card className="rounded-2xl">
+            <CardHeader>
+              <CardTitle>Factory Management</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Rename the two factories. Each keeps fully separate data — Water and Nylon can't be
+                merged or removed here.
+              </p>
+              {(factories.data ?? []).map((f) => (
+                <FactoryRow
+                  key={f.id}
+                  id={f.id}
+                  code={f.code}
+                  name={f.name}
+                  onSaved={() => qc.invalidateQueries({ queryKey: ["factories-all"] })}
+                />
+              ))}
+            </CardContent>
+          </Card>
+
+          <ProductionTypesCard />
+          <UnitsOfMeasureCard />
+
+          <BackupRestoreCard factoryId={factoryId} />
+        </>
+      )}
     </div>
+  );
+}
+
+function PersonalSettingsCard() {
+  const [userId, setUserId] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [username, setUsername] = useState("");
+  const [loadingProfile, setLoadingProfile] = useState(true);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [savingPassword, setSavingPassword] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data: userData } = await supabase.auth.getUser();
+      const uid = userData.user?.id ?? "";
+      if (cancelled) return;
+      setUserId(uid);
+      if (!uid) {
+        setLoadingProfile(false);
+        return;
+      }
+      const { data } = await supabase
+        .from("profiles")
+        .select("avatar_url,username")
+        .eq("id", uid)
+        .maybeSingle();
+      if (cancelled) return;
+      setAvatarUrl(data?.avatar_url ?? null);
+      setUsername(data?.username ?? "");
+      setLoadingProfile(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const saveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!userId) return;
+    setSavingProfile(true);
+    let finalAvatarUrl = avatarUrl;
+    if (avatarFile) {
+      const path = `${userId}/${Date.now()}-${avatarFile.name}`;
+      const { error: uploadError } = await supabase.storage
+        .from("avatars")
+        .upload(path, avatarFile, { upsert: true });
+      if (uploadError) {
+        setSavingProfile(false);
+        toast.error(uploadError.message);
+        return;
+      }
+      finalAvatarUrl = supabase.storage.from("avatars").getPublicUrl(path).data.publicUrl;
+    }
+    const { error } = await supabase
+      .from("profiles")
+      .update({ avatar_url: finalAvatarUrl, username: username.trim() || null })
+      .eq("id", userId);
+    setSavingProfile(false);
+    if (error) return toast.error(error.message);
+    setAvatarUrl(finalAvatarUrl);
+    setAvatarFile(null);
+    toast.success("Profile updated");
+  };
+
+  const savePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newPassword.length < 6) {
+      toast.error("Password must be at least 6 characters");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error("Passwords don't match");
+      return;
+    }
+    setSavingPassword(true);
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    setSavingPassword(false);
+    if (error) return toast.error(error.message);
+    setNewPassword("");
+    setConfirmPassword("");
+    toast.success("Password updated");
+  };
+
+  const initials = (username || "?").slice(0, 2).toUpperCase();
+
+  if (loadingProfile) {
+    return (
+      <div className="flex justify-center py-10">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <Card className="rounded-2xl">
+        <CardHeader>
+          <CardTitle>My Account</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={saveProfile} className="space-y-4">
+            <div className="space-y-2">
+              <Label>Profile picture</Label>
+              <div className="flex items-center gap-3">
+                <Avatar className="h-12 w-12">
+                  {avatarUrl && <AvatarImage src={avatarUrl} alt="Profile picture" />}
+                  <AvatarFallback>{initials}</AvatarFallback>
+                </Avatar>
+                <Input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => setAvatarFile(e.target.files?.[0] ?? null)}
+                />
+              </div>
+            </div>
+            <div className="space-y-2 max-w-xs">
+              <Label>Username</Label>
+              <Input
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="Your username"
+              />
+            </div>
+            <div className="flex justify-end">
+              <Button type="submit" disabled={savingProfile}>
+                {savingProfile && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Save profile
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-2xl">
+        <CardHeader>
+          <CardTitle>Change password</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={savePassword} className="space-y-4 max-w-xs">
+            <div className="space-y-2">
+              <Label>New password</Label>
+              <Input
+                type="password"
+                minLength={6}
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Confirm new password</Label>
+              <Input
+                type="password"
+                minLength={6}
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+              />
+            </div>
+            <div className="flex justify-end">
+              <Button type="submit" disabled={savingPassword}>
+                {savingPassword && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Update password
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+    </>
   );
 }
 
