@@ -2235,6 +2235,44 @@ export type Database = {
           },
         ]
       }
+      raw_material_cost_history: {
+        Row: {
+          cost: number
+          created_at: string
+          created_by: string | null
+          effective_date: string
+          id: string
+          material_id: string
+          previous_cost: number | null
+        }
+        Insert: {
+          cost: number
+          created_at?: string
+          created_by?: string | null
+          effective_date?: string
+          id?: string
+          material_id: string
+          previous_cost?: number | null
+        }
+        Update: {
+          cost?: number
+          created_at?: string
+          created_by?: string | null
+          effective_date?: string
+          id?: string
+          material_id?: string
+          previous_cost?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "raw_material_cost_history_material_id_fkey"
+            columns: ["material_id"]
+            isOneToOne: false
+            referencedRelation: "raw_materials"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       raw_material_movements: {
         Row: {
           created_at: string
@@ -3903,10 +3941,7 @@ export type Database = {
         Args: { p_comment?: string; p_debt_id: string }
         Returns: Json
       }
-      approve_delete: {
-        Args: { p_id: string }
-        Returns: Json
-      }
+      approve_delete: { Args: { p_id: string }; Returns: Json }
       approve_expense: {
         Args: { p_comment?: string; p_id: string }
         Returns: Json

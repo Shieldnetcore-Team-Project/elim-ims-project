@@ -98,6 +98,12 @@ type Material = {
   material_categories: { name: string } | null;
 };
 type Factory = { id: string; code: string; name: string };
+type CostHistoryRow = {
+  id: string;
+  cost: number;
+  previous_cost: number | null;
+  effective_date: string;
+};
 type Movement = {
   id: string;
   movement_type: string;
@@ -189,6 +195,7 @@ function RawMaterialsPage() {
       "goods_receipts",
       "damage_records",
       "raw_material_movements",
+      "raw_material_cost_history",
     ],
     [
       ["raw-materials-list"],
@@ -198,6 +205,7 @@ function RawMaterialsPage() {
       ["goods-receipts"],
       ["damage-records-raw-materials"],
       ["material-movements"],
+      ["material-cost-history"],
     ],
   );
   const [formOpen, setFormOpen] = useState(false);
@@ -1826,6 +1834,20 @@ function HistoryDialog({ material }: { material: Material }) {
     },
   });
 
+  const costHistory = useQuery({
+    queryKey: ["material-cost-history", material.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("raw_material_cost_history")
+        .select("id,cost,previous_cost,effective_date")
+        .eq("material_id", material.id)
+        .order("effective_date", { ascending: false })
+        .limit(50);
+      if (error) throw error;
+      return (data ?? []) as CostHistoryRow[];
+    },
+  });
+
   const badgeVariant = (type: string) =>
     type === "received"
       ? "secondary"
@@ -1836,51 +1858,89 @@ function HistoryDialog({ material }: { material: Material }) {
   return (
     <DialogContent className="max-w-3xl">
       <DialogHeader>
-        <DialogTitle>Stock movement — {material.name}</DialogTitle>
+        <DialogTitle>History — {material.name}</DialogTitle>
       </DialogHeader>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Date &amp; Time</TableHead>
-            <TableHead>Type</TableHead>
-            <TableHead className="text-right">Qty</TableHead>
-            <TableHead className="text-right">Before</TableHead>
-            <TableHead className="text-right">After</TableHead>
-            <TableHead>Reference</TableHead>
-            <TableHead>Reason</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {(movements.data ?? []).map((m) => (
-            <TableRow key={m.id}>
-              <TableCell>{new Date(m.created_at).toLocaleString()}</TableCell>
-              <TableCell>
-                <Badge variant={badgeVariant(m.movement_type) as any} className="capitalize">
-                  {m.movement_type.replace(/_/g, " ")}
-                </Badge>
-              </TableCell>
-              <TableCell className="text-right">
-                {num(Number(m.quantity))} {material.unit}
-              </TableCell>
-              <TableCell className="text-right text-muted-foreground text-xs">
-                {m.quantity_before === null ? "—" : `${num(m.quantity_before)} ${material.unit}`}
-              </TableCell>
-              <TableCell className="text-right text-xs">
-                {m.quantity_after === null ? "—" : `${num(m.quantity_after)} ${material.unit}`}
-              </TableCell>
-              <TableCell>{m.reference ?? "—"}</TableCell>
-              <TableCell className="text-muted-foreground">{m.reason ?? "—"}</TableCell>
-            </TableRow>
-          ))}
-          {(movements.data ?? []).length === 0 && (
-            <TableRow>
-              <TableCell colSpan={7} className="text-center text-muted-foreground py-6">
-                No movements yet.
-              </TableCell>
-            </TableRow>
-          )}
-        </TableBody>
-      </Table>
+      <div className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
+        <div>
+          <div className="mb-2 text-sm font-medium">Stock movements</div>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Date &amp; Time</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead className="text-right">Qty</TableHead>
+                <TableHead className="text-right">Before</TableHead>
+                <TableHead className="text-right">After</TableHead>
+                <TableHead>Reference</TableHead>
+                <TableHead>Reason</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {(movements.data ?? []).map((m) => (
+                <TableRow key={m.id}>
+                  <TableCell>{new Date(m.created_at).toLocaleString()}</TableCell>
+                  <TableCell>
+                    <Badge variant={badgeVariant(m.movement_type) as any} className="capitalize">
+                      {m.movement_type.replace(/_/g, " ")}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {num(Number(m.quantity))} {material.unit}
+                  </TableCell>
+                  <TableCell className="text-right text-muted-foreground text-xs">
+                    {m.quantity_before === null
+                      ? "—"
+                      : `${num(m.quantity_before)} ${material.unit}`}
+                  </TableCell>
+                  <TableCell className="text-right text-xs">
+                    {m.quantity_after === null ? "—" : `${num(m.quantity_after)} ${material.unit}`}
+                  </TableCell>
+                  <TableCell>{m.reference ?? "—"}</TableCell>
+                  <TableCell className="text-muted-foreground">{m.reason ?? "—"}</TableCell>
+                </TableRow>
+              ))}
+              {(movements.data ?? []).length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center text-muted-foreground py-6">
+                    No movements yet.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+
+        <div>
+          <div className="mb-2 text-sm font-medium">Unit cost history</div>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Effective</TableHead>
+                <TableHead className="text-right">Previous cost</TableHead>
+                <TableHead className="text-right">New cost</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {(costHistory.data ?? []).map((c) => (
+                <TableRow key={c.id}>
+                  <TableCell>{new Date(c.effective_date).toLocaleString()}</TableCell>
+                  <TableCell className="text-right text-muted-foreground">
+                    {c.previous_cost == null ? "—" : money(Number(c.previous_cost))}
+                  </TableCell>
+                  <TableCell className="text-right font-medium">{money(Number(c.cost))}</TableCell>
+                </TableRow>
+              ))}
+              {(costHistory.data ?? []).length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={3} className="text-center text-muted-foreground py-6">
+                    No unit cost changes recorded yet.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
     </DialogContent>
   );
 }
