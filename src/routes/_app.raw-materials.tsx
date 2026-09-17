@@ -1142,9 +1142,10 @@ function MaterialForm({
         const { error } = await supabase.from("raw_materials").update(payload).eq("id", editing.id);
         if (error) throw error;
       } else {
-        // New materials go through a maker-checker gate (request_new_material ->
-        // approve/reject_new_material) rather than an instant table insert, so
-        // critical master data can't be created silently without authorization.
+        // New materials still go through the request_new_material RPC (it's
+        // the only thing with INSERT privilege on raw_materials — direct
+        // client inserts are revoked), but it now creates the material live
+        // (approved/active) instead of parking it in pending_approval.
         const { error } = await supabase.rpc("request_new_material", {
           payload: { ...payload, factory_id: factoryId, opening_stock: openingStock } as any,
         });
@@ -1152,7 +1153,7 @@ function MaterialForm({
       }
     },
     onSuccess: () => {
-      toast.success(editing ? "Material updated" : "Material submitted — awaiting approval");
+      toast.success(editing ? "Material updated" : "Material added");
       onDone();
     },
     onError: (e: Error) => toast.error(e.message),

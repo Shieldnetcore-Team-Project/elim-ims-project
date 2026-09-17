@@ -158,8 +158,10 @@ function FinishedGoodsPage() {
   const { data: factoryId } = useFactoryId();
   const settings = useFactorySettings(factoryId);
   const qc = useQueryClient();
-  const { canWrite, canApprove, canPost, canCancel, canConfirm, canReject } = usePermissions();
+  const { canWrite, canSubmit, canApprove, canPost, canCancel, canConfirm, canReject } =
+    usePermissions();
   const write = canWrite("finished-goods");
+  const submit = canSubmit("finished-goods");
   const canSell = canWrite("sales");
   const approve = canApprove("finished-goods");
   const post = canPost("finished-goods");
@@ -513,41 +515,49 @@ function FinishedGoodsPage() {
                     <TableCell className="text-right">{money(Number(p.cost_price))}</TableCell>
                     <TableCell>
                       <div className="flex justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          title="Edit"
-                          onClick={() => {
-                            setEditing(p);
-                            setFormOpen(true);
-                          }}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          title="Adjust"
-                          onClick={() => setAdjustTarget({ product: p, type: "adjusted" })}
-                        >
-                          <SlidersHorizontal className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          title="Log Damage"
-                          onClick={() => setAdjustTarget({ product: p, type: "damaged" })}
-                        >
-                          <PackageX className="h-4 w-4 text-destructive" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          title="Transfer"
-                          onClick={() => setTransferTarget(p)}
-                        >
-                          <ArrowLeftRight className="h-4 w-4" />
-                        </Button>
+                        {write && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Edit"
+                            onClick={() => {
+                              setEditing(p);
+                              setFormOpen(true);
+                            }}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {submit && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Adjust"
+                            onClick={() => setAdjustTarget({ product: p, type: "adjusted" })}
+                          >
+                            <SlidersHorizontal className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {submit && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Log Damage"
+                            onClick={() => setAdjustTarget({ product: p, type: "damaged" })}
+                          >
+                            <PackageX className="h-4 w-4 text-destructive" />
+                          </Button>
+                        )}
+                        {write && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Transfer"
+                            onClick={() => setTransferTarget(p)}
+                          >
+                            <ArrowLeftRight className="h-4 w-4" />
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="icon"
