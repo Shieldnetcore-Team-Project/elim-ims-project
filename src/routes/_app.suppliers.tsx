@@ -70,6 +70,8 @@ type SupplierMaterial = {
   unit: string;
   current_stock: number;
   unit_cost: number;
+  category: string | null;
+  material_categories: { name: string } | null;
 };
 type PurchaseRecord = {
   id: string;
@@ -273,7 +275,7 @@ function SupplierProfileDialog({ supplier }: { supplier: Supplier }) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("raw_materials")
-        .select("id,name,unit,current_stock,unit_cost")
+        .select("id,name,unit,current_stock,unit_cost,category,material_categories(name)")
         .eq("supplier_id", supplier.id)
         .order("name");
       if (error) throw error;
@@ -366,6 +368,7 @@ function SupplierProfileDialog({ supplier }: { supplier: Supplier }) {
             <TableHeader>
               <TableRow>
                 <TableHead>Material</TableHead>
+                <TableHead>Category</TableHead>
                 <TableHead className="text-right">Current Stock</TableHead>
                 <TableHead className="text-right">Unit Cost</TableHead>
               </TableRow>
@@ -374,6 +377,7 @@ function SupplierProfileDialog({ supplier }: { supplier: Supplier }) {
               {(materials.data ?? []).map((m) => (
                 <TableRow key={m.id}>
                   <TableCell>{m.name}</TableCell>
+                  <TableCell>{m.material_categories?.name ?? m.category ?? "—"}</TableCell>
                   <TableCell className="text-right">
                     {num(Number(m.current_stock))} {m.unit}
                   </TableCell>
@@ -382,7 +386,7 @@ function SupplierProfileDialog({ supplier }: { supplier: Supplier }) {
               ))}
               {(materials.data ?? []).length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={3} className="text-center text-muted-foreground py-4">
+                  <TableCell colSpan={4} className="text-center text-muted-foreground py-4">
                     No materials linked to this supplier yet.
                   </TableCell>
                 </TableRow>
