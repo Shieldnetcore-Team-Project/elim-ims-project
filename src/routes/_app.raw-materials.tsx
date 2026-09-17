@@ -62,6 +62,7 @@ import {
   UNIT_OPTIONS as UNIT_OPTIONS_FALLBACK,
   getUnitOptionsForCategory,
 } from "@/lib/units";
+import { useRealtimeInvalidate } from "@/lib/realtime";
 import { ADJUSTMENT_REASONS } from "@/lib/adjustment-reasons";
 
 export const Route = createFileRoute("/_app/raw-materials")({
@@ -179,6 +180,26 @@ function RawMaterialsPage() {
   const confirmReceipt_ = canConfirm("goods-receiving");
   const rejectReceipt_ = canReject("goods-receiving");
   const cancelReceipt_ = canCancel("goods-receiving");
+  useRealtimeInvalidate(
+    [
+      "raw_materials",
+      "material_categories",
+      "suppliers",
+      "stock_adjustment_requests",
+      "goods_receipts",
+      "damage_records",
+      "raw_material_movements",
+    ],
+    [
+      ["raw-materials-list"],
+      ["material-categories"],
+      ["suppliers-brief"],
+      ["stock-adjustment-requests"],
+      ["goods-receipts"],
+      ["damage-records-raw-materials"],
+      ["material-movements"],
+    ],
+  );
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Material | null>(null);
   const [receiveTarget, setReceiveTarget] = useState<Material | null>(null);

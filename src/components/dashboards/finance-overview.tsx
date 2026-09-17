@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { KPI, PageHeader, usePendingApprovalsCount } from "@/lib/dashboard-kit";
+import { useRealtimeInvalidate } from "@/lib/realtime";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { money } from "@/lib/format";
@@ -34,6 +35,31 @@ export function FinanceOverview({ factoryId }: { factoryId: string }) {
   const monthStartDate = startOfMonth(new Date());
   const periodMonth = monthStartDate.getMonth() + 1;
   const periodYear = monthStartDate.getFullYear();
+  useRealtimeInvalidate(
+    [
+      "sales",
+      "payments_received",
+      "expenses",
+      "payroll",
+      "debts",
+      "purchase_orders",
+      "sales_returns",
+      "stock_adjustment_requests",
+      "role_grant_requests",
+    ],
+    [
+      ["fin-revenue-month"],
+      ["fin-collections-month"],
+      ["fin-expenses-month"],
+      ["fin-payroll-month"],
+      ["fin-outstanding-receivables"],
+      ["fin-open-po-commitment"],
+      ["fin-recent-payments"],
+      ["fin-pending-returns"],
+      ["fin-recent-returns"],
+      ["pending-approvals-count"],
+    ],
+  );
 
   const revenue = useQuery({
     queryKey: ["fin-revenue-month", factoryId],

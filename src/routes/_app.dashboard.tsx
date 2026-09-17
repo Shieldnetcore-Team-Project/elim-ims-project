@@ -4,6 +4,7 @@ import { RequireAccess } from "@/components/layout/require-access";
 import { supabase } from "@/integrations/supabase/client";
 import { useFactoryId } from "@/lib/use-factory";
 import { useMyRoles, type Role } from "@/lib/permissions";
+import { useRealtimeInvalidate } from "@/lib/realtime";
 import {
   KPI,
   PageHeader,
@@ -109,6 +110,35 @@ function DashboardRouter() {
 function AdminDashboard({ factoryId }: { factoryId: string }) {
   const today = startOfDay(new Date()).toISOString();
   const monthStart = startOfMonth(new Date()).toISOString();
+  useRealtimeInvalidate(
+    [
+      "sales",
+      "production",
+      "raw_materials",
+      "products",
+      "debts",
+      "expenses",
+      "audit_logs",
+      "payroll",
+      "stock_adjustment_requests",
+      "role_grant_requests",
+      "payments_received",
+    ],
+    [
+      ["total-sales-month"],
+      ["sales-today"],
+      ["production-today"],
+      ["raw-stock"],
+      ["finished-goods-units"],
+      ["low-stock"],
+      ["outstanding-debts"],
+      ["sales-trend"],
+      ["recent-activity"],
+      ["dashboard-system-activity"],
+      ["pending-approvals-count"],
+      ["pending-confirmations-count"],
+    ],
+  );
 
   const totalSales = useQuery({
     queryKey: ["total-sales-month", factoryId],
@@ -486,6 +516,15 @@ function AdminDashboard({ factoryId }: { factoryId: string }) {
 // ============================================================================
 function SalesDashboard({ factoryId }: { factoryId: string }) {
   const today = startOfDay(new Date()).toISOString();
+  useRealtimeInvalidate(
+    ["sales", "products", "customers"],
+    [
+      ["sd-sales-today"],
+      ["sd-available-products"],
+      ["sd-outstanding-balances"],
+      ["sd-recent-sales"],
+    ],
+  );
 
   const salesToday = useQuery({
     queryKey: ["sd-sales-today", factoryId],
@@ -609,6 +648,11 @@ function SalesDashboard({ factoryId }: { factoryId: string }) {
 // INVENTORY — inventory_officer (raw materials)
 // ============================================================================
 function InventoryDashboard({ factoryId }: { factoryId: string }) {
+  useRealtimeInvalidate(
+    ["raw_materials", "production_requests", "raw_material_movements"],
+    [["id-materials"], ["id-pending-requests"], ["id-materials-issued"]],
+  );
+
   const materials = useQuery({
     queryKey: ["id-materials", factoryId],
     queryFn: async () => {
@@ -733,6 +777,16 @@ function InventoryDashboard({ factoryId }: { factoryId: string }) {
 function ProductionDashboard({ factoryId }: { factoryId: string }) {
   const today = startOfDay(new Date()).toISOString();
   const weekAgo = subDays(new Date(), 6).toISOString();
+  useRealtimeInvalidate(
+    ["production", "production_requests"],
+    [
+      ["pd-runs-today"],
+      ["pd-awaiting-issue"],
+      ["pd-ready-to-run"],
+      ["pd-batches-week"],
+      ["pd-recent-runs"],
+    ],
+  );
 
   const runsToday = useQuery({
     queryKey: ["pd-runs-today", factoryId],
@@ -870,6 +924,10 @@ function ProductionDashboard({ factoryId }: { factoryId: string }) {
 // ============================================================================
 function StoreDashboard({ factoryId }: { factoryId: string }) {
   const today = startOfDay(new Date()).toISOString();
+  useRealtimeInvalidate(
+    ["products", "production", "inventory_movements", "deliveries"],
+    [["sto-products"], ["sto-produced-today"], ["sto-recent-issues"], ["sto-pending-dispatch"]],
+  );
 
   const products = useQuery({
     queryKey: ["sto-products", factoryId],

@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useFactoryId, useFactorySettings } from "@/lib/use-factory";
 import { usePermissions } from "@/lib/permissions";
+import { useRealtimeInvalidate } from "@/lib/realtime";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -168,6 +169,29 @@ function FinishedGoodsPage() {
   const cancel = canCancel("finished-goods");
   const confirmBatchPerm = canConfirm("production");
   const rejectBatchPerm = canReject("production");
+  useRealtimeInvalidate(
+    [
+      "products",
+      "product_categories",
+      "stock_adjustment_requests",
+      "production",
+      "inventory_movements",
+      "product_price_history",
+      "product_units",
+    ],
+    [
+      ["finished-goods"],
+      ["product-categories"],
+      ["stock-adjustment-requests"],
+      ["pending-production-batches"],
+      ["finished-goods-movements"],
+      ["finished-goods-price-history"],
+      ["product-units"],
+      ["products-active"],
+      ["products-for-production"],
+      ["production-list"],
+    ],
+  );
   const [formOpen, setFormOpen] = useState(false);
   const [posOpen, setPosOpen] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
@@ -1297,8 +1321,8 @@ function RejectBatchDialog({
           />
         </div>
         <p className="text-xs text-muted-foreground">
-          This batch will not be posted to stock. The linked production request (if any) reopens
-          so Production can submit a fresh batch.
+          This batch will not be posted to stock. The linked production request (if any) reopens so
+          Production can submit a fresh batch.
         </p>
       </div>
       <DialogFooter>
