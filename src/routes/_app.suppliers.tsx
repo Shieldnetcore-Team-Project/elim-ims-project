@@ -35,9 +35,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Search, Pencil, Eye } from "lucide-react";
+import { Plus, Search, Pencil, Eye, Trash2 } from "lucide-react";
 import { money, num } from "@/lib/format";
 import { toast } from "sonner";
+import { requestDelete } from "@/lib/request-delete";
+import { RequestDeleteDialog } from "@/components/shared/request-delete-dialog";
 
 export const Route = createFileRoute("/_app/suppliers")({
   head: () => ({ meta: [{ title: "Suppliers — FMIS" }, { name: "robots", content: "noindex" }] }),
@@ -91,6 +93,7 @@ function SuppliersPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Supplier | null>(null);
   const [viewing, setViewing] = useState<Supplier | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Supplier | null>(null);
 
   const list = useQuery({
     queryKey: ["suppliers", factoryId, q],
@@ -137,6 +140,18 @@ function SuppliersPage() {
       qc.invalidateQueries({ queryKey: ["suppliers"] });
       setOpen(false);
       setEditing(null);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const del = useMutation({
+    mutationFn: async ({ supplier, reason }: { supplier: Supplier; reason: string }) => {
+      await requestDelete("suppliers", supplier.id, reason);
+    },
+    onSuccess: () => {
+      toast.success("Deletion requested — pending admin approval");
+      setDeleteTarget(null);
+      qc.invalidateQueries({ queryKey: ["suppliers"] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -246,6 +261,14 @@ function SuppliersPage() {
                       >
                         <Pencil className="h-4 w-4" />
                       </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title="Delete"
+                        onClick={() => setDeleteTarget(s)}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -265,6 +288,14 @@ function SuppliersPage() {
       <Dialog open={!!viewing} onOpenChange={(v) => !v && setViewing(null)}>
         {viewing && <SupplierProfileDialog supplier={viewing} />}
       </Dialog>
+
+      <RequestDeleteDialog
+        open={!!deleteTarget}
+        onOpenChange={(v) => !v && setDeleteTarget(null)}
+        isPending={del.isPending}
+        title={deleteTarget ? `Request deletion — ${deleteTarget.name}` : "Request deletion"}
+        onConfirm={(reason) => deleteTarget && del.mutate({ supplier: deleteTarget, reason })}
+      />
     </div>
   );
 }
