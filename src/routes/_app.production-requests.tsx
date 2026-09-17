@@ -33,6 +33,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandSeparator,
+} from "@/components/ui/command";
 import { Badge } from "@/components/ui/badge";
 import {
   Plus,
@@ -45,11 +55,14 @@ import {
   ClipboardList,
   Loader2,
   Sparkles,
+  ChevronsUpDown,
 } from "lucide-react";
 import { num } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { generateProductionRequestPdf } from "@/lib/pdf";
 import { logAudit } from "@/lib/audit";
+import { useUnitsOfMeasure, UNIT_OPTIONS as UNIT_OPTIONS_FALLBACK } from "@/lib/units";
 
 export const Route = createFileRoute("/_app/production-requests")({
   head: () => ({
@@ -434,6 +447,8 @@ function RequestForm({
   materials: Material[];
   onDone: () => void;
 }) {
+  const { canSubmit } = usePermissions();
+  const canAddMaterial = canSubmit("raw-materials");
   const [requestedBy, setRequestedBy] = useState("");
   const [department, setDepartment] = useState("");
   const [productId, setProductId] = useState("");
@@ -443,6 +458,15 @@ function RequestForm({
   const [items, setItems] = useState<{ materialId: string; quantity: number }[]>([
     { materialId: "", quantity: 0 },
   ]);
+  // Materials requested inline via "Add new material" this session — not yet
+  // admin-approved (request_new_material inserts pending_approval/inactive),
+  // but usable here so the request doesn't stall waiting on that approval.
+  const [pendingMaterials, setPendingMaterials] = useState<Material[]>([]);
+  const [addMaterialFor, setAddMaterialFor] = useState<{ index: number; query: string } | null>(
+    null,
+  );
+  const allMaterials = [...materials, ...pendingMaterials];
+  const pendingIds = pendingMaterials.map((m) => m.id);
 
   const selectedProduct = products.find((p) => p.id === productId);
 
@@ -471,7 +495,7 @@ function RequestForm({
           unit: unit || selectedProduct?.unit,
           remarks: remarks || null,
           items: validItems.map((it) => {
-            const m = materials.find((mm) => mm.id === it.materialId);
+            const m = allMaterials.find((mm) => mm.id === it.materialId);
             return { material_id: it.materialId, quantity: it.quantity, unit: m?.unit };
           }),
         } as any,
@@ -494,6 +518,7 @@ function RequestForm({
   });
 
   return (
+    <>
     <DialogContent className="max-w-xl">
       <DialogHeader>
         <DialogTitle>New Request</DialogTitle>
@@ -561,24 +586,27 @@ function RequestForm({
         </div>
         <div className="grid gap-2">
           {items.map((it, i) => {
-            const m = materials.find((mm) => mm.id === it.materialId);
+            const m = allMaterials.find((mm) => mm.id === it.materialId);
             return (
-              <div key={i} className="flex items-center gap-2">
-                <Select
-                  value={it.materialId}
-                  onValueChange={(v) => updateItem(i, { materialId: v })}
-                >
-                  <SelectTrigger className="flex-1">
-                    <SelectValue placeholder="Select material…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {materials.map((mat) => (
-                      <SelectItem key={mat.id} value={mat.id}>
-                        {mat.name} · stock {num(Number(mat.current_stock))} {mat.unit}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <div key={i} className="flex items-start gap-2">
+                <div className="flex-1">
+                  <MaterialCombobox
+                    value={it.materialId}
+                    materials={allMaterials}
+                    pendingIds={pendingIds}
+                    onChange={(v) => updateItem(i, { materialId: v })}
+                    onAddNew={
+                      canAddMaterial
+                        ? (query) => setAddMaterialFor({ index: i, query })
+                        : undefined
+                    }
+                  />
+                  {m && pendingIds.includes(m.id) && (
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      Pending approval — usable in this request now, stock available once approved.
+                    </p>
+                  )}
+                </div>
                 <Input
                   type="number"
                   min={0.001}
@@ -588,7 +616,9 @@ function RequestForm({
                   value={it.quantity}
                   onChange={(e) => updateItem(i, { quantity: Number(e.target.value) })}
                 />
-                <span className="w-12 shrink-0 text-xs text-muted-foreground">{m?.unit ?? ""}</span>
+                <span className="w-12 shrink-0 pt-2 text-xs text-muted-foreground">
+                  {m?.unit ?? ""}
+                </span>
                 <Button
                   type="button"
                   variant="ghost"
@@ -616,6 +646,245 @@ function RequestForm({
             <ClipboardList className="h-4 w-4" />
           )}
           {save.isPending ? "Saving…" : "Submit Request"}
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+
+    <Dialog open={!!addMaterialFor} onOpenChange={(v) => !v && setAddMaterialFor(null)}>
+      {addMaterialFor && (
+        <AddMaterialDialog
+          factoryId={factoryId}
+          initialName={addMaterialFor.query}
+          onCreated={(mat) => {
+            setPendingMaterials((prev) => [...prev, mat]);
+            updateItem(addMaterialFor.index, { materialId: mat.id });
+            setAddMaterialFor(null);
+          }}
+        />
+      )}
+    </Dialog>
+    </>
+  );
+}
+
+function MaterialCombobox({
+  value,
+  materials,
+  pendingIds,
+  onChange,
+  onAddNew,
+}: {
+  value: string;
+  materials: Material[];
+  pendingIds: string[];
+  onChange: (id: string) => void;
+  onAddNew?: (query: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const selected = materials.find((m) => m.id === value);
+  const query = search.trim().toLowerCase();
+  const filtered = query ? materials.filter((m) => m.name.toLowerCase().includes(query)) : materials;
+  const exactMatch = materials.some((m) => m.name.toLowerCase() === query);
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(v) => {
+        setOpen(v);
+        if (!v) setSearch("");
+      }}
+    >
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className="w-full justify-between font-normal"
+        >
+          <span className="truncate">
+            {selected
+              ? `${selected.name} · stock ${num(Number(selected.current_stock))} ${selected.unit}`
+              : "Select material…"}
+          </span>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+        <Command shouldFilter={false}>
+          <CommandInput placeholder="Search material…" value={search} onValueChange={setSearch} />
+          <CommandList>
+            {filtered.length === 0 && <CommandEmpty>No material found.</CommandEmpty>}
+            <CommandGroup>
+              {filtered.map((m) => (
+                <CommandItem
+                  key={m.id}
+                  value={m.id}
+                  onSelect={() => {
+                    onChange(m.id);
+                    setSearch("");
+                    setOpen(false);
+                  }}
+                >
+                  <Check className={cn("h-4 w-4", value === m.id ? "opacity-100" : "opacity-0")} />
+                  <span className="flex-1 truncate">
+                    {m.name} · stock {num(Number(m.current_stock))} {m.unit}
+                  </span>
+                  {pendingIds.includes(m.id) && (
+                    <Badge variant="outline" className="ml-1 shrink-0 text-[10px]">
+                      Pending
+                    </Badge>
+                  )}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+            {onAddNew && search.trim() && !exactMatch && (
+              <>
+                <CommandSeparator />
+                <CommandGroup>
+                  <CommandItem
+                    value={`__add__${search}`}
+                    onSelect={() => {
+                      onAddNew(search.trim());
+                      setOpen(false);
+                    }}
+                  >
+                    <Plus className="h-4 w-4" />
+                    <span>Add "{search.trim()}" as a new material</span>
+                  </CommandItem>
+                </CommandGroup>
+              </>
+            )}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function AddMaterialDialog({
+  factoryId,
+  initialName,
+  onCreated,
+}: {
+  factoryId: string;
+  initialName: string;
+  onCreated: (material: Material) => void;
+}) {
+  const unitsOfMeasure = useUnitsOfMeasure();
+  const unitOptions = unitsOfMeasure.data ?? UNIT_OPTIONS_FALLBACK;
+  const [name, setName] = useState(initialName);
+  const [unitChoice, setUnitChoice] = useState(unitOptions[0] ?? "kg");
+  const [customUnit, setCustomUnit] = useState("");
+  const unit = unitChoice === "__custom__" ? customUnit : unitChoice;
+  const [openingStock, setOpeningStock] = useState(0);
+  const [reorderLevel, setReorderLevel] = useState(0);
+
+  const save = useMutation({
+    mutationFn: async () => {
+      if (!name.trim()) throw new Error("Material name is required");
+      if (!unit.trim()) throw new Error("Select or enter a unit of measurement");
+      const { data, error } = await supabase.rpc("request_new_material", {
+        payload: {
+          factory_id: factoryId,
+          name: name.trim(),
+          unit: unit.trim(),
+          opening_stock: openingStock,
+          reorder_level: reorderLevel,
+        } as any,
+      });
+      if (error) throw error;
+      return data as { id: string };
+    },
+    onSuccess: (data) => {
+      toast.success(`"${name.trim()}" submitted for approval — added to this request`);
+      logAudit({
+        action: "create",
+        entity: "raw_materials",
+        entityId: data.id,
+        factoryId,
+        newValue: { name: name.trim(), unit: unit.trim(), approval_status: "pending_approval" },
+      });
+      onCreated({
+        id: data.id,
+        name: name.trim(),
+        unit: unit.trim(),
+        current_stock: openingStock,
+      });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return (
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle>Add New Material</DialogTitle>
+      </DialogHeader>
+      <div className="grid gap-3">
+        <p className="text-xs text-muted-foreground">
+          New materials go to an admin for approval before their stock can be issued — it's added
+          to this request now and ready to use once approved.
+        </p>
+        <div>
+          <Label>Raw material name</Label>
+          <Input value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label>Unit of measurement</Label>
+            <Select value={unitChoice} onValueChange={setUnitChoice}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {unitOptions.map((u) => (
+                  <SelectItem key={u} value={u} className="capitalize">
+                    {u}
+                  </SelectItem>
+                ))}
+                <SelectItem value="__custom__">Other…</SelectItem>
+              </SelectContent>
+            </Select>
+            {unitChoice === "__custom__" && (
+              <Input
+                className="mt-2"
+                placeholder="Enter unit"
+                value={customUnit}
+                onChange={(e) => setCustomUnit(e.target.value)}
+              />
+            )}
+          </div>
+          <div>
+            <Label>Opening stock</Label>
+            <Input
+              type="number"
+              min={0}
+              step="0.001"
+              value={openingStock}
+              onChange={(e) => setOpeningStock(Number(e.target.value))}
+            />
+          </div>
+        </div>
+        <div>
+          <Label>Reorder level</Label>
+          <Input
+            type="number"
+            min={0}
+            step="0.001"
+            value={reorderLevel}
+            onChange={(e) => setReorderLevel(Number(e.target.value))}
+          />
+        </div>
+      </div>
+      <DialogFooter>
+        <Button disabled={save.isPending} onClick={() => save.mutate()} className="gap-2">
+          {save.isPending ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Plus className="h-4 w-4" />
+          )}
+          {save.isPending ? "Submitting…" : "Submit Material"}
         </Button>
       </DialogFooter>
     </DialogContent>

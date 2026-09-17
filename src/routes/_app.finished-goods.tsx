@@ -178,6 +178,7 @@ function FinishedGoodsPage() {
   const [historyTarget, setHistoryTarget] = useState<Product | null>(null);
   const [packagingTarget, setPackagingTarget] = useState<Product | null>(null);
   const [confirmTarget, setConfirmTarget] = useState<PendingBatch | null>(null);
+  const [rejectTarget, setRejectTarget] = useState<PendingBatch | null>(null);
 
   const list = useQuery({
     queryKey: ["finished-goods", factoryId],
@@ -270,10 +271,10 @@ function FinishedGoodsPage() {
   };
 
   const rejectBatch = useMutation({
-    mutationFn: async (id: string) => {
+    mutationFn: async ({ id, reason }: { id: string; reason: string }) => {
       const { error } = await supabase.rpc("reject_production_batch", {
         p_id: id,
-        p_reason: "Rejected by Store",
+        p_reason: reason,
       });
       if (error) throw error;
     },
@@ -734,7 +735,7 @@ function FinishedGoodsPage() {
                               variant="ghost"
                               size="icon"
                               title="Reject"
-                              onClick={() => rejectBatch.mutate(b.id)}
+                              onClick={() => setRejectTarget(b)}
                             >
                               <X className="h-4 w-4 text-destructive" />
                             </Button>
@@ -758,6 +759,21 @@ function FinishedGoodsPage() {
               setConfirmTarget(null);
               invalidateAll();
             }}
+          />
+        )}
+      </Dialog>
+
+      <Dialog open={!!rejectTarget} onOpenChange={(v) => !v && setRejectTarget(null)}>
+        {rejectTarget && (
+          <RejectBatchDialog
+            batch={rejectTarget}
+            isPending={rejectBatch.isPending}
+            onReject={(reason) =>
+              rejectBatch.mutate(
+                { id: rejectTarget.id, reason },
+                { onSuccess: () => setRejectTarget(null) },
+              )
+            }
           />
         )}
       </Dialog>
@@ -1230,6 +1246,58 @@ function ConfirmBatchDialog({ batch, onDone }: { batch: PendingBatch; onDone: ()
       <DialogFooter>
         <Button disabled={confirm.isPending} onClick={() => confirm.mutate()}>
           {confirm.isPending ? "Confirming…" : "Confirm"}
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  );
+}
+
+function RejectBatchDialog({
+  batch,
+  isPending,
+  onReject,
+}: {
+  batch: PendingBatch;
+  isPending: boolean;
+  onReject: (reason: string) => void;
+}) {
+  const [reason, setReason] = useState("");
+  const trimmed = reason.trim();
+
+  return (
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle className="flex items-center gap-2">
+          <X className="h-5 w-5 text-destructive" /> Reject Batch — {batch.production_number}
+        </DialogTitle>
+      </DialogHeader>
+      <div className="grid gap-3">
+        <p className="text-sm text-muted-foreground">
+          {batch.products?.name} · Produced: {num(Number(batch.quantity_produced))}{" "}
+          {batch.products?.unit ?? batch.unit}
+        </p>
+        <div>
+          <Label>Reason for rejection</Label>
+          <Textarea
+            rows={3}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Explain why this batch is being rejected…"
+            autoFocus
+          />
+        </div>
+        <p className="text-xs text-muted-foreground">
+          This batch will not be posted to stock. The linked production request (if any) reopens
+          so Production can submit a fresh batch.
+        </p>
+      </div>
+      <DialogFooter>
+        <Button
+          variant="destructive"
+          disabled={isPending || !trimmed}
+          onClick={() => onReject(trimmed)}
+        >
+          {isPending ? "Rejecting…" : "Reject batch"}
         </Button>
       </DialogFooter>
     </DialogContent>
