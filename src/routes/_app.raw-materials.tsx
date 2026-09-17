@@ -1863,6 +1863,10 @@ function HistoryDialog({ material }: { material: Material }) {
       <div className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
         <div>
           <div className="mb-2 text-sm font-medium">Stock movements</div>
+          <p className="mb-2 text-xs text-muted-foreground">
+            Unit cost and value below are each transaction's own recorded cost at the time it
+            happened — not the material's current unit cost.
+          </p>
           <Table>
             <TableHeader>
               <TableRow>
@@ -1871,6 +1875,8 @@ function HistoryDialog({ material }: { material: Material }) {
                 <TableHead className="text-right">Qty</TableHead>
                 <TableHead className="text-right">Before</TableHead>
                 <TableHead className="text-right">After</TableHead>
+                <TableHead className="text-right">Unit Cost</TableHead>
+                <TableHead className="text-right">Value</TableHead>
                 <TableHead>Reference</TableHead>
                 <TableHead>Reason</TableHead>
               </TableRow>
@@ -1895,13 +1901,19 @@ function HistoryDialog({ material }: { material: Material }) {
                   <TableCell className="text-right text-xs">
                     {m.quantity_after === null ? "—" : `${num(m.quantity_after)} ${material.unit}`}
                   </TableCell>
+                  <TableCell className="text-right">
+                    {m.unit_cost == null ? "—" : money(Number(m.unit_cost))}
+                  </TableCell>
+                  <TableCell className="text-right font-medium">
+                    {m.unit_cost == null ? "—" : money(Number(m.quantity) * Number(m.unit_cost))}
+                  </TableCell>
                   <TableCell>{m.reference ?? "—"}</TableCell>
                   <TableCell className="text-muted-foreground">{m.reason ?? "—"}</TableCell>
                 </TableRow>
               ))}
               {(movements.data ?? []).length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center text-muted-foreground py-6">
+                  <TableCell colSpan={9} className="text-center text-muted-foreground py-6">
                     No movements yet.
                   </TableCell>
                 </TableRow>
