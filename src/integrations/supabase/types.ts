@@ -390,6 +390,7 @@ export type Database = {
           source_type: string
           status: string
           unit: string | null
+          unit_cost: number | null
           updated_at: string
         }
         Insert: {
@@ -407,6 +408,7 @@ export type Database = {
           source_type: string
           status?: string
           unit?: string | null
+          unit_cost?: number | null
           updated_at?: string
         }
         Update: {
@@ -424,6 +426,7 @@ export type Database = {
           source_type?: string
           status?: string
           unit?: string | null
+          unit_cost?: number | null
           updated_at?: string
         }
         Relationships: [
@@ -2342,6 +2345,7 @@ export type Database = {
           created_at: string
           created_by: string | null
           current_stock: number
+          current_value: number
           factory_id: string
           id: string
           minimum_stock: number | null
@@ -2362,6 +2366,7 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           current_stock?: number
+          current_value?: number
           factory_id: string
           id?: string
           minimum_stock?: number | null
@@ -2382,6 +2387,7 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           current_stock?: number
+          current_value?: number
           factory_id?: string
           id?: string
           minimum_stock?: number | null
@@ -3985,6 +3991,10 @@ export type Database = {
       assert_valid_transition: {
         Args: { p_from: unknown; p_to: unknown }
         Returns: undefined
+      }
+      avg_unit_cost: {
+        Args: { v_fallback: number; v_stock: number; v_value: number }
+        Returns: number
       }
       cancel_costing_sheet: {
         Args: { p_id: string; p_reason?: string }

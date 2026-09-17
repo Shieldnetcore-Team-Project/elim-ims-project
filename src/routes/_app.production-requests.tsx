@@ -452,12 +452,15 @@ function RequestForm({
   const [requestedBy, setRequestedBy] = useState("");
   const [department, setDepartment] = useState("");
   const [productId, setProductId] = useState("");
-  const [quantity, setQuantity] = useState(0);
   const [unit, setUnit] = useState("");
   const [remarks, setRemarks] = useState("");
   const [items, setItems] = useState<{ materialId: string; quantity: number }[]>([
     { materialId: "", quantity: 0 },
   ]);
+  // Quantity requested is no longer its own input — it's the sum of the
+  // per-material quantities below, since that's the number that actually
+  // drives the request.
+  const quantity = items.reduce((s, it) => s + (Number(it.quantity) || 0), 0);
   // Materials requested inline via "Add new material" this session — not yet
   // admin-approved (request_new_material inserts pending_approval/inactive),
   // but usable here so the request doesn't stall waiting on that approval.
@@ -479,7 +482,6 @@ function RequestForm({
   const save = useMutation({
     mutationFn: async () => {
       if (!requestedBy.trim()) throw new Error("Enter the requesting staff name");
-      if (quantity <= 0) throw new Error("Quantity requested must be > 0");
       if (!productId) throw new Error("Select the product to be produced");
       const validItems = items.filter((it) => it.materialId && it.quantity > 0);
       if (validItems.length === 0) throw new Error("Add at least one raw material with a quantity");
@@ -519,150 +521,135 @@ function RequestForm({
 
   return (
     <>
-    <DialogContent className="max-w-xl">
-      <DialogHeader>
-        <DialogTitle>New Request</DialogTitle>
-      </DialogHeader>
-      <div className="grid gap-3 max-h-[70vh] overflow-y-auto pr-1">
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <Label>Requesting staff</Label>
-            <Input
-              value={requestedBy}
-              onChange={(e) => setRequestedBy(e.target.value)}
-              placeholder="Full name"
-            />
+      <DialogContent className="max-w-xl">
+        <DialogHeader>
+          <DialogTitle>New Request</DialogTitle>
+        </DialogHeader>
+        <div className="grid gap-3 max-h-[70vh] overflow-y-auto pr-1">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Requesting staff</Label>
+              <Input
+                value={requestedBy}
+                onChange={(e) => setRequestedBy(e.target.value)}
+                placeholder="Full name"
+              />
+            </div>
+            <div>
+              <Label>Department</Label>
+              <Input value={department} onChange={(e) => setDepartment(e.target.value)} />
+            </div>
           </div>
-          <div>
-            <Label>Department</Label>
-            <Input value={department} onChange={(e) => setDepartment(e.target.value)} />
-          </div>
-        </div>
 
-        <div>
-          <Label>Product to be produced</Label>
-          <Select
-            value={productId}
-            onValueChange={(v) => {
-              setProductId(v);
-              const p = products.find((x) => x.id === v);
-              if (p) setUnit(p.unit);
-            }}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Select product…" />
-            </SelectTrigger>
-            <SelectContent>
-              {products.map((p) => (
-                <SelectItem key={p.id} value={p.id}>
-                  {p.name} · stock {num(Number(p.current_stock))} {p.unit}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
           <div>
-            <Label>Quantity requested</Label>
-            <Input
-              type="number"
-              min={0.001}
-              step="0.001"
-              value={quantity}
-              onChange={(e) => setQuantity(Number(e.target.value))}
-            />
+            <Label>Product to be produced</Label>
+            <Select
+              value={productId}
+              onValueChange={(v) => {
+                setProductId(v);
+                const p = products.find((x) => x.id === v);
+                if (p) setUnit(p.unit);
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select product…" />
+              </SelectTrigger>
+              <SelectContent>
+                {products.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.name} · stock {num(Number(p.current_stock))} {p.unit}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-          <div>
-            <Label>Unit</Label>
-            <Input value={unit} onChange={(e) => setUnit(e.target.value)} />
-          </div>
-        </div>
 
-        <div className="flex items-center justify-between">
-          <Label>Raw materials required</Label>
-          <Button type="button" variant="outline" size="sm" className="gap-1" onClick={addItem}>
-            <Plus className="h-3.5 w-3.5" /> Add material
-          </Button>
-        </div>
-        <div className="grid gap-2">
-          {items.map((it, i) => {
-            const m = allMaterials.find((mm) => mm.id === it.materialId);
-            return (
-              <div key={i} className="flex items-start gap-2">
-                <div className="flex-1">
-                  <MaterialCombobox
-                    value={it.materialId}
-                    materials={allMaterials}
-                    pendingIds={pendingIds}
-                    onChange={(v) => updateItem(i, { materialId: v })}
-                    onAddNew={
-                      canAddMaterial
-                        ? (query) => setAddMaterialFor({ index: i, query })
-                        : undefined
-                    }
+          <div className="flex items-center justify-between">
+            <Label>Raw materials required</Label>
+            <Button type="button" variant="outline" size="sm" className="gap-1" onClick={addItem}>
+              <Plus className="h-3.5 w-3.5" /> Add material
+            </Button>
+          </div>
+          <div className="grid gap-2">
+            {items.map((it, i) => {
+              const m = allMaterials.find((mm) => mm.id === it.materialId);
+              return (
+                <div key={i} className="flex items-start gap-2">
+                  <div className="flex-1">
+                    <MaterialCombobox
+                      value={it.materialId}
+                      materials={allMaterials}
+                      pendingIds={pendingIds}
+                      onChange={(v) => updateItem(i, { materialId: v })}
+                      onAddNew={
+                        canAddMaterial
+                          ? (query) => setAddMaterialFor({ index: i, query })
+                          : undefined
+                      }
+                    />
+                    {m && pendingIds.includes(m.id) && (
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        Pending approval — usable in this request now, stock available once
+                        approved.
+                      </p>
+                    )}
+                  </div>
+                  <Input
+                    type="number"
+                    min={0.001}
+                    step="0.001"
+                    className="w-28"
+                    placeholder="Qty"
+                    value={it.quantity}
+                    onChange={(e) => updateItem(i, { quantity: Number(e.target.value) })}
                   />
-                  {m && pendingIds.includes(m.id) && (
-                    <p className="mt-1 text-[11px] text-muted-foreground">
-                      Pending approval — usable in this request now, stock available once approved.
-                    </p>
-                  )}
+                  <span className="w-12 shrink-0 pt-2 text-xs text-muted-foreground">
+                    {m?.unit ?? ""}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => removeItem(i)}
+                    disabled={items.length === 1}
+                  >
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                  </Button>
                 </div>
-                <Input
-                  type="number"
-                  min={0.001}
-                  step="0.001"
-                  className="w-28"
-                  placeholder="Qty"
-                  value={it.quantity}
-                  onChange={(e) => updateItem(i, { quantity: Number(e.target.value) })}
-                />
-                <span className="w-12 shrink-0 pt-2 text-xs text-muted-foreground">
-                  {m?.unit ?? ""}
-                </span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => removeItem(i)}
-                  disabled={items.length === 1}
-                >
-                  <Trash2 className="h-4 w-4 text-destructive" />
-                </Button>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
 
-        <div>
-          <Label>Remarks</Label>
-          <Textarea rows={2} value={remarks} onChange={(e) => setRemarks(e.target.value)} />
+          <div>
+            <Label>Remarks</Label>
+            <Textarea rows={2} value={remarks} onChange={(e) => setRemarks(e.target.value)} />
+          </div>
         </div>
-      </div>
-      <DialogFooter>
-        <Button disabled={save.isPending} onClick={() => save.mutate()} className="gap-2">
-          {save.isPending ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <ClipboardList className="h-4 w-4" />
-          )}
-          {save.isPending ? "Saving…" : "Submit Request"}
-        </Button>
-      </DialogFooter>
-    </DialogContent>
+        <DialogFooter>
+          <Button disabled={save.isPending} onClick={() => save.mutate()} className="gap-2">
+            {save.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <ClipboardList className="h-4 w-4" />
+            )}
+            {save.isPending ? "Saving…" : "Submit Request"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
 
-    <Dialog open={!!addMaterialFor} onOpenChange={(v) => !v && setAddMaterialFor(null)}>
-      {addMaterialFor && (
-        <AddMaterialDialog
-          factoryId={factoryId}
-          initialName={addMaterialFor.query}
-          onCreated={(mat) => {
-            setPendingMaterials((prev) => [...prev, mat]);
-            updateItem(addMaterialFor.index, { materialId: mat.id });
-            setAddMaterialFor(null);
-          }}
-        />
-      )}
-    </Dialog>
+      <Dialog open={!!addMaterialFor} onOpenChange={(v) => !v && setAddMaterialFor(null)}>
+        {addMaterialFor && (
+          <AddMaterialDialog
+            factoryId={factoryId}
+            initialName={addMaterialFor.query}
+            onCreated={(mat) => {
+              setPendingMaterials((prev) => [...prev, mat]);
+              updateItem(addMaterialFor.index, { materialId: mat.id });
+              setAddMaterialFor(null);
+            }}
+          />
+        )}
+      </Dialog>
     </>
   );
 }
@@ -684,7 +671,9 @@ function MaterialCombobox({
   const [search, setSearch] = useState("");
   const selected = materials.find((m) => m.id === value);
   const query = search.trim().toLowerCase();
-  const filtered = query ? materials.filter((m) => m.name.toLowerCase().includes(query)) : materials;
+  const filtered = query
+    ? materials.filter((m) => m.name.toLowerCase().includes(query))
+    : materials;
   const exactMatch = materials.some((m) => m.name.toLowerCase() === query);
 
   return (
@@ -823,8 +812,8 @@ function AddMaterialDialog({
       </DialogHeader>
       <div className="grid gap-3">
         <p className="text-xs text-muted-foreground">
-          New materials go to an admin for approval before their stock can be issued — it's added
-          to this request now and ready to use once approved.
+          New materials go to an admin for approval before their stock can be issued — it's added to
+          this request now and ready to use once approved.
         </p>
         <div>
           <Label>Raw material name</Label>
@@ -904,7 +893,7 @@ function ApproveDialog({ row, onDone }: { row: RequestRow; onDone: () => void })
       if (error) throw error;
     },
     onSuccess: () => {
-      toast.success("Request approved");
+      toast.success("Request approved — materials released from stock");
       logAudit({
         action: "update",
         entity: "production_requests",
@@ -925,6 +914,9 @@ function ApproveDialog({ row, onDone }: { row: RequestRow; onDone: () => void })
         <p className="text-sm text-muted-foreground">
           {row.products?.name} · {num(Number(row.quantity_requested))} {row.unit} · requested by{" "}
           {row.requested_by_name}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          Approving will immediately deduct the requested raw materials from stock.
         </p>
         <div>
           <Label>Approver name</Label>

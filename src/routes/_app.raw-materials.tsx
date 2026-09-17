@@ -87,6 +87,7 @@ type Material = {
   opening_stock: number;
   current_stock: number;
   unit_cost: number;
+  current_value: number;
   reorder_level: number | null;
   minimum_stock: number | null;
   active: boolean;
@@ -204,6 +205,7 @@ function RawMaterialsPage() {
       ["stock-adjustment-requests"],
       ["goods-receipts"],
       ["damage-records-raw-materials"],
+      ["damage-value-raw-materials"],
       ["material-movements"],
       ["material-cost-history"],
     ],
@@ -247,7 +249,7 @@ function RawMaterialsPage() {
       const { data, error } = await supabase
         .from("raw_materials")
         .select(
-          "id,name,category,category_id,unit,opening_stock,current_stock,unit_cost,reorder_level,minimum_stock,active,approval_status,created_by,remarks,supplier_id,suppliers(name),material_categories(name)",
+          "id,name,category,category_id,unit,opening_stock,current_stock,unit_cost,current_value,reorder_level,minimum_stock,active,approval_status,created_by,remarks,supplier_id,suppliers(name),material_categories(name)",
         )
         .eq("factory_id", factoryId!)
         .order("name");
@@ -318,7 +320,7 @@ function RawMaterialsPage() {
       const { data, error } = await supabase
         .from("damage_records")
         .select(
-          "id,reference_number,source_type,source_reference,quantity,unit,reason,created_at,raw_materials(name)",
+          "id,reference_number,source_type,source_reference,quantity,unit,unit_cost,reason,created_at,raw_materials(name)",
         )
         .eq("factory_id", factoryId!)
         .not("material_id", "is", null)
@@ -332,10 +334,28 @@ function RawMaterialsPage() {
         source_reference: string | null;
         quantity: number;
         unit: string | null;
+        unit_cost: number | null;
         reason: string | null;
         created_at: string;
         raw_materials: { name: string } | null;
       }[];
+    },
+  });
+
+  // Separate from recentDamage (capped at 20 rows for display) so the
+  // "Damaged Value" total below reflects every damage record, not just the
+  // most recent page of them.
+  const damageValue = useQuery({
+    queryKey: ["damage-value-raw-materials", factoryId],
+    enabled: !!factoryId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("damage_records")
+        .select("quantity,unit_cost")
+        .eq("factory_id", factoryId!)
+        .not("material_id", "is", null);
+      if (error) throw error;
+      return (data ?? []).reduce((s, d) => s + Number(d.quantity) * Number(d.unit_cost ?? 0), 0);
     },
   });
 
@@ -344,6 +364,8 @@ function RawMaterialsPage() {
     qc.invalidateQueries({ queryKey: ["material-movements"] });
     qc.invalidateQueries({ queryKey: ["stock-adjustment-requests"] });
     qc.invalidateQueries({ queryKey: ["goods-receipts"] });
+    qc.invalidateQueries({ queryKey: ["damage-records-raw-materials"] });
+    qc.invalidateQueries({ queryKey: ["damage-value-raw-materials"] });
   };
 
   const confirmReceipt = useMutation({
@@ -474,10 +496,7 @@ function RawMaterialsPage() {
   });
 
   const summary = {
-    totalValue: (list.data ?? []).reduce(
-      (s, m) => s + Number(m.current_stock) * Number(m.unit_cost),
-      0,
-    ),
+    totalValue: (list.data ?? []).reduce((s, m) => s + Number(m.current_value), 0),
     lowStock: (list.data ?? []).filter(
       (m) => Number(m.current_stock) <= Number(m.reorder_level ?? 0),
     ).length,
@@ -507,7 +526,7 @@ function RawMaterialsPage() {
       unit: m.unit,
       current_stock: Number(m.current_stock),
       unit_cost: Number(m.unit_cost),
-      total_value: Number(m.current_stock) * Number(m.unit_cost),
+      total_value: Number(m.current_value),
       reorder_level: m.reorder_level,
       extra: [
         ["Category", m.material_categories?.name || m.category || "—"],
@@ -564,7 +583,7 @@ function RawMaterialsPage() {
         )}
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <SummaryCard icon={Boxes} label="Total Materials" value={String(summary.totalMaterials)} />
         <SummaryCard icon={Wallet} label="Inventory Value" value={money(summary.totalValue)} />
         <SummaryCard
@@ -572,6 +591,12 @@ function RawMaterialsPage() {
           label="Low Stock / Reorder Alerts"
           value={String(summary.lowStock)}
           tone={summary.lowStock > 0 ? "destructive" : "warning"}
+        />
+        <SummaryCard
+          icon={PackageMinus}
+          label="Damaged Value"
+          value={money(damageValue.data ?? 0)}
+          tone={(damageValue.data ?? 0) > 0 ? "destructive" : "primary"}
         />
       </div>
 
@@ -587,7 +612,6 @@ function RawMaterialsPage() {
                 <TableHead>Category</TableHead>
                 <TableHead>Supplier</TableHead>
                 <TableHead className="text-right">Current Stock</TableHead>
-                <TableHead className="text-right">Unit Cost</TableHead>
                 <TableHead className="text-right">Total Value</TableHead>
                 <TableHead>Reorder Level</TableHead>
                 <TableHead></TableHead>
@@ -628,9 +652,8 @@ function RawMaterialsPage() {
                         </Badge>
                       )}
                     </TableCell>
-                    <TableCell className="text-right">{money(Number(m.unit_cost))}</TableCell>
                     <TableCell className="text-right font-medium">
-                      {money(Number(m.current_stock) * Number(m.unit_cost))}
+                      {money(Number(m.current_value))}
                     </TableCell>
                     <TableCell>
                       {num(Number(m.reorder_level ?? 0))} {m.unit}
@@ -966,6 +989,8 @@ function RawMaterialsPage() {
                   <TableHead>Reference</TableHead>
                   <TableHead>Material</TableHead>
                   <TableHead className="text-right">Quantity</TableHead>
+                  <TableHead className="text-right">Unit Cost</TableHead>
+                  <TableHead className="text-right">Value</TableHead>
                   <TableHead>Source</TableHead>
                   <TableHead>Reason</TableHead>
                   <TableHead>Date</TableHead>
@@ -978,6 +1003,12 @@ function RawMaterialsPage() {
                     <TableCell>{d.raw_materials?.name ?? "—"}</TableCell>
                     <TableCell className="text-right text-destructive">
                       {num(Number(d.quantity))} {d.unit ?? ""}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {d.unit_cost == null ? "—" : money(Number(d.unit_cost))}
+                    </TableCell>
+                    <TableCell className="text-right font-medium text-destructive">
+                      {d.unit_cost == null ? "—" : money(Number(d.quantity) * Number(d.unit_cost))}
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline" className="capitalize">

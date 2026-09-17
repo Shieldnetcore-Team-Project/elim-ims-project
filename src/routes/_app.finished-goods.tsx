@@ -45,6 +45,7 @@ import {
   PackageX,
   PackageCheck,
   PackagePlus,
+  PackageMinus,
   ArrowLeftRight,
   History,
   Printer,
@@ -178,6 +179,7 @@ function FinishedGoodsPage() {
       "inventory_movements",
       "product_price_history",
       "product_units",
+      "damage_records",
     ],
     [
       ["finished-goods"],
@@ -190,6 +192,8 @@ function FinishedGoodsPage() {
       ["products-active"],
       ["products-for-production"],
       ["production-list"],
+      ["damage-records-finished-goods"],
+      ["damage-value-finished-goods"],
     ],
   );
   const [formOpen, setFormOpen] = useState(false);
@@ -287,6 +291,52 @@ function FinishedGoodsPage() {
     staleTime: Infinity,
   });
 
+  const recentDamage = useQuery({
+    queryKey: ["damage-records-finished-goods", factoryId],
+    enabled: !!factoryId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("damage_records")
+        .select(
+          "id,reference_number,source_type,source_reference,quantity,unit,unit_cost,reason,created_at,products(name)",
+        )
+        .eq("factory_id", factoryId!)
+        .not("product_id", "is", null)
+        .order("created_at", { ascending: false })
+        .limit(20);
+      if (error) throw error;
+      return (data ?? []) as unknown as {
+        id: string;
+        reference_number: string;
+        source_type: string;
+        source_reference: string | null;
+        quantity: number;
+        unit: string | null;
+        unit_cost: number | null;
+        reason: string | null;
+        created_at: string;
+        products: { name: string } | null;
+      }[];
+    },
+  });
+
+  // Separate from recentDamage (capped at 20 rows for display) so the
+  // "Damaged Value" total below reflects every damage record, not just the
+  // most recent page of them.
+  const damageValue = useQuery({
+    queryKey: ["damage-value-finished-goods", factoryId],
+    enabled: !!factoryId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("damage_records")
+        .select("quantity,unit_cost")
+        .eq("factory_id", factoryId!)
+        .not("product_id", "is", null);
+      if (error) throw error;
+      return (data ?? []).reduce((s, d) => s + Number(d.quantity) * Number(d.unit_cost ?? 0), 0);
+    },
+  });
+
   const invalidateAll = () => {
     qc.invalidateQueries({ queryKey: ["finished-goods"] });
     qc.invalidateQueries({ queryKey: ["products-active"] });
@@ -294,6 +344,8 @@ function FinishedGoodsPage() {
     qc.invalidateQueries({ queryKey: ["stock-adjustment-requests"] });
     qc.invalidateQueries({ queryKey: ["production-list"] });
     qc.invalidateQueries({ queryKey: ["pending-production-batches"] });
+    qc.invalidateQueries({ queryKey: ["damage-records-finished-goods"] });
+    qc.invalidateQueries({ queryKey: ["damage-value-finished-goods"] });
   };
 
   const rejectBatch = useMutation({
@@ -473,7 +525,7 @@ function FinishedGoodsPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <SummaryCard
           icon={Boxes}
           label={typeFilter === "semi_finished" ? "Semi-Finished SKUs" : "Finished Goods SKUs"}
@@ -485,6 +537,12 @@ function FinishedGoodsPage() {
           label="Low Stock Items"
           value={String(summary.lowStock)}
           tone={summary.lowStock > 0 ? "destructive" : "warning"}
+        />
+        <SummaryCard
+          icon={PackageMinus}
+          label="Damaged Value"
+          value={money(damageValue.data ?? 0)}
+          tone={(damageValue.data ?? 0) > 0 ? "destructive" : "primary"}
         />
       </div>
 
@@ -779,6 +837,56 @@ function FinishedGoodsPage() {
                     </TableRow>
                   );
                 })}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+
+      {(recentDamage.data ?? []).length > 0 && (
+        <Card className="rounded-2xl">
+          <CardHeader>
+            <CardTitle>Recent Damage</CardTitle>
+          </CardHeader>
+          <CardContent className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Reference</TableHead>
+                  <TableHead>Product</TableHead>
+                  <TableHead className="text-right">Quantity</TableHead>
+                  <TableHead className="text-right">Unit Cost</TableHead>
+                  <TableHead className="text-right">Value</TableHead>
+                  <TableHead>Source</TableHead>
+                  <TableHead>Reason</TableHead>
+                  <TableHead>Date</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(recentDamage.data ?? []).map((d) => (
+                  <TableRow key={d.id}>
+                    <TableCell className="font-mono text-xs">{d.reference_number}</TableCell>
+                    <TableCell>{d.products?.name ?? "—"}</TableCell>
+                    <TableCell className="text-right text-destructive">
+                      {num(Number(d.quantity))} {d.unit ?? ""}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {d.unit_cost == null ? "—" : money(Number(d.unit_cost))}
+                    </TableCell>
+                    <TableCell className="text-right font-medium text-destructive">
+                      {d.unit_cost == null ? "—" : money(Number(d.quantity) * Number(d.unit_cost))}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="capitalize">
+                        {d.source_type.toLowerCase()}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{d.reason ?? "—"}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {new Date(d.created_at).toLocaleDateString()}
+                    </TableCell>
+                  </TableRow>
+                ))}
               </TableBody>
             </Table>
           </CardContent>

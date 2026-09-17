@@ -185,14 +185,11 @@ function AdminDashboard({ factoryId }: { factoryId: string }) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("raw_materials")
-        .select("current_stock,unit_cost")
+        .select("current_value")
         .eq("factory_id", factoryId)
         .eq("active", true);
       if (error) throw error;
-      return (data ?? []).reduce(
-        (s, r) => s + Number(r.current_stock ?? 0) * Number(r.unit_cost ?? 0),
-        0,
-      );
+      return (data ?? []).reduce((s, r) => s + Number(r.current_value ?? 0), 0);
     },
   });
   const finishedGoods = useQuery({
