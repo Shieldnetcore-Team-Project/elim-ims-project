@@ -23,6 +23,28 @@ export const UNIT_OPTIONS = [
   "boxes",
 ];
 
+// Packaging categories that only ever come in these two units. Matched
+// against the admin-defined `material_categories.name` (case-insensitive),
+// not a fixed category enum — factories can still add other categories,
+// which keep the full unit list.
+const CATEGORY_UNIT_OVERRIDES: Record<string, string[]> = {
+  bottle: ["kilogram", "piece"],
+  sachet: ["kilogram", "piece"],
+  dispenser: ["kilogram", "piece"],
+};
+
+export function getUnitOptionsForCategory(
+  categoryName: string | null | undefined,
+  allUnits: string[],
+): string[] {
+  const override = categoryName
+    ? CATEGORY_UNIT_OVERRIDES[categoryName.trim().toLowerCase()]
+    : undefined;
+  if (!override) return allUnits;
+  const matched = allUnits.filter((u) => override.some((o) => u.toLowerCase().startsWith(o)));
+  return matched.length > 0 ? matched : override.map((o) => o[0].toUpperCase() + o.slice(1));
+}
+
 export function useUnitsOfMeasure() {
   return useQuery({
     queryKey: ["units-of-measure"],

@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { RequireAccess } from "@/components/layout/require-access";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useFactoryId, useFactorySettings } from "@/lib/use-factory";
@@ -57,7 +57,11 @@ import {
   X,
 } from "lucide-react";
 import { generateStockCardPdf } from "@/lib/pdf";
-import { useUnitsOfMeasure, UNIT_OPTIONS as UNIT_OPTIONS_FALLBACK } from "@/lib/units";
+import {
+  useUnitsOfMeasure,
+  UNIT_OPTIONS as UNIT_OPTIONS_FALLBACK,
+  getUnitOptionsForCategory,
+} from "@/lib/units";
 import { ADJUSTMENT_REASONS } from "@/lib/adjustment-reasons";
 
 export const Route = createFileRoute("/_app/raw-materials")({
@@ -1042,9 +1046,11 @@ function MaterialForm({
 }) {
   const qc = useQueryClient();
   const unitsOfMeasure = useUnitsOfMeasure();
-  const unitOptions = unitsOfMeasure.data ?? UNIT_OPTIONS_FALLBACK;
+  const allUnitOptions = unitsOfMeasure.data ?? UNIT_OPTIONS_FALLBACK;
   const [name, setName] = useState(editing?.name ?? "");
   const [categoryId, setCategoryId] = useState(editing?.category_id ?? "none");
+  const selectedCategoryName = categories.find((c) => c.id === categoryId)?.name;
+  const unitOptions = getUnitOptionsForCategory(selectedCategoryName, allUnitOptions);
   const [newCategory, setNewCategory] = useState("");
   const initialUnit = editing?.unit ?? "kg";
   const [unitChoice, setUnitChoice] = useState(
@@ -1054,6 +1060,16 @@ function MaterialForm({
     unitOptions.includes(initialUnit) ? "" : initialUnit,
   );
   const unit = unitChoice === "__custom__" ? customUnit : unitChoice;
+
+  // Bottle/Sachet/Dispenser only take kg or pieces — if the category changes
+  // to/from one of those, drop a unit choice that's no longer offered.
+  useEffect(() => {
+    if (unitChoice !== "__custom__" && !unitOptions.includes(unitChoice)) {
+      setUnitChoice(unitOptions[0] ?? "__custom__");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCategoryName, allUnitOptions]);
+
   const [openingStock, setOpeningStock] = useState(editing ? Number(editing.opening_stock) : 0);
   const [unitCost, setUnitCost] = useState(editing ? Number(editing.unit_cost) : 0);
   const [supplierId, setSupplierId] = useState(editing?.supplier_id ?? "none");
@@ -1080,6 +1096,30 @@ function MaterialForm({
       setCategoryId(id);
       setNewCategory("");
       qc.invalidateQueries({ queryKey: ["material-categories"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const [newSupplier, setNewSupplier] = useState("");
+  const addSupplier = useMutation({
+    mutationFn: async () => {
+      if (!newSupplier.trim()) throw new Error("Enter a supplier name");
+      const { data, error } = await supabase
+        .from("suppliers")
+        .insert({ factory_id: factoryId, name: newSupplier.trim() })
+        .select("id")
+        .single();
+      if (error) throw error;
+      return data.id as string;
+    },
+    onSuccess: (id) => {
+      setSupplierId(id);
+      setNewSupplier("");
+      // Registers the supplier for real, on the same `suppliers` table the
+      // Suppliers page reads — it shows up there and in every other
+      // supplier dropdown without being re-entered.
+      qc.invalidateQueries({ queryKey: ["suppliers-brief"] });
+      qc.invalidateQueries({ queryKey: ["suppliers"] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -1221,6 +1261,23 @@ function MaterialForm({
               ))}
             </SelectContent>
           </Select>
+          <div className="flex gap-2 mt-2">
+            <Input
+              value={newSupplier}
+              onChange={(e) => setNewSupplier(e.target.value)}
+              placeholder="New supplier name…"
+              className="h-8"
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={!newSupplier.trim() || addSupplier.isPending}
+              onClick={() => addSupplier.mutate()}
+            >
+              Add
+            </Button>
+          </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
