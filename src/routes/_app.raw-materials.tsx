@@ -795,7 +795,10 @@ function RawMaterialsPage() {
       {(pendingReceipts.data ?? []).length > 0 && (
         <Card className="rounded-2xl border-dashed">
           <CardHeader>
-            <CardTitle>Pending Goods Receipts</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              Pending Goods Receipts
+              <Badge variant="destructive">{pendingReceipts.data!.length}</Badge>
+            </CardTitle>
           </CardHeader>
           <CardContent className="overflow-x-auto">
             <Table>
@@ -883,7 +886,10 @@ function RawMaterialsPage() {
       {(pendingAdjustments.data ?? []).length > 0 && (
         <Card className="rounded-2xl border-dashed">
           <CardHeader>
-            <CardTitle>Pending Stock Adjustment Requests</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              Pending Stock Adjustment Requests
+              <Badge variant="destructive">{pendingAdjustments.data!.length}</Badge>
+            </CardTitle>
           </CardHeader>
           <CardContent className="overflow-x-auto">
             <Table>

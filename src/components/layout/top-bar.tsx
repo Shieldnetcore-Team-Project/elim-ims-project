@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useFactoryId } from "@/lib/use-factory";
+import { usePendingAttention } from "@/lib/pending-attention";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import {
@@ -26,6 +27,7 @@ import { formatDistanceToNow } from "date-fns";
 function NotificationsBell() {
   const { data: factoryId } = useFactoryId();
   const qc = useQueryClient();
+  const { items: pendingItems, total: pendingTotal } = usePendingAttention();
 
   const notifications = useQuery({
     queryKey: ["notifications", factoryId],
@@ -44,6 +46,7 @@ function NotificationsBell() {
   });
 
   const unreadCount = (notifications.data ?? []).filter((n) => !n.read).length;
+  const badgeCount = unreadCount + pendingTotal;
 
   const markAllRead = async () => {
     const unreadIds = (notifications.data ?? []).filter((n) => !n.read).map((n) => n.id);
@@ -68,14 +71,35 @@ function NotificationsBell() {
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="icon" className="relative" aria-label="Notifications">
           <Bell className="h-4 w-4" />
-          {unreadCount > 0 && (
-            <Badge className="absolute -right-1 -top-1 h-4 min-w-4 justify-center rounded-full px-1 text-[10px]">
-              {unreadCount}
+          {badgeCount > 0 && (
+            <Badge
+              variant="destructive"
+              className="absolute -right-1 -top-1 h-4 min-w-4 justify-center rounded-full px-1 text-[10px]"
+            >
+              {badgeCount > 99 ? "99+" : badgeCount}
             </Badge>
           )}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-80">
+        {pendingItems.length > 0 && (
+          <>
+            <DropdownMenuLabel>Needs Your Attention</DropdownMenuLabel>
+            <div className="space-y-1 p-1">
+              {pendingItems.map((item) => (
+                <DropdownMenuItem key={item.key} asChild>
+                  <Link to={item.to} className="flex items-center justify-between gap-2 text-sm">
+                    <span>{item.label}</span>
+                    <Badge variant="destructive" className="shrink-0">
+                      {item.count}
+                    </Badge>
+                  </Link>
+                </DropdownMenuItem>
+              ))}
+            </div>
+            <DropdownMenuSeparator />
+          </>
+        )}
         <DropdownMenuLabel>Notifications</DropdownMenuLabel>
         <DropdownMenuSeparator />
         {(notifications.data?.length ?? 0) === 0 ? (

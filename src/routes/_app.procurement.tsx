@@ -54,6 +54,7 @@ import { num, money } from "@/lib/format";
 import { toast } from "sonner";
 import { generateProductionRequestPdf, generatePurchaseOrderPdf } from "@/lib/pdf";
 import { logAudit } from "@/lib/audit";
+import { usePendingAttention } from "@/lib/pending-attention";
 
 export const Route = createFileRoute("/_app/procurement")({
   head: () => ({
@@ -134,6 +135,8 @@ function ProcurementPage() {
   const { canView, canSubmit, canApprove, canReject, canCreate, canCancel } = usePermissions();
   const viewRequests = canView("production-requests");
   const viewOrders = canView("purchase-orders");
+  const pendingPurchaseRequests =
+    usePendingAttention().items.find((i) => i.key === "purchase-requests")?.count ?? 0;
 
   if (!viewRequests && !viewOrders) {
     return (
@@ -167,7 +170,17 @@ function ProcurementPage() {
       {viewRequests && viewOrders ? (
         <Tabs defaultValue="requests" className="space-y-4">
           <TabsList>
-            <TabsTrigger value="requests">Purchase Requests</TabsTrigger>
+            <TabsTrigger value="requests" className="gap-2">
+              Purchase Requests
+              {pendingPurchaseRequests > 0 && (
+                <Badge
+                  variant="destructive"
+                  className="h-5 min-w-5 justify-center rounded-full px-1"
+                >
+                  {pendingPurchaseRequests}
+                </Badge>
+              )}
+            </TabsTrigger>
             <TabsTrigger value="orders">Purchase Orders</TabsTrigger>
           </TabsList>
           <TabsContent value="requests">

@@ -14,12 +14,15 @@ import {
 } from "@/components/ui/sidebar";
 import { usePermissions } from "@/lib/permissions";
 import { nav } from "@/lib/nav";
+import { usePendingAttention } from "@/lib/pending-attention";
+import { Badge } from "@/components/ui/badge";
 
 export function AppSidebar() {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { can } = usePermissions();
+  const { byUrl } = usePendingAttention();
 
   return (
     <Sidebar collapsible="icon">
@@ -57,6 +60,7 @@ export function AppSidebar() {
                 <SidebarMenu>
                   {items.map((item) => {
                     const active = pathname === item.url || pathname.startsWith(item.url + "/");
+                    const pending = byUrl.get(item.url) ?? 0;
                     return (
                       <SidebarMenuItem key={item.url}>
                         <SidebarMenuButton asChild isActive={active}>
@@ -68,8 +72,25 @@ export function AppSidebar() {
                                 : "flex items-center gap-2 hover:bg-sidebar-accent/40 hover:text-sidebar-foreground"
                             }
                           >
-                            <item.icon className="h-4 w-4" />
-                            {!collapsed && <span>{item.title}</span>}
+                            <span className="relative">
+                              <item.icon className="h-4 w-4" />
+                              {collapsed && pending > 0 && (
+                                <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-destructive" />
+                              )}
+                            </span>
+                            {!collapsed && (
+                              <span className="flex flex-1 items-center justify-between gap-2">
+                                <span>{item.title}</span>
+                                {pending > 0 && (
+                                  <Badge
+                                    variant="destructive"
+                                    className="h-5 min-w-5 justify-center rounded-full px-1 text-[10px]"
+                                  >
+                                    {pending > 99 ? "99+" : pending}
+                                  </Badge>
+                                )}
+                              </span>
+                            )}
                           </Link>
                         </SidebarMenuButton>
                       </SidebarMenuItem>

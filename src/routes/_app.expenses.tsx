@@ -327,18 +327,6 @@ function ExpensesPage() {
       .map(([name]) => name);
   }, [rangeFiltered]);
 
-  // Distinct "what is this for" descriptions already used on past expenses,
-  // so the entry form can offer them as a pick list instead of everyone
-  // retyping the same handful of reasons.
-  const descriptionOptions = useMemo(() => {
-    const set = new Set<string>();
-    (list.data ?? []).forEach((e) => {
-      const d = e.description?.trim();
-      if (d) set.add(d);
-    });
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [list.data]);
-
   const totalExpenses = rangeFiltered.length
     ? (rangeFiltered[rangeFiltered.length - 1].totalExpensesAfter ?? 0)
     : 0;
@@ -506,7 +494,6 @@ function ExpensesPage() {
                 <EntryForm
                   factoryId={factoryId}
                   categories={categories.data ?? []}
-                  descriptions={descriptionOptions}
                   editingExpense={editingExpense}
                   editingCashIn={editingCashIn}
                   defaultType={defaultEntryType}
@@ -1147,7 +1134,6 @@ function ReverseDialog({ expense, onDone }: { expense: Expense; onDone: () => vo
 function EntryForm({
   factoryId,
   categories,
-  descriptions,
   editingExpense,
   editingCashIn,
   defaultType,
@@ -1156,7 +1142,6 @@ function EntryForm({
 }: {
   factoryId: string;
   categories: Category[];
-  descriptions: string[];
   editingExpense: Expense | null;
   editingCashIn: CashIn | null;
   defaultType: EntryType;
@@ -1179,10 +1164,6 @@ function EntryForm({
   const [description, setDescription] = useState(
     editingExpense?.description ?? editingCashIn?.description ?? "",
   );
-  const [descriptionChoice, setDescriptionChoice] = useState(() => {
-    const initial = editingExpense?.description?.trim() ?? "";
-    return initial && descriptions.includes(initial) ? initial : "__new__";
-  });
   const [vendor, setVendor] = useState(editingExpense?.vendor ?? "");
   const [receiptNumber, setReceiptNumber] = useState(editingExpense?.receipt_number ?? "");
   const [method, setMethod] = useState<PaymentMethod>(
@@ -1381,34 +1362,12 @@ function EntryForm({
               </div>
             )}
             <div>
-              <Label>What is this expense for?</Label>
-              <Select
-                value={descriptionChoice}
-                onValueChange={(v) => {
-                  setDescriptionChoice(v);
-                  if (v !== "__new__") setDescription(v);
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select or add what this is for" />
-                </SelectTrigger>
-                <SelectContent>
-                  {descriptions.map((d) => (
-                    <SelectItem key={d} value={d}>
-                      {d}
-                    </SelectItem>
-                  ))}
-                  <SelectItem value="__new__">+ Add new…</SelectItem>
-                </SelectContent>
-              </Select>
-              {descriptionChoice === "__new__" && (
-                <Input
-                  className="mt-2"
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Describe what this expense is for"
-                />
-              )}
+              <Label>Description</Label>
+              <Input
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Describe what this expense is for"
+              />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>

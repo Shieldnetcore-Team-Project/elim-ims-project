@@ -277,7 +277,15 @@ function ProductionRequestsPage() {
 
       <Card className="rounded-2xl">
         <CardHeader>
-          <CardTitle>Requests</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            Requests
+            {(() => {
+              const pendingCount = (list.data ?? []).filter(
+                (r) => r.approval_status === "pending",
+              ).length;
+              return pendingCount > 0 ? <Badge variant="destructive">{pendingCount}</Badge> : null;
+            })()}
+          </CardTitle>
         </CardHeader>
         <CardContent className="overflow-x-auto">
           <Table>

@@ -684,7 +684,10 @@ function FinishedGoodsPage() {
       {(pendingAdjustments.data ?? []).length > 0 && (
         <Card className="rounded-2xl border-dashed">
           <CardHeader>
-            <CardTitle>Pending Write-off Requests</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              Pending Write-off Requests
+              <Badge variant="destructive">{pendingAdjustments.data!.length}</Badge>
+            </CardTitle>
           </CardHeader>
           <CardContent className="overflow-x-auto">
             <Table>
@@ -781,7 +784,10 @@ function FinishedGoodsPage() {
       {(pendingBatches.data ?? []).length > 0 && (
         <Card className="rounded-2xl border-dashed">
           <CardHeader>
-            <CardTitle>Pending Production Batches to Confirm</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              Pending Production Batches to Confirm
+              <Badge variant="destructive">{pendingBatches.data!.length}</Badge>
+            </CardTitle>
           </CardHeader>
           <CardContent className="overflow-x-auto">
             <Table>

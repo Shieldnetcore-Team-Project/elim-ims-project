@@ -247,6 +247,13 @@ function SalesPage() {
                 onDone={() => {
                   setPosOpen(false);
                   qc.invalidateQueries({ queryKey: ["sales-list"] });
+                  // A sale decrements products.current_stock — make sure the
+                  // Finished Goods / Store page picks that up even if it's
+                  // already mounted elsewhere, instead of relying only on
+                  // realtime or a fresh navigation.
+                  qc.invalidateQueries({ queryKey: ["finished-goods"] });
+                  qc.invalidateQueries({ queryKey: ["products-active"] });
+                  qc.invalidateQueries({ queryKey: ["products-for-production"] });
                 }}
               />
             )}

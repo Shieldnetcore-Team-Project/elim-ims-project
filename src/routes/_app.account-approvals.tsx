@@ -307,7 +307,10 @@ export function AccountApprovalsPage() {
           >
             {t}
             {t !== "all" && (
-              <Badge variant="secondary" className="ml-1 px-1.5">
+              <Badge
+                variant={t === "pending" && (counts[t] ?? 0) > 0 ? "destructive" : "secondary"}
+                className="ml-1 px-1.5"
+              >
                 {counts[t] ?? 0}
               </Badge>
             )}
