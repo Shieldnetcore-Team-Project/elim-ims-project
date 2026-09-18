@@ -15,7 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Loader2, Boxes, BarChart3, ShieldCheck, Users, Lock } from "lucide-react";
+import { Loader2, Boxes, BarChart3, ShieldCheck, Users, Lock, Eye, EyeOff } from "lucide-react";
 
 const FEATURES = [
   {
@@ -39,6 +39,53 @@ const FEATURES = [
     desc: "Water and Nylon, fully separated, one platform.",
   },
 ];
+
+// A plain <Input type="password"> with a toggle to reveal what was typed --
+// same input either way, just swaps the rendered type between "password"
+// and "text" so the value itself never changes.
+function PasswordInput({
+  id,
+  name,
+  autoComplete,
+  required,
+  minLength,
+  value,
+  onChange,
+}: {
+  id?: string;
+  name?: string;
+  autoComplete?: string;
+  required?: boolean;
+  minLength?: number;
+  value: string;
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+}) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <div className="relative">
+      <Input
+        id={id}
+        name={name}
+        type={visible ? "text" : "password"}
+        autoComplete={autoComplete}
+        required={required}
+        minLength={minLength}
+        value={value}
+        onChange={onChange}
+        className="pr-9"
+      />
+      <button
+        type="button"
+        onClick={() => setVisible((v) => !v)}
+        tabIndex={-1}
+        aria-label={visible ? "Hide password" : "Show password"}
+        className="absolute inset-y-0 right-0 flex items-center px-2.5 text-muted-foreground hover:text-foreground"
+      >
+        {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+      </button>
+    </div>
+  );
+}
 
 const STATUS_MESSAGES: Record<string, (reason?: string | null) => string> = {
   pending: () => "Your account is awaiting admin approval. You'll be notified once it's reviewed.",
@@ -264,10 +311,9 @@ function Landing() {
                         Forgot?
                       </button>
                     </div>
-                    <Input
+                    <PasswordInput
                       id="password"
                       name="password"
-                      type="password"
                       autoComplete="current-password"
                       required
                       value={password}
@@ -353,9 +399,8 @@ function Landing() {
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-2">
                       <Label htmlFor="su-password">Password</Label>
-                      <Input
+                      <PasswordInput
                         id="su-password"
-                        type="password"
                         required
                         minLength={6}
                         value={suPassword}
@@ -364,9 +409,8 @@ function Landing() {
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="su-confirm">Confirm password</Label>
-                      <Input
+                      <PasswordInput
                         id="su-confirm"
-                        type="password"
                         required
                         minLength={6}
                         value={suConfirmPassword}
