@@ -35,7 +35,8 @@ type DeleteRequestRow = {
 
 // Keep in sync with the CHECK constraint on delete_requests.table_name
 // (supabase/migrations/20260920090000_delete_request_approval.sql,
-// 20260922220000_supplier_delete_request_approval.sql).
+// 20260922220000_supplier_delete_request_approval.sql,
+// 20260923130000_sales_customer_credit_and_soft_delete.sql).
 const TABLE_LABELS: Record<string, string> = {
   employees: "Employee",
   employee_documents: "Employee Document",
@@ -46,6 +47,7 @@ const TABLE_LABELS: Record<string, string> = {
   cash_transactions: "Cash Transaction",
   product_units: "Packaging Rule",
   suppliers: "Supplier",
+  sales: "Sale",
 };
 
 // Storage bucket to best-effort clean up after an approved delete, keyed by

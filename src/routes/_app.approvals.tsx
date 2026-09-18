@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { RequireAccess } from "@/components/layout/require-access";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { usePermissions } from "@/lib/permissions";
+import { usePermissions, useIsSuperAdmin } from "@/lib/permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -26,6 +26,7 @@ import {
   Factory,
   Calculator,
   ClipboardList,
+  ShoppingCart,
 } from "lucide-react";
 
 export const Route = createFileRoute("/_app/approvals")({
@@ -100,6 +101,25 @@ function ApprovalsPage() {
   const { canApprove, canConfirm } = usePermissions();
   const currentUser = useCurrentUser();
   const uid = currentUser.data;
+  // approve_sale()/reject_sale() exempt an admin (super_admin) from the
+  // self-approval block that every other approver role is still under, so
+  // this queue mirrors that instead of hiding an admin's own sale from them.
+  const isSuperAdmin = useIsSuperAdmin().data ?? false;
+
+  const sales = useQuery({
+    queryKey: ["approvals-sales"],
+    enabled: canApprove("sales"),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("sales")
+        .select("id,invoice_number,customer_name,grand_total,sale_date,created_by")
+        .eq("status", "pending_approval")
+        .order("sale_date", { ascending: false })
+        .limit(50);
+      if (error) throw error;
+      return isSuperAdmin ? (data ?? []) : (data ?? []).filter((s) => s.created_by !== uid);
+    },
+  });
 
   const expenses = useQuery({
     queryKey: ["approvals-expenses"],
@@ -311,6 +331,7 @@ function ApprovalsPage() {
   });
 
   const nothingToApprove =
+    !canApprove("sales") &&
     !canApprove("expenses") &&
     !canApprove("debts") &&
     !canApprove("payments") &&
@@ -341,6 +362,18 @@ function ApprovalsPage() {
         </Card>
       ) : (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {canApprove("sales") && (
+            <QueueCard
+              icon={ShoppingCart}
+              title="Sales"
+              to="/sales"
+              empty="No sales awaiting approval."
+              rows={(sales.data ?? []).map((s) => ({
+                key: s.id,
+                cells: [s.invoice_number, s.customer_name ?? "Walk-in", money(Number(s.grand_total))],
+              }))}
+            />
+          )}
           {canApprove("expenses") && (
             <QueueCard
               icon={Receipt}

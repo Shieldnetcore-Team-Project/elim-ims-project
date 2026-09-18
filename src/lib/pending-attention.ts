@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { usePermissions } from "@/lib/permissions";
+import { usePermissions, useIsSuperAdmin } from "@/lib/permissions";
 import { useRealtimeInvalidate } from "@/lib/realtime";
 
 // Mirrors the queue definitions on the Approval Center page
@@ -45,7 +45,18 @@ function useCount(
 export function usePendingAttention() {
   const { canApprove, canConfirm } = usePermissions();
   const { data: uid } = useCurrentUserId();
+  // approve_sale()/reject_sale() exempt an admin (super_admin) from the
+  // self-approval block every other approver role is still under -- mirror
+  // that here instead of hiding an admin's own sale from their own count.
+  const isSuperAdmin = useIsSuperAdmin().data ?? false;
 
+  const sales = useCount("sales", canApprove("sales"), uid, () => {
+    const q = supabase
+      .from("sales")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "pending_approval");
+    return isSuperAdmin ? q : q.neq("created_by", uid ?? "");
+  });
   const expenses = useCount("expenses", canApprove("expenses"), uid, () =>
     supabase
       .from("expenses")
@@ -159,6 +170,7 @@ export function usePendingAttention() {
 
   useRealtimeInvalidate(
     [
+      "sales",
       "expenses",
       "debts",
       "payments_received",
@@ -176,6 +188,7 @@ export function usePendingAttention() {
   );
 
   const results: { key: string; label: string; to: string; query: typeof expenses }[] = [
+    { key: "sales", label: "Sales awaiting approval", to: "/sales", query: sales },
     { key: "expenses", label: "Expenses awaiting approval", to: "/expenses", query: expenses },
     { key: "debts", label: "Debt write-offs pending", to: "/cash-ledger", query: debts },
     {

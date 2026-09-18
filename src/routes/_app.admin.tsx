@@ -8,6 +8,7 @@ import { PermissionsTab } from "@/components/admin/permissions-tab";
 import { FactoryTab } from "@/components/admin/factory-tab";
 import { AuthUsersTab } from "@/components/admin/auth-users-tab";
 import { DeleteRequestsTab } from "@/components/admin/delete-requests-tab";
+import { DeletedSalesTab } from "@/components/admin/deleted-sales-tab";
 import { AuditLogsPage } from "./_app.audit-logs";
 import { useIsSuperAdmin } from "@/lib/permissions";
 
@@ -41,6 +42,9 @@ function AdminPanelPage() {
             {isSuperAdmin.data && (
               <TabsTrigger value="delete-requests">Delete Requests</TabsTrigger>
             )}
+            {isSuperAdmin.data && (
+              <TabsTrigger value="deleted-sales">Deleted Sales</TabsTrigger>
+            )}
             <TabsTrigger value="permissions">Permissions</TabsTrigger>
             <TabsTrigger value="audit-log">Audit Log</TabsTrigger>
             <TabsTrigger value="factory">Factory</TabsTrigger>
@@ -57,6 +61,11 @@ function AdminPanelPage() {
         {isSuperAdmin.data && (
           <TabsContent value="delete-requests">
             <DeleteRequestsTab />
+          </TabsContent>
+        )}
+        {isSuperAdmin.data && (
+          <TabsContent value="deleted-sales">
+            <DeletedSalesTab />
           </TabsContent>
         )}
         <TabsContent value="permissions">

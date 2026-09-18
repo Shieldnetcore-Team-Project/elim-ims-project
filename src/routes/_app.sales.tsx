@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useFactoryId, useFactorySettings } from "@/lib/use-factory";
-import { usePermissions } from "@/lib/permissions";
+import { usePermissions, useIsSuperAdmin } from "@/lib/permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -46,11 +46,19 @@ import {
   Receipt as ReceiptIcon,
   HandCoins,
   History,
+  ShoppingCart,
+  Check,
+  X,
+  Ban,
+  PiggyBank,
 } from "lucide-react";
 import { money, num } from "@/lib/format";
 import { toast } from "sonner";
 import { generateInvoicePdf, generateReceiptPdf } from "@/lib/pdf";
 import { logAudit } from "@/lib/audit";
+import { ApprovalHistory } from "@/components/workflow/approval-history";
+import { requestDelete } from "@/lib/request-delete";
+import { RequestDeleteDialog } from "@/components/shared/request-delete-dialog";
 
 export const Route = createFileRoute("/_app/sales")({
   head: () => ({ meta: [{ title: "Sales & POS — FMIS" }, { name: "robots", content: "noindex" }] }),
@@ -85,6 +93,9 @@ type SaleRow = {
   balance: number;
   payment_method: string;
   is_pr: boolean;
+  status: string;
+  created_by: string | null;
+  rejected_reason: string | null;
 };
 type CartItem = {
   product_id: string;
@@ -104,15 +115,42 @@ const paymentStatus = (
   return { label: "Unpaid", variant: "destructive" };
 };
 
+const saleStatusBadge = (s: string): "default" | "secondary" | "outline" | "destructive" =>
+  s === "posted"
+    ? "secondary"
+    : s === "rejected" || s === "cancelled"
+      ? "destructive"
+      : "outline";
+
 function SalesPage() {
   const { data: factoryId } = useFactoryId();
   const settings = useFactorySettings(factoryId);
   const qc = useQueryClient();
-  const { canWrite } = usePermissions();
+  const { canWrite, canApprove, canReject, canCancel, canDelete } = usePermissions();
   const write = canWrite("sales");
+  const approve = canApprove("sales");
+  const reject = canReject("sales");
+  const cancel = canCancel("sales");
+  const canRequestDelete = canDelete("sales");
+  // Mirrors approve_sale()/reject_sale()'s own self-approval exception --
+  // an admin (super_admin) can approve/reject a sale even if they're the
+  // one who recorded it; every other approver role still can't.
+  const isSuperAdmin = useIsSuperAdmin().data ?? false;
   const [posOpen, setPosOpen] = useState(false);
+  const [presetCustomerId, setPresetCustomerId] = useState<string | undefined>(undefined);
+  const [advanceOpen, setAdvanceOpen] = useState(false);
   const [payTarget, setPayTarget] = useState<SaleRow | null>(null);
   const [historyTarget, setHistoryTarget] = useState<{ id: string; name: string } | null>(null);
+  const [approveTarget, setApproveTarget] = useState<SaleRow | null>(null);
+  const [rejectTarget, setRejectTarget] = useState<SaleRow | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<SaleRow | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<SaleRow | null>(null);
+
+  const currentUser = useQuery({
+    queryKey: ["current-user-id"],
+    queryFn: async () => (await supabase.auth.getUser()).data.user?.id ?? null,
+    staleTime: Infinity,
+  });
 
   const sales = useQuery({
     queryKey: ["sales-list", factoryId],
@@ -121,7 +159,7 @@ function SalesPage() {
       const { data, error } = await supabase
         .from("sales")
         .select(
-          "id,invoice_number,sale_date,customer_id,customer_name,grand_total,amount_paid,balance,payment_method,created_at,is_pr",
+          "id,invoice_number,sale_date,customer_id,customer_name,grand_total,amount_paid,balance,payment_method,created_at,is_pr,status,created_by,rejected_reason",
         )
         .eq("factory_id", factoryId!)
         .order("created_at", { ascending: false })
@@ -229,40 +267,129 @@ function SalesPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const invalidateAfterApproval = () => {
+    qc.invalidateQueries({ queryKey: ["sales-list"] });
+    qc.invalidateQueries({ queryKey: ["customers"] });
+    // approve_sale is what actually decrements stock -- keep the rest of
+    // the app's stock-derived views in sync, same as a normal sale used to.
+    qc.invalidateQueries({ queryKey: ["finished-goods"] });
+    qc.invalidateQueries({ queryKey: ["products-active"] });
+    qc.invalidateQueries({ queryKey: ["products-for-production"] });
+  };
+
+  const approveSale = useMutation({
+    mutationFn: async (input: { sale: SaleRow; comment: string }) => {
+      const { error } = await supabase.rpc("approve_sale", {
+        p_id: input.sale.id,
+        p_comment: input.comment || undefined,
+      });
+      if (error) throw error;
+      return input;
+    },
+    onSuccess: ({ sale }) => {
+      toast.success(`Sale ${sale.invoice_number} approved and posted`);
+      logAudit({ action: "approve", entity: "sales", entityId: sale.id, factoryId });
+      invalidateAfterApproval();
+      setApproveTarget(null);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const rejectSale = useMutation({
+    mutationFn: async (input: { sale: SaleRow; reason: string }) => {
+      const { error } = await supabase.rpc("reject_sale", {
+        p_id: input.sale.id,
+        p_reason: input.reason,
+      });
+      if (error) throw error;
+      return input;
+    },
+    onSuccess: ({ sale }) => {
+      toast.success(`Sale ${sale.invoice_number} rejected`);
+      logAudit({ action: "reject", entity: "sales", entityId: sale.id, factoryId });
+      qc.invalidateQueries({ queryKey: ["sales-list"] });
+      setRejectTarget(null);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const cancelSale = useMutation({
+    mutationFn: async (sale: SaleRow) => {
+      const { error } = await supabase.rpc("cancel_sale", { p_id: sale.id });
+      if (error) throw error;
+      return sale;
+    },
+    onSuccess: (sale) => {
+      toast.success(`Sale ${sale.invoice_number} cancelled`);
+      logAudit({ action: "cancel", entity: "sales", entityId: sale.id, factoryId });
+      qc.invalidateQueries({ queryKey: ["sales-list"] });
+      setCancelTarget(null);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const deleteSale = useMutation({
+    mutationFn: async ({ sale, reason }: { sale: SaleRow; reason: string }) => {
+      await requestDelete("sales", sale.id, reason);
+    },
+    onSuccess: () => {
+      toast.success("Deletion requested — pending admin approval");
+      setDeleteTarget(null);
+      qc.invalidateQueries({ queryKey: ["sales-list"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Sales & POS</h1>
           <p className="text-sm text-muted-foreground">
-            Create invoices, decrement stock, and print receipts.
+            Create invoices — a manager must approve each sale before it decrements stock and
+            counts toward the customer's balance.
           </p>
         </div>
-        {write && (
-          <Dialog open={posOpen} onOpenChange={setPosOpen}>
-            <DialogTrigger asChild>
-              <Button className="gap-2">
-                <Plus className="h-4 w-4" /> New Sale
-              </Button>
-            </DialogTrigger>
-            {posOpen && factoryId && (
-              <PosDialog
-                factoryId={factoryId}
-                onDone={() => {
-                  setPosOpen(false);
-                  qc.invalidateQueries({ queryKey: ["sales-list"] });
-                  // A sale decrements products.current_stock — make sure the
-                  // Finished Goods / Store page picks that up even if it's
-                  // already mounted elsewhere, instead of relying only on
-                  // realtime or a fresh navigation.
-                  qc.invalidateQueries({ queryKey: ["finished-goods"] });
-                  qc.invalidateQueries({ queryKey: ["products-active"] });
-                  qc.invalidateQueries({ queryKey: ["products-for-production"] });
-                }}
-              />
-            )}
-          </Dialog>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {write && (
+            <Button variant="outline" className="gap-2" onClick={() => setAdvanceOpen(true)}>
+              <PiggyBank className="h-4 w-4" /> Record Advance Payment
+            </Button>
+          )}
+          {write && (
+            <Dialog
+              open={posOpen}
+              onOpenChange={(v) => {
+                setPosOpen(v);
+                if (!v) setPresetCustomerId(undefined);
+              }}
+            >
+              <DialogTrigger asChild>
+                <Button className="gap-2" onClick={() => setPresetCustomerId(undefined)}>
+                  <Plus className="h-4 w-4" /> New Sale
+                </Button>
+              </DialogTrigger>
+              {posOpen && factoryId && (
+                <PosDialog
+                  factoryId={factoryId}
+                  presetCustomerId={presetCustomerId}
+                  onDone={() => {
+                    setPosOpen(false);
+                    setPresetCustomerId(undefined);
+                    qc.invalidateQueries({ queryKey: ["sales-list"] });
+                    // A sale decrements products.current_stock — make sure the
+                    // Finished Goods / Store page picks that up even if it's
+                    // already mounted elsewhere, instead of relying only on
+                    // realtime or a fresh navigation.
+                    qc.invalidateQueries({ queryKey: ["finished-goods"] });
+                    qc.invalidateQueries({ queryKey: ["products-active"] });
+                    qc.invalidateQueries({ queryKey: ["products-for-production"] });
+                  }}
+                />
+              )}
+            </Dialog>
+          )}
+        </div>
       </div>
 
       <Card className="rounded-2xl">
@@ -281,12 +408,14 @@ function SalesPage() {
                 <TableHead className="text-right">Paid</TableHead>
                 <TableHead className="text-right">Balance</TableHead>
                 <TableHead>Payment Status</TableHead>
+                <TableHead>Approval</TableHead>
                 <TableHead></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {(sales.data ?? []).map((s: SaleRow) => {
                 const status = paymentStatus(Number(s.amount_paid), Number(s.balance));
+                const isSelf = s.created_by === currentUser.data && !isSuperAdmin;
                 return (
                   <TableRow key={s.id}>
                     <TableCell className="font-mono text-xs">{s.invoice_number}</TableCell>
@@ -332,8 +461,51 @@ function SalesPage() {
                       )}
                     </TableCell>
                     <TableCell>
+                      <Badge variant={saleStatusBadge(s.status)} className="capitalize">
+                        {s.status.replace(/_/g, " ")}
+                      </Badge>
+                      {s.status === "rejected" && s.rejected_reason && (
+                        <div
+                          className="mt-1 max-w-[160px] truncate text-xs text-muted-foreground"
+                          title={s.rejected_reason}
+                        >
+                          {s.rejected_reason}
+                        </div>
+                      )}
+                    </TableCell>
+                    <TableCell>
                       <div className="flex justify-end gap-1">
-                        {Number(s.balance) > 0 && (
+                        {s.status === "pending_approval" && approve && !isSelf && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Approve & post"
+                            onClick={() => setApproveTarget(s)}
+                          >
+                            <Check className="h-4 w-4 text-success" />
+                          </Button>
+                        )}
+                        {s.status === "pending_approval" && reject && !isSelf && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Reject"
+                            onClick={() => setRejectTarget(s)}
+                          >
+                            <X className="h-4 w-4 text-destructive" />
+                          </Button>
+                        )}
+                        {s.status === "pending_approval" && cancel && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Cancel"
+                            onClick={() => setCancelTarget(s)}
+                          >
+                            <Ban className="h-4 w-4 text-muted-foreground" />
+                          </Button>
+                        )}
+                        {s.status === "posted" && Number(s.balance) > 0 && (
                           <Button
                             variant="outline"
                             size="sm"
@@ -341,6 +513,19 @@ function SalesPage() {
                             onClick={() => setPayTarget(s)}
                           >
                             <HandCoins className="h-4 w-4" /> Receive
+                          </Button>
+                        )}
+                        {write && s.customer_id && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title={`Add products to ${s.customer_name ?? "this customer"}'s account`}
+                            onClick={() => {
+                              setPresetCustomerId(s.customer_id!);
+                              setPosOpen(true);
+                            }}
+                          >
+                            <ShoppingCart className="h-4 w-4" />
                           </Button>
                         )}
                         {s.customer_id && (
@@ -374,6 +559,16 @@ function SalesPage() {
                         >
                           <FileDown className="h-4 w-4" /> PDF
                         </Button>
+                        {canRequestDelete && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Request deletion"
+                            onClick={() => setDeleteTarget(s)}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -381,7 +576,7 @@ function SalesPage() {
               })}
               {(sales.data ?? []).length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={10} className="text-center text-muted-foreground py-8">
                     No sales yet.
                   </TableCell>
                 </TableRow>
@@ -404,6 +599,63 @@ function SalesPage() {
       <Dialog open={!!historyTarget} onOpenChange={(v) => !v && setHistoryTarget(null)}>
         {historyTarget && (
           <CustomerHistoryDialog customerId={historyTarget.id} customerName={historyTarget.name} />
+        )}
+      </Dialog>
+
+      <Dialog open={!!approveTarget} onOpenChange={(v) => !v && setApproveTarget(null)}>
+        {approveTarget && (
+          <ApproveSaleDialog
+            sale={approveTarget}
+            saving={approveSale.isPending}
+            onSubmit={(comment) => approveSale.mutate({ sale: approveTarget, comment })}
+          />
+        )}
+      </Dialog>
+      <Dialog open={!!rejectTarget} onOpenChange={(v) => !v && setRejectTarget(null)}>
+        {rejectTarget && (
+          <RejectSaleDialog
+            sale={rejectTarget}
+            saving={rejectSale.isPending}
+            onSubmit={(reason) => rejectSale.mutate({ sale: rejectTarget, reason })}
+          />
+        )}
+      </Dialog>
+      <Dialog open={!!cancelTarget} onOpenChange={(v) => !v && setCancelTarget(null)}>
+        {cancelTarget && (
+          <CancelSaleDialog
+            sale={cancelTarget}
+            saving={cancelSale.isPending}
+            onConfirm={() => cancelSale.mutate(cancelTarget)}
+          />
+        )}
+      </Dialog>
+
+      <RequestDeleteDialog
+        open={!!deleteTarget}
+        onOpenChange={(v) => !v && setDeleteTarget(null)}
+        isPending={deleteSale.isPending}
+        title={
+          deleteTarget
+            ? `Request deletion — ${deleteTarget.invoice_number}${
+                deleteTarget.status === "posted"
+                  ? " (posted — approval will reverse its stock and balance effects)"
+                  : ""
+              }`
+            : "Request deletion"
+        }
+        onConfirm={(reason) => deleteTarget && deleteSale.mutate({ sale: deleteTarget, reason })}
+      />
+
+      <Dialog open={advanceOpen} onOpenChange={setAdvanceOpen}>
+        {advanceOpen && factoryId && (
+          <AdvancePaymentDialog
+            factoryId={factoryId}
+            onDone={() => {
+              setAdvanceOpen(false);
+              qc.invalidateQueries({ queryKey: ["customers"] });
+              qc.invalidateQueries({ queryKey: ["customer-account-summary"] });
+            }}
+          />
         )}
       </Dialog>
     </div>
@@ -532,10 +784,228 @@ function PayDialog({
   );
 }
 
+function ApproveSaleDialog({
+  sale,
+  onSubmit,
+  saving,
+}: {
+  sale: SaleRow;
+  onSubmit: (comment: string) => void;
+  saving: boolean;
+}) {
+  const [comment, setComment] = useState("");
+  return (
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle>Approve & Post Sale</DialogTitle>
+      </DialogHeader>
+      <div className="grid gap-3">
+        <p className="text-sm text-muted-foreground">
+          {sale.invoice_number} · {sale.customer_name ?? "Walk-in"} ·{" "}
+          {money(Number(sale.grand_total))}
+        </p>
+        <p className="text-sm text-muted-foreground">
+          This decrements stock, records any payment taken at the register, and — if there's a
+          balance — adds it to the customer's account. It can't be undone from here.
+        </p>
+        <div>
+          <Label>Comment (optional)</Label>
+          <Textarea rows={2} value={comment} onChange={(e) => setComment(e.target.value)} />
+        </div>
+        <ApprovalHistory module="sales" entityId={sale.id} />
+      </div>
+      <DialogFooter>
+        <Button disabled={saving} onClick={() => onSubmit(comment)}>
+          {saving ? "Approving…" : "Approve & Post"}
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  );
+}
+
+function RejectSaleDialog({
+  sale,
+  onSubmit,
+  saving,
+}: {
+  sale: SaleRow;
+  onSubmit: (reason: string) => void;
+  saving: boolean;
+}) {
+  const [reason, setReason] = useState("");
+  return (
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle>Reject Sale</DialogTitle>
+      </DialogHeader>
+      <div className="grid gap-3">
+        <p className="text-sm text-muted-foreground">
+          {sale.invoice_number} · {sale.customer_name ?? "Walk-in"} ·{" "}
+          {money(Number(sale.grand_total))}
+        </p>
+        <div>
+          <Label>Reason</Label>
+          <Textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} />
+        </div>
+        <ApprovalHistory module="sales" entityId={sale.id} />
+      </div>
+      <DialogFooter>
+        <Button
+          variant="destructive"
+          disabled={saving || !reason.trim()}
+          onClick={() => onSubmit(reason)}
+        >
+          {saving ? "Rejecting…" : "Reject"}
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  );
+}
+
+function CancelSaleDialog({
+  sale,
+  onConfirm,
+  saving,
+}: {
+  sale: SaleRow;
+  onConfirm: () => void;
+  saving: boolean;
+}) {
+  return (
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle>Cancel Sale</DialogTitle>
+      </DialogHeader>
+      <div className="grid gap-3">
+        <p className="text-sm text-muted-foreground">
+          {sale.invoice_number} · {sale.customer_name ?? "Walk-in"} ·{" "}
+          {money(Number(sale.grand_total))}
+        </p>
+        <p className="text-sm text-muted-foreground">
+          Nothing has posted to stock or the customer's account yet, so this simply withdraws the
+          pending sale.
+        </p>
+      </div>
+      <DialogFooter>
+        <Button variant="destructive" disabled={saving} onClick={onConfirm}>
+          {saving ? "Cancelling…" : "Cancel Sale"}
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  );
+}
+
+// Records money a registered customer pays ahead of picking any goods --
+// added straight to their credit balance, to be drawn down against a sale
+// later (see the "Apply credit balance" field in PosDialog below).
+function AdvancePaymentDialog({ factoryId, onDone }: { factoryId: string; onDone: () => void }) {
+  const customers = useQuery({
+    queryKey: ["customers-brief", factoryId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("customers")
+        .select("id,name,phone,address")
+        .eq("factory_id", factoryId)
+        .order("name");
+      if (error) throw error;
+      return (data ?? []) as Customer[];
+    },
+  });
+
+  const [customerId, setCustomerId] = useState("");
+  const [amount, setAmount] = useState(0);
+  const [method, setMethod] = useState<PaymentMethod>("cash");
+  const [remarks, setRemarks] = useState("");
+
+  const submit = useMutation({
+    mutationFn: async () => {
+      if (!customerId) throw new Error("Select a customer");
+      if (amount <= 0) throw new Error("Amount must be greater than 0");
+      const { data, error } = await supabase.rpc("record_customer_advance", {
+        payload: {
+          factory_id: factoryId,
+          customer_id: customerId,
+          amount,
+          payment_method: method,
+          remarks: remarks || null,
+        } as any,
+      });
+      if (error) throw error;
+      return data as { receipt_number: string };
+    },
+    onSuccess: (data) => {
+      toast.success(`Advance recorded — receipt ${data.receipt_number}`);
+      onDone();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return (
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle>Record Advance Payment</DialogTitle>
+      </DialogHeader>
+      <div className="grid gap-3">
+        <p className="text-sm text-muted-foreground">
+          For a customer paying ahead of picking up goods — this adds to their credit balance, which
+          can be applied toward a sale later from New Sale.
+        </p>
+        <div>
+          <Label>Customer</Label>
+          <Select value={customerId} onValueChange={setCustomerId}>
+            <SelectTrigger>
+              <SelectValue placeholder="Select a customer…" />
+            </SelectTrigger>
+            <SelectContent>
+              {(customers.data ?? []).map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label>Amount</Label>
+            <MoneyInput value={amount} onChange={setAmount} />
+          </div>
+          <div>
+            <Label>Method</Label>
+            <Select value={method} onValueChange={(v) => setMethod(v as PaymentMethod)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(["cash", "transfer", "pos", "card", "cheque"] as PaymentMethod[]).map((m) => (
+                  <SelectItem key={m} value={m} className="capitalize">
+                    {m}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <div>
+          <Label>Remarks</Label>
+          <Textarea rows={2} value={remarks} onChange={(e) => setRemarks(e.target.value)} />
+        </div>
+      </div>
+      <DialogFooter>
+        <Button disabled={submit.isPending} onClick={() => submit.mutate()}>
+          {submit.isPending ? "Saving…" : "Record Advance"}
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  );
+}
+
 type CustomerSaleRow = {
   id: string;
   invoice_number: string;
   sale_date: string;
+  created_at: string;
+  status: string;
   grand_total: number;
   amount_paid: number;
   balance: number;
@@ -554,6 +1024,15 @@ type CustomerPaymentRow = {
   created_at: string;
   amount: number;
   payment_method: string;
+  sale_id: string | null;
+};
+type LedgerEntry = {
+  key: string;
+  date: string;
+  kind: "deposit" | "goods";
+  label: string;
+  amount: number;
+  runningBalance: number;
 };
 
 function CustomerHistoryDialog({
@@ -568,7 +1047,7 @@ function CustomerHistoryDialog({
     queryFn: async () => {
       const { data, error } = await supabase
         .from("sales")
-        .select("id,invoice_number,sale_date,grand_total,amount_paid,balance")
+        .select("id,invoice_number,sale_date,created_at,status,grand_total,amount_paid,balance")
         .eq("customer_id", customerId)
         .order("sale_date", { ascending: false });
       if (error) throw error;
@@ -595,13 +1074,37 @@ function CustomerHistoryDialog({
     queryFn: async () => {
       const { data, error } = await supabase
         .from("payments_received")
-        .select("id,receipt_number,payment_date,created_at,amount,payment_method")
+        .select("id,receipt_number,payment_date,created_at,amount,payment_method,sale_id")
         .eq("customer_id", customerId)
         .order("created_at", { ascending: true });
       if (error) throw error;
       return (data ?? []) as CustomerPaymentRow[];
     },
   });
+
+  // A running statement of the customer's account: money deposited ahead of
+  // purchase (advance payments not tied to any sale — see
+  // record_customer_advance) versus the value of goods taken (each posted
+  // sale's grand_total), in chronological order, ending in what's left.
+  // Every payment this customer has ever made (whether paid at the register
+  // as part of a sale, or as a standalone advance) counts as money in;
+  // every posted sale's grand_total counts as money out. Net positive is
+  // an Advance they can still draw on, net negative is Debt.
+  const ledger: LedgerEntry[] = useMemo(
+    () =>
+      buildLedger(
+        (payments.data ?? []).map((p) => ({
+          key: `dep-${p.id}`,
+          date: p.created_at,
+          amount: Number(p.amount),
+        })),
+        (invoices.data ?? [])
+          .filter((s) => s.status === "posted")
+          .map((s) => ({ key: `gds-${s.id}`, date: s.created_at, amount: Number(s.grand_total) })),
+      ),
+    [payments.data, invoices.data],
+  );
+  const netBalance = ledger.length ? ledger[ledger.length - 1].runningBalance : 0;
 
   const invoiceById = new Map((invoices.data ?? []).map((s) => [s.id, s]));
   const totals = (invoices.data ?? []).reduce(
@@ -636,12 +1139,63 @@ function CustomerHistoryDialog({
           </div>
         </div>
 
-        <Tabs defaultValue="products">
+        <Tabs defaultValue="ledger">
           <TabsList>
+            <TabsTrigger value="ledger">Account Ledger</TabsTrigger>
             <TabsTrigger value="products">Products Purchased</TabsTrigger>
             <TabsTrigger value="invoices">Invoices</TabsTrigger>
             <TabsTrigger value="payments">Payment History</TabsTrigger>
           </TabsList>
+          <TabsContent value="ledger">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Entry</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                  <TableHead className="text-right">Running Balance</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {ledger.map((e) => (
+                  <TableRow key={e.key}>
+                    <TableCell className="whitespace-nowrap text-xs">
+                      {new Date(e.date).toLocaleDateString()}
+                    </TableCell>
+                    <TableCell className={e.kind === "deposit" ? "text-success" : ""}>
+                      {e.label}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {e.kind === "deposit" ? "+" : "-"}
+                      {money(e.amount)}
+                    </TableCell>
+                    <TableCell
+                      className={`text-right font-medium ${
+                        e.runningBalance < 0 ? "text-destructive" : "text-success"
+                      }`}
+                    >
+                      {money(e.runningBalance)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {ledger.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center text-muted-foreground py-6">
+                      No deposits or completed purchases yet.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+            {ledger.length > 0 && (
+              <div className="mt-3 flex justify-between rounded-md bg-muted/30 p-3 text-sm font-semibold">
+                <span>{netBalance < 0 ? "Debt" : "Advance"}</span>
+                <span className={netBalance < 0 ? "text-destructive" : "text-success"}>
+                  {money(netBalance)}
+                </span>
+              </div>
+            )}
+          </TabsContent>
           <TabsContent value="products">
             <Table>
               <TableHeader>
@@ -759,10 +1313,141 @@ function CustomerHistoryDialog({
   );
 }
 
+// Shared by CustomerAccountPanel/CustomerHistoryDialog's ledger tab -- both
+// merge "money deposited ahead of purchase" (advance payments with no
+// sale_id) against "value of goods taken" (each posted sale's grand_total)
+// in date order and carry a running balance down through them.
+function buildLedger(
+  deposits: { key: string; date: string; amount: number }[],
+  goods: { key: string; date: string; amount: number }[],
+): LedgerEntry[] {
+  const merged = [
+    ...deposits.map((d) => ({ ...d, kind: "deposit" as const, label: "Deposited" })),
+    ...goods.map((g) => ({ ...g, kind: "goods" as const, label: "Goods" })),
+  ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  let running = 0;
+  return merged.map((e) => {
+    running += e.kind === "deposit" ? e.amount : -e.amount;
+    return { ...e, runningBalance: running };
+  });
+}
+
+// Shared by CustomerAccountPanel (display) and PosDialog (needs the credit
+// figure to cap the "Apply credit balance" field) -- same query key so
+// TanStack Query serves both from one cached fetch. Every payment this
+// customer has ever made (register or standalone advance) counts as money
+// in; every posted sale's grand_total counts as money out -- net positive
+// is an Advance they can still draw on, net negative is Debt.
+function useCustomerAccountSummary(customerId: string) {
+  return useQuery({
+    queryKey: ["customer-account-summary", customerId],
+    enabled: customerId !== "walkin",
+    queryFn: async () => {
+      const [
+        { data: customer, error: e1 },
+        { data: allPayments, error: e2 },
+        { data: postedSales, error: e3 },
+      ] = await Promise.all([
+        supabase.from("customers").select("credit_balance").eq("id", customerId).maybeSingle(),
+        supabase
+          .from("payments_received")
+          .select("id,amount,created_at")
+          .eq("customer_id", customerId),
+        supabase
+          .from("sales")
+          .select("id,grand_total,created_at")
+          .eq("customer_id", customerId)
+          .eq("status", "posted"),
+      ]);
+      if (e1) throw e1;
+      if (e2) throw e2;
+      if (e3) throw e3;
+      const ledger = buildLedger(
+        (allPayments ?? []).map((p) => ({
+          key: `dep-${p.id}`,
+          date: p.created_at,
+          amount: Number(p.amount),
+        })),
+        (postedSales ?? []).map((s) => ({
+          key: `gds-${s.id}`,
+          date: s.created_at,
+          amount: Number(s.grand_total),
+        })),
+      );
+      return {
+        creditBalance: Number(customer?.credit_balance ?? 0),
+        ledger,
+        netBalance: ledger.length ? ledger[ledger.length - 1].runningBalance : 0,
+      };
+    },
+  });
+}
+
+// Shown inline once an existing (non-Walk-in) customer is picked in the New
+// Sale form, so whoever's adding items can see the customer's running
+// account — every deposit/payment against every posted sale's value —
+// right there instead of having to separately open Customer History.
+function CustomerAccountPanel({ customerId }: { customerId: string }) {
+  const summary = useCustomerAccountSummary(customerId);
+
+  if (customerId === "walkin") return null;
+  if (summary.isLoading || !summary.data) {
+    return <p className="text-xs text-muted-foreground">Loading customer account…</p>;
+  }
+
+  const { ledger, netBalance } = summary.data;
+
+  if (ledger.length === 0) {
+    return (
+      <div className="rounded-lg border bg-muted/20 p-3 text-sm">
+        <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Customer account
+        </span>
+        <p className="mt-1 text-xs text-muted-foreground">No prior transactions with this customer.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2 rounded-lg border bg-muted/20 p-3 text-sm">
+      <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        Customer account
+      </span>
+      <ul className="space-y-0.5">
+        {ledger.map((e) => (
+          <li key={e.key} className="flex justify-between text-xs">
+            <span className={e.kind === "deposit" ? "text-success" : ""}>{e.label}</span>
+            <span>
+              {e.kind === "deposit" ? "+" : "-"}
+              {money(e.amount)}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <div className="flex justify-between border-t pt-1 text-sm font-semibold">
+        <span>{netBalance < 0 ? "Debt" : "Advance"}</span>
+        <span className={netBalance < 0 ? "text-destructive" : "text-success"}>
+          {money(netBalance)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 // Exported so the Store (Finished Goods) page can offer the exact same
 // checkout flow -- same create_sale RPC, same stock/customer/debt effects --
 // rather than a second, divergent way to record a sale.
-export function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: () => void }) {
+export function PosDialog({
+  factoryId,
+  onDone,
+  presetCustomerId,
+}: {
+  factoryId: string;
+  onDone: () => void;
+  // Set from the Sales table's per-row "add products to account" icon, so
+  // the customer is already selected instead of defaulting to Walk-in.
+  presetCustomerId?: string;
+}) {
   const settings = useFactorySettings(factoryId);
   const products = useQuery({
     queryKey: ["products-active", factoryId],
@@ -807,16 +1492,32 @@ export function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
 
   const [cart, setCart] = useState<CartItem[]>([]);
   const [saleDate, setSaleDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
-  const [customerId, setCustomerId] = useState<string>("walkin");
+  const [customerId, setCustomerId] = useState<string>(presetCustomerId ?? "walkin");
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [customerAddress, setCustomerAddress] = useState("");
+
+  // customers-brief loads async, so the preset id above may resolve before
+  // its name/phone/address are known — fill those in as soon as the list
+  // (or a still-loading customer within it) is available.
+  useEffect(() => {
+    if (!presetCustomerId) return;
+    const c = customers.data?.find((x) => x.id === presetCustomerId);
+    if (c) {
+      setCustomerName(c.name);
+      setCustomerPhone(c.phone ?? "");
+      setCustomerAddress(c.address ?? "");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [presetCustomerId, customers.data]);
   const [discountInput, setDiscountInput] = useState(0);
   const [discountType, setDiscountType] = useState<"amount" | "percent">("amount");
   const [applyVat, setApplyVat] = useState(true);
   const [isPr, setIsPr] = useState(false);
   const [payments, setPayments] = useState<PaymentLine[]>([{ amount: 0, method: "cash" }]);
   const amountPaid = useMemo(() => payments.reduce((s, p) => s + (p.amount || 0), 0), [payments]);
+  const customerAccount = useCustomerAccountSummary(customerId);
+  const availableCredit = customerAccount.data?.creditBalance ?? 0;
   const [salesPerson, setSalesPerson] = useState("");
   const [remarks, setRemarks] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
@@ -891,12 +1592,16 @@ export function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
         : Math.min(Math.max(discountInput, 0), subtotal);
     // PR: stock still goes out (the cart/subtotal above is unaffected), but
     // nothing is billed, paid, or owed -- everything money-related is 0.
-    if (isPr) return { subtotal, discount, vat: 0, grand: 0, balance: 0 };
+    if (isPr) return { subtotal, discount, vat: 0, grand: 0, balance: 0, creditApplied: 0 };
     const vat = applyVat ? Math.max(subtotal - discount, 0) * (vatRate / 100) : 0;
     const grand = Math.max(subtotal - discount + vat, 0);
-    const balance = Math.max(grand - amountPaid, 0);
-    return { subtotal, discount, vat, grand, balance };
-  }, [cart, discountInput, discountType, amountPaid, vatRate, applyVat, isPr]);
+    // Automatic, not something the cashier sets: whatever the customer's
+    // own advance/credit balance can cover of what cash didn't, same
+    // formula approve_sale() finalizes with server-side.
+    const creditApplied = Math.min(Math.max(grand - amountPaid, 0), availableCredit);
+    const balance = Math.max(grand - amountPaid - creditApplied, 0);
+    return { subtotal, discount, vat, grand, balance, creditApplied };
+  }, [cart, discountInput, discountType, amountPaid, availableCredit, vatRate, applyVat, isPr]);
 
   // What actually gets sold -- excludes lines the user has cleared to 0
   // while editing but hasn't removed or refilled yet.
@@ -998,7 +1703,7 @@ export function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
       return data as any;
     },
     onSuccess: async (res) => {
-      toast.success(`Invoice ${res.invoice_number} created`);
+      toast.success(`${res.invoice_number} submitted — awaiting manager approval`);
       logAudit({
         action: "sale",
         entity: "sales",
@@ -1238,6 +1943,7 @@ export function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
               </Select>
             </div>
           </div>
+          <CustomerAccountPanel customerId={customerId} />
           {customerId === "walkin" && (
             <>
               <div className="grid grid-cols-2 gap-2">
@@ -1311,6 +2017,12 @@ export function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
               />
             </div>
           )}
+          {!isPr && availableCredit > 0 && (
+            <p className="text-xs text-muted-foreground">
+              This customer has {money(availableCredit)} in advance/credit — it's applied to this
+              sale automatically, covering as much of the balance below as it can.
+            </p>
+          )}
           <div>
             <Label className="text-xs">Sales rep (van stock)</Label>
             <Select
@@ -1377,6 +2089,12 @@ export function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
               <span>Paid</span>
               <span>{money(amountPaid)}</span>
             </div>
+            {totals.creditApplied > 0 && (
+              <div className="flex justify-between">
+                <span>Credit applied</span>
+                <span>{money(totals.creditApplied)}</span>
+              </div>
+            )}
             <div className="flex justify-between font-medium">
               <span>Balance</span>
               <span className={totals.balance > 0 ? "text-destructive" : ""}>

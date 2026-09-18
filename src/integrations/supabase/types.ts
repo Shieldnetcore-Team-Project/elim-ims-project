@@ -325,6 +325,7 @@ export type Database = {
         Row: {
           address: string | null
           created_at: string
+          credit_balance: number
           email: string | null
           factory_id: string
           id: string
@@ -339,6 +340,7 @@ export type Database = {
         Insert: {
           address?: string | null
           created_at?: string
+          credit_balance?: number
           email?: string | null
           factory_id: string
           id?: string
@@ -353,6 +355,7 @@ export type Database = {
         Update: {
           address?: string | null
           created_at?: string
+          credit_balance?: number
           email?: string | null
           factory_id?: string
           id?: string
@@ -2856,13 +2859,17 @@ export type Database = {
       sales: {
         Row: {
           amount_paid: number
+          approved_at: string | null
+          approved_by: string | null
           balance: number
           created_at: string
           created_by: string | null
+          credit_applied: number
           customer_address: string | null
           customer_id: string | null
           customer_name: string | null
           customer_phone: string | null
+          deleted_at: string | null
           discount: number
           factory_id: string
           grand_total: number
@@ -2870,22 +2877,29 @@ export type Database = {
           invoice_number: string
           is_pr: boolean
           payment_method: Database["public"]["Enums"]["payment_method"]
+          pending_payments: Json | null
+          rejected_reason: string | null
           remarks: string | null
           sale_date: string
           sales_person: string | null
           sales_rep_id: string | null
+          status: string
           subtotal: number
           vat: number
         }
         Insert: {
           amount_paid?: number
+          approved_at?: string | null
+          approved_by?: string | null
           balance?: number
           created_at?: string
           created_by?: string | null
+          credit_applied?: number
           customer_address?: string | null
           customer_id?: string | null
           customer_name?: string | null
           customer_phone?: string | null
+          deleted_at?: string | null
           discount?: number
           factory_id: string
           grand_total?: number
@@ -2893,22 +2907,29 @@ export type Database = {
           invoice_number: string
           is_pr?: boolean
           payment_method?: Database["public"]["Enums"]["payment_method"]
+          pending_payments?: Json | null
+          rejected_reason?: string | null
           remarks?: string | null
           sale_date?: string
           sales_person?: string | null
           sales_rep_id?: string | null
+          status?: string
           subtotal?: number
           vat?: number
         }
         Update: {
           amount_paid?: number
+          approved_at?: string | null
+          approved_by?: string | null
           balance?: number
           created_at?: string
           created_by?: string | null
+          credit_applied?: number
           customer_address?: string | null
           customer_id?: string | null
           customer_name?: string | null
           customer_phone?: string | null
+          deleted_at?: string | null
           discount?: number
           factory_id?: string
           grand_total?: number
@@ -2916,10 +2937,13 @@ export type Database = {
           invoice_number?: string
           is_pr?: boolean
           payment_method?: Database["public"]["Enums"]["payment_method"]
+          pending_payments?: Json | null
+          rejected_reason?: string | null
           remarks?: string | null
           sale_date?: string
           sales_person?: string | null
           sales_rep_id?: string | null
+          status?: string
           subtotal?: number
           vat?: number
         }
@@ -3968,6 +3992,10 @@ export type Database = {
         Args: { p_comment?: string; p_request_id: string }
         Returns: Json
       }
+      approve_sale: {
+        Args: { p_comment?: string; p_id: string }
+        Returns: Json
+      }
       approve_staff_deduction: {
         Args: { p_comment?: string; p_id: string }
         Returns: Json
@@ -4032,6 +4060,7 @@ export type Database = {
         Args: { p_reason?: string; p_request_id: string }
         Returns: Json
       }
+      cancel_sale: { Args: { p_id: string; p_reason?: string }; Returns: Json }
       cancel_sales_return: {
         Args: { p_id: string; p_reason?: string }
         Returns: Json
@@ -4162,6 +4191,8 @@ export type Database = {
         Returns: Json
       }
       process_payroll: { Args: { payload: Json }; Returns: Json }
+      purge_expired_deleted_sales: { Args: never; Returns: Json }
+      record_customer_advance: { Args: { payload: Json }; Returns: Json }
       record_payment: { Args: { payload: Json }; Returns: Json }
       record_rep_remittance: { Args: { payload: Json }; Returns: Json }
       record_workflow_action: {
@@ -4219,6 +4250,7 @@ export type Database = {
         Args: { p_reason?: string; p_request_id: string }
         Returns: Json
       }
+      reject_sale: { Args: { p_id: string; p_reason: string }; Returns: Json }
       reject_staff_deduction: {
         Args: { p_id: string; p_reason: string }
         Returns: Json
@@ -4261,6 +4293,7 @@ export type Database = {
         Returns: Json
       }
       request_stock_adjustment: { Args: { payload: Json }; Returns: Json }
+      restore_sale: { Args: { p_id: string }; Returns: Json }
       reverse_debt_writeoff: {
         Args: { p_debt_id: string; p_reason: string }
         Returns: Json

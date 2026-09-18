@@ -1,0 +1,61 @@
+-- ============================================================================
+-- Chairman is now fully equivalent to admin (super_admin) in practice
+-- ----------------------------------------------------------------------------
+-- The user asked for chairman to see every page and be able to do every
+-- action in the system, including approving/posting/confirming their own
+-- submissions (no maker-checker separation for a chairman account, same as
+-- super_admin already gets) -- confirmed explicitly before writing this.
+--
+-- This required patching every place that special-cases super_admin,
+-- because there is no single choke point:
+--
+-- 1. has_permission() and get_my_permissions() -- the two functions that
+--    back essentially every RLS policy, RPC guard, and the frontend's own
+--    permission cache (usePermissions()/canView/canWrite/canApprove/etc in
+--    src/lib/permissions.ts) -- now short-circuit to fully-granted for
+--    chairman exactly like they already do for super_admin. This alone
+--    covers "every page, every module action" for both data access (RLS)
+--    and UI visibility (the frontend permission cache), since neither of
+--    those two functions previously granted chairman anything beyond its
+--    seeded role_permissions rows.
+--
+-- 2. has_production_scope_access() -- a parallel 3rd bypass layer (NYLON/
+--    WATER production isolation) that has its own independent super_admin
+--    short-circuit, not routed through has_permission().
+--
+-- 3. ~10 admin-only RPCs that check has_role(uid,'super_admin') directly
+--    instead of going through has_permission() at all: set_production_scope,
+--    admin_update_profile, admin_set_user_role, get_all_users_last_login,
+--    approve_delete, reject_delete, request_delete (its admin-notify loop),
+--    restore_sale, purge_expired_deleted_sales.
+--
+-- 4. ~40 workflow RPCs' self-approval exemption ("you can't approve your
+--    own submission, unless you're super_admin") -- every approve/reject/
+--    post/reverse/confirm/inspect RPC across expenses, debts, payments,
+--    payroll, staff loans/deductions, role grants, goods receiving, costing,
+--    production batches/requests, stock adjustments, new materials, sales
+--    returns, and sales. All of these shared the exact same literal
+--    condition text, confirmed by reading back every one of their current
+--    live definitions (via a temporary pg_get_functiondef() helper -- see
+--    20260923180000/180100 -- dropped at the end of this migration) rather
+--    than retyping ~40 multi-branch functions by hand.
+--
+-- 5. 8 RLS policies that hardcode has_role(auth.uid(),'super_admin'),
+--    bypassing has_permission()/get_my_permissions() entirely: the Roles &
+--    Permissions matrix and its per-user overrides editor, Role Management
+--    CRUD (create/edit/delete a role), the Approval Workflows page's
+--    required-approvals editor, Deleted Sales visibility, and Delete
+--    Requests visibility.
+--
+-- Frontend: useIsSuperAdmin() (src/lib/permissions.ts) is left as-is --
+-- "is this literally a super_admin" is still a meaningful question for a
+-- few UI strings (e.g. "This user is an Admin, which has every page by
+-- design" in user-page-access.tsx) -- but every canView/canWrite/canApprove/
+-- etc check chairman now passes automatically via get_my_permissions(), so
+-- most of the ~20 frontend gates the earlier audit found start working for
+-- chairman the moment this ships without any frontend change; the handful
+-- of purely admin-panel-tab visibility checks (Delete Requests / Deleted
+-- Sales tabs in src/routes/_app.admin.tsx) are patched in a matching
+-- frontend commit alongside this migration.
+-- ============================================================================
+
