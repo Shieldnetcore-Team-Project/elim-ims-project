@@ -164,6 +164,14 @@ function ExpensesPage() {
   const qc = useQueryClient();
   const { canWrite, canApprove, canReject, canPost, canCancel, canReverse } = usePermissions();
   const write = canWrite("expenses");
+  // Cash-in entries are recorded via create_cash_transaction / the
+  // cash_transactions table, both gated server-side on 'receipts-payments'
+  // write (see RLS + RPC), not 'expenses' write — a different permission
+  // from the cash-out (expense) side of this same ledger page. Gating the
+  // Cash In option on `write` alone let a user with only expenses:write
+  // fill out and submit a cash-in entry that the server would then reject
+  // with "Insufficient permissions".
+  const writeCashIn = canWrite("receipts-payments");
   const approve = canApprove("expenses");
   const reject = canReject("expenses");
   const post = canPost("expenses");
@@ -474,7 +482,7 @@ function ExpensesPage() {
           <Button variant="outline" className="gap-2" onClick={() => printLedger("print")}>
             <Printer className="h-4 w-4" /> Print
           </Button>
-          {write && (
+          {(write || writeCashIn) && (
             <Dialog
               open={formOpen}
               onOpenChange={(v) => {
@@ -486,7 +494,7 @@ function ExpensesPage() {
               }}
             >
               <DialogTrigger asChild>
-                <Button className="gap-2" onClick={() => openAdd("cash_out")}>
+                <Button className="gap-2" onClick={() => openAdd(write ? "cash_out" : "cash_in")}>
                   <Plus className="h-4 w-4" /> Add Entry
                 </Button>
               </DialogTrigger>
@@ -497,6 +505,8 @@ function ExpensesPage() {
                   editingExpense={editingExpense}
                   editingCashIn={editingCashIn}
                   defaultType={defaultEntryType}
+                  canCashOut={write}
+                  canCashIn={writeCashIn}
                   currentUserName={currentUserName}
                   onDone={() => {
                     setFormOpen(false);
@@ -628,7 +638,8 @@ function ExpensesPage() {
                 const e = row.expense;
                 const c = row.cashIn;
                 const isSelf = e ? e.submitted_by === currentUser.data : false;
-                const canEditCashIn = c && write && (c.recorded_by === currentUser.data || reverse);
+                const canEditCashIn =
+                  c && writeCashIn && (c.recorded_by === currentUser.data || reverse);
                 return (
                   <TableRow key={row.key}>
                     <TableCell className="whitespace-nowrap">{row.date}</TableCell>
@@ -1137,6 +1148,8 @@ function EntryForm({
   editingExpense,
   editingCashIn,
   defaultType,
+  canCashOut,
+  canCashIn,
   currentUserName,
   onDone,
 }: {
@@ -1145,6 +1158,8 @@ function EntryForm({
   editingExpense: Expense | null;
   editingCashIn: CashIn | null;
   defaultType: EntryType;
+  canCashOut: boolean;
+  canCashIn: boolean;
   currentUserName: string;
   onDone: () => void;
 }) {
@@ -1309,7 +1324,7 @@ function EntryForm({
         <DialogTitle>{isEditing ? "Edit Entry" : "Add Entry"}</DialogTitle>
       </DialogHeader>
       <div className="grid gap-3 max-h-[70vh] overflow-y-auto pr-1">
-        {!isEditing && (
+        {!isEditing && canCashOut && canCashIn && (
           <div className="grid grid-cols-2 gap-2">
             <Button
               type="button"

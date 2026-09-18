@@ -63,10 +63,12 @@ export const Route = createFileRoute("/_app/production")({
 });
 
 // Nylon and Water production are isolated per profiles.production_scope (see
-// has_production_scope_access() — enforced at the RLS/RPC layer). This is
-// just the UX so a restricted user sees a clear reason instead of a
-// silently-empty page when the Factory Switcher is on a factory their scope
-// doesn't cover.
+// has_production_scope_access() — enforced at the RLS/RPC layer). The Factory
+// Switcher (src/components/layout/factory-switcher.tsx) locks a scoped user
+// onto their own factory and hides the option to switch, so this should
+// normally never trigger. It stays as a defense-in-depth fallback for the
+// brief window before the scope query resolves, or if scope is changed
+// server-side while the app is open with a stale factory selection cached.
 function ProductionFactoryGate() {
   const factory = useFactoryId();
   const factoryId = factory.data;
@@ -103,8 +105,8 @@ function ProductionFactoryGate() {
         </CardHeader>
         <CardContent className="text-sm text-muted-foreground">
           Your production scope is <span className="font-medium text-foreground">{scope}</span>{" "}
-          only. Switch the factory in the top bar to continue, or ask an Admin to extend your
-          access.
+          only. This should resolve automatically — if it doesn't, reload the page or ask an Admin
+          to check your access.
         </CardContent>
       </Card>
     );
