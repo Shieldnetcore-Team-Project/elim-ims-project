@@ -842,6 +842,10 @@ export function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
     return { subtotal, discount, vat, grand, balance };
   }, [cart, discountInput, discountType, amountPaid, vatRate, applyVat, isPr]);
 
+  // What actually gets sold -- excludes lines the user has cleared to 0
+  // while editing but hasn't removed or refilled yet.
+  const sellableCart = useMemo(() => cart.filter((c) => c.quantity > 0), [cart]);
+
   // Ticking PR clears anything that implies money changed hands, so the form
   // can't show a half-billed, half-free sale.
   useEffect(() => {
@@ -883,15 +887,18 @@ export function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
     setPickerId("");
   };
 
+  // Doesn't drop lines at quantity 0 -- the quantity box goes through 0
+  // while the user clears it to type a new figure, and removing the row
+  // out from under them mid-edit would yank the input away. Zero-qty lines
+  // are excluded where it actually matters (submit, previews, invoice) via
+  // sellableCart below; an explicit trash button removes a row outright.
   const updateQty = (id: string, qty: number) => {
     setCart((prev) =>
-      prev
-        .map((c) => {
-          if (c.product_id !== id) return c;
-          const q = Math.max(0, Math.min(qty, c.stock));
-          return { ...c, quantity: q };
-        })
-        .filter((c) => c.quantity > 0),
+      prev.map((c) => {
+        if (c.product_id !== id) return c;
+        const q = Math.max(0, Math.min(qty, c.stock));
+        return { ...c, quantity: q };
+      }),
     );
   };
   const updatePrice = (id: string, price: number) => {
@@ -902,7 +909,7 @@ export function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
 
   const submit = useMutation({
     mutationFn: async () => {
-      if (cart.length === 0) throw new Error("Cart is empty");
+      if (sellableCart.length === 0) throw new Error("Cart is empty");
       const finalCustomer = customerId === "walkin" ? null : customerId;
       let displayName = customerName;
       if (finalCustomer) {
@@ -925,7 +932,7 @@ export function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
           sales_rep_id: repMode ? salesRepId : null,
           is_pr: isPr,
           remarks: remarks || null,
-          items: cart.map((c) => ({
+          items: sellableCart.map((c) => ({
             product_id: c.product_id,
             quantity: c.quantity,
             unit_price: c.unit_price,
@@ -963,7 +970,7 @@ export function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
           phone: customerPhone,
           address: customerAddress,
         },
-        items: cart.map((c) => ({
+        items: sellableCart.map((c) => ({
           name: c.name,
           quantity: c.quantity,
           unit: c.unit,
@@ -987,7 +994,7 @@ export function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
   });
 
   const previewInvoice = async () => {
-    if (cart.length === 0) {
+    if (sellableCart.length === 0) {
       toast.error("Add at least one item to preview");
       return;
     }
@@ -1007,7 +1014,7 @@ export function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
           phone: customerPhone,
           address: customerAddress,
         },
-        items: cart.map((c) => ({
+        items: sellableCart.map((c) => ({
           name: c.name,
           quantity: c.quantity,
           unit: c.unit,
@@ -1097,12 +1104,11 @@ export function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Input
-                        type="number"
+                      <MoneyInput
                         min={0}
                         max={c.stock}
                         value={c.quantity}
-                        onChange={(e) => updateQty(c.product_id, Number(e.target.value))}
+                        onChange={(v) => updateQty(c.product_id, v)}
                         className="h-8"
                       />
                     </TableCell>
@@ -1203,13 +1209,12 @@ export function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
               <Label className="text-xs">Discount</Label>
               <div className="flex gap-1.5">
                 {discountType === "percent" ? (
-                  <Input
-                    type="number"
+                  <MoneyInput
                     min={0}
                     max={100}
                     step="0.01"
                     value={discountInput}
-                    onChange={(e) => setDiscountInput(Number(e.target.value))}
+                    onChange={setDiscountInput}
                   />
                 ) : (
                   <MoneyInput value={discountInput} onChange={setDiscountInput} />
@@ -1343,14 +1348,14 @@ export function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
       <DialogFooter className="shrink-0 border-t px-6 py-4">
         <Button
           variant="outline"
-          disabled={cart.length === 0}
+          disabled={sellableCart.length === 0}
           onClick={previewInvoice}
           className="gap-2"
         >
           <Eye className="h-4 w-4" /> Preview
         </Button>
         <Button
-          disabled={submit.isPending || cart.length === 0}
+          disabled={submit.isPending || sellableCart.length === 0}
           onClick={() => submit.mutate()}
           className="gap-2"
         >

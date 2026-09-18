@@ -1299,12 +1299,11 @@ function MaterialForm({
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label>Opening stock</Label>
-            <Input
-              type="number"
+            <MoneyInput
               min={0}
               step="0.001"
               value={openingStock}
-              onChange={(e) => setOpeningStock(Number(e.target.value))}
+              onChange={setOpeningStock}
               disabled={!!editing}
             />
           </div>
@@ -1349,22 +1348,20 @@ function MaterialForm({
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label>Minimum stock</Label>
-            <Input
-              type="number"
+            <MoneyInput
               min={0}
               step="0.001"
               value={minimumStock}
-              onChange={(e) => setMinimumStock(Number(e.target.value))}
+              onChange={setMinimumStock}
             />
           </div>
           <div>
             <Label>Reorder level</Label>
-            <Input
-              type="number"
+            <MoneyInput
               min={0}
               step="0.001"
               value={reorderLevel}
-              onChange={(e) => setReorderLevel(Number(e.target.value))}
+              onChange={setReorderLevel}
             />
           </div>
         </div>
@@ -1436,23 +1433,21 @@ function ReceiveDialog({
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label>Quantity received</Label>
-            <Input
-              type="number"
+            <MoneyInput
               min={0.001}
               step="0.001"
               value={quantity}
-              onChange={(e) => setQuantity(Number(e.target.value))}
+              onChange={setQuantity}
             />
           </div>
           <div>
             <Label>Damaged quantity</Label>
-            <Input
-              type="number"
+            <MoneyInput
               min={0}
               max={quantity}
               step="0.001"
               value={damagedQuantity}
-              onChange={(e) => setDamagedQuantity(Number(e.target.value))}
+              onChange={setDamagedQuantity}
             />
           </div>
         </div>
@@ -1557,12 +1552,11 @@ function RequestPurchaseDialog({ material, onDone }: { material: Material; onDon
         </div>
         <div>
           <Label>Quantity to request</Label>
-          <Input
-            type="number"
+          <MoneyInput
             min={0.001}
             step="0.001"
             value={quantity}
-            onChange={(e) => setQuantity(Number(e.target.value))}
+            onChange={setQuantity}
           />
         </div>
         <div>
@@ -1629,13 +1623,12 @@ function IssueDialog({ material, onDone }: { material: Material; onDone: () => v
         </div>
         <div>
           <Label>Quantity issued</Label>
-          <Input
-            type="number"
+          <MoneyInput
             min={0.001}
             max={Number(material.current_stock)}
             step="0.001"
             value={quantity}
-            onChange={(e) => setQuantity(Number(e.target.value))}
+            onChange={setQuantity}
           />
         </div>
         <div>
@@ -1710,11 +1703,10 @@ function AdjustDialog({ material, onDone }: { material: Material; onDone: () => 
           </div>
           <div>
             <Label>New quantity</Label>
-            <Input
-              type="number"
+            <MoneyInput
               step="0.001"
               value={newQuantity}
-              onChange={(e) => setNewQuantity(Number(e.target.value))}
+              onChange={setNewQuantity}
             />
           </div>
           <div>
@@ -1828,13 +1820,12 @@ function TransferDialog({
         </div>
         <div>
           <Label>Quantity</Label>
-          <Input
-            type="number"
+          <MoneyInput
             min={0.001}
             max={Number(material.current_stock)}
             step="0.001"
             value={quantity}
-            onChange={(e) => setQuantity(Number(e.target.value))}
+            onChange={setQuantity}
           />
         </div>
         <div>

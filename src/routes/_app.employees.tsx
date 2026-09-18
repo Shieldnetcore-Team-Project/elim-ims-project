@@ -1052,11 +1052,10 @@ function LoansDeductionsDialog({ employee, factoryId }: { employee: Employee; fa
                   ) : (
                     <>
                       <Label className="text-xs">Number of months</Label>
-                      <Input
-                        type="number"
+                      <MoneyInput
                         min={1}
-                        value={instMonths || ""}
-                        onChange={(e) => setInstMonths(Number(e.target.value))}
+                        value={instMonths}
+                        onChange={setInstMonths}
                       />
                     </>
                   )}
@@ -1206,10 +1205,10 @@ function LoansDeductionsDialog({ employee, factoryId }: { employee: Employee; fa
                 </div>
                 <div>
                   <Label className="text-xs">Year</Label>
-                  <Input
-                    type="number"
+                  <MoneyInput
+                    groupThousands={false}
                     value={pYear}
-                    onChange={(e) => setPYear(Number(e.target.value))}
+                    onChange={setPYear}
                   />
                 </div>
               </div>

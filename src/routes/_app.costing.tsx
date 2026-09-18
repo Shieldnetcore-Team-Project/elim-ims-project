@@ -722,13 +722,12 @@ function WaterCostingDialog({
             </div>
             <div className="space-y-2">
               <Label>Batch yield (bottles)</Label>
-              <Input
-                type="number"
+              <MoneyInput
                 min="0"
                 step="1"
                 placeholder="e.g. 670"
-                value={yieldQty}
-                onChange={(e) => setYieldQty(e.target.value)}
+                value={Number(yieldQty) || 0}
+                onChange={(v) => setYieldQty(String(v))}
               />
             </div>
           </div>
@@ -748,13 +747,12 @@ function WaterCostingDialog({
                   ))}
                 </SelectContent>
               </Select>
-              <Input
-                type="number"
+              <MoneyInput
                 min="0"
                 step="0.001"
                 placeholder="Kg used for whole batch"
-                value={preformQtyKg}
-                onChange={(e) => setPreformQtyKg(e.target.value)}
+                value={Number(preformQtyKg) || 0}
+                onChange={(v) => setPreformQtyKg(String(v))}
               />
             </div>
             <p className="text-xs text-muted-foreground">
@@ -801,22 +799,20 @@ function WaterCostingDialog({
           <div className="grid grid-cols-3 gap-3">
             <div className="space-y-2">
               <Label>Content cost %</Label>
-              <Input
-                type="number"
+              <MoneyInput
                 min="0"
                 step="0.01"
-                value={contentPercent}
-                onChange={(e) => setContentPercent(e.target.value)}
+                value={Number(contentPercent) || 0}
+                onChange={(v) => setContentPercent(String(v))}
               />
             </div>
             <div className="space-y-2">
               <Label>Bottles / carton</Label>
-              <Input
-                type="number"
+              <MoneyInput
                 min="1"
                 step="1"
-                value={bottlesPerCarton}
-                onChange={(e) => setBottlesPerCarton(e.target.value)}
+                value={Number(bottlesPerCarton) || 0}
+                onChange={(v) => setBottlesPerCarton(String(v))}
               />
             </div>
             <div className="space-y-2">
@@ -1100,16 +1096,15 @@ function NylonCostingDialog({
                     ))}
                   </SelectContent>
                 </Select>
-                <Input
+                <MoneyInput
                   className="w-28"
-                  type="number"
                   min="0"
                   step="0.001"
                   placeholder="Kg"
-                  value={line.quantity}
-                  onChange={(e) =>
+                  value={Number(line.quantity) || 0}
+                  onChange={(v) =>
                     setBlendLines(
-                      blendLines.map((l, j) => (j === i ? { ...l, quantity: e.target.value } : l)),
+                      blendLines.map((l, j) => (j === i ? { ...l, quantity: String(v) } : l)),
                     )
                   }
                 />
@@ -1132,23 +1127,21 @@ function NylonCostingDialog({
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
               <Label>Overhead % (production overhead)</Label>
-              <Input
-                type="number"
+              <MoneyInput
                 min="0"
                 step="0.01"
-                value={overheadPercent}
-                onChange={(e) => setOverheadPercent(e.target.value)}
+                value={Number(overheadPercent) || 0}
+                onChange={(v) => setOverheadPercent(String(v))}
               />
             </div>
             <div className="space-y-2">
               <Label>Batch weight (kg per bag-count)</Label>
-              <Input
-                type="number"
+              <MoneyInput
                 min="0"
                 step="0.001"
                 placeholder="e.g. 13.5"
-                value={batchWeight}
-                onChange={(e) => setBatchWeight(e.target.value)}
+                value={Number(batchWeight) || 0}
+                onChange={(v) => setBatchWeight(String(v))}
               />
             </div>
           </div>

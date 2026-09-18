@@ -34,10 +34,14 @@ export const MoneyInput = React.forwardRef<
   Omit<React.ComponentPropsWithoutRef<typeof Input>, "value" | "onChange" | "type"> & {
     value: number;
     onChange: (value: number) => void;
+    // Thousands commas make sense for money and quantities, but not for
+    // fields like a calendar year where "2,026" would look wrong.
+    groupThousands?: boolean;
   }
->(({ value, onChange, onFocus, onBlur, ...props }, forwardedRef) => {
+>(({ value, onChange, onFocus, onBlur, groupThousands = true, ...props }, forwardedRef) => {
   const innerRef = React.useRef<HTMLInputElement | null>(null);
-  const [display, setDisplay] = React.useState(() => (value ? formatWithCommas(String(value)) : ""));
+  const format = groupThousands ? formatWithCommas : (s: string) => s;
+  const [display, setDisplay] = React.useState(() => (value ? format(String(value)) : ""));
   const [focused, setFocused] = React.useState(false);
   const pendingCaret = React.useRef<number | null>(null);
 
@@ -46,7 +50,7 @@ export const MoneyInput = React.forwardRef<
   // would stomp on an in-progress edit.
   React.useEffect(() => {
     if (focused) return;
-    setDisplay(value ? formatWithCommas(String(value)) : "");
+    setDisplay(value ? format(String(value)) : "");
   }, [value, focused]);
 
   React.useLayoutEffect(() => {
@@ -71,7 +75,7 @@ export const MoneyInput = React.forwardRef<
       }}
       onBlur={(e) => {
         setFocused(false);
-        setDisplay(value ? formatWithCommas(String(value)) : "");
+        setDisplay(value ? format(String(value)) : "");
         onBlur?.(e);
       }}
       onChange={(e) => {
@@ -79,7 +83,7 @@ export const MoneyInput = React.forwardRef<
         const caret = input.selectionStart ?? input.value.length;
         const digitsBeforeCaret = sanitize(input.value.slice(0, caret)).length;
         const raw = sanitize(input.value);
-        const formatted = formatWithCommas(raw);
+        const formatted = format(raw);
 
         // Re-find the caret by counting the same number of digits back in,
         // skipping over commas -- keeps the cursor sitting where the user

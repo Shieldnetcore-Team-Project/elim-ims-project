@@ -597,13 +597,12 @@ function RequestForm({
                   ))}
                 </SelectContent>
               </Select>
-              <Input
-                type="number"
+              <MoneyInput
                 min={0.001}
                 step="0.001"
                 placeholder="Qty"
                 value={it.quantity}
-                onChange={(e) => updateItem(i, { quantity: Number(e.target.value) })}
+                onChange={(v) => updateItem(i, { quantity: v })}
               />
               <Select value={it.supplierId} onValueChange={(v) => updateItem(i, { supplierId: v })}>
                 <SelectTrigger>
@@ -1140,12 +1139,11 @@ function CreatePoDialog({
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label>Quantity to order</Label>
-                <Input
-                  type="number"
+                <MoneyInput
                   min={0.001}
                   step="0.001"
-                  value={quantity}
-                  onChange={(e) => setQuantity(e.target.value === "" ? "" : Number(e.target.value))}
+                  value={quantity === "" ? 0 : quantity}
+                  onChange={(v) => setQuantity(v === 0 ? "" : v)}
                 />
               </div>
               <div>
@@ -1251,24 +1249,22 @@ function ReceiveDialog({ row, onDone }: { row: PoRow; onDone: () => void }) {
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label>Quantity received</Label>
-            <Input
-              type="number"
+            <MoneyInput
               min={0.001}
               max={outstanding}
               step="0.001"
               value={quantity}
-              onChange={(e) => setQuantity(Number(e.target.value))}
+              onChange={setQuantity}
             />
           </div>
           <div>
             <Label>Damaged quantity</Label>
-            <Input
-              type="number"
+            <MoneyInput
               min={0}
               max={quantity}
               step="0.001"
               value={damagedQuantity}
-              onChange={(e) => setDamagedQuantity(Number(e.target.value))}
+              onChange={setDamagedQuantity}
             />
           </div>
         </div>

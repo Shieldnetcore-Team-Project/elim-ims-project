@@ -7,6 +7,7 @@ import { getFactoryIdByCode } from "@/lib/factories";
 import { useTheme } from "@/lib/theme";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { MoneyInput } from "@/components/ui/money-input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -265,7 +266,11 @@ export function SettingsPage() {
                 <CardContent className="grid gap-4 md:grid-cols-3">
                   <div className="space-y-2">
                     <Label>VAT / Tax rate (%)</Label>
-                    <Input type="number" step="0.01" {...field("vat_rate")} />
+                    <MoneyInput
+                      step="0.01"
+                      value={form.vat_rate === "" ? 0 : Number(form.vat_rate)}
+                      onChange={(v) => setForm({ ...form, vat_rate: v === 0 ? "" : String(v) })}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label>Invoice prefix</Label>

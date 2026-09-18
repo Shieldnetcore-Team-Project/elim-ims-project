@@ -736,12 +736,11 @@ function ProductionForm({
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label>{selectedPackaging ? `Quantity (${quantityUnit})` : "Quantity produced"}</Label>
-            <Input
-              type="number"
+            <MoneyInput
               min={0.001}
               step="0.001"
               value={quantity}
-              onChange={(e) => setQuantity(Number(e.target.value))}
+              onChange={setQuantity}
             />
             {selectedPackaging && (
               <p className="mt-1 text-xs text-muted-foreground">

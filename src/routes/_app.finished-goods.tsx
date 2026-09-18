@@ -1138,23 +1138,21 @@ function ProductForm({
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label>Opening stock</Label>
-            <Input
-              type="number"
+            <MoneyInput
               min={0}
               step="0.001"
               value={openingStock}
-              onChange={(e) => setOpeningStock(Number(e.target.value))}
+              onChange={setOpeningStock}
               disabled={!!editing}
             />
           </div>
           <div>
             <Label>Reorder level</Label>
-            <Input
-              type="number"
+            <MoneyInput
               min={0}
               step="0.001"
               value={reorderLevel}
-              onChange={(e) => setReorderLevel(Number(e.target.value))}
+              onChange={setReorderLevel}
             />
           </div>
         </div>
@@ -1235,11 +1233,10 @@ function AdjustDialog({
             </div>
             <div>
               <Label>New quantity</Label>
-              <Input
-                type="number"
+              <MoneyInput
                 step="0.001"
                 value={newQuantity}
-                onChange={(e) => setNewQuantity(Number(e.target.value))}
+                onChange={setNewQuantity}
               />
             </div>
             <div>
@@ -1258,12 +1255,11 @@ function AdjustDialog({
             </p>
             <div>
               <Label>Quantity</Label>
-              <Input
-                type="number"
+              <MoneyInput
                 min={0.001}
                 step="0.001"
                 value={damagedQuantity}
-                onChange={(e) => setDamagedQuantity(Number(e.target.value))}
+                onChange={setDamagedQuantity}
               />
             </div>
           </>
@@ -1352,33 +1348,30 @@ function ConfirmBatchDialog({ batch, onDone }: { batch: PendingBatch; onDone: ()
         </p>
         <div>
           <Label>Actual Quantity Received</Label>
-          <Input
-            type="number"
+          <MoneyInput
             min={0}
             step="0.001"
             value={actualReceived}
-            onChange={(e) => setActualReceived(Number(e.target.value))}
+            onChange={setActualReceived}
           />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label>Damaged Quantity</Label>
-            <Input
-              type="number"
+            <MoneyInput
               min={0}
               step="0.001"
               value={damaged}
-              onChange={(e) => setDamaged(Number(e.target.value))}
+              onChange={setDamaged}
             />
           </div>
           <div>
             <Label>Rejected Quantity</Label>
-            <Input
-              type="number"
+            <MoneyInput
               min={0}
               step="0.001"
               value={rejected}
-              onChange={(e) => setRejected(Number(e.target.value))}
+              onChange={setRejected}
             />
           </div>
         </div>
@@ -1512,13 +1505,12 @@ function TransferDialog({
         </div>
         <div>
           <Label>Quantity</Label>
-          <Input
-            type="number"
+          <MoneyInput
             min={0.001}
             max={Number(product.current_stock)}
             step="0.001"
             value={quantity}
-            onChange={(e) => setQuantity(Number(e.target.value))}
+            onChange={setQuantity}
           />
         </div>
         <div>
@@ -1824,14 +1816,11 @@ function PackagingDialog({
             </div>
             <div>
               <Label>{product.unit} per unit</Label>
-              <Input
-                type="number"
+              <MoneyInput
                 min={0.0001}
                 step="0.0001"
-                value={conversionFactor}
-                onChange={(e) =>
-                  setConversionFactor(e.target.value === "" ? "" : Number(e.target.value))
-                }
+                value={conversionFactor === "" ? 0 : conversionFactor}
+                onChange={(v) => setConversionFactor(v === 0 ? "" : v)}
               />
             </div>
             <Button

@@ -11,6 +11,7 @@ import {
 } from "@/lib/workflow";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { MoneyInput } from "@/components/ui/money-input";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -158,14 +159,11 @@ export function ApprovalWorkflowsPage() {
                   <TableCell className="text-center">
                     {isSuperAdmin.data ? (
                       <div className="flex items-center justify-center gap-1">
-                        <Input
-                          type="number"
+                        <MoneyInput
                           min={1}
                           className="w-16 text-center"
                           value={editing[c.module] ?? c.required_approvals}
-                          onChange={(e) =>
-                            setEditing((s) => ({ ...s, [c.module]: Number(e.target.value) }))
-                          }
+                          onChange={(v) => setEditing((s) => ({ ...s, [c.module]: v }))}
                         />
                         {editing[c.module] !== undefined &&
                           editing[c.module] !== c.required_approvals && (

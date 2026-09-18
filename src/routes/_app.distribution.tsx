@@ -708,11 +708,10 @@ function LineEditor({
                   <span className="ml-1 text-muted-foreground">({num(avail)})</span>
                 )}
               </Label>
-              <Input
-                type="number"
+              <MoneyInput
                 min={0}
-                value={l.quantity || ""}
-                onChange={(e) => update(i, { quantity: Number(e.target.value) })}
+                value={l.quantity || 0}
+                onChange={(v) => update(i, { quantity: v })}
               />
             </div>
             <div className="w-24 pb-2 text-right text-xs text-muted-foreground">
@@ -1285,29 +1284,26 @@ function InspectReturnDialog({ row, onDone }: { row: ReturnRow; onDone: () => vo
             <div className="grid grid-cols-3 gap-2">
               <div>
                 <Label className="text-xs">Accepted</Label>
-                <Input
-                  type="number"
+                <MoneyInput
                   min={0}
-                  value={l.accepted || ""}
-                  onChange={(e) => patch(i, { accepted: Number(e.target.value) })}
+                  value={l.accepted || 0}
+                  onChange={(v) => patch(i, { accepted: v })}
                 />
               </div>
               <div>
                 <Label className="text-xs">Damaged</Label>
-                <Input
-                  type="number"
+                <MoneyInput
                   min={0}
-                  value={l.damaged || ""}
-                  onChange={(e) => patch(i, { damaged: Number(e.target.value) })}
+                  value={l.damaged || 0}
+                  onChange={(v) => patch(i, { damaged: v })}
                 />
               </div>
               <div>
                 <Label className="text-xs">Rejected</Label>
-                <Input
-                  type="number"
+                <MoneyInput
                   min={0}
-                  value={l.rejected || ""}
-                  onChange={(e) => patch(i, { rejected: Number(e.target.value) })}
+                  value={l.rejected || 0}
+                  onChange={(v) => patch(i, { rejected: v })}
                 />
               </div>
             </div>

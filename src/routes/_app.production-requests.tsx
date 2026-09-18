@@ -8,6 +8,7 @@ import { usePermissions } from "@/lib/permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { MoneyInput } from "@/components/ui/money-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -602,14 +603,13 @@ function RequestForm({
                       </p>
                     )}
                   </div>
-                  <Input
-                    type="number"
+                  <MoneyInput
                     min={0.001}
                     step="0.001"
                     className="w-28"
                     placeholder="Qty"
                     value={it.quantity}
-                    onChange={(e) => updateItem(i, { quantity: Number(e.target.value) })}
+                    onChange={(v) => updateItem(i, { quantity: v })}
                   />
                   <span className="w-12 shrink-0 pt-2 text-xs text-muted-foreground">
                     {m?.unit ?? ""}
@@ -854,23 +854,21 @@ function AddMaterialDialog({
           </div>
           <div>
             <Label>Opening stock</Label>
-            <Input
-              type="number"
+            <MoneyInput
               min={0}
               step="0.001"
               value={openingStock}
-              onChange={(e) => setOpeningStock(Number(e.target.value))}
+              onChange={setOpeningStock}
             />
           </div>
         </div>
         <div>
           <Label>Reorder level</Label>
-          <Input
-            type="number"
+          <MoneyInput
             min={0}
             step="0.001"
             value={reorderLevel}
-            onChange={(e) => setReorderLevel(Number(e.target.value))}
+            onChange={setReorderLevel}
           />
         </div>
       </div>
