@@ -183,8 +183,7 @@ function SalesPage() {
   const pay = useMutation({
     mutationFn: async (input: {
       sale: SaleRow;
-      amount: number;
-      method: PaymentMethod;
+      payments: { amount: number; method: PaymentMethod }[];
       remarks: string;
     }) => {
       const { data, error } = await supabase.rpc("record_payment", {
@@ -192,8 +191,7 @@ function SalesPage() {
           factory_id: factoryId,
           customer_id: input.sale.customer_id,
           sale_id: input.sale.id,
-          amount: input.amount,
-          payment_method: input.method,
+          payments: input.payments,
           remarks: input.remarks,
         } as any,
       });
@@ -201,7 +199,12 @@ function SalesPage() {
       return { res: data as any, input };
     },
     onSuccess: ({ res, input }) => {
-      toast.success(`Receipt ${res.receipt_number}`);
+      const lines: { receipt_number: string; amount: number; payment_method: string }[] =
+        res.payments;
+      const totalAmount = Number(res.total_amount);
+      toast.success(
+        lines.length > 1 ? `${lines.length} receipts recorded` : `Receipt ${lines[0].receipt_number}`,
+      );
       generateReceiptPdf({
         company: {
           name: settings.data?.company_name ?? "FMIS",
@@ -209,12 +212,13 @@ function SalesPage() {
           phone: settings.data?.phone,
           logo_url: settings.data?.logo_url,
         },
-        receipt_number: res.receipt_number,
+        receipt_number: lines.map((l) => l.receipt_number).join(", "),
         payment_date: new Date().toISOString().slice(0, 10),
         customer_name: input.sale.customer_name ?? undefined,
         invoice_number: input.sale.invoice_number,
-        amount: input.amount,
-        payment_method: input.method,
+        amount: totalAmount,
+        payment_method: lines.length === 1 ? lines[0].payment_method : "split",
+        breakdown: lines.map((l) => ({ method: l.payment_method, amount: Number(l.amount) })),
         remarks: input.remarks,
         currency: settings.data?.currency ?? "NGN",
       });
@@ -392,9 +396,7 @@ function SalesPage() {
           <PayDialog
             sale={payTarget}
             saving={pay.isPending}
-            onSubmit={(amount, method, remarks) =>
-              pay.mutate({ sale: payTarget, amount, method, remarks })
-            }
+            onSubmit={(payments, remarks) => pay.mutate({ sale: payTarget, payments, remarks })}
           />
         )}
       </Dialog>
@@ -408,18 +410,83 @@ function SalesPage() {
   );
 }
 
+type PaymentLine = { amount: number; method: PaymentMethod };
+
+// Shared by the New Sale checkout and Receive Payment dialogs — one row per
+// method so a customer paying part cash, part transfer can be recorded in a
+// single transaction instead of forcing everything onto one payment_method.
+function PaymentLinesEditor({
+  payments,
+  onChange,
+  methods,
+}: {
+  payments: PaymentLine[];
+  onChange: (payments: PaymentLine[]) => void;
+  methods: PaymentMethod[];
+}) {
+  const update = (i: number, patch: Partial<PaymentLine>) =>
+    onChange(payments.map((p, idx) => (idx === i ? { ...p, ...patch } : p)));
+  const remove = (i: number) => onChange(payments.filter((_, idx) => idx !== i));
+  const add = () => onChange([...payments, { amount: 0, method: "cash" }]);
+
+  return (
+    <div className="space-y-2">
+      {payments.map((p, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <MoneyInput
+            value={p.amount}
+            onChange={(v) => update(i, { amount: v })}
+            className="flex-1"
+          />
+          <Select value={p.method} onValueChange={(v) => update(i, { method: v as PaymentMethod })}>
+            <SelectTrigger className="w-32 shrink-0">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {methods.map((m) => (
+                <SelectItem key={m} value={m} className="capitalize">
+                  {m}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {payments.length > 1 && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="shrink-0"
+              onClick={() => remove(i)}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
+      ))}
+      <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={add}>
+        <Plus className="h-3.5 w-3.5" /> Add payment method
+      </Button>
+    </div>
+  );
+}
+
+const PAY_DIALOG_METHODS: PaymentMethod[] = ["cash", "transfer", "pos", "card", "cheque"];
+
 function PayDialog({
   sale,
   onSubmit,
   saving,
 }: {
   sale: SaleRow;
-  onSubmit: (amount: number, method: PaymentMethod, remarks: string) => void;
+  onSubmit: (payments: PaymentLine[], remarks: string) => void;
   saving: boolean;
 }) {
-  const [amount, setAmount] = useState(Number(sale.balance));
-  const [method, setMethod] = useState<PaymentMethod>("cash");
+  const [payments, setPayments] = useState<PaymentLine[]>([
+    { amount: Number(sale.balance), method: "cash" },
+  ]);
   const [remarks, setRemarks] = useState("");
+  const total = payments.reduce((s, p) => s + (p.amount || 0), 0);
+  const balance = Number(sale.balance);
   return (
     <DialogContent>
       <DialogHeader>
@@ -437,27 +504,16 @@ function PayDialog({
           </div>
           <div className="flex justify-between">
             <span>Outstanding</span>
-            <span className="font-medium">{money(Number(sale.balance))}</span>
+            <span className="font-medium">{money(balance)}</span>
           </div>
         </div>
         <div>
-          <Label>Amount</Label>
-          <MoneyInput value={amount} onChange={setAmount} />
+          <Label>Payment{payments.length > 1 ? "s" : ""}</Label>
+          <PaymentLinesEditor payments={payments} onChange={setPayments} methods={PAY_DIALOG_METHODS} />
         </div>
-        <div>
-          <Label>Method</Label>
-          <Select value={method} onValueChange={(v) => setMethod(v as PaymentMethod)}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {(["cash", "transfer", "pos", "card", "cheque"] as PaymentMethod[]).map((m) => (
-                <SelectItem key={m} value={m} className="capitalize">
-                  {m}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        <div className="flex justify-between text-sm font-medium">
+          <span>Total</span>
+          <span className={total > balance ? "text-destructive" : ""}>{money(total)}</span>
         </div>
         <div>
           <Label>Remarks</Label>
@@ -466,8 +522,8 @@ function PayDialog({
       </div>
       <DialogFooter>
         <Button
-          disabled={saving || amount <= 0 || amount > Number(sale.balance)}
-          onClick={() => onSubmit(amount, method, remarks)}
+          disabled={saving || total <= 0 || total > balance}
+          onClick={() => onSubmit(payments.filter((p) => p.amount > 0), remarks)}
         >
           {saving ? "Saving…" : "Record & Print Receipt"}
         </Button>
@@ -759,8 +815,8 @@ export function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
   const [discountType, setDiscountType] = useState<"amount" | "percent">("amount");
   const [applyVat, setApplyVat] = useState(true);
   const [isPr, setIsPr] = useState(false);
-  const [amountPaid, setAmountPaid] = useState(0);
-  const [method, setMethod] = useState<PaymentMethod>("cash");
+  const [payments, setPayments] = useState<PaymentLine[]>([{ amount: 0, method: "cash" }]);
+  const amountPaid = useMemo(() => payments.reduce((s, p) => s + (p.amount || 0), 0), [payments]);
   const [salesPerson, setSalesPerson] = useState("");
   const [remarks, setRemarks] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
@@ -850,7 +906,7 @@ export function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
   // can't show a half-billed, half-free sale.
   useEffect(() => {
     if (isPr) {
-      setAmountPaid(0);
+      setPayments([{ amount: 0, method: "cash" }]);
       setApplyVat(false);
     }
   }, [isPr]);
@@ -926,8 +982,7 @@ export function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
           customer_address: customerAddress || null,
           discount: totals.discount,
           vat: totals.vat,
-          amount_paid: amountPaid,
-          payment_method: method,
+          payments: isPr ? [] : payments.filter((p) => p.amount > 0),
           sales_person: salesPerson || null,
           sales_rep_id: repMode ? salesRepId : null,
           is_pr: isPr,
@@ -1204,38 +1259,32 @@ export function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
               </div>
             </>
           )}
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <Label className="text-xs">Discount</Label>
-              <div className="flex gap-1.5">
-                {discountType === "percent" ? (
-                  <MoneyInput
-                    min={0}
-                    max={100}
-                    step="0.01"
-                    value={discountInput}
-                    onChange={setDiscountInput}
-                  />
-                ) : (
-                  <MoneyInput value={discountInput} onChange={setDiscountInput} />
-                )}
-                <Select
-                  value={discountType}
-                  onValueChange={(v) => setDiscountType(v as "amount" | "percent")}
-                >
-                  <SelectTrigger className="w-16 shrink-0">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="amount">₦</SelectItem>
-                    <SelectItem value="percent">%</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div>
-              <Label className="text-xs">Paid</Label>
-              <MoneyInput value={amountPaid} onChange={setAmountPaid} disabled={isPr} />
+          <div>
+            <Label className="text-xs">Discount</Label>
+            <div className="flex gap-1.5">
+              {discountType === "percent" ? (
+                <MoneyInput
+                  min={0}
+                  max={100}
+                  step="0.01"
+                  value={discountInput}
+                  onChange={setDiscountInput}
+                />
+              ) : (
+                <MoneyInput value={discountInput} onChange={setDiscountInput} />
+              )}
+              <Select
+                value={discountType}
+                onValueChange={(v) => setDiscountType(v as "amount" | "percent")}
+              >
+                <SelectTrigger className="w-16 shrink-0">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="amount">₦</SelectItem>
+                  <SelectItem value="percent">%</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
           <label className="flex items-center gap-2 text-sm">
@@ -1250,49 +1299,42 @@ export function PosDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
             <Checkbox checked={isPr} onCheckedChange={(v) => setIsPr(!!v)} />
             PR
           </label>
-          <div className="grid grid-cols-2 gap-2">
+          {!isPr && (
             <div>
-              <Label className="text-xs">Payment method</Label>
-              <Select value={method} onValueChange={(v) => setMethod(v as PaymentMethod)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {(["cash", "transfer", "pos", "card", "cheque", "credit"] as PaymentMethod[]).map(
-                    (m) => (
-                      <SelectItem key={m} value={m} className="capitalize">
-                        {m}
-                      </SelectItem>
-                    ),
-                  )}
-                </SelectContent>
-              </Select>
+              <Label className="text-xs">
+                Paid — {payments.length > 1 ? "payments" : "payment"}
+              </Label>
+              <PaymentLinesEditor
+                payments={payments}
+                onChange={setPayments}
+                methods={PAY_DIALOG_METHODS}
+              />
             </div>
-            <div>
-              <Label className="text-xs">Sales rep (van stock)</Label>
-              <Select
-                value={salesRepId}
-                onValueChange={(v) => {
-                  setSalesRepId(v);
-                  if (cart.length > 0) {
-                    setCart([]);
-                    toast.info("Cart cleared — stock source changed");
-                  }
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Direct from store</SelectItem>
-                  {(reps.data ?? []).map((r) => (
-                    <SelectItem key={r.id} value={r.id}>
-                      {r.full_name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+          )}
+          <div>
+            <Label className="text-xs">Sales rep (van stock)</Label>
+            <Select
+              value={salesRepId}
+              onValueChange={(v) => {
+                setSalesRepId(v);
+                if (cart.length > 0) {
+                  setCart([]);
+                  toast.info("Cart cleared — stock source changed");
+                }
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Direct from store</SelectItem>
+                {(reps.data ?? []).map((r) => (
+                  <SelectItem key={r.id} value={r.id}>
+                    {r.full_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>

@@ -118,6 +118,7 @@ type PendingBatch = {
   id: string;
   production_number: string;
   quantity_produced: number;
+  damaged_quantity: number | null;
   unit: string;
   batch_number: string | null;
   created_by: string | null;
@@ -275,7 +276,7 @@ function FinishedGoodsPage() {
       const { data, error } = await supabase
         .from("production")
         .select(
-          "id,production_number,quantity_produced,unit,batch_number,created_by,created_at,products(name,unit)",
+          "id,production_number,quantity_produced,damaged_quantity,unit,batch_number,created_by,created_at,products(name,unit)",
         )
         .eq("factory_id", factoryId!)
         .eq("status", "pending_confirmation")
@@ -1308,7 +1309,9 @@ function AdjustDialog({
 
 function ConfirmBatchDialog({ batch, onDone }: { batch: PendingBatch; onDone: () => void }) {
   const [actualReceived, setActualReceived] = useState(Number(batch.quantity_produced));
-  const [damaged, setDamaged] = useState(0);
+  // Seeded from what Production already reported at batch creation, not 0 —
+  // otherwise confirming here would silently overwrite their figure.
+  const [damaged, setDamaged] = useState(Number(batch.damaged_quantity ?? 0));
   const [rejected, setRejected] = useState(0);
   const accepted = Math.max(actualReceived - damaged - rejected, 0);
   const unit = batch.products?.unit ?? batch.unit;
@@ -1364,6 +1367,11 @@ function ConfirmBatchDialog({ batch, onDone }: { batch: PendingBatch; onDone: ()
               value={damaged}
               onChange={setDamaged}
             />
+            {Number(batch.damaged_quantity ?? 0) > 0 && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Pre-filled from what Production reported — adjust if needed.
+              </p>
+            )}
           </div>
           <div>
             <Label>Rejected Quantity</Label>

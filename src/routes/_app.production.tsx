@@ -374,6 +374,7 @@ function ProductionPage() {
                 <TableHead>Type</TableHead>
                 <TableHead>Product</TableHead>
                 <TableHead className="text-right">Qty Produced</TableHead>
+                <TableHead className="text-right">Damaged</TableHead>
                 <TableHead className="text-right">Cost</TableHead>
                 <TableHead>Scope</TableHead>
                 <TableHead>Supervisor</TableHead>
@@ -399,6 +400,15 @@ function ProductionPage() {
                   </TableCell>
                   <TableCell className="text-right">
                     {num(Number(row.quantity_produced))} {row.unit}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {row.damaged_quantity ? (
+                      <span className="text-destructive">
+                        {num(Number(row.damaged_quantity))} {row.unit}
+                      </span>
+                    ) : (
+                      "—"
+                    )}
                   </TableCell>
                   <TableCell className="text-right">
                     {money(Number(row.production_cost ?? 0))}
@@ -488,7 +498,7 @@ function ProductionPage() {
               ))}
               {(list.data ?? []).length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={11} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={12} className="text-center text-muted-foreground py-8">
                     No production runs yet.
                   </TableCell>
                 </TableRow>
@@ -536,6 +546,12 @@ function ProductionForm({
     editing ? Number(editing.packaging_quantity ?? editing.quantity_produced) : 0,
   );
   const [unit, setUnit] = useState(editing?.unit ?? "");
+  // Always in the product's base/stocking unit (like Store's own Confirm
+  // Batch fields), regardless of what unit "Quantity produced" is entered
+  // in above — avoids re-deriving a packaging conversion for this figure too.
+  const [damagedQuantity, setDamagedQuantity] = useState(
+    editing ? Number(editing.damaged_quantity ?? 0) : 0,
+  );
   const [cost, setCost] = useState(editing ? Number(editing.production_cost ?? 0) : 0);
   const [supervisor, setSupervisor] = useState(editing?.supervisor ?? "");
   const [batch] = useState(editing?.batch_number ?? generateBatchNumber());
@@ -602,11 +618,15 @@ function ProductionForm({
     mutationFn: async () => {
       if (!productId) throw new Error("Select a finished product");
       if (quantity <= 0) throw new Error("Quantity must be greater than 0");
+      if (damagedQuantity < 0) throw new Error("Damaged quantity cannot be negative");
+      if (damagedQuantity > computedBaseQty)
+        throw new Error("Damaged quantity cannot exceed quantity produced");
       if (editing) {
         const { error } = await supabase.rpc("update_production", {
           payload: {
             id: editing.id,
             quantity_produced: computedBaseQty,
+            damaged_quantity: damagedQuantity,
             unit: unit || selectedProduct?.unit,
             production_cost: cost,
             supervisor: supervisor || null,
@@ -624,6 +644,7 @@ function ProductionForm({
             quantity_produced: selectedPackaging ? undefined : quantity,
             packaging_unit: selectedPackaging ? quantityUnit : undefined,
             packaging_quantity: selectedPackaging ? quantity : undefined,
+            damaged_quantity: damagedQuantity,
             unit: unit || selectedProduct?.unit,
             production_cost: cost,
             supervisor: supervisor || null,
@@ -754,6 +775,14 @@ function ProductionForm({
             <Label>Unit</Label>
             <Input value={unit} onChange={(e) => setUnit(e.target.value)} />
           </div>
+        </div>
+        <div>
+          <Label>Damaged quantity {selectedProduct ? `(${selectedProduct.unit})` : ""}</Label>
+          <MoneyInput min={0} step="0.001" value={damagedQuantity} onChange={setDamagedQuantity} />
+          <p className="mt-1 text-xs text-muted-foreground">
+            Damage already known at production time. Store can review and adjust this when they
+            confirm the batch.
+          </p>
         </div>
         <div>
           <Label>Production cost</Label>

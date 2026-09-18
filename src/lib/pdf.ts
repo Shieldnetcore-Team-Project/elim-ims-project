@@ -281,6 +281,10 @@ export async function generateReceiptPdf(
     invoice_number?: string | null;
     amount: number;
     payment_method: string;
+    // Present when the payment was split across more than one method — one
+    // receipt still covers the whole transaction, listing each method's
+    // share instead of a single "Payment method: X" line.
+    breakdown?: { method: string; amount: number }[];
     received_by?: string | null;
     remarks?: string | null;
     currency?: string;
@@ -311,8 +315,16 @@ export async function generateReceiptPdf(
     doc.text(`Invoice: ${opts.invoice_number}`, 40, y);
     y += 18;
   }
-  doc.text(`Payment method: ${opts.payment_method}`, 40, y);
-  y += 24;
+  if (opts.breakdown && opts.breakdown.length > 1) {
+    for (const line of opts.breakdown) {
+      doc.text(`${line.method}: ${money(line.amount, currency)}`, 40, y);
+      y += 16;
+    }
+    y += 8;
+  } else {
+    doc.text(`Payment method: ${opts.payment_method}`, 40, y);
+    y += 24;
+  }
   doc.setFontSize(20);
   doc.text(`Amount: ${money(opts.amount, currency)}`, 40, y);
   y += 30;
