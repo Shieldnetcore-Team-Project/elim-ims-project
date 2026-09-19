@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { money, num } from "@/lib/format";
+import { isLowStock } from "@/lib/metrics";
 import { toast } from "sonner";
 import {
   Plus,
@@ -495,12 +496,14 @@ function RawMaterialsPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  // Cards cover active materials only (pending-approval / deactivated ones are
+  // listed below but hold no usable stock) — the same set the Dashboard and
+  // Inventory Overview use.
+  const activeMaterials = (list.data ?? []).filter((m) => m.active);
   const summary = {
-    totalValue: (list.data ?? []).reduce((s, m) => s + Number(m.current_value), 0),
-    lowStock: (list.data ?? []).filter(
-      (m) => Number(m.current_stock) <= Number(m.reorder_level ?? 0),
-    ).length,
-    totalMaterials: (list.data ?? []).length,
+    totalValue: activeMaterials.reduce((s, m) => s + Number(m.current_value), 0),
+    lowStock: activeMaterials.filter((m) => isLowStock(m.current_stock, m.reorder_level)).length,
+    totalMaterials: activeMaterials.length,
   };
 
   const printCard = async (m: Material) => {
@@ -619,7 +622,7 @@ function RawMaterialsPage() {
             </TableHeader>
             <TableBody>
               {(list.data ?? []).map((m) => {
-                const low = Number(m.current_stock) <= Number(m.reorder_level ?? 0);
+                const low = isLowStock(m.current_stock, m.reorder_level);
                 return (
                   <TableRow key={m.id}>
                     <TableCell className="font-medium">
@@ -1348,21 +1351,11 @@ function MaterialForm({
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label>Minimum stock</Label>
-            <MoneyInput
-              min={0}
-              step="0.001"
-              value={minimumStock}
-              onChange={setMinimumStock}
-            />
+            <MoneyInput min={0} step="0.001" value={minimumStock} onChange={setMinimumStock} />
           </div>
           <div>
             <Label>Reorder level</Label>
-            <MoneyInput
-              min={0}
-              step="0.001"
-              value={reorderLevel}
-              onChange={setReorderLevel}
-            />
+            <MoneyInput min={0} step="0.001" value={reorderLevel} onChange={setReorderLevel} />
           </div>
         </div>
         <div>
@@ -1433,12 +1426,7 @@ function ReceiveDialog({
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label>Quantity received</Label>
-            <MoneyInput
-              min={0.001}
-              step="0.001"
-              value={quantity}
-              onChange={setQuantity}
-            />
+            <MoneyInput min={0.001} step="0.001" value={quantity} onChange={setQuantity} />
           </div>
           <div>
             <Label>Damaged quantity</Label>
@@ -1552,12 +1540,7 @@ function RequestPurchaseDialog({ material, onDone }: { material: Material; onDon
         </div>
         <div>
           <Label>Quantity to request</Label>
-          <MoneyInput
-            min={0.001}
-            step="0.001"
-            value={quantity}
-            onChange={setQuantity}
-          />
+          <MoneyInput min={0.001} step="0.001" value={quantity} onChange={setQuantity} />
         </div>
         <div>
           <Label>Remarks</Label>
@@ -1703,11 +1686,7 @@ function AdjustDialog({ material, onDone }: { material: Material; onDone: () => 
           </div>
           <div>
             <Label>New quantity</Label>
-            <MoneyInput
-              step="0.001"
-              value={newQuantity}
-              onChange={setNewQuantity}
-            />
+            <MoneyInput step="0.001" value={newQuantity} onChange={setNewQuantity} />
           </div>
           <div>
             <Label>Difference</Label>

@@ -168,8 +168,17 @@ export function usePendingAttention() {
       .neq("submitted_by", uid ?? ""),
   );
 
+  const customerAdjustments = useCount("customer-adjustments", canApprove("customers"), uid, () =>
+    (supabase as any)
+      .from("customer_account_adjustments")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "pending_approval")
+      .neq("submitted_by", uid ?? ""),
+  );
+
   useRealtimeInvalidate(
     [
+      "customer_account_adjustments",
       "sales",
       "expenses",
       "debts",
@@ -188,6 +197,12 @@ export function usePendingAttention() {
   );
 
   const results: { key: string; label: string; to: string; query: typeof expenses }[] = [
+    {
+      key: "customer-adjustments",
+      label: "Customer account adjustments pending",
+      to: "/customers",
+      query: customerAdjustments,
+    },
     { key: "sales", label: "Sales awaiting approval", to: "/sales", query: sales },
     { key: "expenses", label: "Expenses awaiting approval", to: "/expenses", query: expenses },
     { key: "debts", label: "Debt write-offs pending", to: "/cash-ledger", query: debts },

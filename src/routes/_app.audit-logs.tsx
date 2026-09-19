@@ -25,6 +25,44 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Search, Eye, ScrollText } from "lucide-react";
 
+// Everything that touches a customer's advance / debt account. The quick
+// filter below narrows the trail to exactly these, server-side, so it isn't
+// limited to whatever happens to be in the latest page of general activity.
+const CUSTOMER_ACCOUNT_ACTIONS = [
+  "record_customer_advance",
+  "record_payment",
+  "approve_sale",
+  "approve_delete",
+  "reverse_payment",
+  "post_debt_writeoff",
+  "reverse_debt_writeoff",
+  "request_customer_adjustment",
+  "approve_customer_adjustment",
+  "reject_customer_adjustment",
+  "cancel_customer_adjustment",
+  "customer_advance_restored",
+  "customer_ledger_reversal",
+  "customer_ledger_opening_balances",
+];
+
+const ACTION_LABEL: Record<string, string> = {
+  record_customer_advance: "Advance payment recorded",
+  record_payment: "Customer payment recorded",
+  approve_sale: "Sale approved",
+  approve_delete: "Deletion approved",
+  reverse_payment: "Payment reversed",
+  post_debt_writeoff: "Debt written off",
+  reverse_debt_writeoff: "Write-off reversed",
+  request_customer_adjustment: "Adjustment requested",
+  approve_customer_adjustment: "Adjustment approved",
+  reject_customer_adjustment: "Adjustment rejected",
+  cancel_customer_adjustment: "Adjustment cancelled",
+  customer_advance_restored: "Advance restored (sale reversed)",
+  customer_ledger_reversal: "Account entry reversed",
+  customer_ledger_opening_balances: "Opening balances seeded",
+};
+const actionLabel = (a: string) => ACTION_LABEL[a] ?? a.replace(/_/g, " ");
+
 export const Route = createFileRoute("/_app/audit-logs")({
   head: () => ({ meta: [{ title: "Audit Logs — FMIS" }, { name: "robots", content: "noindex" }] }),
   component: () => (
@@ -64,17 +102,42 @@ export function AuditLogsPage() {
   const [q, setQ] = useState("");
   const [actionFilter, setActionFilter] = useState("all");
   const [detail, setDetail] = useState<LogRow | null>(null);
+  const [scope, setScope] = useState<"all" | "customers">("all");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
 
   const logs = useQuery({
-    queryKey: ["audit-logs"],
+    queryKey: ["audit-logs", scope, from, to],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let query = supabase
         .from("audit_logs")
         .select("*")
         .order("created_at", { ascending: false })
         .limit(500);
+      if (scope === "customers") {
+        query = query.or(
+          `action.in.(${CUSTOMER_ACCOUNT_ACTIONS.join(",")}),entity.eq.customer_statement`,
+        );
+      }
+      if (from) query = query.gte("created_at", new Date(`${from}T00:00:00`).toISOString());
+      if (to) query = query.lte("created_at", new Date(`${to}T23:59:59`).toISOString());
+      const { data, error } = await query;
       if (error) throw error;
       return (data ?? []) as LogRow[];
+    },
+  });
+
+  // Audit rows point at a customer by id; show the name instead.
+  const customerNames = useQuery({
+    queryKey: ["audit-customer-names"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("customers").select("id,name");
+      if (error) throw error;
+      const map: Record<string, string> = {};
+      (data ?? []).forEach((c) => {
+        map[c.id] = c.name;
+      });
+      return map;
     },
   });
 
@@ -118,11 +181,13 @@ export function AuditLogsPage() {
         (r) =>
           (r.entity ?? "").toLowerCase().includes(query) ||
           (r.entity_id ?? "").toLowerCase().includes(query) ||
+          (customerNames.data?.[r.entity_id ?? ""] ?? "").toLowerCase().includes(query) ||
+          actionLabel(r.action).toLowerCase().includes(query) ||
           (profiles.data?.[r.user_id ?? ""] ?? "").toLowerCase().includes(query),
       );
     }
     return rows;
-  }, [logs.data, actionFilter, q, profiles.data]);
+  }, [logs.data, actionFilter, q, profiles.data, customerNames.data]);
 
   return (
     <div className="space-y-6">
@@ -139,6 +204,31 @@ export function AuditLogsPage() {
             <ScrollText className="h-4 w-4" /> Activity ({filtered.length})
           </CardTitle>
           <div className="flex flex-wrap items-center gap-2">
+            <Select value={scope} onValueChange={(v) => setScope(v as "all" | "customers")}>
+              <SelectTrigger className="h-9 w-[190px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All activity</SelectItem>
+                <SelectItem value="customers">Customer accounts only</SelectItem>
+              </SelectContent>
+            </Select>
+            <Input
+              type="date"
+              className="h-9 w-[150px]"
+              value={from}
+              max={to || undefined}
+              onChange={(e) => setFrom(e.target.value)}
+              aria-label="From date"
+            />
+            <Input
+              type="date"
+              className="h-9 w-[150px]"
+              value={to}
+              min={from || undefined}
+              onChange={(e) => setTo(e.target.value)}
+              aria-label="To date"
+            />
             <div className="relative">
               <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
@@ -156,7 +246,7 @@ export function AuditLogsPage() {
                 <SelectItem value="all">All actions</SelectItem>
                 {actions.map((a) => (
                   <SelectItem key={a} value={a} className="capitalize">
-                    {a}
+                    {actionLabel(a)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -191,12 +281,14 @@ export function AuditLogsPage() {
                   </TableCell>
                   <TableCell>
                     <Badge variant={actionTone[l.action] ?? "outline"} className="capitalize">
-                      {l.action}
+                      {actionLabel(l.action)}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-xs">
                     {l.entity ?? "—"}
-                    {l.entity_id ? ` · ${l.entity_id.slice(0, 8)}` : ""}
+                    {l.entity_id
+                      ? ` · ${customerNames.data?.[l.entity_id] ?? l.entity_id.slice(0, 8)}`
+                      : ""}
                   </TableCell>
                   <TableCell>
                     {l.factory_id ? (factories.data?.[l.factory_id] ?? "—") : "—"}
@@ -230,7 +322,7 @@ export function AuditLogsPage() {
           <DialogContent className="max-w-xl">
             <DialogHeader>
               <DialogTitle className="capitalize">
-                {detail.action} — {detail.entity ?? "record"}
+                {actionLabel(detail.action)} — {detail.entity ?? "record"}
               </DialogTitle>
             </DialogHeader>
             <div className="grid grid-cols-2 gap-3 text-sm">

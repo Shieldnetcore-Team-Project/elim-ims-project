@@ -28,6 +28,13 @@ import { generateReportPdf } from "@/lib/pdf";
 import { exportCsv, exportExcel, type ReportColumn } from "@/lib/export";
 import { logAudit } from "@/lib/audit";
 import {
+  CUSTOMER_REPORTS,
+  CUSTOMER_SNAPSHOT_REPORTS,
+  fetchCustomerReport,
+  isCustomerReport,
+  type CustomerReportKey,
+} from "@/lib/customer-reports";
+import {
   startOfDay,
   endOfDay,
   subDays,
@@ -60,7 +67,8 @@ type ReportKey =
   | "employees"
   | "suppliers"
   | "damage"
-  | "sales_returns";
+  | "sales_returns"
+  | CustomerReportKey;
 
 const REPORTS: { key: ReportKey; label: string }[] = [
   { key: "sales", label: "Sales" },
@@ -77,6 +85,7 @@ const REPORTS: { key: ReportKey; label: string }[] = [
   { key: "customers", label: "Customers" },
   { key: "employees", label: "Employees" },
   { key: "suppliers", label: "Suppliers" },
+  ...CUSTOMER_REPORTS,
 ];
 
 type RangeKey =
@@ -133,6 +142,8 @@ async function fetchReport(
   end: string | null,
   productionFilters?: ProductionReportFilters,
 ): Promise<{ columns: ReportColumn[]; rows: Record<string, unknown>[] }> {
+  if (isCustomerReport(key)) return fetchCustomerReport(key, factoryId, start, end);
+
   const applyRange = <T,>(q: T): T => {
     let query = q as any;
     if (start) query = query.gte(dateField, start);
@@ -547,6 +558,14 @@ const DATE_FIELDS: Record<ReportKey, string> = {
   customers: "created_at",
   employees: "created_at",
   suppliers: "created_at",
+  // Customer-account reports read the ledger's created_at (or submitted_at).
+  customer_balances: "created_at",
+  customer_credit: "created_at",
+  customer_debt: "created_at",
+  advance_payments: "created_at",
+  advance_consumption: "created_at",
+  customer_ledger: "created_at",
+  customer_adjustments: "submitted_at",
 };
 
 function ReportsPage() {
@@ -627,6 +646,7 @@ function ReportsPage() {
       ),
   });
 
+  const isSnapshot = (CUSTOMER_SNAPSHOT_REPORTS as string[]).includes(reportKey);
   const reportLabel = REPORTS.find((r) => r.key === reportKey)?.label ?? "Report";
   const columns = report.data?.columns ?? [];
   const rows = report.data?.rows ?? [];
@@ -680,22 +700,28 @@ function ReportsPage() {
               </SelectContent>
             </Select>
           </div>
-          <div>
-            <Label className="mb-1 block text-xs">Range</Label>
-            <Select value={range} onValueChange={(v) => setRange(v as RangeKey)}>
-              <SelectTrigger className="w-[160px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {RANGES.map((r) => (
-                  <SelectItem key={r.key} value={r.key}>
-                    {r.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          {range === "custom" && (
+          {isSnapshot ? (
+            <p className="max-w-[240px] pb-2 text-xs text-muted-foreground">
+              Current balances as of now — a date range doesn't apply.
+            </p>
+          ) : (
+            <div>
+              <Label className="mb-1 block text-xs">Range</Label>
+              <Select value={range} onValueChange={(v) => setRange(v as RangeKey)}>
+                <SelectTrigger className="w-[160px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {RANGES.map((r) => (
+                    <SelectItem key={r.key} value={r.key}>
+                      {r.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          {!isSnapshot && range === "custom" && (
             <>
               <div>
                 <Label className="mb-1 block text-xs">From</Label>

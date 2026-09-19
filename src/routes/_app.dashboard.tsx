@@ -5,12 +5,17 @@ import { supabase } from "@/integrations/supabase/client";
 import { useFactoryId } from "@/lib/use-factory";
 import { useMyRoles, type Role } from "@/lib/permissions";
 import { useRealtimeInvalidate } from "@/lib/realtime";
+import { KPI, PageHeader, usePendingConfirmationsCount } from "@/lib/dashboard-kit";
+import { usePendingAttention } from "@/lib/pending-attention";
 import {
-  KPI,
-  PageHeader,
-  usePendingApprovalsCount,
-  usePendingConfirmationsCount,
-} from "@/lib/dashboard-kit";
+  COUNTED_STATUSES,
+  dayKey,
+  fetchAll,
+  isCriticalStock,
+  isLowStock,
+  sum,
+} from "@/lib/metrics";
+import { postedSalesRows } from "@/lib/metric-queries";
 import { FinanceOverview } from "@/components/dashboards/finance-overview";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -108,8 +113,8 @@ function DashboardRouter() {
 // ADMIN — super_admin / chairman: everything, factory-wide
 // ============================================================================
 function AdminDashboard({ factoryId }: { factoryId: string }) {
-  const today = startOfDay(new Date()).toISOString();
-  const monthStart = startOfMonth(new Date()).toISOString();
+  const todayDay = dayKey(new Date());
+  const monthStartDay = dayKey(startOfMonth(new Date()));
   useRealtimeInvalidate(
     [
       "sales",
@@ -140,32 +145,25 @@ function AdminDashboard({ factoryId }: { factoryId: string }) {
     ],
   );
 
+  // Approved (posted), non-deleted, non-PR invoices by sale date — the same
+  // set the Sales page treats as real revenue.
   const totalSales = useQuery({
     queryKey: ["total-sales-month", factoryId],
     enabled: !!factoryId,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("sales")
-        .select("grand_total")
-        .eq("factory_id", factoryId)
-        .gte("created_at", monthStart);
-      if (error) throw error;
-      return (data ?? []).reduce((s, r) => s + Number(r.grand_total ?? 0), 0);
-    },
+    queryFn: async () =>
+      sum(await postedSalesRows(factoryId, "grand_total", monthStartDay), (r) => r.grand_total),
   });
   const salesToday = useQuery({
     queryKey: ["sales-today", factoryId],
     enabled: !!factoryId,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("sales")
-        .select("grand_total")
-        .eq("factory_id", factoryId)
-        .gte("created_at", today);
-      if (error) throw error;
-      return (data ?? []).reduce((s, r) => s + Number(r.grand_total ?? 0), 0);
-    },
+    queryFn: async () =>
+      sum(
+        await postedSalesRows(factoryId, "grand_total", todayDay, todayDay),
+        (r) => r.grand_total,
+      ),
   });
+  // Units reported by production runs dated today (cancelled/rejected runs
+  // don't count).
   const productionToday = useQuery({
     queryKey: ["production-today", factoryId],
     enabled: !!factoryId,
@@ -174,83 +172,100 @@ function AdminDashboard({ factoryId }: { factoryId: string }) {
         .from("production")
         .select("quantity_produced")
         .eq("factory_id", factoryId)
-        .gte("created_at", today);
+        .eq("production_date", todayDay)
+        .in("status", ["pending_confirmation", "posted"]);
       if (error) throw error;
-      return (data ?? []).reduce((s, r) => s + Number(r.quantity_produced ?? 0), 0);
+      return sum(data ?? [], (r) => r.quantity_produced);
     },
   });
-  const rawStockValue = useQuery({
+  // Active raw materials, valued the way the Raw Materials page does
+  // (moving-average current_value).
+  const rawMaterials = useQuery({
     queryKey: ["raw-stock", factoryId],
     enabled: !!factoryId,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("raw_materials")
-        .select("current_value")
-        .eq("factory_id", factoryId)
-        .eq("active", true);
-      if (error) throw error;
-      return (data ?? []).reduce((s, r) => s + Number(r.current_value ?? 0), 0);
-    },
+    queryFn: () =>
+      fetchAll<{
+        id: string;
+        name: string;
+        unit: string;
+        current_stock: number;
+        reorder_level: number | null;
+        current_value: number;
+      }>(
+        (a, b) =>
+          supabase
+            .from("raw_materials")
+            .select("id,name,unit,current_stock,reorder_level,current_value")
+            .eq("factory_id", factoryId)
+            .eq("active", true)
+            .order("name")
+            .range(a, b) as any,
+      ),
   });
+  const rawStockValue = { data: sum(rawMaterials.data ?? [], (r) => r.current_value) };
+  const lowStock = {
+    data: (rawMaterials.data ?? []).filter((r) => isLowStock(r.current_stock, r.reorder_level)),
+  };
+  // Active finished-goods stock, as on the Finished Goods page.
   const finishedGoods = useQuery({
     queryKey: ["finished-goods-units", factoryId],
     enabled: !!factoryId,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("products")
-        .select("current_stock")
-        .eq("factory_id", factoryId);
-      if (error) throw error;
-      return (data ?? []).reduce((s, r) => s + Number(r.current_stock ?? 0), 0);
-    },
-  });
-  const lowStock = useQuery({
-    queryKey: ["low-stock", factoryId],
-    enabled: !!factoryId,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("raw_materials")
-        .select("id,name,current_stock,reorder_level,unit")
-        .eq("factory_id", factoryId)
-        .eq("active", true);
-      if (error) throw error;
-      return (data ?? []).filter((r) => Number(r.current_stock) <= Number(r.reorder_level ?? 0));
-    },
+    queryFn: async () =>
+      sum(
+        await fetchAll<{ current_stock: number }>(
+          (a, b) =>
+            supabase
+              .from("products")
+              .select("current_stock")
+              .eq("factory_id", factoryId)
+              .eq("active", true)
+              .order("id")
+              .range(a, b) as any,
+        ),
+        (r) => r.current_stock,
+      ),
   });
   const outstandingPayments = useQuery({
     queryKey: ["outstanding-debts", factoryId],
     enabled: !!factoryId,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("debts")
-        .select("outstanding")
-        .eq("factory_id", factoryId)
-        .neq("status", "paid");
-      if (error) throw error;
-      return (data ?? []).reduce((s, r) => s + Number(r.outstanding ?? 0), 0);
-    },
+    queryFn: async () =>
+      sum(
+        await fetchAll<{ outstanding: number }>(
+          (a, b) =>
+            supabase
+              .from("debts")
+              .select("outstanding")
+              .eq("factory_id", factoryId)
+              .neq("status", "paid")
+              .order("id")
+              .range(a, b) as any,
+        ),
+        (r) => r.outstanding,
+      ),
   });
-  const pendingApprovals = usePendingApprovalsCount(factoryId);
+  // Same count as the Approval Center / notification bell: what is waiting on
+  // this user, excluding their own submissions.
+  const pendingApprovals = { data: usePendingAttention().total };
   const pendingConfirmations = usePendingConfirmationsCount(factoryId);
 
   const salesTrend = useQuery({
     queryKey: ["sales-trend", factoryId],
     enabled: !!factoryId,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("sales")
-        .select("sale_date,grand_total")
-        .eq("factory_id", factoryId)
-        .gte("sale_date", format(subDays(new Date(), 6), "yyyy-MM-dd"))
-        .order("sale_date");
-      if (error) throw error;
+      const rows = await postedSalesRows(
+        factoryId,
+        "sale_date,grand_total",
+        dayKey(subDays(new Date(), 6)),
+      );
       const bucket: Record<string, number> = {};
-      for (let i = 6; i >= 0; i--) bucket[format(subDays(new Date(), i), "MMM d")] = 0;
-      (data ?? []).forEach((r) => {
-        const key = format(new Date(r.sale_date as string), "MMM d");
-        if (key in bucket) bucket[key] += Number(r.grand_total ?? 0);
+      for (let i = 6; i >= 0; i--) bucket[dayKey(subDays(new Date(), i))] = 0;
+      rows.forEach((r) => {
+        if (r.sale_date in bucket) bucket[r.sale_date] += Number(r.grand_total ?? 0);
       });
-      return Object.entries(bucket).map(([date, total]) => ({ date, total }));
+      return Object.entries(bucket).map(([date, total]) => ({
+        date: format(new Date(`${date}T00:00:00`), "MMM d"),
+        total,
+      }));
     },
   });
 
@@ -263,18 +278,22 @@ function AdminDashboard({ factoryId }: { factoryId: string }) {
           .from("sales")
           .select("id,invoice_number,customer_name,grand_total,created_at")
           .eq("factory_id", factoryId)
+          .eq("status", "posted")
+          .is("deleted_at", null)
           .order("created_at", { ascending: false })
           .limit(5),
         supabase
           .from("production")
           .select("id,production_number,quantity_produced,unit,created_at,products(name)")
           .eq("factory_id", factoryId)
+          .in("status", ["pending_confirmation", "posted"])
           .order("created_at", { ascending: false })
           .limit(5),
         supabase
           .from("expenses")
           .select("id,description,amount,created_at")
           .eq("factory_id", factoryId)
+          .in("status", COUNTED_STATUSES)
           .order("created_at", { ascending: false })
           .limit(5),
       ]);
@@ -364,7 +383,7 @@ function AdminDashboard({ factoryId }: { factoryId: string }) {
           label="Pending Approvals"
           value={String(pendingApprovals.data ?? 0)}
           tone={(pendingApprovals.data ?? 0) > 0 ? "warning" : "success"}
-          hint="Across every workflow"
+          hint="Waiting on you — see Approval Center"
         />
         <KPI
           icon={Inbox}
@@ -512,27 +531,34 @@ function AdminDashboard({ factoryId }: { factoryId: string }) {
 // SALES — sales / cashier
 // ============================================================================
 function SalesDashboard({ factoryId }: { factoryId: string }) {
-  const today = startOfDay(new Date()).toISOString();
+  const todayDay = dayKey(new Date());
   useRealtimeInvalidate(
     ["sales", "products", "customers"],
     [
       ["sd-sales-today"],
+      ["sd-awaiting-approval"],
       ["sd-available-products"],
       ["sd-outstanding-balances"],
       ["sd-recent-sales"],
     ],
   );
 
+  // Approved invoices dated today — the same set the Sales page counts as sold.
   const salesToday = useQuery({
     queryKey: ["sd-sales-today", factoryId],
+    queryFn: () => postedSalesRows(factoryId, "id,grand_total,balance", todayDay, todayDay),
+  });
+  const awaitingApproval = useQuery({
+    queryKey: ["sd-awaiting-approval", factoryId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { count, error } = await supabase
         .from("sales")
-        .select("id,grand_total,balance")
+        .select("id", { count: "exact", head: true })
         .eq("factory_id", factoryId)
-        .gte("created_at", today);
+        .eq("status", "pending_approval")
+        .is("deleted_at", null);
       if (error) throw error;
-      return data ?? [];
+      return count ?? 0;
     },
   });
   const availableProducts = useQuery({
@@ -548,24 +574,31 @@ function SalesDashboard({ factoryId }: { factoryId: string }) {
       return count ?? 0;
     },
   });
+  // Total Balance Due on the Customers page.
   const outstandingBalances = useQuery({
     queryKey: ["sd-outstanding-balances", factoryId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("customers")
-        .select("outstanding_balance")
-        .eq("factory_id", factoryId);
-      if (error) throw error;
-      return (data ?? []).reduce((s, r) => s + Number(r.outstanding_balance ?? 0), 0);
-    },
+    queryFn: async () =>
+      sum(
+        await fetchAll<{ outstanding_balance: number }>(
+          (a, b) =>
+            supabase
+              .from("customers")
+              .select("outstanding_balance")
+              .eq("factory_id", factoryId)
+              .order("id")
+              .range(a, b) as any,
+        ),
+        (r) => r.outstanding_balance,
+      ),
   });
   const recentSales = useQuery({
     queryKey: ["sd-recent-sales", factoryId],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("sales")
-        .select("id,invoice_number,customer_name,grand_total,balance,created_at")
+        .select("id,invoice_number,customer_name,grand_total,balance,status,created_at")
         .eq("factory_id", factoryId)
+        .is("deleted_at", null)
         .order("created_at", { ascending: false })
         .limit(8);
       if (error) throw error;
@@ -573,9 +606,9 @@ function SalesDashboard({ factoryId }: { factoryId: string }) {
     },
   });
 
-  const total = (salesToday.data ?? []).reduce((s, r) => s + Number(r.grand_total ?? 0), 0);
+  const total = sum(salesToday.data ?? [], (r) => r.grand_total);
   const orders = (salesToday.data ?? []).length;
-  const pending = (salesToday.data ?? []).filter((r) => Number(r.balance) > 0).length;
+  const unpaid = (salesToday.data ?? []).filter((r) => Number(r.balance) > 0).length;
 
   return (
     <div className="space-y-6">
@@ -584,24 +617,44 @@ function SalesDashboard({ factoryId }: { factoryId: string }) {
         hint="Today's floor — orders, stock on hand, and what customers still owe."
       />
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-        <KPI icon={TrendingUp} label="Today's Sales" value={money(total)} />
-        <KPI icon={ShoppingCart} label="Orders" value={String(orders)} tone="success" />
+        <KPI
+          icon={TrendingUp}
+          label="Today's Sales"
+          value={money(total)}
+          hint="Approved invoices dated today"
+        />
+        <KPI
+          icon={ShoppingCart}
+          label="Orders"
+          value={String(orders)}
+          hint="Approved today"
+          tone="success"
+        />
         <KPI
           icon={Package}
           label="Available Products"
           value={String(availableProducts.data ?? 0)}
+          hint="Active, in stock"
         />
         <KPI
           icon={AlertTriangle}
-          label="Pending Orders"
-          value={String(pending)}
-          hint="Not yet fully paid"
-          tone={pending > 0 ? "warning" : "success"}
+          label="Unpaid Orders"
+          value={String(unpaid)}
+          hint="Today's approved sales not fully paid"
+          tone={unpaid > 0 ? "warning" : "success"}
+        />
+        <KPI
+          icon={CheckSquare}
+          label="Awaiting Approval"
+          value={String(awaitingApproval.data ?? 0)}
+          hint="Submitted sales not yet posted"
+          tone={(awaitingApproval.data ?? 0) > 0 ? "warning" : "success"}
         />
         <KPI
           icon={HandCoins}
           label="Outstanding Customer Balances"
           value={money(outstandingBalances.data)}
+          hint="Total balance due, all customers"
           tone="destructive"
         />
       </div>
@@ -625,10 +678,16 @@ function SalesDashboard({ factoryId }: { factoryId: string }) {
                   </div>
                   <div className="text-right">
                     <div>{money(Number(s.grand_total))}</div>
-                    {Number(s.balance) > 0 && (
-                      <Badge variant="destructive" className="mt-0.5">
-                        {money(Number(s.balance))} due
+                    {s.status !== "posted" ? (
+                      <Badge variant="outline" className="mt-0.5 capitalize">
+                        {String(s.status).replace(/_/g, " ")}
                       </Badge>
+                    ) : (
+                      Number(s.balance) > 0 && (
+                        <Badge variant="destructive" className="mt-0.5">
+                          {money(Number(s.balance))} due
+                        </Badge>
+                      )
                     )}
                   </div>
                 </li>
@@ -645,22 +704,33 @@ function SalesDashboard({ factoryId }: { factoryId: string }) {
 // INVENTORY — inventory_officer (raw materials)
 // ============================================================================
 function InventoryDashboard({ factoryId }: { factoryId: string }) {
+  const weekStart = startOfDay(subDays(new Date(), 6)).toISOString();
   useRealtimeInvalidate(
     ["raw_materials", "production_requests", "raw_material_movements"],
     [["id-materials"], ["id-pending-requests"], ["id-materials-issued"]],
   );
 
+  // Active materials, valued and flagged the way the Raw Materials page does.
   const materials = useQuery({
     queryKey: ["id-materials", factoryId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("raw_materials")
-        .select("id,name,unit,current_stock,reorder_level")
-        .eq("factory_id", factoryId)
-        .eq("active", true);
-      if (error) throw error;
-      return data ?? [];
-    },
+    queryFn: () =>
+      fetchAll<{
+        id: string;
+        name: string;
+        unit: string;
+        current_stock: number;
+        reorder_level: number | null;
+        current_value: number;
+      }>(
+        (a, b) =>
+          supabase
+            .from("raw_materials")
+            .select("id,name,unit,current_stock,reorder_level,current_value")
+            .eq("factory_id", factoryId)
+            .eq("active", true)
+            .order("name")
+            .range(a, b) as any,
+      ),
   });
   const pendingPurchaseRequests = useQuery({
     queryKey: ["id-pending-requests", factoryId],
@@ -669,31 +739,30 @@ function InventoryDashboard({ factoryId }: { factoryId: string }) {
         .from("production_requests")
         .select("id", { count: "exact", head: true })
         .eq("factory_id", factoryId)
-        .eq("approval_status", "pending");
+        .eq("approval_status", "pending")
+        .eq("request_type", "purchase");
       if (error) throw error;
       return count ?? 0;
     },
   });
+  // Issue transactions (today + previous 6 days). Quantities are in mixed
+  // units (kg, litres, ...) so summing them would be meaningless — count them.
   const materialsIssued = useQuery({
     queryKey: ["id-materials-issued", factoryId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { count, error } = await supabase
         .from("raw_material_movements")
-        .select("id,quantity")
+        .select("id", { count: "exact", head: true })
         .eq("factory_id", factoryId)
         .eq("movement_type", "issued")
-        .gte("created_at", subDays(new Date(), 6).toISOString());
+        .gte("created_at", weekStart);
       if (error) throw error;
-      return data ?? [];
+      return count ?? 0;
     },
   });
 
-  const low = (materials.data ?? []).filter(
-    (m) => Number(m.current_stock) <= Number(m.reorder_level ?? 0),
-  );
-  const critical = (materials.data ?? []).filter(
-    (m) => Number(m.current_stock) <= Number(m.reorder_level ?? 0) * 0.5,
-  );
+  const low = (materials.data ?? []).filter((m) => isLowStock(m.current_stock, m.reorder_level));
+  const critical = low.filter((m) => isCriticalStock(m.current_stock, m.reorder_level));
 
   return (
     <div className="space-y-6">
@@ -702,7 +771,17 @@ function InventoryDashboard({ factoryId }: { factoryId: string }) {
         hint="Raw material stock health and what's moving in and out."
       />
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-        <KPI icon={Boxes} label="Raw Materials" value={String((materials.data ?? []).length)} />
+        <KPI
+          icon={Boxes}
+          label="Raw Materials"
+          value={String((materials.data ?? []).length)}
+          hint="Active materials"
+        />
+        <KPI
+          icon={Package}
+          label="Raw Material Value"
+          value={money(sum(materials.data ?? [], (m) => m.current_value))}
+        />
         <KPI
           icon={AlertTriangle}
           label="Low Stock"
@@ -724,10 +803,9 @@ function InventoryDashboard({ factoryId }: { factoryId: string }) {
         />
         <KPI
           icon={PackageMinus}
-          label="Materials Issued (7d)"
-          value={num(
-            (materialsIssued.data ?? []).reduce((s, r) => s + Math.abs(Number(r.quantity)), 0),
-          )}
+          label="Material Issues (7d)"
+          value={String(materialsIssued.data ?? 0)}
+          hint="Issue transactions, today + previous 6 days"
         />
       </div>
       <Card className="rounded-2xl">
@@ -771,9 +849,12 @@ function InventoryDashboard({ factoryId }: { factoryId: string }) {
 // ============================================================================
 // PRODUCTION — production
 // ============================================================================
+// Runs that still count: awaiting the store's confirmation, or confirmed.
+const LIVE_RUN_STATUSES = ["pending_confirmation", "posted"];
+
 function ProductionDashboard({ factoryId }: { factoryId: string }) {
-  const today = startOfDay(new Date()).toISOString();
-  const weekAgo = subDays(new Date(), 6).toISOString();
+  const todayDay = dayKey(new Date());
+  const weekStartDay = dayKey(subDays(new Date(), 6));
   useRealtimeInvalidate(
     ["production", "production_requests"],
     [
@@ -785,14 +866,16 @@ function ProductionDashboard({ factoryId }: { factoryId: string }) {
     ],
   );
 
+  // Runs dated today (by production date, not when the row was keyed in).
   const runsToday = useQuery({
     queryKey: ["pd-runs-today", factoryId],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("production")
-        .select("id,quantity_produced,batch_number,products(name)")
+        .select("id,quantity_produced,status")
         .eq("factory_id", factoryId)
-        .gte("created_at", today);
+        .eq("production_date", todayDay)
+        .in("status", LIVE_RUN_STATUSES);
       if (error) throw error;
       return data ?? [];
     },
@@ -804,6 +887,7 @@ function ProductionDashboard({ factoryId }: { factoryId: string }) {
         .from("production_requests")
         .select("id", { count: "exact", head: true })
         .eq("factory_id", factoryId)
+        .eq("request_type", "production_material")
         .eq("approval_status", "approved")
         .eq("materials_issued", false);
       if (error) throw error;
@@ -817,6 +901,7 @@ function ProductionDashboard({ factoryId }: { factoryId: string }) {
         .from("production_requests")
         .select("id", { count: "exact", head: true })
         .eq("factory_id", factoryId)
+        .eq("request_type", "production_material")
         .eq("production_status", "materials_issued");
       if (error) throw error;
       return count ?? 0;
@@ -829,7 +914,8 @@ function ProductionDashboard({ factoryId }: { factoryId: string }) {
         .from("production")
         .select("batch_number")
         .eq("factory_id", factoryId)
-        .gte("created_at", weekAgo);
+        .gte("production_date", weekStartDay)
+        .in("status", LIVE_RUN_STATUSES);
       if (error) throw error;
       return new Set((data ?? []).map((r) => r.batch_number).filter(Boolean)).size;
     },
@@ -839,7 +925,7 @@ function ProductionDashboard({ factoryId }: { factoryId: string }) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("production")
-        .select("id,production_number,quantity_produced,unit,created_at,products(name)")
+        .select("id,production_number,quantity_produced,unit,status,created_at,products(name)")
         .eq("factory_id", factoryId)
         .order("created_at", { ascending: false })
         .limit(8);
@@ -848,10 +934,8 @@ function ProductionDashboard({ factoryId }: { factoryId: string }) {
     },
   });
 
-  const producedToday = (runsToday.data ?? []).reduce(
-    (s, r) => s + Number(r.quantity_produced ?? 0),
-    0,
-  );
+  const producedToday = sum(runsToday.data ?? [], (r) => r.quantity_produced);
+  const confirmedToday = (runsToday.data ?? []).filter((r) => r.status === "posted").length;
 
   return (
     <div className="space-y-6">
@@ -864,6 +948,7 @@ function ProductionDashboard({ factoryId }: { factoryId: string }) {
           icon={FactoryIcon}
           label="Production Today"
           value={num(producedToday)}
+          hint="Units in today's runs"
           tone="success"
         />
         <KPI
@@ -876,13 +961,20 @@ function ProductionDashboard({ factoryId }: { factoryId: string }) {
           icon={PackageMinus}
           label="Materials Awaiting Issue"
           value={String(materialsAwaitingIssue.data ?? 0)}
+          hint="Approved requests not yet issued"
           tone={(materialsAwaitingIssue.data ?? 0) > 0 ? "warning" : "success"}
         />
-        <KPI icon={Boxes} label="Batches This Week" value={String(batchesThisWeek.data ?? 0)} />
+        <KPI
+          icon={Boxes}
+          label="Batches This Week"
+          value={String(batchesThisWeek.data ?? 0)}
+          hint="Distinct batches, today + previous 6 days"
+        />
         <KPI
           icon={CheckSquare}
-          label="Completed Runs Today"
-          value={String((runsToday.data ?? []).length)}
+          label="Runs Confirmed Today"
+          value={String(confirmedToday)}
+          hint={`${(runsToday.data ?? []).length} run(s) today in total`}
           tone="success"
         />
       </div>
@@ -900,7 +992,8 @@ function ProductionDashboard({ factoryId }: { factoryId: string }) {
                   <div>
                     <div className="font-medium">{r.products?.name ?? "—"}</div>
                     <div className="text-xs text-muted-foreground">
-                      {r.production_number} · {format(new Date(r.created_at), "MMM d, HH:mm")}
+                      {r.production_number} · {format(new Date(r.created_at), "MMM d, HH:mm")} ·{" "}
+                      <span className="capitalize">{String(r.status).replace(/_/g, " ")}</span>
                     </div>
                   </div>
                   <div>
@@ -923,31 +1016,55 @@ function StoreDashboard({ factoryId }: { factoryId: string }) {
   const today = startOfDay(new Date()).toISOString();
   useRealtimeInvalidate(
     ["products", "production", "inventory_movements", "deliveries"],
-    [["sto-products"], ["sto-produced-today"], ["sto-recent-issues"], ["sto-pending-dispatch"]],
+    [
+      ["sto-products"],
+      ["sto-received-today"],
+      ["sto-awaiting-confirmation"],
+      ["sto-recent-issues"],
+      ["sto-pending-dispatch"],
+    ],
   );
 
+  // Active finished goods — same set the Finished Goods page lists.
   const products = useQuery({
     queryKey: ["sto-products", factoryId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("products")
-        .select("id,current_stock,reorder_level")
-        .eq("factory_id", factoryId)
-        .eq("active", true);
-      if (error) throw error;
-      return data ?? [];
-    },
+    queryFn: () =>
+      fetchAll<{ id: string; current_stock: number }>(
+        (a, b) =>
+          supabase
+            .from("products")
+            .select("id,current_stock")
+            .eq("factory_id", factoryId)
+            .eq("active", true)
+            .order("id")
+            .range(a, b) as any,
+      ),
   });
-  const producedToday = useQuery({
-    queryKey: ["sto-produced-today", factoryId],
+  // Batches the store confirmed today: what actually entered stock (accepted
+  // quantity, not what production reported).
+  const receivedToday = useQuery({
+    queryKey: ["sto-received-today", factoryId],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("production")
-        .select("quantity_produced")
+        .select("quantity_produced,accepted_quantity")
         .eq("factory_id", factoryId)
-        .gte("created_at", today);
+        .eq("status", "posted")
+        .gte("confirmed_at", today);
       if (error) throw error;
-      return (data ?? []).reduce((s, r) => s + Number(r.quantity_produced ?? 0), 0);
+      return sum(data ?? [], (r) => r.accepted_quantity ?? r.quantity_produced);
+    },
+  });
+  const awaitingConfirmation = useQuery({
+    queryKey: ["sto-awaiting-confirmation", factoryId],
+    queryFn: async () => {
+      const { count, error } = await supabase
+        .from("production")
+        .select("id", { count: "exact", head: true })
+        .eq("factory_id", factoryId)
+        .eq("status", "pending_confirmation");
+      if (error) throw error;
+      return count ?? 0;
     },
   });
   const recentIssues = useQuery({
@@ -977,7 +1094,7 @@ function StoreDashboard({ factoryId }: { factoryId: string }) {
     },
   });
 
-  const totalUnits = (products.data ?? []).reduce((s, r) => s + Number(r.current_stock ?? 0), 0);
+  const totalUnits = sum(products.data ?? [], (r) => r.current_stock);
 
   return (
     <div className="space-y-6">
@@ -990,13 +1107,21 @@ function StoreDashboard({ factoryId }: { factoryId: string }) {
           icon={Package}
           label="Finished Goods (SKUs)"
           value={String((products.data ?? []).length)}
+          hint="Active products"
         />
         <KPI icon={Boxes} label="Available Stock (units)" value={num(totalUnits)} tone="success" />
         <KPI
           icon={FactoryIcon}
-          label="Produced Today"
-          value={num(producedToday.data)}
-          hint="Just arrived from Production"
+          label="Received Today"
+          value={num(receivedToday.data)}
+          hint="Accepted from Production today"
+        />
+        <KPI
+          icon={CheckSquare}
+          label="Awaiting Confirmation"
+          value={String(awaitingConfirmation.data ?? 0)}
+          hint="Production batches to confirm"
+          tone={(awaitingConfirmation.data ?? 0) > 0 ? "warning" : "success"}
         />
         <KPI
           icon={Truck}
@@ -1035,9 +1160,6 @@ function StoreDashboard({ factoryId }: { factoryId: string }) {
   );
 }
 
-// ============================================================================
-// FINANCE — accountant / payroll_officer
-// ============================================================================
 // ============================================================================
 // GENERIC — any role without a dedicated variant (costing_officer, logistics, hr)
 // ============================================================================

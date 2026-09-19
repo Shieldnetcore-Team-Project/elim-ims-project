@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { money } from "@/lib/format";
+import { COUNTED_STATUSES, fetchAll } from "@/lib/metrics";
 import { requestDelete } from "@/lib/request-delete";
 import { RequestDeleteDialog } from "@/components/shared/request-delete-dialog";
 import { toast } from "sonner";
@@ -118,7 +119,10 @@ const statusBadge = (s: string): "default" | "secondary" | "outline" | "destruct
       ? "destructive"
       : "outline";
 
-const UNCOUNTED_STATUSES = new Set(["rejected", "cancelled", "reversed"]);
+// Only approved/posted expenses are money spent; pending, rejected, cancelled and
+// reversed ones are listed but never added to the totals (same rule the
+// dashboards use).
+const COUNTED = new Set(COUNTED_STATUSES);
 
 type RangeKey = "all" | "today" | "week" | "month" | "year";
 
@@ -209,36 +213,40 @@ function ExpensesPage() {
   const list = useQuery({
     queryKey: ["expenses-list", factoryId],
     enabled: !!factoryId,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("expenses")
-        .select(
-          "id,expense_date,category_id,description,vendor,receipt_number,payment_method,amount,approved_by,requested_by_name,approval_status,approved_at,recorded_by,attachment_url,remarks,created_at,submitted_by,status,expense_categories(name)",
-        )
-        .eq("factory_id", factoryId!)
-        .order("expense_date", { ascending: false })
-        .limit(500);
-      if (error) throw error;
-      return (data ?? []) as unknown as Expense[];
-    },
+    // Every row, not a capped page: the cards and running balance below are
+    // sums over this list.
+    queryFn: () =>
+      fetchAll<Expense>(
+        (a, b) =>
+          supabase
+            .from("expenses")
+            .select(
+              "id,expense_date,category_id,description,vendor,receipt_number,payment_method,amount,approved_by,requested_by_name,approval_status,approved_at,recorded_by,attachment_url,remarks,created_at,submitted_by,status,expense_categories(name)",
+            )
+            .eq("factory_id", factoryId!)
+            .order("expense_date", { ascending: false })
+            .order("id")
+            .range(a, b) as any,
+      ),
   });
 
   const cashIns = useQuery({
     queryKey: ["expenses-cash-in", factoryId],
     enabled: !!factoryId,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("cash_transactions")
-        .select(
-          "id,transaction_number,transaction_date,category,description,amount,payment_method,payer_payee,recorded_by_name,recorded_by,created_at",
-        )
-        .eq("factory_id", factoryId!)
-        .eq("transaction_type", "receipt")
-        .order("transaction_date", { ascending: false })
-        .limit(500);
-      if (error) throw error;
-      return (data ?? []) as CashIn[];
-    },
+    queryFn: () =>
+      fetchAll<CashIn>(
+        (a, b) =>
+          supabase
+            .from("cash_transactions")
+            .select(
+              "id,transaction_number,transaction_date,category,description,amount,payment_method,payer_payee,recorded_by_name,recorded_by,created_at",
+            )
+            .eq("factory_id", factoryId!)
+            .eq("transaction_type", "receipt")
+            .order("transaction_date", { ascending: false })
+            .order("id")
+            .range(a, b) as any,
+      ),
   });
 
   const profiles = useQuery({
@@ -279,7 +287,7 @@ function ExpensesPage() {
         sub: e.vendor ?? null,
         category: e.expense_categories?.name ?? "Uncategorized",
         amount: Number(e.amount),
-        counts: !UNCOUNTED_STATUSES.has(e.status),
+        counts: COUNTED.has(e.status),
         statusLabel: e.status === "posted" ? null : e.status.replace(/_/g, " "),
         statusVariant: statusBadge(e.status),
         expense: e,
@@ -343,7 +351,7 @@ function ExpensesPage() {
     [rangeFiltered],
   );
   const balance = totalCashIn - totalExpenses;
-  const expenseCount = rangeFiltered.filter((r) => r.kind === "cash_out").length;
+  const expenseCount = rangeFiltered.filter((r) => r.kind === "cash_out" && r.counts).length;
   const cashInCount = rangeFiltered.filter((r) => r.kind === "cash_in").length;
 
   const displayRows = useMemo(() => {

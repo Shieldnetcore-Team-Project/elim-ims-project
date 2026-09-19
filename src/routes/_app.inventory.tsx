@@ -20,6 +20,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { money, num } from "@/lib/format";
+import { isLowStock } from "@/lib/metrics";
 import {
   Boxes,
   Package,
@@ -54,6 +55,7 @@ type RawMaterialRow = {
   unit: string;
   current_stock: number;
   unit_cost: number;
+  current_value: number;
   reorder_level: number | null;
   active: boolean;
   material_categories: { name: string } | null;
@@ -103,8 +105,7 @@ function SummaryCard({
   );
 }
 
-const isLow = (stock: number, reorder: number | null) =>
-  reorder != null && reorder > 0 && stock <= reorder;
+const isLow = isLowStock;
 
 function InventoryOverviewPage() {
   const { data: factoryId } = useFactoryId();
@@ -124,7 +125,7 @@ function InventoryOverviewPage() {
       const { data, error } = await supabase
         .from("raw_materials")
         .select(
-          "id,name,category,unit,current_stock,unit_cost,reorder_level,active,material_categories(name)",
+          "id,name,category,unit,current_stock,unit_cost,current_value,reorder_level,active,material_categories(name)",
         )
         .eq("factory_id", factoryId!)
         .eq("active", true)
@@ -173,7 +174,7 @@ function InventoryOverviewPage() {
     const lowMats = mats.filter((m) => isLow(Number(m.current_stock), m.reorder_level)).length;
     const lowProds = prods.filter((p) => isLow(Number(p.current_stock), p.reorder_level)).length;
     const value =
-      mats.reduce((s, m) => s + Number(m.current_stock) * Number(m.unit_cost), 0) +
+      mats.reduce((s, m) => s + Number(m.current_value), 0) +
       prods.reduce((s, p) => s + Number(p.current_stock) * Number(p.cost_price), 0);
     return {
       materialCount: mats.length,

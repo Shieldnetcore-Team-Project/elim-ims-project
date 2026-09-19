@@ -1112,3 +1112,169 @@ export async function generateReportPdf(
     window.open(doc.output("bloburl"), "_blank");
   }
 }
+
+// Customer account statement: advance / debt position for a period, with every
+// ledger line (a sale and the advance drawn for it are one line). Built from the
+// same Statement object the screen and CSV use, so all three always agree.
+export async function generateCustomerStatementPdf(
+  opts: {
+    company: {
+      name: string;
+      address?: string | null;
+      phone?: string | null;
+      logo_url?: string | null;
+    };
+    customer: { name: string; phone?: string | null; address?: string | null };
+    statement: import("./customer-account").Statement;
+    periodLabel: string;
+    pendingSales?: { invoice_number: string; grand_total: number }[];
+    currency?: string;
+  },
+  action: PdfAction = "download",
+) {
+  const currency = opts.currency ?? "NGN";
+  const cur = (n: number) => pdfMoney(n, currency);
+  const st = opts.statement;
+  const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "landscape" });
+  const pageW = doc.internal.pageSize.getWidth();
+  const right = pageW - 40;
+
+  const top = await drawLogoHeader(doc, opts.company.logo_url, 44);
+  doc.setFontSize(16);
+  doc.text(opts.company.name, 40, top);
+  doc.setFontSize(9);
+  if (opts.company.address) doc.text(opts.company.address, 40, top + 14);
+  if (opts.company.phone) doc.text(opts.company.phone, 40, top + 26);
+
+  doc.setFontSize(18);
+  doc.text("CUSTOMER ACCOUNT STATEMENT", right, top, { align: "right" });
+  doc.setFontSize(9);
+  doc.text(`Period: ${opts.periodLabel}`, right, top + 14, { align: "right" });
+  doc.text(`Generated ${new Date().toLocaleString()}`, right, top + 26, { align: "right" });
+
+  let y = top + 52;
+  doc.setFontSize(11);
+  doc.setFont("helvetica", "bold");
+  doc.text(opts.customer.name, 40, y);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  if (opts.customer.phone) doc.text(opts.customer.phone, 40, y + 13);
+  if (opts.customer.address) doc.text(opts.customer.address, 40, y + 25);
+
+  // Position summary. Advance and debt are always separate lines — never netted.
+  const summary: [string, string][] = [
+    ["Advance brought forward", cur(st.opening.credit)],
+    ["Debt brought forward", cur(st.opening.debt)],
+    ["Advance received", cur(st.totals.advanceReceived)],
+    ["Goods collected", cur(st.totals.goodsCollected)],
+    ["Advance used", cur(st.totals.advanceUsed)],
+    ["Debt paid off", cur(st.totals.debtSettled)],
+    ["Closing advance", cur(st.closing.credit)],
+    ["Closing debt", cur(st.closing.debt)],
+  ];
+  const colW = 200;
+  summary.forEach(([label, value], i) => {
+    const col = Math.floor(i / 4);
+    const row = i % 4;
+    const x = 360 + col * colW;
+    const isClosing = i >= 6;
+    doc.setFont("helvetica", isClosing ? "bold" : "normal");
+    doc.setFontSize(9);
+    doc.text(label, x, y + row * 14);
+    doc.text(value, x + colW - 20, y + row * 14, { align: "right" });
+  });
+  doc.setFont("helvetica", "normal");
+  y += 4 * 14 + 14;
+
+  const dateStr = (iso: string) => new Date(iso).toLocaleDateString("en-GB");
+  const body: string[][] = [];
+  if (opts.statement.range.from) {
+    body.push([
+      dateStr(`${opts.statement.range.from}T00:00:00`),
+      "",
+      "Balance brought forward",
+      "",
+      "",
+      "",
+      cur(st.opening.credit),
+      cur(st.opening.debt),
+    ]);
+  }
+  st.rows.forEach((r) =>
+    body.push([
+      dateStr(r.date),
+      r.reference === "—" ? "" : r.reference,
+      r.description,
+      `${r.sign === "-" ? "-" : r.sign === "+" ? "+" : ""}${cur(r.amount)}`,
+      r.paid && r.paid > 0 ? cur(r.paid) : "",
+      r.advanceUsed && r.advanceUsed > 0 ? cur(r.advanceUsed) : "",
+      r.creditAfter === null ? "" : cur(r.creditAfter),
+      r.debtAfter === null ? "" : cur(r.debtAfter),
+    ]),
+  );
+  body.push(["", "", "Closing balance", "", "", "", cur(st.closing.credit), cur(st.closing.debt)]);
+
+  autoTable(doc, {
+    startY: y,
+    head: [
+      [
+        "Date",
+        "Reference",
+        "Description",
+        "Amount",
+        "Paid",
+        "Advance used",
+        "Advance balance",
+        "Debt balance",
+      ],
+    ],
+    body,
+    styles: { fontSize: 8, cellPadding: 3 },
+    headStyles: { fillColor: [30, 41, 59] },
+    columnStyles: {
+      3: { halign: "right" },
+      4: { halign: "right" },
+      5: { halign: "right" },
+      6: { halign: "right" },
+      7: { halign: "right" },
+    },
+    didParseCell: (d) => {
+      if (d.section === "body" && d.row.index === body.length - 1) d.cell.styles.fontStyle = "bold";
+    },
+    didDrawPage: () => {
+      const n = doc.getNumberOfPages();
+      doc.setFontSize(8);
+      doc.text(`Page ${n}`, right, doc.internal.pageSize.getHeight() - 20, { align: "right" });
+    },
+  });
+
+  // @ts-expect-error autoTable augments doc
+  let after: number = doc.lastAutoTable.finalY + 16;
+  const pending = opts.pendingSales ?? [];
+  if (pending.length > 0) {
+    doc.setFontSize(8);
+    doc.text(
+      `${pending.length} sale(s) awaiting approval are not included above: ${pending
+        .map((p) => `${p.invoice_number} (${cur(p.grand_total)})`)
+        .join(", ")}.`,
+      40,
+      after,
+      { maxWidth: pageW - 80 },
+    );
+    after += 14;
+  }
+  doc.setFontSize(8);
+  doc.text(
+    "Advance is money the customer has paid that has not yet been used against goods. Debt is the value of goods collected that has not yet been paid for. The two are shown separately.",
+    40,
+    after,
+    { maxWidth: pageW - 80 },
+  );
+
+  if (action === "download") {
+    doc.save(`Statement-${opts.customer.name.replace(/\s+/g, "-")}.pdf`);
+  } else {
+    if (action === "print") doc.autoPrint();
+    window.open(doc.output("bloburl"), "_blank");
+  }
+}

@@ -76,7 +76,6 @@ export const Route = createFileRoute("/_app/production-requests")({
   ),
 });
 
-type Product = { id: string; name: string; unit: string; current_stock: number };
 type Material = { id: string; name: string; unit: string; current_stock: number };
 type RequestRow = {
   id: string;
@@ -132,21 +131,6 @@ function ProductionRequestsPage() {
   const [rejectTarget, setRejectTarget] = useState<RequestRow | null>(null);
   const [issueTarget, setIssueTarget] = useState<RequestRow | null>(null);
   const [detailTarget, setDetailTarget] = useState<RequestRow | null>(null);
-
-  const products = useQuery({
-    queryKey: ["products-for-production", factoryId],
-    enabled: !!factoryId,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("products")
-        .select("id,name,unit,current_stock")
-        .eq("factory_id", factoryId!)
-        .eq("active", true)
-        .order("name");
-      if (error) throw error;
-      return (data ?? []) as Product[];
-    },
-  });
 
   const materials = useQuery({
     queryKey: ["raw-materials-brief", factoryId],
@@ -264,7 +248,6 @@ function ProductionRequestsPage() {
             {formOpen && factoryId && (
               <RequestForm
                 factoryId={factoryId}
-                products={products.data ?? []}
                 materials={materials.data ?? []}
                 onDone={() => {
                   setFormOpen(false);
@@ -447,12 +430,10 @@ function ProductionRequestsPage() {
 
 function RequestForm({
   factoryId,
-  products,
   materials,
   onDone,
 }: {
   factoryId: string;
-  products: Product[];
   materials: Material[];
   onDone: () => void;
 }) {
@@ -460,8 +441,6 @@ function RequestForm({
   const canAddMaterial = canSubmit("raw-materials");
   const [requestedBy, setRequestedBy] = useState("");
   const [department, setDepartment] = useState("");
-  const [productId, setProductId] = useState("");
-  const [unit, setUnit] = useState("");
   const [remarks, setRemarks] = useState("");
   const [items, setItems] = useState<{ materialId: string; quantity: number }[]>([
     { materialId: "", quantity: 0 },
@@ -480,8 +459,6 @@ function RequestForm({
   const allMaterials = [...materials, ...pendingMaterials];
   const pendingIds = pendingMaterials.map((m) => m.id);
 
-  const selectedProduct = products.find((p) => p.id === productId);
-
   const updateItem = (i: number, patch: Partial<{ materialId: string; quantity: number }>) => {
     setItems((prev) => prev.map((it, idx) => (idx === i ? { ...it, ...patch } : it)));
   };
@@ -491,7 +468,6 @@ function RequestForm({
   const save = useMutation({
     mutationFn: async () => {
       if (!requestedBy.trim()) throw new Error("Enter the requesting staff name");
-      if (!productId) throw new Error("Select the product to be produced");
       const validItems = items.filter((it) => it.materialId && it.quantity > 0);
       if (validItems.length === 0) throw new Error("Add at least one raw material with a quantity");
 
@@ -501,9 +477,7 @@ function RequestForm({
           requested_by_name: requestedBy.trim(),
           department: department || null,
           request_type: "production_material",
-          product_id: productId,
           quantity_requested: quantity,
-          unit: unit || selectedProduct?.unit,
           remarks: remarks || null,
           items: validItems.map((it) => {
             const m = allMaterials.find((mm) => mm.id === it.materialId);
@@ -548,29 +522,6 @@ function RequestForm({
               <Label>Department</Label>
               <Input value={department} onChange={(e) => setDepartment(e.target.value)} />
             </div>
-          </div>
-
-          <div>
-            <Label>Product to be produced</Label>
-            <Select
-              value={productId}
-              onValueChange={(v) => {
-                setProductId(v);
-                const p = products.find((x) => x.id === v);
-                if (p) setUnit(p.unit);
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select product…" />
-              </SelectTrigger>
-              <SelectContent>
-                {products.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    {p.name} · stock {num(Number(p.current_stock))} {p.unit}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
           </div>
 
           <div className="flex items-center justify-between">
@@ -854,22 +805,12 @@ function AddMaterialDialog({
           </div>
           <div>
             <Label>Opening stock</Label>
-            <MoneyInput
-              min={0}
-              step="0.001"
-              value={openingStock}
-              onChange={setOpeningStock}
-            />
+            <MoneyInput min={0} step="0.001" value={openingStock} onChange={setOpeningStock} />
           </div>
         </div>
         <div>
           <Label>Reorder level</Label>
-          <MoneyInput
-            min={0}
-            step="0.001"
-            value={reorderLevel}
-            onChange={setReorderLevel}
-          />
+          <MoneyInput min={0} step="0.001" value={reorderLevel} onChange={setReorderLevel} />
         </div>
       </div>
       <DialogFooter>

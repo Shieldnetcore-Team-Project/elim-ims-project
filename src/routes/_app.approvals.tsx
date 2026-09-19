@@ -150,6 +150,20 @@ function ApprovalsPage() {
     },
   });
 
+  const customerAdjustments = useQuery({
+    queryKey: ["approvals-customer-adjustments"],
+    enabled: canApprove("customers"),
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("customer_account_adjustments")
+        .select("id,effect,amount,submitted_by,customers(name)")
+        .eq("status", "pending_approval")
+        .limit(50);
+      if (error) throw error;
+      return ((data ?? []) as any[]).filter((d) => d.submitted_by !== uid);
+    },
+  });
+
   const payments = useQuery({
     queryKey: ["approvals-payments"],
     enabled: canApprove("payments"),
@@ -370,7 +384,11 @@ function ApprovalsPage() {
               empty="No sales awaiting approval."
               rows={(sales.data ?? []).map((s) => ({
                 key: s.id,
-                cells: [s.invoice_number, s.customer_name ?? "Walk-in", money(Number(s.grand_total))],
+                cells: [
+                  s.invoice_number,
+                  s.customer_name ?? "Walk-in",
+                  money(Number(s.grand_total)),
+                ],
               }))}
             />
           )}
@@ -498,6 +516,22 @@ function ApprovalsPage() {
                   r.request_number,
                   r.raw_materials?.name ?? "—",
                   `${r.quantity_requested} ${r.unit ?? ""}`,
+                ],
+              }))}
+            />
+          )}
+          {canApprove("customers") && (
+            <QueueCard
+              icon={HandCoins}
+              title="Customer Account Adjustments"
+              to="/customers"
+              empty="No customer account adjustments awaiting approval."
+              rows={(customerAdjustments.data ?? []).map((r: any) => ({
+                key: r.id,
+                cells: [
+                  r.customers?.name ?? "—",
+                  <span className="capitalize">{String(r.effect).replace(/_/g, " ")}</span>,
+                  money(Number(r.amount)),
                 ],
               }))}
             />

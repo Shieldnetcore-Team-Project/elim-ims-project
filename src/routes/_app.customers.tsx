@@ -42,6 +42,7 @@ import {
 import { money } from "@/lib/format";
 import { toast } from "sonner";
 import { KPI } from "@/lib/dashboard-kit";
+import { AccountAdjustmentsCard } from "@/components/customers/account-adjustments";
 
 export const Route = createFileRoute("/_app/customers")({
   head: () => ({ meta: [{ title: "Customers — FMIS" }, { name: "robots", content: "noindex" }] }),
@@ -182,6 +183,8 @@ function CustomersPage() {
           tone="destructive"
         />
       </div>
+
+      {factoryId && <AccountAdjustmentsCard factoryId={factoryId} />}
 
       <Card className="rounded-2xl">
         <CardHeader className="flex-row items-center justify-between gap-3">

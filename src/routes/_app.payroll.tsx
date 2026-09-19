@@ -178,7 +178,10 @@ function PayrollPage() {
     staleTime: Infinity,
   });
 
-  const totalNet = (list.data ?? []).reduce((s, r) => s + Number(r.net_salary), 0);
+  // Rejected, cancelled and reversed runs are not salaries owed.
+  const totalNet = (list.data ?? [])
+    .filter((r) => !["rejected", "cancelled", "reversed"].includes(r.status ?? ""))
+    .reduce((s, r) => s + Number(r.net_salary), 0);
   const invalidateAll = () => qc.invalidateQueries({ queryKey: ["payroll-list"] });
 
   const printPayslip = (r: PayrollRow, action: "print" | "download") => {

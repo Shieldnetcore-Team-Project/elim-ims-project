@@ -28,6 +28,7 @@ import {
   Cell,
 } from "recharts";
 import { money } from "@/lib/format";
+import { COUNTED_STATUSES, fetchAll } from "@/lib/metrics";
 import { TrendingDown, Banknote, CreditCard, Landmark, Coins } from "lucide-react";
 import { startOfWeek, startOfMonth, startOfYear, format } from "date-fns";
 
@@ -70,16 +71,23 @@ function CashFlowOverview() {
     queryKey: ["cf-sales-income", factoryId, from, to],
     enabled: !!factoryId,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("payments_received")
-        .select("amount,payment_method")
-        .eq("factory_id", factoryId!)
-        .gte("payment_date", from)
-        .lte("payment_date", to);
-      if (error) throw error;
+      // Every payment in range (rejected ones excluded), not just the first
+      // page of results.
+      const data = await fetchAll<{ amount: number; payment_method: string }>(
+        (a, b) =>
+          supabase
+            .from("payments_received")
+            .select("amount,payment_method")
+            .eq("factory_id", factoryId!)
+            .neq("status", "rejected")
+            .gte("payment_date", from)
+            .lte("payment_date", to)
+            .order("id")
+            .range(a, b) as any,
+      );
       const byMethod = { cash: 0, pos: 0, transfer: 0, other: 0 };
       let total = 0;
-      (data ?? []).forEach((r) => {
+      data.forEach((r) => {
         const amt = Number(r.amount);
         total += amt;
         const method = r.payment_method as string;
@@ -117,6 +125,7 @@ function CashFlowOverview() {
         .from("production")
         .select("production_cost")
         .eq("factory_id", factoryId!)
+        .in("status", ["pending_confirmation", "posted"])
         .gte("production_date", from)
         .lte("production_date", to);
       if (error) throw error;
@@ -128,18 +137,22 @@ function CashFlowOverview() {
     queryKey: ["cf-expenses", factoryId, from, to],
     enabled: !!factoryId,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("expenses")
-        .select("amount,approval_status,expense_categories(name)")
-        .eq("factory_id", factoryId!)
-        .eq("approval_status", "approved")
-        .gte("expense_date", from)
-        .lte("expense_date", to);
-      if (error) throw error;
+      const data = await fetchAll<any>(
+        (a, b) =>
+          supabase
+            .from("expenses")
+            .select("amount,expense_categories(name)")
+            .eq("factory_id", factoryId!)
+            .in("status", COUNTED_STATUSES)
+            .gte("expense_date", from)
+            .lte("expense_date", to)
+            .order("id")
+            .range(a, b) as any,
+      );
       let operating = 0,
         office = 0,
         other = 0;
-      (data ?? []).forEach((r: any) => {
+      data.forEach((r: any) => {
         const name = r.expense_categories?.name;
         const amt = Number(r.amount);
         if (name === "Office Expenses") office += amt;

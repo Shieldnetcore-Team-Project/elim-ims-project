@@ -54,8 +54,12 @@ import {
 } from "lucide-react";
 import { money, num } from "@/lib/format";
 import { toast } from "sonner";
-import { generateInvoicePdf, generateReceiptPdf } from "@/lib/pdf";
+import { generateInvoicePdf } from "@/lib/pdf";
 import { logAudit } from "@/lib/audit";
+import { useRealtimeInvalidate } from "@/lib/realtime";
+import { salePaymentStatus, salePosition, useCustomerAccount } from "@/lib/customer-account";
+import { AccountLedgerTable, AccountStatusBadge } from "@/components/sales/account-ledger";
+import { CustomerAccountDialog } from "@/components/sales/customer-account-dialog";
 import { ApprovalHistory } from "@/components/workflow/approval-history";
 import { requestDelete } from "@/lib/request-delete";
 import { RequestDeleteDialog } from "@/components/shared/request-delete-dialog";
@@ -91,6 +95,7 @@ type SaleRow = {
   grand_total: number;
   amount_paid: number;
   balance: number;
+  credit_applied: number;
   payment_method: string;
   is_pr: boolean;
   status: string;
@@ -106,26 +111,19 @@ type CartItem = {
   stock: number;
 };
 
-const paymentStatus = (
-  paid: number,
-  balance: number,
-): { label: string; variant: "secondary" | "outline" | "destructive" } => {
-  if (balance <= 0) return { label: "Paid", variant: "secondary" };
-  if (paid > 0) return { label: "Partial", variant: "outline" };
-  return { label: "Unpaid", variant: "destructive" };
-};
-
 const saleStatusBadge = (s: string): "default" | "secondary" | "outline" | "destructive" =>
-  s === "posted"
-    ? "secondary"
-    : s === "rejected" || s === "cancelled"
-      ? "destructive"
-      : "outline";
+  s === "posted" ? "secondary" : s === "rejected" || s === "cancelled" ? "destructive" : "outline";
 
 function SalesPage() {
   const { data: factoryId } = useFactoryId();
   const settings = useFactorySettings(factoryId);
   const qc = useQueryClient();
+  // Other users' approvals, payments and advances move a customer's account —
+  // keep every open account view current without a manual refresh.
+  useRealtimeInvalidate(
+    ["customer_account_transactions", "sales", "payments_received"],
+    [["sales-list"], ["customer-account"], ["customer-sales-full"], ["customer-payments-full"]],
+  );
   const { canWrite, canApprove, canReject, canCancel, canDelete } = usePermissions();
   const write = canWrite("sales");
   const approve = canApprove("sales");
@@ -159,7 +157,7 @@ function SalesPage() {
       const { data, error } = await supabase
         .from("sales")
         .select(
-          "id,invoice_number,sale_date,customer_id,customer_name,grand_total,amount_paid,balance,payment_method,created_at,is_pr,status,created_by,rejected_reason",
+          "id,invoice_number,sale_date,customer_id,customer_name,grand_total,amount_paid,balance,credit_applied,payment_method,created_at,is_pr,status,created_by,rejected_reason",
         )
         .eq("factory_id", factoryId!)
         .order("created_at", { ascending: false })
@@ -236,31 +234,18 @@ function SalesPage() {
       if (error) throw error;
       return { res: data as any, input };
     },
-    onSuccess: ({ res, input }) => {
+    onSuccess: ({ res }) => {
       const lines: { receipt_number: string; amount: number; payment_method: string }[] =
         res.payments;
-      const totalAmount = Number(res.total_amount);
       toast.success(
-        lines.length > 1 ? `${lines.length} receipts recorded` : `Receipt ${lines[0].receipt_number}`,
+        lines.length > 1
+          ? `${lines.length} receipts recorded`
+          : `Receipt ${lines[0].receipt_number}`,
       );
-      generateReceiptPdf({
-        company: {
-          name: settings.data?.company_name ?? "FMIS",
-          address: settings.data?.address,
-          phone: settings.data?.phone,
-          logo_url: settings.data?.logo_url,
-        },
-        receipt_number: lines.map((l) => l.receipt_number).join(", "),
-        payment_date: new Date().toISOString().slice(0, 10),
-        customer_name: input.sale.customer_name ?? undefined,
-        invoice_number: input.sale.invoice_number,
-        amount: totalAmount,
-        payment_method: lines.length === 1 ? lines[0].payment_method : "split",
-        breakdown: lines.map((l) => ({ method: l.payment_method, amount: Number(l.amount) })),
-        remarks: input.remarks,
-        currency: settings.data?.currency ?? "NGN",
-      });
       qc.invalidateQueries({ queryKey: ["sales-list"] });
+      qc.invalidateQueries({ queryKey: ["customer-account"] });
+      qc.invalidateQueries({ queryKey: ["customer-sales-full"] });
+      qc.invalidateQueries({ queryKey: ["customer-payments-full"] });
       qc.invalidateQueries({ queryKey: ["customers"] });
       setPayTarget(null);
     },
@@ -269,6 +254,9 @@ function SalesPage() {
 
   const invalidateAfterApproval = () => {
     qc.invalidateQueries({ queryKey: ["sales-list"] });
+    qc.invalidateQueries({ queryKey: ["customer-account"] });
+    qc.invalidateQueries({ queryKey: ["customer-sales-full"] });
+    qc.invalidateQueries({ queryKey: ["customer-payments-full"] });
     qc.invalidateQueries({ queryKey: ["customers"] });
     // approve_sale is what actually decrements stock -- keep the rest of
     // the app's stock-derived views in sync, same as a normal sale used to.
@@ -308,6 +296,9 @@ function SalesPage() {
       toast.success(`Sale ${sale.invoice_number} rejected`);
       logAudit({ action: "reject", entity: "sales", entityId: sale.id, factoryId });
       qc.invalidateQueries({ queryKey: ["sales-list"] });
+      qc.invalidateQueries({ queryKey: ["customer-account"] });
+      qc.invalidateQueries({ queryKey: ["customer-sales-full"] });
+      qc.invalidateQueries({ queryKey: ["customer-payments-full"] });
       setRejectTarget(null);
     },
     onError: (e: Error) => toast.error(e.message),
@@ -323,6 +314,9 @@ function SalesPage() {
       toast.success(`Sale ${sale.invoice_number} cancelled`);
       logAudit({ action: "cancel", entity: "sales", entityId: sale.id, factoryId });
       qc.invalidateQueries({ queryKey: ["sales-list"] });
+      qc.invalidateQueries({ queryKey: ["customer-account"] });
+      qc.invalidateQueries({ queryKey: ["customer-sales-full"] });
+      qc.invalidateQueries({ queryKey: ["customer-payments-full"] });
       setCancelTarget(null);
     },
     onError: (e: Error) => toast.error(e.message),
@@ -336,6 +330,9 @@ function SalesPage() {
       toast.success("Deletion requested — pending admin approval");
       setDeleteTarget(null);
       qc.invalidateQueries({ queryKey: ["sales-list"] });
+      qc.invalidateQueries({ queryKey: ["customer-account"] });
+      qc.invalidateQueries({ queryKey: ["customer-sales-full"] });
+      qc.invalidateQueries({ queryKey: ["customer-payments-full"] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -346,8 +343,8 @@ function SalesPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Sales & POS</h1>
           <p className="text-sm text-muted-foreground">
-            Create invoices — a manager must approve each sale before it decrements stock and
-            counts toward the customer's balance.
+            Create invoices — a manager must approve each sale before it decrements stock and counts
+            toward the customer's balance.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -377,6 +374,9 @@ function SalesPage() {
                     setPosOpen(false);
                     setPresetCustomerId(undefined);
                     qc.invalidateQueries({ queryKey: ["sales-list"] });
+                    qc.invalidateQueries({ queryKey: ["customer-account"] });
+                    qc.invalidateQueries({ queryKey: ["customer-sales-full"] });
+                    qc.invalidateQueries({ queryKey: ["customer-payments-full"] });
                     // A sale decrements products.current_stock — make sure the
                     // Finished Goods / Store page picks that up even if it's
                     // already mounted elsewhere, instead of relying only on
@@ -414,7 +414,7 @@ function SalesPage() {
             </TableHeader>
             <TableBody>
               {(sales.data ?? []).map((s: SaleRow) => {
-                const status = paymentStatus(Number(s.amount_paid), Number(s.balance));
+                const status = salePaymentStatus(s);
                 const isSelf = s.created_by === currentUser.data && !isSuperAdmin;
                 return (
                   <TableRow key={s.id}>
@@ -452,13 +452,12 @@ function SalesPage() {
                       </span>
                     </TableCell>
                     <TableCell>
-                      {s.is_pr ? (
-                        <Badge variant="outline" className="text-warning">
-                          PR — no charge
-                        </Badge>
-                      ) : (
-                        <Badge variant={status.variant}>{status.label}</Badge>
-                      )}
+                      <Badge
+                        variant={status.variant}
+                        className={s.is_pr ? "text-warning" : "capitalize"}
+                      >
+                        {status.label}
+                      </Badge>
                     </TableCell>
                     <TableCell>
                       <Badge variant={saleStatusBadge(s.status)} className="capitalize">
@@ -598,7 +597,7 @@ function SalesPage() {
 
       <Dialog open={!!historyTarget} onOpenChange={(v) => !v && setHistoryTarget(null)}>
         {historyTarget && (
-          <CustomerHistoryDialog customerId={historyTarget.id} customerName={historyTarget.name} />
+          <CustomerAccountDialog customerId={historyTarget.id} customerName={historyTarget.name} />
         )}
       </Dialog>
 
@@ -638,7 +637,7 @@ function SalesPage() {
           deleteTarget
             ? `Request deletion — ${deleteTarget.invoice_number}${
                 deleteTarget.status === "posted"
-                  ? " (posted — approval will reverse its stock and balance effects)"
+                  ? " (posted — approval reverses its stock and restores any advance it used; the reversal is recorded on the customer account)"
                   : ""
               }`
             : "Request deletion"
@@ -653,7 +652,7 @@ function SalesPage() {
             onDone={() => {
               setAdvanceOpen(false);
               qc.invalidateQueries({ queryKey: ["customers"] });
-              qc.invalidateQueries({ queryKey: ["customer-account-summary"] });
+              qc.invalidateQueries({ queryKey: ["customer-account"] });
             }}
           />
         )}
@@ -761,7 +760,11 @@ function PayDialog({
         </div>
         <div>
           <Label>Payment{payments.length > 1 ? "s" : ""}</Label>
-          <PaymentLinesEditor payments={payments} onChange={setPayments} methods={PAY_DIALOG_METHODS} />
+          <PaymentLinesEditor
+            payments={payments}
+            onChange={setPayments}
+            methods={PAY_DIALOG_METHODS}
+          />
         </div>
         <div className="flex justify-between text-sm font-medium">
           <span>Total</span>
@@ -775,7 +778,12 @@ function PayDialog({
       <DialogFooter>
         <Button
           disabled={saving || total <= 0 || total > balance}
-          onClick={() => onSubmit(payments.filter((p) => p.amount > 0), remarks)}
+          onClick={() =>
+            onSubmit(
+              payments.filter((p) => p.amount > 0),
+              remarks,
+            )
+          }
         >
           {saving ? "Saving…" : "Record & Print Receipt"}
         </Button>
@@ -895,9 +903,9 @@ function CancelSaleDialog({
   );
 }
 
-// Records money a registered customer pays ahead of picking any goods --
-// added straight to their credit balance, to be drawn down against a sale
-// later (see the "Apply credit balance" field in PosDialog below).
+// Records money a registered customer pays. The server settles the customer's
+// oldest debts first and only the excess becomes advance (record_customer_advance
+// -> _customer_receive_money), so this dialog shows that split before saving.
 function AdvancePaymentDialog({ factoryId, onDone }: { factoryId: string; onDone: () => void }) {
   const customers = useQuery({
     queryKey: ["customers-brief", factoryId],
@@ -915,7 +923,17 @@ function AdvancePaymentDialog({ factoryId, onDone }: { factoryId: string; onDone
   const [customerId, setCustomerId] = useState("");
   const [amount, setAmount] = useState(0);
   const [method, setMethod] = useState<PaymentMethod>("cash");
+  const [reference, setReference] = useState("");
   const [remarks, setRemarks] = useState("");
+  // One key per opening of this dialog: a double-click or a retry after a
+  // dropped connection is recognised by the server and never posts twice.
+  const [idempotencyKey] = useState(() => crypto.randomUUID());
+
+  const account = useCustomerAccount(customerId || undefined);
+  const availableAdvance = account.data?.summary.available_advance ?? 0;
+  const debt = account.data?.summary.outstanding_debt ?? 0;
+  const settlesDebt = Math.min(amount, debt);
+  const becomesAdvance = Math.max(amount - debt, 0);
 
   const submit = useMutation({
     mutationFn: async () => {
@@ -927,14 +945,31 @@ function AdvancePaymentDialog({ factoryId, onDone }: { factoryId: string; onDone
           customer_id: customerId,
           amount,
           payment_method: method,
+          reference: reference || null,
           remarks: remarks || null,
+          idempotency_key: idempotencyKey,
         } as any,
       });
       if (error) throw error;
-      return data as { receipt_number: string };
+      return data as {
+        receipt_number: string;
+        settled_debt?: number;
+        credit_added?: number;
+        duplicate?: boolean;
+      };
     },
     onSuccess: (data) => {
-      toast.success(`Advance recorded — receipt ${data.receipt_number}`);
+      const settled = Number(data.settled_debt ?? 0);
+      const added = Number(data.credit_added ?? 0);
+      const parts = [
+        settled > 0 ? `${money(settled)} cleared debt` : null,
+        added > 0 ? `${money(added)} added to advance` : null,
+      ].filter(Boolean);
+      toast.success(
+        `${data.duplicate ? "Already recorded" : "Payment recorded"} — receipt ${data.receipt_number}${
+          parts.length ? ` (${parts.join(", ")})` : ""
+        }`,
+      );
       onDone();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -947,8 +982,8 @@ function AdvancePaymentDialog({ factoryId, onDone }: { factoryId: string; onDone
       </DialogHeader>
       <div className="grid gap-3">
         <p className="text-sm text-muted-foreground">
-          For a customer paying ahead of picking up goods — this adds to their credit balance, which
-          can be applied toward a sale later from New Sale.
+          For a customer paying ahead of picking up goods. If they owe money, the oldest debts are
+          settled first and only the excess becomes advance to draw on in New Sale.
         </p>
         <div>
           <Label>Customer</Label>
@@ -965,13 +1000,29 @@ function AdvancePaymentDialog({ factoryId, onDone }: { factoryId: string; onDone
             </SelectContent>
           </Select>
         </div>
+        {customerId && account.data && (
+          <div className="grid grid-cols-2 gap-3 rounded-md bg-muted/30 p-3 text-sm">
+            <div>
+              <span className="block text-muted-foreground">Available Advance</span>
+              <span className={availableAdvance > 0 ? "font-medium text-success" : "font-medium"}>
+                {money(availableAdvance)}
+              </span>
+            </div>
+            <div>
+              <span className="block text-muted-foreground">Outstanding Debt</span>
+              <span className={debt > 0 ? "font-medium text-destructive" : "font-medium"}>
+                {money(debt)}
+              </span>
+            </div>
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label>Amount</Label>
             <MoneyInput value={amount} onChange={setAmount} />
           </div>
           <div>
-            <Label>Method</Label>
+            <Label>Payment method</Label>
             <Select value={method} onValueChange={(v) => setMethod(v as PaymentMethod)}>
               <SelectTrigger>
                 <SelectValue />
@@ -986,450 +1037,144 @@ function AdvancePaymentDialog({ factoryId, onDone }: { factoryId: string; onDone
             </Select>
           </div>
         </div>
+        {customerId && amount > 0 && (
+          <div className="space-y-1 rounded-md border p-3 text-sm">
+            {debt > 0 && (
+              <div className="flex justify-between">
+                <span>Clears existing debt</span>
+                <span className="text-success">{money(settlesDebt)}</span>
+              </div>
+            )}
+            <div className="flex justify-between">
+              <span>Added to advance</span>
+              <span className={becomesAdvance > 0 ? "font-medium text-success" : ""}>
+                {money(becomesAdvance)}
+              </span>
+            </div>
+            <div className="flex justify-between border-t pt-1 text-xs text-muted-foreground">
+              <span>Advance after this payment</span>
+              <span>{money(availableAdvance + becomesAdvance)}</span>
+            </div>
+          </div>
+        )}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label>Reference (optional)</Label>
+            <Input
+              value={reference}
+              onChange={(e) => setReference(e.target.value)}
+              placeholder="Transfer / POS / cheque no."
+            />
+          </div>
+          <div>
+            <Label>Date</Label>
+            <Input value={new Date().toLocaleDateString()} disabled />
+          </div>
+        </div>
         <div>
-          <Label>Remarks</Label>
+          <Label>Notes (optional)</Label>
           <Textarea rows={2} value={remarks} onChange={(e) => setRemarks(e.target.value)} />
         </div>
       </div>
       <DialogFooter>
         <Button disabled={submit.isPending} onClick={() => submit.mutate()}>
-          {submit.isPending ? "Saving…" : "Record Advance"}
+          {submit.isPending ? "Saving…" : "Record Payment"}
         </Button>
       </DialogFooter>
     </DialogContent>
   );
 }
 
-type CustomerSaleRow = {
-  id: string;
-  invoice_number: string;
-  sale_date: string;
-  created_at: string;
-  status: string;
-  grand_total: number;
-  amount_paid: number;
-  balance: number;
-};
-type CustomerItemRow = {
-  sale_id: string;
-  quantity: number;
-  unit_price: number;
-  line_total: number;
-  products: { name: string; unit: string } | null;
-};
-type CustomerPaymentRow = {
-  id: string;
-  receipt_number: string;
-  payment_date: string;
-  created_at: string;
-  amount: number;
-  payment_method: string;
-  sale_id: string | null;
-};
-type LedgerEntry = {
-  key: string;
-  date: string;
-  kind: "deposit" | "goods";
-  label: string;
-  amount: number;
-  runningBalance: number;
-};
-
-function CustomerHistoryDialog({
+// Shown inline once an existing (non-Walk-in) customer is picked in the New
+// Sale form: the customer's real account position from the ledger — advance,
+// debt, status, recent activity — so nothing has to be looked up separately.
+function CustomerAccountPanel({
   customerId,
   customerName,
 }: {
   customerId: string;
   customerName: string;
 }) {
-  const invoices = useQuery({
-    queryKey: ["customer-sales-full", customerId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("sales")
-        .select("id,invoice_number,sale_date,created_at,status,grand_total,amount_paid,balance")
-        .eq("customer_id", customerId)
-        .order("sale_date", { ascending: false });
-      if (error) throw error;
-      return (data ?? []) as CustomerSaleRow[];
-    },
-  });
-
-  const saleIds = (invoices.data ?? []).map((s) => s.id);
-  const items = useQuery({
-    queryKey: ["customer-items-full", customerId, saleIds.join(",")],
-    enabled: saleIds.length > 0,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("sale_items")
-        .select("sale_id,quantity,unit_price,line_total,products(name,unit)")
-        .in("sale_id", saleIds);
-      if (error) throw error;
-      return (data ?? []) as unknown as CustomerItemRow[];
-    },
-  });
-
-  const payments = useQuery({
-    queryKey: ["customer-payments-full", customerId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("payments_received")
-        .select("id,receipt_number,payment_date,created_at,amount,payment_method,sale_id")
-        .eq("customer_id", customerId)
-        .order("created_at", { ascending: true });
-      if (error) throw error;
-      return (data ?? []) as CustomerPaymentRow[];
-    },
-  });
-
-  // A running statement of the customer's account: money deposited ahead of
-  // purchase (advance payments not tied to any sale — see
-  // record_customer_advance) versus the value of goods taken (each posted
-  // sale's grand_total), in chronological order, ending in what's left.
-  // Every payment this customer has ever made (whether paid at the register
-  // as part of a sale, or as a standalone advance) counts as money in;
-  // every posted sale's grand_total counts as money out. Net positive is
-  // an Advance they can still draw on, net negative is Debt.
-  const ledger: LedgerEntry[] = useMemo(
-    () =>
-      buildLedger(
-        (payments.data ?? []).map((p) => ({
-          key: `dep-${p.id}`,
-          date: p.created_at,
-          amount: Number(p.amount),
-        })),
-        (invoices.data ?? [])
-          .filter((s) => s.status === "posted")
-          .map((s) => ({ key: `gds-${s.id}`, date: s.created_at, amount: Number(s.grand_total) })),
-      ),
-    [payments.data, invoices.data],
-  );
-  const netBalance = ledger.length ? ledger[ledger.length - 1].runningBalance : 0;
-
-  const invoiceById = new Map((invoices.data ?? []).map((s) => [s.id, s]));
-  const totals = (invoices.data ?? []).reduce(
-    (acc, s) => ({
-      total: acc.total + Number(s.grand_total),
-      paid: acc.paid + Number(s.amount_paid),
-      balance: acc.balance + Number(s.balance),
-    }),
-    { total: 0, paid: 0, balance: 0 },
-  );
-
-  return (
-    <DialogContent className="max-w-3xl">
-      <DialogHeader>
-        <DialogTitle>{customerName} — Products & Transactions</DialogTitle>
-      </DialogHeader>
-      <div className="space-y-4">
-        <div className="grid grid-cols-3 gap-3 rounded-md bg-muted/30 p-3 text-sm">
-          <div>
-            <span className="text-muted-foreground block">Total purchased</span>
-            <span className="font-medium">{money(totals.total)}</span>
-          </div>
-          <div>
-            <span className="text-muted-foreground block">Total paid</span>
-            <span className="font-medium">{money(totals.paid)}</span>
-          </div>
-          <div>
-            <span className="text-muted-foreground block">Outstanding</span>
-            <span className={totals.balance > 0 ? "font-medium text-destructive" : "font-medium"}>
-              {money(totals.balance)}
-            </span>
-          </div>
-        </div>
-
-        <Tabs defaultValue="ledger">
-          <TabsList>
-            <TabsTrigger value="ledger">Account Ledger</TabsTrigger>
-            <TabsTrigger value="products">Products Purchased</TabsTrigger>
-            <TabsTrigger value="invoices">Invoices</TabsTrigger>
-            <TabsTrigger value="payments">Payment History</TabsTrigger>
-          </TabsList>
-          <TabsContent value="ledger">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Entry</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
-                  <TableHead className="text-right">Running Balance</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {ledger.map((e) => (
-                  <TableRow key={e.key}>
-                    <TableCell className="whitespace-nowrap text-xs">
-                      {new Date(e.date).toLocaleDateString()}
-                    </TableCell>
-                    <TableCell className={e.kind === "deposit" ? "text-success" : ""}>
-                      {e.label}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {e.kind === "deposit" ? "+" : "-"}
-                      {money(e.amount)}
-                    </TableCell>
-                    <TableCell
-                      className={`text-right font-medium ${
-                        e.runningBalance < 0 ? "text-destructive" : "text-success"
-                      }`}
-                    >
-                      {money(e.runningBalance)}
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {ledger.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-center text-muted-foreground py-6">
-                      No deposits or completed purchases yet.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-            {ledger.length > 0 && (
-              <div className="mt-3 flex justify-between rounded-md bg-muted/30 p-3 text-sm font-semibold">
-                <span>{netBalance < 0 ? "Debt" : "Advance"}</span>
-                <span className={netBalance < 0 ? "text-destructive" : "text-success"}>
-                  {money(netBalance)}
-                </span>
-              </div>
-            )}
-          </TabsContent>
-          <TabsContent value="products">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Invoice</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Product</TableHead>
-                  <TableHead className="text-right">Qty</TableHead>
-                  <TableHead className="text-right">Unit Price</TableHead>
-                  <TableHead className="text-right">Total</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {(items.data ?? []).map((it, idx) => {
-                  const inv = invoiceById.get(it.sale_id);
-                  return (
-                    <TableRow key={`${it.sale_id}-${idx}`}>
-                      <TableCell className="font-mono text-xs">
-                        {inv?.invoice_number ?? "—"}
-                      </TableCell>
-                      <TableCell>{inv?.sale_date ?? "—"}</TableCell>
-                      <TableCell>
-                        {it.products?.name ?? "—"}
-                        {it.products?.unit ? ` (${it.products.unit})` : ""}
-                      </TableCell>
-                      <TableCell className="text-right">{num(Number(it.quantity))}</TableCell>
-                      <TableCell className="text-right">{money(Number(it.unit_price))}</TableCell>
-                      <TableCell className="text-right">{money(Number(it.line_total))}</TableCell>
-                    </TableRow>
-                  );
-                })}
-                {(items.data ?? []).length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center text-muted-foreground py-6">
-                      No products purchased yet.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </TabsContent>
-          <TabsContent value="invoices">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Invoice</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead className="text-right">Total</TableHead>
-                  <TableHead className="text-right">Balance</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {(invoices.data ?? []).map((inv) => (
-                  <TableRow key={inv.id}>
-                    <TableCell className="font-mono text-xs">{inv.invoice_number}</TableCell>
-                    <TableCell>{inv.sale_date}</TableCell>
-                    <TableCell className="text-right">{money(Number(inv.grand_total))}</TableCell>
-                    <TableCell className="text-right">
-                      {Number(inv.balance) > 0 ? (
-                        <Badge variant="destructive">{money(Number(inv.balance))}</Badge>
-                      ) : (
-                        <Badge variant="secondary">Paid</Badge>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {(invoices.data ?? []).length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-center text-muted-foreground py-6">
-                      No purchases yet.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </TabsContent>
-          <TabsContent value="payments">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Receipt</TableHead>
-                  <TableHead>Date & Time</TableHead>
-                  <TableHead>Method</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {(payments.data ?? []).map((p) => (
-                  <TableRow key={p.id}>
-                    <TableCell className="font-mono text-xs">{p.receipt_number}</TableCell>
-                    <TableCell className="whitespace-nowrap text-xs">
-                      {new Date(p.created_at).toLocaleString()}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="capitalize">
-                        {p.payment_method}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">{money(Number(p.amount))}</TableCell>
-                  </TableRow>
-                ))}
-                {(payments.data ?? []).length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-center text-muted-foreground py-6">
-                      No payments yet.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </TabsContent>
-        </Tabs>
-      </div>
-    </DialogContent>
-  );
-}
-
-// Shared by CustomerAccountPanel/CustomerHistoryDialog's ledger tab -- both
-// merge "money deposited ahead of purchase" (advance payments with no
-// sale_id) against "value of goods taken" (each posted sale's grand_total)
-// in date order and carry a running balance down through them.
-function buildLedger(
-  deposits: { key: string; date: string; amount: number }[],
-  goods: { key: string; date: string; amount: number }[],
-): LedgerEntry[] {
-  const merged = [
-    ...deposits.map((d) => ({ ...d, kind: "deposit" as const, label: "Deposited" })),
-    ...goods.map((g) => ({ ...g, kind: "goods" as const, label: "Goods" })),
-  ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-  let running = 0;
-  return merged.map((e) => {
-    running += e.kind === "deposit" ? e.amount : -e.amount;
-    return { ...e, runningBalance: running };
-  });
-}
-
-// Shared by CustomerAccountPanel (display) and PosDialog (needs the credit
-// figure to cap the "Apply credit balance" field) -- same query key so
-// TanStack Query serves both from one cached fetch. Every payment this
-// customer has ever made (register or standalone advance) counts as money
-// in; every posted sale's grand_total counts as money out -- net positive
-// is an Advance they can still draw on, net negative is Debt.
-function useCustomerAccountSummary(customerId: string) {
-  return useQuery({
-    queryKey: ["customer-account-summary", customerId],
-    enabled: customerId !== "walkin",
-    queryFn: async () => {
-      const [
-        { data: customer, error: e1 },
-        { data: allPayments, error: e2 },
-        { data: postedSales, error: e3 },
-      ] = await Promise.all([
-        supabase.from("customers").select("credit_balance").eq("id", customerId).maybeSingle(),
-        supabase
-          .from("payments_received")
-          .select("id,amount,created_at")
-          .eq("customer_id", customerId),
-        supabase
-          .from("sales")
-          .select("id,grand_total,created_at")
-          .eq("customer_id", customerId)
-          .eq("status", "posted"),
-      ]);
-      if (e1) throw e1;
-      if (e2) throw e2;
-      if (e3) throw e3;
-      const ledger = buildLedger(
-        (allPayments ?? []).map((p) => ({
-          key: `dep-${p.id}`,
-          date: p.created_at,
-          amount: Number(p.amount),
-        })),
-        (postedSales ?? []).map((s) => ({
-          key: `gds-${s.id}`,
-          date: s.created_at,
-          amount: Number(s.grand_total),
-        })),
-      );
-      return {
-        creditBalance: Number(customer?.credit_balance ?? 0),
-        ledger,
-        netBalance: ledger.length ? ledger[ledger.length - 1].runningBalance : 0,
-      };
-    },
-  });
-}
-
-// Shown inline once an existing (non-Walk-in) customer is picked in the New
-// Sale form, so whoever's adding items can see the customer's running
-// account — every deposit/payment against every posted sale's value —
-// right there instead of having to separately open Customer History.
-function CustomerAccountPanel({ customerId }: { customerId: string }) {
-  const summary = useCustomerAccountSummary(customerId);
+  const account = useCustomerAccount(customerId);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   if (customerId === "walkin") return null;
-  if (summary.isLoading || !summary.data) {
+  if (account.isLoading || !account.data) {
     return <p className="text-xs text-muted-foreground">Loading customer account…</p>;
   }
 
-  const { ledger, netBalance } = summary.data;
-
-  if (ledger.length === 0) {
-    return (
-      <div className="rounded-lg border bg-muted/20 p-3 text-sm">
-        <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Customer account
-        </span>
-        <p className="mt-1 text-xs text-muted-foreground">No prior transactions with this customer.</p>
-      </div>
-    );
-  }
+  const { summary, ledger, pendingSales } = account.data;
+  const hasHistory = ledger.length > 0 || pendingSales.length > 0;
+  const hadAdvance = summary.total_advance_paid > 0 || summary.opening_credit > 0;
 
   return (
     <div className="space-y-2 rounded-lg border bg-muted/20 p-3 text-sm">
-      <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-        Customer account
-      </span>
-      <ul className="space-y-0.5">
-        {ledger.map((e) => (
-          <li key={e.key} className="flex justify-between text-xs">
-            <span className={e.kind === "deposit" ? "text-success" : ""}>{e.label}</span>
-            <span>
-              {e.kind === "deposit" ? "+" : "-"}
-              {money(e.amount)}
-            </span>
-          </li>
-        ))}
-      </ul>
-      <div className="flex justify-between border-t pt-1 text-sm font-semibold">
-        <span>{netBalance < 0 ? "Debt" : "Advance"}</span>
-        <span className={netBalance < 0 ? "text-destructive" : "text-success"}>
-          {money(netBalance)}
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Customer account
         </span>
+        <AccountStatusBadge status={summary.account_status} />
       </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <span className="block text-xs text-muted-foreground">Available Advance</span>
+          <span
+            className={`text-base font-semibold ${summary.available_advance > 0 ? "text-success" : ""}`}
+          >
+            {money(summary.available_advance)}
+          </span>
+        </div>
+        <div>
+          <span className="block text-xs text-muted-foreground">Outstanding Debt</span>
+          <span
+            className={`text-base font-semibold ${summary.outstanding_debt > 0 ? "text-destructive" : ""}`}
+          >
+            {money(summary.outstanding_debt)}
+          </span>
+        </div>
+      </div>
+
+      {summary.outstanding_debt > 0 && (
+        <p className="rounded-md bg-destructive/10 px-2 py-1 text-xs text-destructive">
+          {customerName} still owes {money(summary.outstanding_debt)} from earlier sales. This sale
+          does not clear it.
+        </p>
+      )}
+      {summary.available_advance === 0 && hadAdvance && summary.outstanding_debt === 0 && (
+        <p className="rounded-md bg-warning/15 px-2 py-1 text-xs text-warning">
+          Advance exhausted — this customer has no advance left to draw on.
+        </p>
+      )}
+      {pendingSales.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          {pendingSales.length} earlier sale{pendingSales.length === 1 ? " is" : "s are"} still
+          awaiting approval and not counted above.
+        </p>
+      )}
+
+      {hasHistory ? (
+        <AccountLedgerTable ledger={ledger} pendingSales={pendingSales} compact limit={5} />
+      ) : (
+        <p className="text-xs text-muted-foreground">No prior transactions with this customer.</p>
+      )}
+
+      <div className="flex justify-end">
+        <Button
+          type="button"
+          variant="link"
+          size="sm"
+          className="h-auto p-0"
+          onClick={() => setHistoryOpen(true)}
+        >
+          View Account History
+        </Button>
+      </div>
+      <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+        {historyOpen && (
+          <CustomerAccountDialog customerId={customerId} customerName={customerName} />
+        )}
+      </Dialog>
     </div>
   );
 }
@@ -1516,8 +1261,11 @@ export function PosDialog({
   const [isPr, setIsPr] = useState(false);
   const [payments, setPayments] = useState<PaymentLine[]>([{ amount: 0, method: "cash" }]);
   const amountPaid = useMemo(() => payments.reduce((s, p) => s + (p.amount || 0), 0), [payments]);
-  const customerAccount = useCustomerAccountSummary(customerId);
-  const availableCredit = customerAccount.data?.creditBalance ?? 0;
+  // The customer's real account (ledger-backed): advance they can draw on and
+  // any debt they already owe. Both feed the live figures below.
+  const customerAccount = useCustomerAccount(customerId);
+  const availableCredit = customerAccount.data?.summary.available_advance ?? 0;
+  const existingDebt = customerAccount.data?.summary.outstanding_debt ?? 0;
   const [salesPerson, setSalesPerson] = useState("");
   const [remarks, setRemarks] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
@@ -1602,6 +1350,20 @@ export function PosDialog({
     const balance = Math.max(grand - amountPaid - creditApplied, 0);
     return { subtotal, discount, vat, grand, balance, creditApplied };
   }, [cart, discountInput, discountType, amountPaid, availableCredit, vatRate, applyVat, isPr]);
+
+  const registeredCustomer = customerId !== "walkin";
+  // Same arithmetic approve_sale() finalises with, so the figures shown while
+  // building the sale are the ones that get posted.
+  const position = useMemo(
+    () =>
+      salePosition({
+        grand: totals.grand,
+        paid: amountPaid,
+        availableAdvance: availableCredit,
+        previousDebt: existingDebt,
+      }),
+    [totals.grand, amountPaid, availableCredit, existingDebt],
+  );
 
   // What actually gets sold -- excludes lines the user has cleared to 0
   // while editing but hasn't removed or refilled yet.
@@ -1702,7 +1464,7 @@ export function PosDialog({
       if (error) throw error;
       return data as any;
     },
-    onSuccess: async (res) => {
+    onSuccess: (res) => {
       toast.success(`${res.invoice_number} submitted — awaiting manager approval`);
       logAudit({
         action: "sale",
@@ -1714,39 +1476,6 @@ export function PosDialog({
           grand_total: res.grand_total,
           balance: res.balance,
         },
-      });
-      await generateInvoicePdf({
-        company: {
-          name: settings.data?.company_name ?? "FMIS",
-          address: settings.data?.address,
-          phone: settings.data?.phone,
-          email: settings.data?.email,
-          logo_url: settings.data?.logo_url,
-        },
-        invoice_number: res.invoice_number,
-        sale_date: saleDate,
-        customer: {
-          name: customerName || customers.data?.find((c) => c.id === customerId)?.name,
-          phone: customerPhone,
-          address: customerAddress,
-        },
-        items: sellableCart.map((c) => ({
-          name: c.name,
-          quantity: c.quantity,
-          unit: c.unit,
-          unit_price: c.unit_price,
-          line_total: c.quantity * c.unit_price,
-        })),
-        subtotal: totals.subtotal,
-        discount: totals.discount,
-        vat: totals.vat,
-        grand_total: totals.grand,
-        amount_paid: amountPaid,
-        balance: totals.balance,
-        currency: settings.data?.currency ?? "NGN",
-        remarks,
-        sales_person: salesPerson,
-        is_pr: isPr,
       });
       onDone();
     },
@@ -1943,7 +1672,12 @@ export function PosDialog({
               </Select>
             </div>
           </div>
-          <CustomerAccountPanel customerId={customerId} />
+          <CustomerAccountPanel
+            customerId={customerId}
+            customerName={
+              (customers.data ?? []).find((c) => c.id === customerId)?.name ?? "This customer"
+            }
+          />
           {customerId === "walkin" && (
             <>
               <div className="grid grid-cols-2 gap-2">
@@ -2017,12 +1751,6 @@ export function PosDialog({
               />
             </div>
           )}
-          {!isPr && availableCredit > 0 && (
-            <p className="text-xs text-muted-foreground">
-              This customer has {money(availableCredit)} in advance/credit — it's applied to this
-              sale automatically, covering as much of the balance below as it can.
-            </p>
-          )}
           <div>
             <Label className="text-xs">Sales rep (van stock)</Label>
             <Select
@@ -2089,18 +1817,77 @@ export function PosDialog({
               <span>Paid</span>
               <span>{money(amountPaid)}</span>
             </div>
-            {totals.creditApplied > 0 && (
-              <div className="flex justify-between">
-                <span>Credit applied</span>
-                <span>{money(totals.creditApplied)}</span>
+            {registeredCustomer && !isPr ? (
+              <div className="mt-1 space-y-1 border-t pt-2">
+                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Current sale vs customer advance
+                </div>
+                <div className="flex justify-between">
+                  <span>Advance available</span>
+                  <span>{money(availableCredit)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Advance applied</span>
+                  <span className={position.advanceApplied > 0 ? "text-success" : ""}>
+                    {money(position.advanceApplied)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Remaining advance</span>
+                  <span>{money(position.remainingAdvance)}</span>
+                </div>
+                <div className="flex justify-between font-medium">
+                  <span>Amount due</span>
+                  <span className={position.amountDue > 0 ? "text-destructive" : ""}>
+                    {money(position.amountDue)}
+                  </span>
+                </div>
+                {totals.grand > 0 && position.advanceShort && (
+                  <p className="rounded-md bg-destructive/10 px-2 py-1 text-xs font-medium text-destructive">
+                    Advance exhausted. Customer owes {money(position.amountDue)}.
+                  </p>
+                )}
+                {totals.grand > 0 && position.advanceExhausted && (
+                  <p className="rounded-md bg-warning/15 px-2 py-1 text-xs font-medium text-warning">
+                    This sale uses up the customer's advance — nothing is left afterwards.
+                  </p>
+                )}
+                {totals.grand > 0 && position.advanceLow && (
+                  <p className="rounded-md bg-warning/15 px-2 py-1 text-xs text-warning">
+                    Advance almost exhausted — only {money(position.remainingAdvance)} left after
+                    this sale.
+                  </p>
+                )}
+                {totals.grand > 0 && availableCredit === 0 && position.amountDue > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    No advance on this account — the amount due becomes a debt unless it is paid
+                    now.
+                  </p>
+                )}
+                {existingDebt > 0 && (
+                  <div className="rounded-md bg-destructive/10 px-2 py-1 text-xs text-destructive">
+                    Existing debt {money(existingDebt)} is not part of this sale and stays on the
+                    account. Total owed after this sale:{" "}
+                    <strong>{money(position.debtAfter)}</strong>.
+                  </div>
+                )}
               </div>
+            ) : (
+              <>
+                {totals.creditApplied > 0 && (
+                  <div className="flex justify-between">
+                    <span>Credit applied</span>
+                    <span>{money(totals.creditApplied)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between font-medium">
+                  <span>Balance</span>
+                  <span className={totals.balance > 0 ? "text-destructive" : ""}>
+                    {money(totals.balance)}
+                  </span>
+                </div>
+              </>
             )}
-            <div className="flex justify-between font-medium">
-              <span>Balance</span>
-              <span className={totals.balance > 0 ? "text-destructive" : ""}>
-                {money(totals.balance)}
-              </span>
-            </div>
           </div>
         </div>
       </div>

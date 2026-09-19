@@ -10,8 +10,17 @@ function downloadBlob(filename: string, content: string, mimeType: string) {
   URL.revokeObjectURL(url);
 }
 
-function csvCell(value: unknown): string {
-  const s = value == null ? "" : String(value);
+// Spreadsheets run a cell that starts with = + - @ as a formula. Names, reasons
+// and remarks are typed by users, so text like =HYPERLINK("http://…") would
+// execute when a report is opened. Prefix such text with an apostrophe so it
+// stays text; real numbers (including negatives) and plain numeric strings are
+// left exactly as they were.
+const FORMULA_START = /^[=+\-@\t\r]/;
+const PLAIN_NUMBER = /^[+-]?\d+(\.\d+)?$/;
+
+export function csvCell(value: unknown): string {
+  let s = value == null ? "" : String(value);
+  if (typeof value === "string" && FORMULA_START.test(s) && !PLAIN_NUMBER.test(s)) s = `'${s}`;
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 

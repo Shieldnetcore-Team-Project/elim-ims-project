@@ -37,6 +37,7 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { money, num } from "@/lib/format";
+import { isLowStock } from "@/lib/metrics";
 import { toast } from "sonner";
 import { requestDelete } from "@/lib/request-delete";
 import { RequestDeleteDialog } from "@/components/shared/request-delete-dialog";
@@ -423,8 +424,7 @@ function FinishedGoodsPage() {
       (s, p) => s + Number(p.current_stock) * Number(p.cost_price),
       0,
     ),
-    lowStock: filteredList.filter((p) => Number(p.current_stock) <= Number(p.reorder_level ?? 0))
-      .length,
+    lowStock: filteredList.filter((p) => isLowStock(p.current_stock, p.reorder_level)).length,
   };
 
   const printCard = async (p: Product) => {
@@ -575,7 +575,7 @@ function FinishedGoodsPage() {
             </TableHeader>
             <TableBody>
               {filteredList.map((p) => {
-                const low = Number(p.current_stock) <= Number(p.reorder_level ?? 0);
+                const low = isLowStock(p.current_stock, p.reorder_level);
                 return (
                   <TableRow key={p.id}>
                     <TableCell className="font-medium">{p.name}</TableCell>
@@ -1149,12 +1149,7 @@ function ProductForm({
           </div>
           <div>
             <Label>Reorder level</Label>
-            <MoneyInput
-              min={0}
-              step="0.001"
-              value={reorderLevel}
-              onChange={setReorderLevel}
-            />
+            <MoneyInput min={0} step="0.001" value={reorderLevel} onChange={setReorderLevel} />
           </div>
         </div>
       </div>
@@ -1234,11 +1229,7 @@ function AdjustDialog({
             </div>
             <div>
               <Label>New quantity</Label>
-              <MoneyInput
-                step="0.001"
-                value={newQuantity}
-                onChange={setNewQuantity}
-              />
+              <MoneyInput step="0.001" value={newQuantity} onChange={setNewQuantity} />
             </div>
             <div>
               <Label>Difference</Label>
@@ -1351,22 +1342,12 @@ function ConfirmBatchDialog({ batch, onDone }: { batch: PendingBatch; onDone: ()
         </p>
         <div>
           <Label>Actual Quantity Received</Label>
-          <MoneyInput
-            min={0}
-            step="0.001"
-            value={actualReceived}
-            onChange={setActualReceived}
-          />
+          <MoneyInput min={0} step="0.001" value={actualReceived} onChange={setActualReceived} />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label>Damaged Quantity</Label>
-            <MoneyInput
-              min={0}
-              step="0.001"
-              value={damaged}
-              onChange={setDamaged}
-            />
+            <MoneyInput min={0} step="0.001" value={damaged} onChange={setDamaged} />
             {Number(batch.damaged_quantity ?? 0) > 0 && (
               <p className="mt-1 text-xs text-muted-foreground">
                 Pre-filled from what Production reported — adjust if needed.
@@ -1375,12 +1356,7 @@ function ConfirmBatchDialog({ batch, onDone }: { batch: PendingBatch; onDone: ()
           </div>
           <div>
             <Label>Rejected Quantity</Label>
-            <MoneyInput
-              min={0}
-              step="0.001"
-              value={rejected}
-              onChange={setRejected}
-            />
+            <MoneyInput min={0} step="0.001" value={rejected} onChange={setRejected} />
           </div>
         </div>
         <div className="rounded-md border bg-muted/30 p-3">
