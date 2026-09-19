@@ -1526,12 +1526,12 @@ export function PosDialog({
   };
 
   return (
-    <DialogContent className="flex max-h-[92vh] w-[95vw] max-w-4xl flex-col gap-0 overflow-hidden p-0">
+    <DialogContent className="flex max-h-[92vh] w-[95vw] max-w-6xl flex-col gap-0 overflow-hidden p-0">
       <DialogHeader className="shrink-0 border-b px-6 py-4">
         <DialogTitle>New Sale</DialogTitle>
       </DialogHeader>
-      <div className="grid flex-1 gap-4 overflow-y-auto px-6 py-4 md:grid-cols-[2fr_1fr]">
-        <div className="space-y-3">
+      <div className="grid flex-1 gap-6 overflow-y-auto px-6 py-4 md:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+        <div className="min-w-0 space-y-3">
           <div className="grid grid-cols-[1fr_auto] gap-2">
             <div className="grid gap-1.5">
               <Label className="text-xs">Add product</Label>
@@ -1576,9 +1576,9 @@ export function PosDialog({
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Item</TableHead>
-                  <TableHead className="w-24">Qty</TableHead>
-                  <TableHead className="w-32">Price</TableHead>
+                  <TableHead className="min-w-[220px]">Item</TableHead>
+                  <TableHead className="w-28">Qty</TableHead>
+                  <TableHead className="w-36">Price</TableHead>
                   <TableHead className="text-right">Total</TableHead>
                   <TableHead className="w-10"></TableHead>
                 </TableRow>
@@ -1634,7 +1634,7 @@ export function PosDialog({
           </div>
         </div>
 
-        <div className="space-y-2.5">
+        <div className="min-w-0 space-y-2.5">
           <div className="grid grid-cols-2 gap-2">
             <div>
               <Label className="text-xs">Sales date</Label>
