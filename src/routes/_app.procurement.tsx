@@ -55,6 +55,7 @@ import { toast } from "sonner";
 import { generateProductionRequestPdf, generatePurchaseOrderPdf } from "@/lib/pdf";
 import { logAudit } from "@/lib/audit";
 import { usePendingAttention } from "@/lib/pending-attention";
+import { QuickAddMaterialDialog, ADD_NEW_ITEM } from "@/components/shared/quick-add-item";
 
 export const Route = createFileRoute("/_app/procurement")({
   head: () => ({
@@ -498,6 +499,8 @@ function RequestForm({
   onDone: () => void;
 }) {
   const [requestedBy, setRequestedBy] = useState("");
+  // Row index that asked for "+ Add new material…" (null = dialog closed).
+  const [addingMaterialFor, setAddingMaterialFor] = useState<number | null>(null);
   const [department, setDepartment] = useState("");
   const [remarks, setRemarks] = useState("");
   const [items, setItems] = useState<
@@ -585,7 +588,12 @@ function RequestForm({
         <div className="grid gap-2">
           {items.map((it, i) => (
             <div key={i} className="grid grid-cols-[2fr_1fr_1.4fr_auto] items-center gap-2">
-              <Select value={it.materialId} onValueChange={(v) => updateItem(i, { materialId: v })}>
+              <Select
+                value={it.materialId}
+                onValueChange={(v) =>
+                  v === ADD_NEW_ITEM ? setAddingMaterialFor(i) : updateItem(i, { materialId: v })
+                }
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Select material…" />
                 </SelectTrigger>
@@ -595,6 +603,9 @@ function RequestForm({
                       {mat.name} · stock {num(Number(mat.current_stock))} {mat.unit}
                     </SelectItem>
                   ))}
+                  <SelectItem value={ADD_NEW_ITEM} className="font-medium text-primary">
+                    + Add new material…
+                  </SelectItem>
                 </SelectContent>
               </Select>
               <MoneyInput
@@ -629,6 +640,14 @@ function RequestForm({
             </div>
           ))}
         </div>
+        <QuickAddMaterialDialog
+          open={addingMaterialFor !== null}
+          onOpenChange={(v) => !v && setAddingMaterialFor(null)}
+          factoryId={factoryId}
+          onCreated={(id) => {
+            if (addingMaterialFor !== null) updateItem(addingMaterialFor, { materialId: id });
+          }}
+        />
 
         <div>
           <Label>Remarks</Label>

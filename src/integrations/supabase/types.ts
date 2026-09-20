@@ -4280,6 +4280,10 @@ export type Database = {
         Returns: Json
       }
       request_new_material: { Args: { payload: Json }; Returns: Json }
+      set_product_cost_price: {
+        Args: { p_id: string; p_cost: number }
+        Returns: undefined
+      }
       request_role_grant: {
         Args: {
           p_factory_id?: string

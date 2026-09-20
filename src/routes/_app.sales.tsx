@@ -63,6 +63,7 @@ import { CustomerAccountDialog } from "@/components/sales/customer-account-dialo
 import { ApprovalHistory } from "@/components/workflow/approval-history";
 import { requestDelete } from "@/lib/request-delete";
 import { RequestDeleteDialog } from "@/components/shared/request-delete-dialog";
+import { QuickAddProductDialog, ADD_NEW_ITEM } from "@/components/shared/quick-add-item";
 
 export const Route = createFileRoute("/_app/sales")({
   head: () => ({ meta: [{ title: "Sales & POS — FMIS" }, { name: "robots", content: "noindex" }] }),
@@ -1378,7 +1379,12 @@ export function PosDialog({
     }
   }, [isPr]);
 
+  const [addingProduct, setAddingProduct] = useState(false);
   const addProduct = (id: string) => {
+    if (id === ADD_NEW_ITEM) {
+      setAddingProduct(true);
+      return;
+    }
     const p = products.data?.find((x) => x.id === id);
     if (!p) return;
     const avail = effStock(p);
@@ -1551,8 +1557,17 @@ export function PosDialog({
                       No products in this category.
                     </div>
                   )}
+                  <SelectItem value={ADD_NEW_ITEM} className="font-medium text-primary">
+                    + Add new product…
+                  </SelectItem>
                 </SelectContent>
               </Select>
+              <QuickAddProductDialog
+                open={addingProduct}
+                onOpenChange={setAddingProduct}
+                factoryId={factoryId}
+                onCreated={() => setCategoryFilter("all")}
+              />
             </div>
             <div className="grid gap-1.5">
               <Label className="text-xs">Category</Label>

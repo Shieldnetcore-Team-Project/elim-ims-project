@@ -52,6 +52,7 @@ import { money, num } from "@/lib/format";
 import { toast } from "sonner";
 import { generateProductionSlipPdf } from "@/lib/pdf";
 import { logAudit } from "@/lib/audit";
+import { QuickAddProductDialog, ADD_NEW_ITEM } from "@/components/shared/quick-add-item";
 
 export const Route = createFileRoute("/_app/production")({
   head: () => ({ meta: [{ title: "Production — FMIS" }, { name: "robots", content: "noindex" }] }),
@@ -538,6 +539,7 @@ function ProductionForm({
 }) {
   const [requestId, setRequestId] = useState("");
   const [productId, setProductId] = useState(editing?.product_id ?? "");
+  const [addingProduct, setAddingProduct] = useState(false);
   const [date, setDate] = useState(
     editing?.production_date ?? new Date().toISOString().slice(0, 10),
   );
@@ -718,6 +720,10 @@ function ProductionForm({
           <Select
             value={productId}
             onValueChange={(v) => {
+              if (v === ADD_NEW_ITEM) {
+                setAddingProduct(true);
+                return;
+              }
               setProductId(v);
               setQuantityUnit("__base__");
               const p = products.find((x) => x.id === v);
@@ -734,8 +740,20 @@ function ProductionForm({
                   {p.name} · stock {num(Number(p.current_stock))} {p.unit}
                 </SelectItem>
               ))}
+              <SelectItem value={ADD_NEW_ITEM} className="font-medium text-primary">
+                + Add new product…
+              </SelectItem>
             </SelectContent>
           </Select>
+          <QuickAddProductDialog
+            open={addingProduct}
+            onOpenChange={setAddingProduct}
+            factoryId={factoryId}
+            onCreated={(id) => {
+              setProductId(id);
+              setQuantityUnit("__base__");
+            }}
+          />
         </div>
         {!editing && selectedProduct && (
           <div>

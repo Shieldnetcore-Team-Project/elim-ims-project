@@ -1015,10 +1015,17 @@ function ProductForm({
         reorder_level: reorderLevel,
       };
       if (editing) {
-        // cost_price is intentionally excluded here — it's only ever set via
-        // an approved Costing sheet from this point on, never a direct edit.
+        // cost_price is column-locked for direct updates; a manual change goes
+        // through the audited set_product_cost_price RPC instead.
         const { error } = await supabase.from("products").update(payload).eq("id", editing.id);
         if (error) throw error;
+        if (costPrice !== Number(editing.cost_price)) {
+          const { error: costErr } = await supabase.rpc("set_product_cost_price", {
+            p_id: editing.id,
+            p_cost: costPrice,
+          });
+          if (costErr) throw costErr;
+        }
       } else {
         const { error } = await supabase.from("products").insert({
           ...payload,
@@ -1119,20 +1126,11 @@ function ProductForm({
           </div>
           <div>
             <Label>Cost price</Label>
-            {editing ? (
-              <>
-                <MoneyInput
-                  value={costPrice}
-                  onChange={setCostPrice}
-                  disabled
-                  className="bg-muted"
-                />
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Set via an approved Costing sheet — see the Costing page.
-                </p>
-              </>
-            ) : (
-              <MoneyInput value={costPrice} onChange={setCostPrice} />
+            <MoneyInput value={costPrice} onChange={setCostPrice} />
+            {editing && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Stays as entered until changed here or by an approved Costing sheet.
+              </p>
             )}
           </div>
         </div>

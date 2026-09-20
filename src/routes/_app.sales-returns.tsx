@@ -38,6 +38,7 @@ import { Plus, Eye, Ban, Undo2, Loader2 } from "lucide-react";
 import { num } from "@/lib/format";
 import { toast } from "sonner";
 import { logAudit } from "@/lib/audit";
+import { QuickAddProductDialog, ADD_NEW_ITEM } from "@/components/shared/quick-add-item";
 import {
   startOfDay,
   endOfDay,
@@ -497,6 +498,7 @@ function CreateReturnDialog({
   const [saleId, setSaleId] = useState("none");
   const [customerId, setCustomerId] = useState("none");
   const [productId, setProductId] = useState("");
+  const [addingProduct, setAddingProduct] = useState(false);
   const [quantity, setQuantity] = useState(0);
   const [reason, setReason] = useState("");
 
@@ -565,7 +567,10 @@ function CreateReturnDialog({
         </div>
         <div>
           <Label>Product returned</Label>
-          <Select value={productId} onValueChange={setProductId}>
+          <Select
+            value={productId}
+            onValueChange={(v) => (v === ADD_NEW_ITEM ? setAddingProduct(true) : setProductId(v))}
+          >
             <SelectTrigger>
               <SelectValue placeholder="Select product…" />
             </SelectTrigger>
@@ -575,8 +580,17 @@ function CreateReturnDialog({
                   {p.name}
                 </SelectItem>
               ))}
+              <SelectItem value={ADD_NEW_ITEM} className="font-medium text-primary">
+                + Add new product…
+              </SelectItem>
             </SelectContent>
           </Select>
+          <QuickAddProductDialog
+            open={addingProduct}
+            onOpenChange={setAddingProduct}
+            factoryId={factoryId}
+            onCreated={setProductId}
+          />
         </div>
         <div>
           <Label>Quantity returned</Label>

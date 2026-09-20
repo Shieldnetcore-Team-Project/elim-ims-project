@@ -41,6 +41,7 @@ import { money, num } from "@/lib/format";
 import { exportCsv } from "@/lib/export";
 import { toast } from "sonner";
 import { logAudit } from "@/lib/audit";
+import { QuickAddProductDialog, ADD_NEW_ITEM } from "@/components/shared/quick-add-item";
 import { requestDelete } from "@/lib/request-delete";
 import { RequestDeleteDialog } from "@/components/shared/request-delete-dialog";
 
@@ -667,13 +668,17 @@ function LineEditor({
   setLines,
   stockOf,
   qtyLabel = "Qty",
+  factoryId,
 }: {
   products: Product[];
   lines: Line[];
   setLines: (l: Line[]) => void;
   stockOf: (productId: string) => number;
   qtyLabel?: string;
+  // When set, the product dropdown offers "+ Add new product…".
+  factoryId?: string;
 }) {
+  const [addingFor, setAddingFor] = useState<number | null>(null);
   const add = () => setLines([...lines, { product_id: "", quantity: 0 }]);
   const update = (i: number, patch: Partial<Line>) =>
     setLines(lines.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
@@ -688,7 +693,12 @@ function LineEditor({
           <div key={i} className="flex items-end gap-2">
             <div className="flex-1">
               <Label className="text-xs">Product</Label>
-              <Select value={l.product_id} onValueChange={(v) => update(i, { product_id: v })}>
+              <Select
+                value={l.product_id}
+                onValueChange={(v) =>
+                  v === ADD_NEW_ITEM ? setAddingFor(i) : update(i, { product_id: v })
+                }
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Select…" />
                 </SelectTrigger>
@@ -698,6 +708,11 @@ function LineEditor({
                       {p.name}
                     </SelectItem>
                   ))}
+                  {factoryId && (
+                    <SelectItem value={ADD_NEW_ITEM} className="font-medium text-primary">
+                      + Add new product…
+                    </SelectItem>
+                  )}
                 </SelectContent>
               </Select>
             </div>
@@ -726,6 +741,16 @@ function LineEditor({
       <Button variant="outline" size="sm" className="gap-2" onClick={add}>
         <Plus className="h-4 w-4" /> Add line
       </Button>
+      {factoryId && (
+        <QuickAddProductDialog
+          open={addingFor !== null}
+          onOpenChange={(v) => !v && setAddingFor(null)}
+          factoryId={factoryId}
+          onCreated={(id) => {
+            if (addingFor !== null) update(addingFor, { product_id: id });
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -877,6 +902,7 @@ function NewDispatchDialog({
             lines={lines}
             setLines={setLines}
             stockOf={(id) => products.find((p) => p.id === id)?.current_stock ?? 0}
+            factoryId={factoryId}
           />
         </div>
 

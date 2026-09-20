@@ -728,6 +728,7 @@ function AddMaterialDialog({
   const unit = unitChoice === "__custom__" ? customUnit : unitChoice;
   const [openingStock, setOpeningStock] = useState(0);
   const [reorderLevel, setReorderLevel] = useState(0);
+  const [unitCost, setUnitCost] = useState(0);
 
   const save = useMutation({
     mutationFn: async () => {
@@ -738,6 +739,7 @@ function AddMaterialDialog({
           factory_id: factoryId,
           name: name.trim(),
           unit: unit.trim(),
+          unit_cost: unitCost,
           opening_stock: openingStock,
           reorder_level: reorderLevel,
         } as any,
@@ -808,9 +810,15 @@ function AddMaterialDialog({
             <MoneyInput min={0} step="0.001" value={openingStock} onChange={setOpeningStock} />
           </div>
         </div>
-        <div>
-          <Label>Reorder level</Label>
-          <MoneyInput min={0} step="0.001" value={reorderLevel} onChange={setReorderLevel} />
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label>Unit cost</Label>
+            <MoneyInput value={unitCost} onChange={setUnitCost} />
+          </div>
+          <div>
+            <Label>Reorder level</Label>
+            <MoneyInput min={0} step="0.001" value={reorderLevel} onChange={setReorderLevel} />
+          </div>
         </div>
       </div>
       <DialogFooter>
