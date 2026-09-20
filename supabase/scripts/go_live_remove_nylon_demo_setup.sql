@@ -11,7 +11,7 @@
 --                          (Nylon Shopping Bag - Small / Large, Packaging Roll -
 --                           500m, Recycled Nylon Pellet)
 --   * product categories   Shopping Bags, Packaging Rolls
---   * raw materials        LDPE Resin, HDPE Resin, Colour Masterbatch
+--   * raw materials        LDPE Resin, HDPE Resin, Colour Masterbatch, Low Recycle Material
 --   * suppliers            Polymer Traders Ltd, NylonPack Materials
 --   * employees            DEMO-EMP-N001 .. N003 (Emeka Obi, Fatima Bello, Chidi Okafor)
 --   * vehicle / driver / route   XYZ-456-KJ, LIC-N-001, Lagos Island / Apapa Route
@@ -53,7 +53,7 @@ BEGIN
   DELETE FROM public.product_categories
    WHERE factory_id = v_nylon AND name IN ('Shopping Bags','Packaging Rolls');
   DELETE FROM public.raw_materials
-   WHERE factory_id = v_nylon AND name IN ('LDPE Resin','HDPE Resin','Colour Masterbatch');
+   WHERE factory_id = v_nylon AND name IN ('LDPE Resin','HDPE Resin','Colour Masterbatch','Low Recycle Material');
   DELETE FROM public.suppliers
    WHERE factory_id = v_nylon AND name IN ('Polymer Traders Ltd','NylonPack Materials');
   DELETE FROM public.employees

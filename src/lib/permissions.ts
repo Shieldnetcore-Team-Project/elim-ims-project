@@ -253,7 +253,7 @@ export function useMyProductionScope() {
 }
 
 export function usePermissions() {
-  const { data, isLoading } = useMyPermissions();
+  const { data, isLoading, isError, refetch } = useMyPermissions();
   const access = data?.access ?? {};
   const signedIn = data?.signedIn ?? false;
 
@@ -263,6 +263,10 @@ export function usePermissions() {
   return {
     signedIn,
     loading: isLoading,
+    // true when the permission lookup itself failed (network/server) — that is
+    // not the same as "no access" and must not be shown as such.
+    loadFailed: isError,
+    reload: refetch,
     can,
     canView: (m: ModuleKey) => can(m, "view"),
     canCreate: (m: ModuleKey) => can(m, "create"),

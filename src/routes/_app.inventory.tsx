@@ -30,7 +30,9 @@ import {
   Droplet,
   Layers,
   ArrowRight,
+  ChevronDown,
 } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 export const Route = createFileRoute("/_app/inventory")({
   head: () => ({
@@ -79,11 +81,16 @@ function SummaryCard({
   label,
   value,
   tone = "primary",
+  hint,
+  children,
 }: {
   icon: React.ElementType;
   label: string;
   value: string;
   tone?: "primary" | "warning" | "destructive";
+  // Short plain-language explanation shown under the number.
+  hint?: string;
+  children?: React.ReactNode;
 }) {
   const toneClasses = {
     primary: "bg-primary/10 text-primary",
@@ -96,6 +103,8 @@ function SummaryCard({
         <div>
           <div className="text-xs uppercase tracking-wider text-muted-foreground">{label}</div>
           <div className="mt-2 text-2xl font-semibold">{value}</div>
+          {hint && <div className="mt-1 text-xs text-muted-foreground">{hint}</div>}
+          {children}
         </div>
         <div className={`grid h-10 w-10 place-items-center rounded-xl ${toneClasses}`}>
           <Icon className="h-5 w-5" />
@@ -200,12 +209,44 @@ function InventoryOverviewPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <SummaryCard icon={Boxes} label="Raw Material SKUs" value={String(summary.materialCount)} />
+        <SummaryCard
+          icon={Boxes}
+          label="Raw Material SKUs"
+          value={String(summary.materialCount)}
+          hint="SKU = Stock Keeping Unit: each different raw material counts as one."
+        />
         <SummaryCard
           icon={Package}
           label="Finished Product SKUs"
           value={String(summary.productCount)}
-        />
+          hint="SKU = Stock Keeping Unit: each different finished product counts as one."
+        >
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className="mt-2 h-8 gap-1 px-2 text-xs">
+                View all {factoryLabel.name.replace(" Factory", "")} products
+                <ChevronDown className="h-3.5 w-3.5" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="max-h-72 w-72 overflow-y-auto p-1">
+              {(products.data ?? []).length === 0 ? (
+                <div className="px-2 py-3 text-sm text-muted-foreground">No finished products yet.</div>
+              ) : (
+                (products.data ?? []).map((p) => (
+                  <div
+                    key={p.id}
+                    className="flex items-center justify-between gap-3 rounded-sm px-2 py-1.5 text-sm hover:bg-accent"
+                  >
+                    <span className="truncate">{p.name}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {num(Number(p.current_stock))} {p.unit}
+                    </span>
+                  </div>
+                ))
+              )}
+            </PopoverContent>
+          </Popover>
+        </SummaryCard>
         <SummaryCard
           icon={AlertTriangle}
           label="Low Stock Items"
