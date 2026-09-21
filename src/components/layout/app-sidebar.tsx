@@ -18,7 +18,7 @@ import { usePendingAttention } from "@/lib/pending-attention";
 import { Badge } from "@/components/ui/badge";
 
 export function AppSidebar() {
-  const { state } = useSidebar();
+  const { state, setOpenMobile } = useSidebar();
   const collapsed = state === "collapsed";
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { can } = usePermissions();
@@ -66,6 +66,8 @@ export function AppSidebar() {
                         <SidebarMenuButton asChild isActive={active}>
                           <Link
                             to={item.url}
+                            // On mobile the sidebar is a sheet; close it so the page shows.
+                            onClick={() => setOpenMobile(false)}
                             className={
                               active
                                 ? "flex items-center gap-2 bg-sidebar-accent text-sidebar-accent-foreground"
