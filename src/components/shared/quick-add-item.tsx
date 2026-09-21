@@ -128,9 +128,10 @@ export function QuickAddProductDialog({
     mutationFn: async () => {
       if (!name.trim()) throw new Error("Product name is required");
       if (!unit.trim()) throw new Error("Select or enter a unit of measurement");
-      const { data, error } = await supabase
-        .from("products")
-        .insert({
+      // Goes through an RPC (permission-checked server side) because the
+      // products table itself only lets Finished Goods writers insert.
+      const { data, error } = await supabase.rpc("quick_add_product" as any, {
+        payload: {
           factory_id: factoryId,
           name: name.trim(),
           product_type: productType,
@@ -139,12 +140,10 @@ export function QuickAddProductDialog({
           unit_price: unitPrice,
           cost_price: costPrice,
           current_stock: openingStock,
-          active: true,
-        })
-        .select("id")
-        .single();
+        },
+      } as any);
       if (error) throw error;
-      return data.id as string;
+      return (data as { id: string }).id;
     },
     onSuccess: (id) => {
       toast.success(`"${name.trim()}" added`);
