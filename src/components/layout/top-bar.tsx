@@ -146,7 +146,10 @@ export function TopBar() {
 
   return (
     <header className="sticky top-0 z-40 flex h-14 items-center gap-3 border-b bg-background/80 px-3 backdrop-blur">
-      <SidebarTrigger />
+      <SidebarTrigger
+        className="h-9 w-9 shrink-0 border"
+        title="Collapse / expand menu (Ctrl+B)"
+      />
       <FactorySwitcher />
       <div className="ml-2 hidden md:flex items-center gap-2 max-w-sm w-full">
         <div className="relative w-full">
