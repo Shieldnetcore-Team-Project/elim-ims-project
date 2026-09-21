@@ -120,10 +120,11 @@ const productionStatusBadge = (s: string): "default" | "secondary" | "outline" |
 
 function ProductionRequestsPage() {
   const { data: factoryId } = useFactoryId();
-  const { canSubmit, canApprove, canReject } = usePermissions();
+  const { canSubmit, canApprove, canReject, canConfirm } = usePermissions();
   const submit = canSubmit("production-requests");
   const approvePerm = canApprove("production-requests");
   const rejectPerm = canReject("production-requests");
+  const confirmPerm = canConfirm("production-requests");
   const settings = useFactorySettings(factoryId);
   const qc = useQueryClient();
   const [formOpen, setFormOpen] = useState(false);
@@ -345,11 +346,11 @@ function ProductionRequestsPage() {
                             <X className="h-4 w-4 text-destructive" />
                           </Button>
                         )}
-                      {row.approval_status === "approved" && !row.materials_issued && (
+                      {row.approval_status === "approved" && !row.materials_issued && confirmPerm && (
                         <Button
                           variant="ghost"
                           size="icon"
-                          title="Issue materials"
+                          title="Confirm & issue materials"
                           onClick={() => setIssueTarget(row)}
                         >
                           <PackageMinus className="h-4 w-4 text-warning" />
@@ -848,7 +849,7 @@ function ApproveDialog({ row, onDone }: { row: RequestRow; onDone: () => void })
       if (error) throw error;
     },
     onSuccess: () => {
-      toast.success("Request approved — materials released from stock");
+      toast.success("Request approved — awaiting inventory officer confirmation");
       logAudit({
         action: "update",
         entity: "production_requests",
@@ -960,14 +961,15 @@ function IssueDialog({
 
   const submit = useMutation({
     mutationFn: async () => {
-      if (!name.trim()) throw new Error("Enter the issuer's name");
-      const { error } = await supabase.rpc("issue_production_request_materials", {
-        payload: { request_id: row.id, issued_by_name: name.trim() } as any,
+      if (!name.trim()) throw new Error("Enter the confirmer's name");
+      const { error } = await supabase.rpc("confirm_production_request" as any, {
+        p_id: row.id,
+        p_confirmer_name: name.trim(),
       });
       if (error) throw error;
     },
     onSuccess: () => {
-      toast.success("Materials issued to production");
+      toast.success("Confirmed — materials released from stock");
       logAudit({
         action: "update",
         entity: "production_requests",
@@ -986,7 +988,7 @@ function IssueDialog({
   return (
     <DialogContent>
       <DialogHeader>
-        <DialogTitle>Issue Materials — {row.request_number}</DialogTitle>
+        <DialogTitle>Confirm & Issue Materials — {row.request_number}</DialogTitle>
       </DialogHeader>
       <div className="grid gap-3">
         <p className="text-sm text-muted-foreground">
@@ -1024,11 +1026,11 @@ function IssueDialog({
           </Table>
         </div>
         <div>
-          <Label>Issued by</Label>
+          <Label>Confirmed by</Label>
           <Input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Store keeper name"
+            placeholder="Inventory officer name"
           />
         </div>
         {shortItems.length > 0 && (
@@ -1040,7 +1042,7 @@ function IssueDialog({
       </div>
       <DialogFooter>
         <Button disabled={submit.isPending || !name.trim()} onClick={() => submit.mutate()}>
-          {submit.isPending ? "Issuing…" : "Issue Materials"}
+          {submit.isPending ? "Confirming…" : "Confirm & Issue"}
         </Button>
       </DialogFooter>
     </DialogContent>

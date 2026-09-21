@@ -1203,9 +1203,9 @@ export function PosDialog({
         .select("id,name,sku,unit,unit_price,current_stock,category_id")
         .eq("factory_id", factoryId)
         .eq("active", true)
-        // Uncategorized products are usually semi-finished/internal items, not
-        // sellable SKUs — keep them out of the POS picker.
-        .not("category_id", "is", null)
+        // Don't require a category: the Nylon factory has no product categories,
+        // so every Nylon finished product is uncategorized. Semi-finished items
+        // are kept out by being inactive instead.
         .order("name");
       if (error) throw error;
       return (data ?? []) as Product[];
