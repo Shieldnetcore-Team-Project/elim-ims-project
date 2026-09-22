@@ -39,7 +39,7 @@ export type PdfAction = "download" | "print" | "preview";
 // Bundled brand logo (public/assets/), served same-origin so it never taints
 // the canvas. Used on every receipt/print when a factory hasn't uploaded its
 // own logo in Settings, so nothing prints logo-less.
-const FALLBACK_LOGO_URL = "/assets/bluespring%20logo.jpeg";
+const FALLBACK_LOGO_URL = "/assets/elim-logo.png";
 
 // jsPDF's built-in fonts have no glyph for the Naira sign (₦) -- it prints as
 // a broken box on thermal/receipt output. Use a plain currency-code prefix

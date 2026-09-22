@@ -43,7 +43,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 
 export const Route = createFileRoute("/_app/settings")({
-  head: () => ({ meta: [{ title: "Settings — FMIS" }, { name: "robots", content: "noindex" }] }),
+  head: () => ({ meta: [{ title: "Settings — Elim Table Water" }, { name: "robots", content: "noindex" }] }),
   component: SettingsPage,
 });
 
@@ -580,7 +580,7 @@ function BackupRestoreCard({ factoryId }: { factoryId: string }) {
     try {
       const text = await file.text();
       const parsed = JSON.parse(text) as { tables?: Record<string, any[]> };
-      if (!parsed.tables) throw new Error("This file doesn't look like an FMIS backup");
+      if (!parsed.tables) throw new Error("This file doesn't look like an Elim Table Water backup");
       for (const table of BACKUP_TABLES) {
         const rows = parsed.tables[table];
         if (!rows || rows.length === 0) continue;

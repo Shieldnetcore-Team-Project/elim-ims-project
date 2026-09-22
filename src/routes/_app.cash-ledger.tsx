@@ -2,7 +2,7 @@ import { createFileRoute, Outlet, Link, useLocation } from "@tanstack/react-rout
 
 export const Route = createFileRoute("/_app/cash-ledger")({
   head: () => ({
-    meta: [{ title: "Cash & Receivables — FMIS" }, { name: "robots", content: "noindex" }],
+    meta: [{ title: "Cash & Receivables — Elim Table Water" }, { name: "robots", content: "noindex" }],
   }),
   component: CashLedgerLayout,
 });

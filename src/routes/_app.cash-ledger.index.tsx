@@ -34,7 +34,7 @@ import { startOfWeek, startOfMonth, startOfYear, format } from "date-fns";
 
 export const Route = createFileRoute("/_app/cash-ledger/")({
   head: () => ({
-    meta: [{ title: "Cash Flow Overview — FMIS" }, { name: "robots", content: "noindex" }],
+    meta: [{ title: "Cash Flow Overview — Elim Table Water" }, { name: "robots", content: "noindex" }],
   }),
   component: () => (
     <RequireAccess module="cash-flow">

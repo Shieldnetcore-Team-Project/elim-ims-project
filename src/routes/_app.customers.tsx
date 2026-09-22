@@ -45,7 +45,7 @@ import { KPI } from "@/lib/dashboard-kit";
 import { AccountAdjustmentsCard } from "@/components/customers/account-adjustments";
 
 export const Route = createFileRoute("/_app/customers")({
-  head: () => ({ meta: [{ title: "Customers — FMIS" }, { name: "robots", content: "noindex" }] }),
+  head: () => ({ meta: [{ title: "Customers — Elim Table Water" }, { name: "robots", content: "noindex" }] }),
   component: () => (
     <RequireAccess module="customers">
       <CustomersPage />

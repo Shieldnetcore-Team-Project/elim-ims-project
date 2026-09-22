@@ -59,7 +59,7 @@ import { QuickAddMaterialDialog, ADD_NEW_ITEM } from "@/components/shared/quick-
 
 export const Route = createFileRoute("/_app/procurement")({
   head: () => ({
-    meta: [{ title: "Procurement — FMIS" }, { name: "robots", content: "noindex" }],
+    meta: [{ title: "Procurement — Elim Table Water" }, { name: "robots", content: "noindex" }],
   }),
   component: ProcurementPage,
 });
@@ -303,7 +303,7 @@ function RequestsSection({
     generateProductionRequestPdf(
       {
         company: {
-          name: settings.data?.company_name ?? "FMIS",
+          name: settings.data?.company_name ?? "Elim Table Water",
           address: settings.data?.address,
           phone: settings.data?.phone,
           logo_url: settings.data?.logo_url,
@@ -905,7 +905,7 @@ function OrdersSection({
     generatePurchaseOrderPdf(
       {
         company: {
-          name: settings.data?.company_name ?? "FMIS",
+          name: settings.data?.company_name ?? "Elim Table Water",
           address: settings.data?.address,
           phone: settings.data?.phone,
           email: settings.data?.email,

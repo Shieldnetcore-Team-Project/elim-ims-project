@@ -51,7 +51,7 @@ import {
 
 export const Route = createFileRoute("/_app/sales-returns")({
   head: () => ({
-    meta: [{ title: "Sales Returns — FMIS" }, { name: "robots", content: "noindex" }],
+    meta: [{ title: "Sales Returns — Elim Table Water" }, { name: "robots", content: "noindex" }],
   }),
   component: () => (
     <RequireAccess module="sales-returns">

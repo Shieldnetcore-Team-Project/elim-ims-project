@@ -100,13 +100,13 @@ const STATUS_MESSAGES: Record<string, (reason?: string | null) => string> = {
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "FMIS — Factory Management & Inventory System" },
+      { title: "Elim Table Water — Factory Management & Inventory System" },
       {
         name: "description",
         content:
           "Enterprise inventory, sales, production, payroll, and reporting for the Water Factory and Nylon Factory.",
       },
-      { property: "og:title", content: "FMIS — Factory Management & Inventory System" },
+      { property: "og:title", content: "Elim Table Water — Factory Management & Inventory System" },
       {
         property: "og:description",
         content:
@@ -234,8 +234,8 @@ function Landing() {
         <div className="flex flex-1 flex-col items-center justify-center text-center">
           <div className="h-40 w-80 overflow-hidden rounded-2xl bg-white p-3 shadow-lg">
             <img
-              src="/assets/bluespring%20logo.jpeg"
-              alt="Bluespring Total Connect"
+              src="/assets/elim-logo.png"
+              alt="Elim Table Water"
               className="h-full w-full object-contain"
             />
           </div>
@@ -258,7 +258,7 @@ function Landing() {
         </div>
 
         <div className="flex items-center justify-between text-xs text-sidebar-foreground/60">
-          <span>© {new Date().getFullYear()} FMIS</span>
+          <span>© {new Date().getFullYear()} Elim Table Water</span>
           <span>Water Factory · Nylon Factory</span>
         </div>
       </div>
@@ -267,8 +267,8 @@ function Landing() {
         <div className="w-full max-w-md lg:hidden mb-6 flex justify-center">
           <div className="h-10 w-40 overflow-hidden rounded-lg bg-white">
             <img
-              src="/assets/bluespring%20logo.jpeg"
-              alt="Bluespring Total Connect"
+              src="/assets/elim-logo.png"
+              alt="Elim Table Water"
               className="h-full w-full object-contain"
             />
           </div>

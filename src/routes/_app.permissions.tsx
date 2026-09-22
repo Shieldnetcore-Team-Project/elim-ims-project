@@ -39,7 +39,7 @@ import { KeyRound, ShieldAlert, SlidersHorizontal, UserCheck } from "lucide-reac
 
 export const Route = createFileRoute("/_app/permissions")({
   head: () => ({
-    meta: [{ title: "Roles & Permissions — FMIS" }, { name: "robots", content: "noindex" }],
+    meta: [{ title: "Roles & Permissions — Elim Table Water" }, { name: "robots", content: "noindex" }],
   }),
   component: () => (
     <RequireAccess module="users">

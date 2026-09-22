@@ -181,7 +181,7 @@ export function CustomerAccountDialog({
       await generateCustomerStatementPdf(
         {
           company: {
-            name: settings.data?.company_name ?? "FMIS",
+            name: settings.data?.company_name ?? "Elim Table Water",
             address: settings.data?.address,
             phone: settings.data?.phone,
             logo_url: settings.data?.logo_url,

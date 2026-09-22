@@ -69,7 +69,7 @@ import { ADJUSTMENT_REASONS } from "@/lib/adjustment-reasons";
 
 export const Route = createFileRoute("/_app/raw-materials")({
   head: () => ({
-    meta: [{ title: "Raw Materials — FMIS" }, { name: "robots", content: "noindex" }],
+    meta: [{ title: "Raw Materials — Elim Table Water" }, { name: "robots", content: "noindex" }],
   }),
   component: () => (
     <RequireAccess module="raw-materials">
@@ -533,7 +533,7 @@ function RawMaterialsPage() {
     }
     generateStockCardPdf({
       company: {
-        name: settings.data?.company_name ?? "FMIS",
+        name: settings.data?.company_name ?? "Elim Table Water",
         address: settings.data?.address,
         phone: settings.data?.phone,
         logo_url: settings.data?.logo_url,

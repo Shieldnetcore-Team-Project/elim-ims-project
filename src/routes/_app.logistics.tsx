@@ -41,7 +41,7 @@ import { requestDelete } from "@/lib/request-delete";
 import { RequestDeleteDialog } from "@/components/shared/request-delete-dialog";
 
 export const Route = createFileRoute("/_app/logistics")({
-  head: () => ({ meta: [{ title: "Logistics — FMIS" }, { name: "robots", content: "noindex" }] }),
+  head: () => ({ meta: [{ title: "Logistics — Elim Table Water" }, { name: "robots", content: "noindex" }] }),
   component: () => (
     <RequireAccess module="logistics">
       <LogisticsPage />

@@ -4,7 +4,7 @@ import { useFactoryId } from "@/lib/use-factory";
 import { FinanceOverview } from "@/components/dashboards/finance-overview";
 
 export const Route = createFileRoute("/_app/finance")({
-  head: () => ({ meta: [{ title: "Finance — FMIS" }, { name: "robots", content: "noindex" }] }),
+  head: () => ({ meta: [{ title: "Finance — Elim Table Water" }, { name: "robots", content: "noindex" }] }),
   component: () => (
     <RequireAccess module="finance">
       <FinancePage />

@@ -74,13 +74,16 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "FMIS — Factory Management & Inventory System" },
+      { title: "Elim Table Water — Factory Management & Inventory System" },
       {
         name: "description",
         content:
           "Enterprise inventory, sales, production, payroll, and reporting for the Water Factory and Nylon Factory.",
       },
-      { property: "og:title", content: "FMIS — Factory Management & Inventory System" },
+      {
+        property: "og:title",
+        content: "Elim Table Water — Factory Management & Inventory System",
+      },
       {
         property: "og:description",
         content:
@@ -97,7 +100,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         rel: "stylesheet",
         href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap",
       },
-      { rel: "icon", href: "/assets/bluespring%20logo.jpeg", type: "image/jpeg" },
+      { rel: "icon", href: "/assets/elim-logo.png", type: "image/png" },
     ],
   }),
   shellComponent: RootShell,
@@ -124,8 +127,8 @@ function RootShell({ children }: { children: ReactNode }) {
         >
           <div className="h-28 w-56 overflow-hidden rounded-2xl bg-white p-3 shadow-lg animate-pulse">
             <img
-              src="/assets/bluespring%20logo.jpeg"
-              alt="Bluespring Total Connect"
+              src="/assets/elim-logo.png"
+              alt="Elim Table Water"
               className="h-full w-full object-contain"
             />
           </div>

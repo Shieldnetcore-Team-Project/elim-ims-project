@@ -58,7 +58,7 @@ import { CustomerProfileDialog, type Customer } from "@/routes/_app.customers";
 
 export const Route = createFileRoute("/_app/cash-ledger/debts")({
   head: () => ({
-    meta: [{ title: "Debt Management — FMIS" }, { name: "robots", content: "noindex" }],
+    meta: [{ title: "Debt Management — Elim Table Water" }, { name: "robots", content: "noindex" }],
   }),
   component: () => (
     <RequireAccess module="debts">
@@ -265,7 +265,7 @@ function DebtsPage() {
       toast.success(`Receipt ${res.receipt_number}`);
       generateReceiptPdf({
         company: {
-          name: settings.data?.company_name ?? "FMIS",
+          name: settings.data?.company_name ?? "Elim Table Water",
           address: settings.data?.address,
           phone: settings.data?.phone,
           logo_url: settings.data?.logo_url,
@@ -369,7 +369,7 @@ function DebtsPage() {
     }
     generateDebtStatementPdf({
       company: {
-        name: settings.data?.company_name ?? "FMIS",
+        name: settings.data?.company_name ?? "Elim Table Water",
         address: settings.data?.address,
         phone: settings.data?.phone,
         logo_url: settings.data?.logo_url,

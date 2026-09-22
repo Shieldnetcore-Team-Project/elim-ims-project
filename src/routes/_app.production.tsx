@@ -56,7 +56,7 @@ import { logAudit } from "@/lib/audit";
 import { QuickAddProductDialog, ADD_NEW_ITEM } from "@/components/shared/quick-add-item";
 
 export const Route = createFileRoute("/_app/production")({
-  head: () => ({ meta: [{ title: "Production — FMIS" }, { name: "robots", content: "noindex" }] }),
+  head: () => ({ meta: [{ title: "Production — Elim Table Water" }, { name: "robots", content: "noindex" }] }),
   component: () => (
     <RequireAccess module="production">
       <ProductionFactoryGate />
@@ -270,7 +270,7 @@ function ProductionPage() {
     generateProductionSlipPdf(
       {
         company: {
-          name: settings.data?.company_name ?? "FMIS",
+          name: settings.data?.company_name ?? "Elim Table Water",
           address: settings.data?.address,
           phone: settings.data?.phone,
           logo_url: settings.data?.logo_url,

@@ -61,7 +61,7 @@ import {
 
 export const Route = createFileRoute("/_app/account-approvals")({
   head: () => ({
-    meta: [{ title: "Account Approvals — FMIS" }, { name: "robots", content: "noindex" }],
+    meta: [{ title: "Account Approvals — Elim Table Water" }, { name: "robots", content: "noindex" }],
   }),
   component: () => (
     <RequireAccess module="account-approvals">

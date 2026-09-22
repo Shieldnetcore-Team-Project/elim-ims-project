@@ -36,7 +36,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 
 export const Route = createFileRoute("/_app/inventory")({
   head: () => ({
-    meta: [{ title: "Inventory Overview — FMIS" }, { name: "robots", content: "noindex" }],
+    meta: [{ title: "Inventory Overview — Elim Table Water" }, { name: "robots", content: "noindex" }],
   }),
   component: () => (
     <RequireAccess module="raw-materials">

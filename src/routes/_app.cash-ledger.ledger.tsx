@@ -53,7 +53,7 @@ import { generateReceiptPdf } from "@/lib/pdf";
 import { logAudit } from "@/lib/audit";
 
 export const Route = createFileRoute("/_app/cash-ledger/ledger")({
-  head: () => ({ meta: [{ title: "Cash Ledger — FMIS" }, { name: "robots", content: "noindex" }] }),
+  head: () => ({ meta: [{ title: "Cash Ledger — Elim Table Water" }, { name: "robots", content: "noindex" }] }),
   component: () => (
     <RequireAccess module="receipts-payments">
       <LedgerPage />
@@ -341,7 +341,7 @@ function LedgerPage() {
       });
       generateReceiptPdf({
         company: {
-          name: settings.data?.company_name ?? "FMIS",
+          name: settings.data?.company_name ?? "Elim Table Water",
           address: settings.data?.address,
           phone: settings.data?.phone,
           logo_url: settings.data?.logo_url,

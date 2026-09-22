@@ -10,7 +10,7 @@ import { Loader2 } from "lucide-react";
 
 export const Route = createFileRoute("/reset-password")({
   head: () => ({
-    meta: [{ title: "Reset password — FMIS" }, { name: "robots", content: "noindex" }],
+    meta: [{ title: "Reset password — Elim Table Water" }, { name: "robots", content: "noindex" }],
   }),
   component: ResetPage,
 });

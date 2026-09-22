@@ -173,49 +173,49 @@ BEGIN
   INSERT INTO public.employees (factory_id, employee_code, full_name, phone, email, gender, dob, department, position,
     basic_salary, housing_allowance, transport_allowance, meal_allowance, medical_allowance, other_allowances,
     employment_date, status, bank_name, account_number, emergency_contact)
-  VALUES (v_water, 'DEMO-EMP-W001', 'Ade Johnson', '08061112301', 'ade.johnson@bluespring.ng', 'Male', current_date - interval '35 years', 'Production', 'Production Supervisor',
+  VALUES (v_water, 'DEMO-EMP-W001', 'Ade Johnson', '08061112301', 'ade.johnson@elim.ng', 'Male', current_date - interval '35 years', 'Production', 'Production Supervisor',
     180000, 30000, 20000, 10000, 5000, 0, current_date - interval '3 years', 'active', 'GTBank', '0123456789', '08099990001')
   RETURNING id INTO v_emp_ade;
 
   INSERT INTO public.employees (factory_id, employee_code, full_name, phone, email, gender, dob, department, position,
     basic_salary, housing_allowance, transport_allowance, meal_allowance, medical_allowance, other_allowances,
     employment_date, status, bank_name, account_number, emergency_contact)
-  VALUES (v_water, 'DEMO-EMP-W002', 'Grace Okoro', '08061112302', 'grace.okoro@bluespring.ng', 'Female', current_date - interval '29 years', 'Sales', 'Sales Officer',
+  VALUES (v_water, 'DEMO-EMP-W002', 'Grace Okoro', '08061112302', 'grace.okoro@elim.ng', 'Female', current_date - interval '29 years', 'Sales', 'Sales Officer',
     120000, 15000, 15000, 8000, 4000, 0, current_date - interval '2 years', 'active', 'Zenith Bank', '0123456790', '08099990002')
   RETURNING id INTO v_emp_grace;
 
   INSERT INTO public.employees (factory_id, employee_code, full_name, phone, email, gender, dob, department, position,
     basic_salary, housing_allowance, transport_allowance, meal_allowance, medical_allowance, other_allowances,
     employment_date, status, bank_name, account_number, emergency_contact)
-  VALUES (v_water, 'DEMO-EMP-W003', 'Michael Eze', '08061112303', 'michael.eze@bluespring.ng', 'Male', current_date - interval '26 years', 'Production', 'Machine Operator',
+  VALUES (v_water, 'DEMO-EMP-W003', 'Michael Eze', '08061112303', 'michael.eze@elim.ng', 'Male', current_date - interval '26 years', 'Production', 'Machine Operator',
     90000, 10000, 10000, 6000, 3000, 0, current_date - interval '1 years', 'active', 'Access Bank', '0123456791', '08099990003')
   RETURNING id INTO v_emp_michael;
 
   INSERT INTO public.employees (factory_id, employee_code, full_name, phone, email, gender, dob, department, position,
     basic_salary, housing_allowance, transport_allowance, meal_allowance, medical_allowance, other_allowances,
     employment_date, status, bank_name, account_number, emergency_contact)
-  VALUES (v_water, 'DEMO-EMP-W004', 'Blessing Nwosu', '08061112304', 'blessing.nwosu@bluespring.ng', 'Female', current_date - interval '32 years', 'Finance', 'Accountant',
+  VALUES (v_water, 'DEMO-EMP-W004', 'Blessing Nwosu', '08061112304', 'blessing.nwosu@elim.ng', 'Female', current_date - interval '32 years', 'Finance', 'Accountant',
     160000, 20000, 15000, 8000, 5000, 0, current_date - interval '4 years', 'active', 'GTBank', '0123456792', '08099990004')
   RETURNING id INTO v_emp_blessing;
 
   INSERT INTO public.employees (factory_id, employee_code, full_name, phone, email, gender, dob, department, position,
     basic_salary, housing_allowance, transport_allowance, meal_allowance, medical_allowance, other_allowances,
     employment_date, status, bank_name, account_number, emergency_contact)
-  VALUES (v_nylon, 'DEMO-EMP-N001', 'Emeka Obi', '08061112305', 'emeka.obi@bluespring.ng', 'Male', current_date - interval '34 years', 'Production', 'Production Supervisor',
+  VALUES (v_nylon, 'DEMO-EMP-N001', 'Emeka Obi', '08061112305', 'emeka.obi@elim.ng', 'Male', current_date - interval '34 years', 'Production', 'Production Supervisor',
     175000, 25000, 18000, 9000, 5000, 0, current_date - interval '3 years', 'active', 'UBA', '0123456793', '08099990005')
   RETURNING id INTO v_emp_emeka;
 
   INSERT INTO public.employees (factory_id, employee_code, full_name, phone, email, gender, dob, department, position,
     basic_salary, housing_allowance, transport_allowance, meal_allowance, medical_allowance, other_allowances,
     employment_date, status, bank_name, account_number, emergency_contact)
-  VALUES (v_nylon, 'DEMO-EMP-N002', 'Fatima Bello', '08061112306', 'fatima.bello@bluespring.ng', 'Female', current_date - interval '27 years', 'Sales', 'Sales Officer',
+  VALUES (v_nylon, 'DEMO-EMP-N002', 'Fatima Bello', '08061112306', 'fatima.bello@elim.ng', 'Female', current_date - interval '27 years', 'Sales', 'Sales Officer',
     115000, 14000, 14000, 7000, 4000, 0, current_date - interval '2 years', 'active', 'Zenith Bank', '0123456794', '08099990006')
   RETURNING id INTO v_emp_fatima;
 
   INSERT INTO public.employees (factory_id, employee_code, full_name, phone, email, gender, dob, department, position,
     basic_salary, housing_allowance, transport_allowance, meal_allowance, medical_allowance, other_allowances,
     employment_date, status, bank_name, account_number, emergency_contact)
-  VALUES (v_nylon, 'DEMO-EMP-N003', 'Chidi Okafor', '08061112307', 'chidi.okafor@bluespring.ng', 'Male', current_date - interval '24 years', 'Production', 'Machine Operator',
+  VALUES (v_nylon, 'DEMO-EMP-N003', 'Chidi Okafor', '08061112307', 'chidi.okafor@elim.ng', 'Male', current_date - interval '24 years', 'Production', 'Machine Operator',
     85000, 10000, 10000, 5000, 3000, 0, current_date - interval '8 months', 'active', 'Access Bank', '0123456795', '08099990007')
   RETURNING id INTO v_emp_chidi;
 

@@ -27,7 +27,7 @@ import { Workflow, History } from "lucide-react";
 
 export const Route = createFileRoute("/_app/approval-workflows")({
   head: () => ({
-    meta: [{ title: "Approval Workflows — FMIS" }, { name: "robots", content: "noindex" }],
+    meta: [{ title: "Approval Workflows — Elim Table Water" }, { name: "robots", content: "noindex" }],
   }),
   component: () => (
     <RequireAccess module="users">

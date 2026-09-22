@@ -43,7 +43,7 @@ import { toast } from "sonner";
 import { Plus, Trash2, Ban, Check, X, Pencil, Droplet, Package } from "lucide-react";
 
 export const Route = createFileRoute("/_app/costing")({
-  head: () => ({ meta: [{ title: "Costing — FMIS" }, { name: "robots", content: "noindex" }] }),
+  head: () => ({ meta: [{ title: "Costing — Elim Table Water" }, { name: "robots", content: "noindex" }] }),
   component: () => (
     <RequireAccess module="costing">
       <CostingPage />

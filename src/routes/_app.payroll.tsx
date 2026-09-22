@@ -41,7 +41,7 @@ import { Plus, Printer, FileDown, Wallet, Check, X, Send, Ban, Undo2 } from "luc
 import { generatePayslipPdf } from "@/lib/pdf";
 
 export const Route = createFileRoute("/_app/payroll")({
-  head: () => ({ meta: [{ title: "Payroll — FMIS" }, { name: "robots", content: "noindex" }] }),
+  head: () => ({ meta: [{ title: "Payroll — Elim Table Water" }, { name: "robots", content: "noindex" }] }),
   component: () => (
     <RequireAccess module="payroll">
       <PayrollPage />
@@ -188,7 +188,7 @@ function PayrollPage() {
     generatePayslipPdf(
       {
         company: {
-          name: settings.data?.company_name ?? "FMIS",
+          name: settings.data?.company_name ?? "Elim Table Water",
           address: settings.data?.address,
           phone: settings.data?.phone,
           logo_url: settings.data?.logo_url,

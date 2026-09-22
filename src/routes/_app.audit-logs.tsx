@@ -64,7 +64,7 @@ const ACTION_LABEL: Record<string, string> = {
 const actionLabel = (a: string) => ACTION_LABEL[a] ?? a.replace(/_/g, " ");
 
 export const Route = createFileRoute("/_app/audit-logs")({
-  head: () => ({ meta: [{ title: "Audit Logs — FMIS" }, { name: "robots", content: "noindex" }] }),
+  head: () => ({ meta: [{ title: "Audit Logs — Elim Table Water" }, { name: "robots", content: "noindex" }] }),
   component: () => (
     <RequireAccess module="audit-logs">
       <AuditLogsPage />

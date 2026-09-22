@@ -66,7 +66,7 @@ import { ApprovalHistory } from "@/components/workflow/approval-history";
 import { startOfDay, startOfWeek, startOfMonth, startOfYear, format } from "date-fns";
 
 export const Route = createFileRoute("/_app/expenses")({
-  head: () => ({ meta: [{ title: "Expenses — FMIS" }, { name: "robots", content: "noindex" }] }),
+  head: () => ({ meta: [{ title: "Expenses — Elim Table Water" }, { name: "robots", content: "noindex" }] }),
   component: () => (
     <RequireAccess module="expenses">
       <ExpensesPage />
@@ -123,6 +123,8 @@ const statusBadge = (s: string): "default" | "secondary" | "outline" | "destruct
 // reversed ones are listed but never added to the totals (same rule the
 // dashboards use).
 const COUNTED = new Set(COUNTED_STATUSES);
+
+type LedgerTypeFilter = "all" | "cash_in" | "cash_out";
 
 type RangeKey = "all" | "today" | "week" | "month" | "year";
 
@@ -196,7 +198,7 @@ function ExpensesPage() {
   const [deleteCashInTarget, setDeleteCashInTarget] = useState<CashIn | null>(null);
   const [range, setRange] = useState<RangeKey>("month");
   const [q, setQ] = useState("");
-  const [typeFilter, setTypeFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState<LedgerTypeFilter>("all");
   const [approveTarget, setApproveTarget] = useState<Expense | null>(null);
   const [rejectTarget, setRejectTarget] = useState<Expense | null>(null);
   const [postTarget, setPostTarget] = useState<Expense | null>(null);
@@ -339,17 +341,6 @@ function ExpensesPage() {
     return rows;
   }, [list.data, cashIns.data, range]);
 
-  const categoryColumns = useMemo(() => {
-    const totals: Record<string, number> = {};
-    rangeFiltered.forEach((r) => {
-      if (r.kind === "cash_out" && r.counts)
-        totals[r.category] = (totals[r.category] ?? 0) + r.amount;
-    });
-    return Object.entries(totals)
-      .sort((a, b) => b[1] - a[1])
-      .map(([name]) => name);
-  }, [rangeFiltered]);
-
   const totalExpenses = rangeFiltered.length
     ? (rangeFiltered[rangeFiltered.length - 1].totalExpensesAfter ?? 0)
     : 0;
@@ -364,8 +355,7 @@ function ExpensesPage() {
   const displayRows = useMemo(() => {
     let rows = [...rangeFiltered].reverse();
     if (typeFilter === "cash_in") rows = rows.filter((r) => r.kind === "cash_in");
-    else if (typeFilter !== "all")
-      rows = rows.filter((r) => r.kind === "cash_out" && r.category === typeFilter);
+    else if (typeFilter === "cash_out") rows = rows.filter((r) => r.kind === "cash_out");
     const query = q.trim().toLowerCase();
     if (query) {
       rows = rows.filter(
@@ -411,7 +401,7 @@ function ExpensesPage() {
     generateExpenseVoucherPdf(
       {
         company: {
-          name: settings.data?.company_name ?? "FMIS",
+          name: settings.data?.company_name ?? "Elim Table Water",
           address: settings.data?.address,
           phone: settings.data?.phone,
           logo_url: settings.data?.logo_url,
@@ -438,24 +428,19 @@ function ExpensesPage() {
     const columns = [
       { key: "date", label: "Date" },
       { key: "details", label: "Details" },
-      { key: "cash_in", label: "Cash In" },
-      ...categoryColumns.map((c) => ({ key: c, label: `Cash Out — ${c}` })),
+      { key: "cash_in", label: "Cash In (₦)" },
+      { key: "cash_out", label: "Cash Out (₦)" },
       { key: "balance", label: "Balance" },
       { key: "total_expenses", label: "Total Expenses" },
     ];
-    const rows = rangeFiltered.map((r) => {
-      const row: Record<string, unknown> = {
-        date: r.date,
-        details: r.details,
-        cash_in: r.kind === "cash_in" ? money(r.amount, currency) : "",
-        balance: money(r.balanceAfter ?? 0, currency),
-        total_expenses: money(r.totalExpensesAfter ?? 0, currency),
-      };
-      categoryColumns.forEach((c) => {
-        row[c] = r.kind === "cash_out" && r.category === c ? money(r.amount, currency) : "";
-      });
-      return row;
-    });
+    const rows = rangeFiltered.map((r) => ({
+      date: r.date,
+      details: r.details,
+      cash_in: r.kind === "cash_in" ? money(r.amount, currency) : "",
+      cash_out: r.kind === "cash_out" ? money(r.amount, currency) : "",
+      balance: money(r.balanceAfter ?? 0, currency),
+      total_expenses: money(r.totalExpensesAfter ?? 0, currency),
+    }));
     generateReportPdf(
       `Expense Ledger — ${RANGES.find((rg) => rg.key === range)?.label}`,
       columns,
@@ -615,18 +600,17 @@ function ExpensesPage() {
                 onChange={(e) => setQ(e.target.value)}
               />
             </div>
-            <Select value={typeFilter} onValueChange={setTypeFilter}>
-              <SelectTrigger className="h-9 w-[170px]">
+            <Select
+              value={typeFilter}
+              onValueChange={(v) => setTypeFilter(v as LedgerTypeFilter)}
+            >
+              <SelectTrigger className="h-9 w-[190px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Types</SelectItem>
-                <SelectItem value="cash_in">Cash In</SelectItem>
-                {categoryColumns.map((c) => (
-                  <SelectItem key={c} value={c}>
-                    Cash Out — {c}
-                  </SelectItem>
-                ))}
+                <SelectItem value="cash_in">Cash In (₦)</SelectItem>
+                <SelectItem value="cash_out">Cash Out (₦)</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -636,15 +620,11 @@ function ExpensesPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Date</TableHead>
-                <TableHead>Details</TableHead>
-                <TableHead className="text-right">Cash In (₦)</TableHead>
-                {categoryColumns.map((c) => (
-                  <TableHead key={c} className="text-right whitespace-nowrap">
-                    Cash Out — {c}
-                  </TableHead>
-                ))}
+                <TableHead className="min-w-[280px]">Details</TableHead>
+                <TableHead className="text-right whitespace-nowrap">Cash In (₦)</TableHead>
+                <TableHead className="text-right whitespace-nowrap">Cash Out (₦)</TableHead>
                 <TableHead className="text-right">Balance</TableHead>
-                <TableHead className="text-right">Total Expenses</TableHead>
+                <TableHead className="text-right whitespace-nowrap">Total Expenses</TableHead>
                 <TableHead></TableHead>
               </TableRow>
             </TableHeader>
@@ -657,8 +637,10 @@ function ExpensesPage() {
                   c && writeCashIn && (c.recorded_by === currentUser.data || reverse);
                 return (
                   <TableRow key={row.key}>
-                    <TableCell className="whitespace-nowrap">{row.date}</TableCell>
-                    <TableCell>
+                    <TableCell className="whitespace-nowrap text-muted-foreground">
+                      {row.date}
+                    </TableCell>
+                    <TableCell className="min-w-[280px]">
                       <div className="font-medium">{row.details}</div>
                       {row.sub && <div className="text-xs text-muted-foreground">{row.sub}</div>}
                       {row.statusLabel && (
@@ -667,20 +649,16 @@ function ExpensesPage() {
                         </Badge>
                       )}
                     </TableCell>
-                    <TableCell className="text-right font-medium text-success">
+                    <TableCell className="text-right font-mono tabular-nums text-success">
                       {row.kind === "cash_in" ? money(row.amount, currency) : ""}
                     </TableCell>
-                    {categoryColumns.map((cat) => (
-                      <TableCell key={cat} className="text-right font-medium text-warning">
-                        {row.kind === "cash_out" && row.category === cat
-                          ? money(row.amount, currency)
-                          : ""}
-                      </TableCell>
-                    ))}
-                    <TableCell className="text-right font-semibold">
+                    <TableCell className="text-right font-mono tabular-nums text-sky-500 dark:text-sky-400">
+                      {row.kind === "cash_out" ? money(row.amount, currency) : ""}
+                    </TableCell>
+                    <TableCell className="text-right font-mono tabular-nums font-semibold">
                       {money(row.balanceAfter ?? 0, currency)}
                     </TableCell>
-                    <TableCell className="text-right text-destructive">
+                    <TableCell className="text-right font-mono tabular-nums text-destructive">
                       {money(row.totalExpensesAfter ?? 0, currency)}
                     </TableCell>
                     <TableCell>
@@ -826,10 +804,7 @@ function ExpensesPage() {
               })}
               {displayRows.length === 0 && (
                 <TableRow>
-                  <TableCell
-                    colSpan={5 + categoryColumns.length}
-                    className="text-center text-muted-foreground py-8"
-                  >
+                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
                     No entries in this range.
                   </TableCell>
                 </TableRow>
@@ -1212,7 +1187,6 @@ function EntryForm({
   );
   const [requestedBy, setRequestedBy] = useState(editingExpense?.requested_by_name ?? "");
   const [remarks, setRemarks] = useState(editingExpense?.remarks ?? "");
-  const [file, setFile] = useState<File | null>(null);
 
   // Cash-in fields
   const [payerPayee, setPayerPayee] = useState(editingCashIn?.payer_payee ?? "");
@@ -1268,17 +1242,6 @@ function EntryForm({
         finalCategoryId = data.id;
       }
 
-      let attachmentPath = editingExpense?.attachment_url ?? null;
-      if (file) {
-        const { data: userData } = await supabase.auth.getUser();
-        const path = `${factoryId}/${userData.user?.id ?? "anon"}-${Date.now()}-${file.name}`;
-        const { error: uploadError } = await supabase.storage
-          .from("expense-attachments")
-          .upload(path, file);
-        if (uploadError) throw uploadError;
-        attachmentPath = path;
-      }
-
       const payload = {
         expense_date: date,
         category_id: finalCategoryId,
@@ -1289,7 +1252,6 @@ function EntryForm({
         amount,
         requested_by_name: requestedBy || null,
         remarks: remarks || null,
-        attachment_url: attachmentPath,
       };
 
       if (editingExpense) {
@@ -1452,19 +1414,6 @@ function EntryForm({
                   : ""}
               </p>
             )}
-            <div>
-              <Label>Attachment</Label>
-              <Input
-                type="file"
-                accept="image/*,.pdf"
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-              />
-              {editingExpense?.attachment_url && !file && (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  A file is already attached. Choose a new one to replace it.
-                </p>
-              )}
-            </div>
             <div>
               <Label>Remarks</Label>
               <Textarea rows={2} value={remarks} onChange={(e) => setRemarks(e.target.value)} />

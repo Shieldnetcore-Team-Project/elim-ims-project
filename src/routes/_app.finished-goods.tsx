@@ -71,7 +71,7 @@ import { PosDialog } from "./_app.sales";
 
 export const Route = createFileRoute("/_app/finished-goods")({
   head: () => ({
-    meta: [{ title: "Finished Goods — FMIS" }, { name: "robots", content: "noindex" }],
+    meta: [{ title: "Finished Goods — Elim Table Water" }, { name: "robots", content: "noindex" }],
   }),
   component: () => (
     <RequireAccess module="finished-goods">
@@ -454,7 +454,7 @@ function FinishedGoodsPage() {
     }
     generateStockCardPdf({
       company: {
-        name: settings.data?.company_name ?? "FMIS",
+        name: settings.data?.company_name ?? "Elim Table Water",
         address: settings.data?.address,
         phone: settings.data?.phone,
         logo_url: settings.data?.logo_url,

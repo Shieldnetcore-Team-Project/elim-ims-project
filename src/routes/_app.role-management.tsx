@@ -41,7 +41,7 @@ import { ShieldPlus, Pencil, Trash2, ShieldAlert, Lock } from "lucide-react";
 
 export const Route = createFileRoute("/_app/role-management")({
   head: () => ({
-    meta: [{ title: "Role Management — FMIS" }, { name: "robots", content: "noindex" }],
+    meta: [{ title: "Role Management — Elim Table Water" }, { name: "robots", content: "noindex" }],
   }),
   component: () => (
     <RequireAccess module="users">

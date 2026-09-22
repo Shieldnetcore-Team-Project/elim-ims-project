@@ -68,7 +68,7 @@ import { RequestDeleteDialog } from "@/components/shared/request-delete-dialog";
 import { QuickAddProductDialog, ADD_NEW_ITEM } from "@/components/shared/quick-add-item";
 
 export const Route = createFileRoute("/_app/sales")({
-  head: () => ({ meta: [{ title: "Sales & POS — FMIS" }, { name: "robots", content: "noindex" }] }),
+  head: () => ({ meta: [{ title: "Sales & POS — Elim Table Water" }, { name: "robots", content: "noindex" }] }),
   component: () => (
     <RequireAccess module="sales">
       <SalesPage />
@@ -232,7 +232,7 @@ function SalesPage() {
     await generateInvoicePdf(
       {
         company: {
-          name: settings.data?.company_name ?? "FMIS",
+          name: settings.data?.company_name ?? "Elim Table Water",
           address: settings.data?.address,
           phone: settings.data?.phone,
           email: settings.data?.email,
@@ -1696,7 +1696,7 @@ export function PosDialog({
     await generateInvoicePdf(
       {
         company: {
-          name: settings.data?.company_name ?? "FMIS",
+          name: settings.data?.company_name ?? "Elim Table Water",
           address: settings.data?.address,
           phone: settings.data?.phone,
           email: settings.data?.email,

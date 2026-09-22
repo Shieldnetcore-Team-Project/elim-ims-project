@@ -39,16 +39,16 @@ export function AppSidebar() {
           {collapsed ? (
             <div className="h-8 w-8 shrink-0 overflow-hidden rounded-lg bg-white">
               <img
-                src="/assets/bluespring%20logo.jpeg"
-                alt="Bluespring Total Connect"
+                src="/assets/elim-logo.png"
+                alt="Elim Table Water"
                 className="h-full w-full object-cover object-left"
               />
             </div>
           ) : (
             <div className="h-10 w-full overflow-hidden rounded-lg bg-white">
               <img
-                src="/assets/bluespring%20logo.jpeg"
-                alt="Bluespring Total Connect"
+                src="/assets/elim-logo.png"
+                alt="Elim Table Water"
                 className="h-full w-full object-contain"
               />
             </div>

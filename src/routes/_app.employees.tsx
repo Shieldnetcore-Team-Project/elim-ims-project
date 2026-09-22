@@ -67,7 +67,7 @@ import {
 } from "lucide-react";
 
 export const Route = createFileRoute("/_app/employees")({
-  head: () => ({ meta: [{ title: "Employees — FMIS" }, { name: "robots", content: "noindex" }] }),
+  head: () => ({ meta: [{ title: "Employees — Elim Table Water" }, { name: "robots", content: "noindex" }] }),
   component: () => (
     <RequireAccess module="employees">
       <EmployeesPage />

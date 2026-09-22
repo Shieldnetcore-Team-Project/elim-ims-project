@@ -53,7 +53,7 @@ import { toast } from "sonner";
 
 export const Route = createFileRoute("/_app/users")({
   head: () => ({
-    meta: [{ title: "Users & Roles — FMIS" }, { name: "robots", content: "noindex" }],
+    meta: [{ title: "Users & Roles — Elim Table Water" }, { name: "robots", content: "noindex" }],
   }),
   component: () => (
     <RequireAccess module="users">

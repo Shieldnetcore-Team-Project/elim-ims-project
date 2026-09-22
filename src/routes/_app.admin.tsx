@@ -14,7 +14,7 @@ import { useIsSuperAdmin } from "@/lib/permissions";
 
 export const Route = createFileRoute("/_app/admin")({
   head: () => ({
-    meta: [{ title: "Admin Panel — FMIS" }, { name: "robots", content: "noindex" }],
+    meta: [{ title: "Admin Panel — Elim Table Water" }, { name: "robots", content: "noindex" }],
   }),
   component: () => (
     <RequireAccess module="users">
