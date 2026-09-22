@@ -52,6 +52,7 @@ import {
   Ban,
   PiggyBank,
   Pencil,
+  Search,
 } from "lucide-react";
 import { money, num } from "@/lib/format";
 import { toast } from "sonner";
@@ -104,6 +105,9 @@ type SaleRow = {
   status: string;
   created_by: string | null;
   rejected_reason: string | null;
+  sales_person: string | null;
+  // Only fetched for search matching — not rendered as a column.
+  sale_items?: { products: { name: string } | null }[];
 };
 type CartItem = {
   product_id: string;
@@ -189,14 +193,25 @@ function SalesPage() {
       const { data, error } = await supabase
         .from("sales")
         .select(
-          "id,invoice_number,sale_date,customer_id,customer_name,grand_total,amount_paid,balance,credit_applied,payment_method,created_at,is_pr,status,created_by,rejected_reason",
+          "id,invoice_number,sale_date,customer_id,customer_name,grand_total,amount_paid,balance,credit_applied,payment_method,created_at,is_pr,status,created_by,rejected_reason,sales_person,sale_items(products(name))",
         )
         .eq("factory_id", factoryId!)
         .order("created_at", { ascending: false })
         .limit(200);
       if (error) throw error;
-      return data ?? [];
+      return (data ?? []) as unknown as SaleRow[];
     },
+  });
+  const [q, setQ] = useState("");
+  const filteredSales = (sales.data ?? []).filter((s) => {
+    const query = q.trim().toLowerCase();
+    if (!query) return true;
+    return (
+      s.invoice_number.toLowerCase().includes(query) ||
+      (s.customer_name ?? "").toLowerCase().includes(query) ||
+      (s.sales_person ?? "").toLowerCase().includes(query) ||
+      (s.sale_items ?? []).some((it) => (it.products?.name ?? "").toLowerCase().includes(query))
+    );
   });
 
   const openInvoice = async (saleId: string, action: "download" | "print") => {
@@ -469,8 +484,17 @@ function SalesPage() {
       </div>
 
       <Card className="rounded-2xl">
-        <CardHeader>
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>Recent Sales</CardTitle>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search invoice, customer, product, sales person…"
+              className="pl-8 h-9 w-64"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+          </div>
         </CardHeader>
         <CardContent className="overflow-x-auto">
           <Table>
@@ -488,7 +512,7 @@ function SalesPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(sales.data ?? []).map((s: SaleRow) => {
+              {filteredSales.map((s) => {
                 const status = salePaymentStatus(s);
                 const isSelf = s.created_by === currentUser.data && !isSuperAdmin;
                 // Every transaction gets a delete button for anyone holding
@@ -673,10 +697,10 @@ function SalesPage() {
                   </TableRow>
                 );
               })}
-              {(sales.data ?? []).length === 0 && (
+              {filteredSales.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={10} className="text-center text-muted-foreground py-8">
-                    No sales yet.
+                    {q.trim() ? "No sales match your search." : "No sales yet."}
                   </TableCell>
                 </TableRow>
               )}

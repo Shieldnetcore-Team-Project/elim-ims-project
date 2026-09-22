@@ -62,6 +62,7 @@ import {
   Factory,
   Trash2,
   ShoppingCart,
+  Search,
 } from "lucide-react";
 import { generateStockCardPdf } from "@/lib/pdf";
 import { useUnitsOfMeasure, UNIT_OPTIONS as UNIT_OPTIONS_FALLBACK } from "@/lib/units";
@@ -202,6 +203,7 @@ function FinishedGoodsPage() {
   const [posOpen, setPosOpen] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
   const [typeFilter, setTypeFilter] = useState<"all" | "finished" | "semi_finished">("all");
+  const [q, setQ] = useState("");
   const [adjustTarget, setAdjustTarget] = useState<{
     product: Product;
     type: "adjusted" | "damaged";
@@ -417,6 +419,18 @@ function FinishedGoodsPage() {
   const filteredList = (list.data ?? []).filter(
     (p) => typeFilter === "all" || p.product_type === typeFilter,
   );
+  // Search only narrows which rows are shown in the table below — it
+  // deliberately doesn't affect the summary cards above (those reflect the
+  // type filter's overall totals, not "what happens to match this search").
+  const searchedList = filteredList.filter((p) => {
+    const query = q.trim().toLowerCase();
+    if (!query) return true;
+    return (
+      p.name.toLowerCase().includes(query) ||
+      (p.sku ?? "").toLowerCase().includes(query) ||
+      (p.product_categories?.name ?? "").toLowerCase().includes(query)
+    );
+  });
 
   const summary = {
     totalSkus: filteredList.length,
@@ -550,16 +564,27 @@ function FinishedGoodsPage() {
       <Card className="rounded-2xl">
         <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>Available Stock</CardTitle>
-          <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as typeof typeFilter)}>
-            <SelectTrigger className="h-9 w-[170px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All types</SelectItem>
-              <SelectItem value="finished">Finished only</SelectItem>
-              <SelectItem value="semi_finished">Semi-Finished only</SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search product, SKU, category…"
+                className="pl-8 h-9 w-56"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+              />
+            </div>
+            <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as typeof typeFilter)}>
+              <SelectTrigger className="h-9 w-[170px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All types</SelectItem>
+                <SelectItem value="finished">Finished only</SelectItem>
+                <SelectItem value="semi_finished">Semi-Finished only</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </CardHeader>
         <CardContent className="overflow-x-auto">
           <Table>
@@ -574,7 +599,7 @@ function FinishedGoodsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredList.map((p) => {
+              {searchedList.map((p) => {
                 const low = isLowStock(p.current_stock, p.reorder_level);
                 return (
                   <TableRow key={p.id}>
@@ -670,10 +695,10 @@ function FinishedGoodsPage() {
                   </TableRow>
                 );
               })}
-              {filteredList.length === 0 && (
+              {searchedList.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
-                    No products yet.
+                    {q.trim() ? "No products match your search." : "No products yet."}
                   </TableCell>
                 </TableRow>
               )}

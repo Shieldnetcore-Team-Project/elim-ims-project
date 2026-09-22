@@ -56,6 +56,7 @@ import {
   ShoppingCart,
   Check,
   X,
+  Search,
 } from "lucide-react";
 import { generateStockCardPdf } from "@/lib/pdf";
 import {
@@ -219,6 +220,7 @@ function RawMaterialsPage() {
   const [transferTarget, setTransferTarget] = useState<Material | null>(null);
   const [historyTarget, setHistoryTarget] = useState<Material | null>(null);
   const [purchaseTarget, setPurchaseTarget] = useState<Material | null>(null);
+  const [q, setQ] = useState("");
 
   const suppliers = useQuery({
     queryKey: ["suppliers-brief", factoryId],
@@ -506,6 +508,18 @@ function RawMaterialsPage() {
     totalMaterials: activeMaterials.length,
   };
 
+  // Narrows which rows the Materials table shows — doesn't touch the summary
+  // cards above, which stay scoped to all active materials.
+  const searchedMaterials = (list.data ?? []).filter((m) => {
+    const query = q.trim().toLowerCase();
+    if (!query) return true;
+    return (
+      m.name.toLowerCase().includes(query) ||
+      (m.material_categories?.name ?? m.category ?? "").toLowerCase().includes(query) ||
+      (m.suppliers?.name ?? "").toLowerCase().includes(query)
+    );
+  });
+
   const printCard = async (m: Material) => {
     const { data, error } = await supabase
       .from("raw_material_movements")
@@ -604,8 +618,17 @@ function RawMaterialsPage() {
       </div>
 
       <Card className="rounded-2xl">
-        <CardHeader>
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>Materials</CardTitle>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search material, category, supplier…"
+              className="pl-8 h-9 w-56"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+          </div>
         </CardHeader>
         <CardContent className="overflow-x-auto">
           <Table>
@@ -621,7 +644,7 @@ function RawMaterialsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(list.data ?? []).map((m) => {
+              {searchedMaterials.map((m) => {
                 const low = isLowStock(m.current_stock, m.reorder_level);
                 return (
                   <TableRow key={m.id}>
@@ -783,10 +806,10 @@ function RawMaterialsPage() {
                   </TableRow>
                 );
               })}
-              {(list.data ?? []).length === 0 && (
+              {searchedMaterials.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
-                    No raw materials yet.
+                    {q.trim() ? "No materials match your search." : "No raw materials yet."}
                   </TableCell>
                 </TableRow>
               )}
