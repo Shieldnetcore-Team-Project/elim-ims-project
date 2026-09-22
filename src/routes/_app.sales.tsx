@@ -51,6 +51,7 @@ import {
   X,
   Ban,
   PiggyBank,
+  Wallet,
 } from "lucide-react";
 import { money, num } from "@/lib/format";
 import { toast } from "sonner";
@@ -138,6 +139,7 @@ function SalesPage() {
   const [posOpen, setPosOpen] = useState(false);
   const [presetCustomerId, setPresetCustomerId] = useState<string | undefined>(undefined);
   const [advanceOpen, setAdvanceOpen] = useState(false);
+  const [cashOutOpen, setCashOutOpen] = useState(false);
   const [payTarget, setPayTarget] = useState<SaleRow | null>(null);
   const [historyTarget, setHistoryTarget] = useState<{ id: string; name: string } | null>(null);
   const [approveTarget, setApproveTarget] = useState<SaleRow | null>(null);
@@ -355,6 +357,11 @@ function SalesPage() {
             </Button>
           )}
           {write && (
+            <Button variant="outline" className="gap-2" onClick={() => setCashOutOpen(true)}>
+              <Wallet className="h-4 w-4" /> Cash Out
+            </Button>
+          )}
+          {write && (
             <Dialog
               open={posOpen}
               onOpenChange={(v) => {
@@ -404,7 +411,6 @@ function SalesPage() {
                 <TableHead>Invoice</TableHead>
                 <TableHead>Date</TableHead>
                 <TableHead>Customer</TableHead>
-                <TableHead>Method</TableHead>
                 <TableHead className="text-right">Total</TableHead>
                 <TableHead className="text-right">Paid</TableHead>
                 <TableHead className="text-right">Balance</TableHead>
@@ -417,6 +423,14 @@ function SalesPage() {
               {(sales.data ?? []).map((s: SaleRow) => {
                 const status = salePaymentStatus(s);
                 const isSelf = s.created_by === currentUser.data && !isSuperAdmin;
+                // Every transaction gets a delete button for anyone holding
+                // sales:delete — admin or not, any status. It only requests
+                // the deletion (with a required reason); nothing is actually
+                // removed until an admin approves it (request_delete /
+                // approve_delete), and approve_delete() already knows how to
+                // reverse a posted sale's stock/debt/customer effects, so
+                // there's no status this could leave in a bad state.
+                const canDeleteRow = canRequestDelete;
                 return (
                   <TableRow key={s.id}>
                     <TableCell className="font-mono text-xs">{s.invoice_number}</TableCell>
@@ -439,11 +453,6 @@ function SalesPage() {
                       ) : (
                         (s.customer_name ?? "Walk-in")
                       )}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="capitalize">
-                        {s.payment_method}
-                      </Badge>
                     </TableCell>
                     <TableCell className="text-right">{money(Number(s.grand_total))}</TableCell>
                     <TableCell className="text-right">{money(Number(s.amount_paid))}</TableCell>
@@ -559,7 +568,7 @@ function SalesPage() {
                         >
                           <FileDown className="h-4 w-4" /> PDF
                         </Button>
-                        {canRequestDelete && (
+                        {canDeleteRow && (
                           <Button
                             variant="ghost"
                             size="icon"
@@ -654,6 +663,19 @@ function SalesPage() {
               setAdvanceOpen(false);
               qc.invalidateQueries({ queryKey: ["customers"] });
               qc.invalidateQueries({ queryKey: ["customer-account"] });
+            }}
+          />
+        )}
+      </Dialog>
+
+      <Dialog open={cashOutOpen} onOpenChange={setCashOutOpen}>
+        {cashOutOpen && factoryId && (
+          <CashOutDialog
+            factoryId={factoryId}
+            onDone={() => {
+              setCashOutOpen(false);
+              qc.invalidateQueries({ queryKey: ["expenses-cash-in"] });
+              qc.invalidateQueries({ queryKey: ["cf-cash-transactions"] });
             }}
           />
         )}
@@ -1086,6 +1108,110 @@ function AdvancePaymentDialog({ factoryId, onDone }: { factoryId: string; onDone
   );
 }
 
+// Sales staff collect cash from customers all shift and periodically hand it
+// over to the till/accounts office. This records that hand-over — it posts
+// straight to the Expenses page's Cash In ledger (create_sales_cash_remittance
+// -> cash_transactions) the same way a manual Cash In entry does there, but
+// gated on Sales write instead of Receipts & Payments so the salesperson
+// doesn't need a separate permission just to remit what they collected.
+function CashOutDialog({ factoryId, onDone }: { factoryId: string; onDone: () => void }) {
+  const [amount, setAmount] = useState(0);
+  const [method, setMethod] = useState<PaymentMethod>("cash");
+  const [handedTo, setHandedTo] = useState("");
+  const [notes, setNotes] = useState("");
+
+  const currentUserName = useQuery({
+    queryKey: ["current-user-full-name"],
+    queryFn: async () => {
+      const { data: userData } = await supabase.auth.getUser();
+      if (!userData.user) return null;
+      const { data } = await supabase
+        .from("profiles")
+        .select("full_name")
+        .eq("id", userData.user.id)
+        .maybeSingle();
+      return data?.full_name || userData.user.email || null;
+    },
+    staleTime: Infinity,
+  });
+
+  const submit = useMutation({
+    mutationFn: async () => {
+      if (amount <= 0) throw new Error("Amount must be greater than 0");
+      const { data, error } = await supabase.rpc("create_sales_cash_remittance", {
+        payload: {
+          factory_id: factoryId,
+          amount,
+          payment_method: method,
+          payer_payee: handedTo || null,
+          description: notes || null,
+          recorded_by_name: currentUserName.data || "Sales",
+        } as any,
+      });
+      if (error) throw error;
+      return data as { transaction_number: string };
+    },
+    onSuccess: (data) => {
+      toast.success(`Cash-out recorded — ${data.transaction_number} posted to Expenses as Cash In`);
+      onDone();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return (
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle>Cash Out</DialogTitle>
+      </DialogHeader>
+      <div className="grid gap-3">
+        <p className="text-sm text-muted-foreground">
+          Record cash collected from sales that you're handing over. This posts immediately to the
+          Expenses page as a Cash In entry.
+        </p>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label>Amount</Label>
+            <MoneyInput value={amount} onChange={setAmount} />
+          </div>
+          <div>
+            <Label>Payment method</Label>
+            <Select value={method} onValueChange={(v) => setMethod(v as PaymentMethod)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(["cash", "transfer", "pos", "card", "cheque"] as PaymentMethod[]).map((m) => (
+                  <SelectItem key={m} value={m} className="capitalize">
+                    {m}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <div>
+          <Label>Handed to (optional)</Label>
+          <Input
+            value={handedTo}
+            onChange={(e) => setHandedTo(e.target.value)}
+            placeholder="e.g. Accounts office, cashier's name"
+          />
+        </div>
+        <div>
+          <Label>Notes (optional)</Label>
+          <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
+        </div>
+        <p className="text-xs text-muted-foreground">Recorded by {currentUserName.data || "…"}.</p>
+      </div>
+      <DialogFooter>
+        <Button disabled={submit.isPending || amount <= 0} onClick={() => submit.mutate()}>
+          {submit.isPending ? "Saving…" : "Cash Out"}
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  );
+}
+
 // Shown inline once an existing (non-Walk-in) customer is picked in the New
 // Sale form: the customer's real account position from the ledger — advance,
 // debt, status, recent activity — so nothing has to be looked up separately.
@@ -1254,7 +1380,6 @@ export function PosDialog({
       setCustomerPhone(c.phone ?? "");
       setCustomerAddress(c.address ?? "");
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [presetCustomerId, customers.data]);
   const [discountInput, setDiscountInput] = useState(0);
   const [discountType, setDiscountType] = useState<"amount" | "percent">("amount");

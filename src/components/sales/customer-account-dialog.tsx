@@ -48,6 +48,7 @@ type CustomerSaleRow = {
   amount_paid: number;
   credit_applied: number;
   balance: number;
+  payment_method: string;
 };
 type CustomerItemRow = {
   sale_id: string;
@@ -102,7 +103,7 @@ export function CustomerAccountDialog({
       const { data, error } = await supabase
         .from("sales")
         .select(
-          "id,invoice_number,sale_date,created_at,status,is_pr,grand_total,amount_paid,credit_applied,balance",
+          "id,invoice_number,sale_date,created_at,status,is_pr,grand_total,amount_paid,credit_applied,balance,payment_method",
         )
         .eq("customer_id", customerId)
         .order("sale_date", { ascending: false });
@@ -401,6 +402,7 @@ export function CustomerAccountDialog({
                 <TableRow>
                   <TableHead>Invoice</TableHead>
                   <TableHead>Date</TableHead>
+                  <TableHead>Method</TableHead>
                   <TableHead className="text-right">Total</TableHead>
                   <TableHead className="text-right">Paid</TableHead>
                   <TableHead className="text-right">Advance used</TableHead>
@@ -415,6 +417,11 @@ export function CustomerAccountDialog({
                     <TableRow key={inv.id}>
                       <TableCell className="font-mono text-xs">{inv.invoice_number}</TableCell>
                       <TableCell>{inv.sale_date}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="capitalize">
+                          {inv.payment_method}
+                        </Badge>
+                      </TableCell>
                       <TableCell className="text-right">{money(Number(inv.grand_total))}</TableCell>
                       <TableCell className="text-right">{money(Number(inv.amount_paid))}</TableCell>
                       <TableCell className="text-right">
@@ -437,7 +444,7 @@ export function CustomerAccountDialog({
                 })}
                 {(invoices.data ?? []).length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} className="py-6 text-center text-muted-foreground">
+                    <TableCell colSpan={8} className="py-6 text-center text-muted-foreground">
                       No purchases yet.
                     </TableCell>
                   </TableRow>

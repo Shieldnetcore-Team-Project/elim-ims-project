@@ -34,7 +34,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Eye, Ban, Undo2, Loader2 } from "lucide-react";
+import { Plus, Eye, Ban, Undo2, Loader2, Trash2 } from "lucide-react";
 import { num } from "@/lib/format";
 import { toast } from "sonner";
 import { logAudit } from "@/lib/audit";
@@ -482,6 +482,9 @@ function SalesReturnsPage() {
   );
 }
 
+type ReturnLine = { product_id: string; quantity: number };
+const emptyLine = (): ReturnLine => ({ product_id: "", quantity: 0 });
+
 function CreateReturnDialog({
   factoryId,
   products,
@@ -497,31 +500,55 @@ function CreateReturnDialog({
 }) {
   const [saleId, setSaleId] = useState("none");
   const [customerId, setCustomerId] = useState("none");
-  const [productId, setProductId] = useState("");
-  const [addingProduct, setAddingProduct] = useState(false);
-  const [quantity, setQuantity] = useState(0);
+  // One line per returned product, so a customer bringing back several
+  // different items in one visit can be logged in a single go instead of
+  // reopening this dialog once per product.
+  const [lines, setLines] = useState<ReturnLine[]>([emptyLine()]);
+  // Which line's "+ Add new product…" is open, if any — QuickAddProductDialog
+  // is shared across lines but only one can be adding at a time.
+  const [addingProductIndex, setAddingProductIndex] = useState<number | null>(null);
   const [reason, setReason] = useState("");
+
+  const updateLine = (i: number, patch: Partial<ReturnLine>) =>
+    setLines((prev) => prev.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
+  const addLine = () => setLines((prev) => [...prev, emptyLine()]);
+  const removeLine = (i: number) => setLines((prev) => prev.filter((_, idx) => idx !== i));
+
+  const validLines = lines.filter((l) => l.product_id && l.quantity > 0);
+  const linesReady = lines.length > 0 && validLines.length === lines.length;
 
   const submit = useMutation({
     mutationFn: async () => {
-      if (!productId) throw new Error("Select the returned product");
-      if (quantity <= 0) throw new Error("Quantity must be > 0");
-      const { data, error } = await supabase.rpc("create_sales_return", {
-        payload: {
-          factory_id: factoryId,
-          sale_id: saleId === "none" ? undefined : saleId,
-          customer_id: customerId === "none" ? undefined : customerId,
-          product_id: productId,
-          quantity_returned: quantity,
-          reason: reason || undefined,
-        } as any,
-      });
-      if (error) throw error;
-      return data as any;
+      if (validLines.length === 0) throw new Error("Add at least one returned product");
+      if (!linesReady) throw new Error("Every product line needs a product and a quantity > 0");
+      // Sequential, not Promise.all: each call inserts its own sales_returns
+      // row and there's no need to race them against each other.
+      const results: { id: string; return_number: string }[] = [];
+      for (const line of validLines) {
+        const { data, error } = await supabase.rpc("create_sales_return", {
+          payload: {
+            factory_id: factoryId,
+            sale_id: saleId === "none" ? undefined : saleId,
+            customer_id: customerId === "none" ? undefined : customerId,
+            product_id: line.product_id,
+            quantity_returned: line.quantity,
+            reason: reason || undefined,
+          } as any,
+        });
+        if (error) throw error;
+        results.push(data as { id: string; return_number: string });
+      }
+      return results;
     },
-    onSuccess: (data) => {
-      toast.success(`Return ${data?.return_number ?? ""} logged — awaiting inspection`);
-      logAudit({ action: "create", entity: "sales_returns", entityId: data?.id, factoryId });
+    onSuccess: (results) => {
+      toast.success(
+        results.length === 1
+          ? `Return ${results[0].return_number} logged — awaiting inspection`
+          : `${results.length} returns logged (${results.map((r) => r.return_number).join(", ")}) — awaiting inspection`,
+      );
+      results.forEach((r) =>
+        logAudit({ action: "create", entity: "sales_returns", entityId: r.id, factoryId }),
+      );
       onDone();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -566,40 +593,68 @@ function CreateReturnDialog({
           </Select>
         </div>
         <div>
-          <Label>Product returned</Label>
-          <Select
-            value={productId}
-            onValueChange={(v) => (v === ADD_NEW_ITEM ? setAddingProduct(true) : setProductId(v))}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Select product…" />
-            </SelectTrigger>
-            <SelectContent>
-              {products.map((p) => (
-                <SelectItem key={p.id} value={p.id}>
-                  {p.name}
-                </SelectItem>
-              ))}
-              <SelectItem value={ADD_NEW_ITEM} className="font-medium text-primary">
-                + Add new product…
-              </SelectItem>
-            </SelectContent>
-          </Select>
+          <Label>Products returned</Label>
+          <div className="space-y-2">
+            {lines.map((line, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <Select
+                  value={line.product_id}
+                  onValueChange={(v) =>
+                    v === ADD_NEW_ITEM ? setAddingProductIndex(i) : updateLine(i, { product_id: v })
+                  }
+                >
+                  <SelectTrigger className="flex-1">
+                    <SelectValue placeholder="Select product…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {products.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.name}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value={ADD_NEW_ITEM} className="font-medium text-primary">
+                      + Add new product…
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                <MoneyInput
+                  min={0.001}
+                  step="0.001"
+                  value={line.quantity}
+                  onChange={(v) => updateLine(i, { quantity: v })}
+                  className="w-28 shrink-0"
+                />
+                {lines.length > 1 && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="shrink-0"
+                    onClick={() => removeLine(i)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
           <QuickAddProductDialog
-            open={addingProduct}
-            onOpenChange={setAddingProduct}
+            open={addingProductIndex !== null}
+            onOpenChange={(v) => !v && setAddingProductIndex(null)}
             factoryId={factoryId}
-            onCreated={setProductId}
+            onCreated={(id) => {
+              if (addingProductIndex !== null) updateLine(addingProductIndex, { product_id: id });
+            }}
           />
-        </div>
-        <div>
-          <Label>Quantity returned</Label>
-          <MoneyInput
-            min={0.001}
-            step="0.001"
-            value={quantity}
-            onChange={setQuantity}
-          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="mt-2 gap-1.5"
+            onClick={addLine}
+          >
+            <Plus className="h-3.5 w-3.5" /> Add product
+          </Button>
         </div>
         <div>
           <Label>Reason</Label>
@@ -617,7 +672,7 @@ function CreateReturnDialog({
       </div>
       <DialogFooter>
         <Button
-          disabled={submit.isPending || !productId || quantity <= 0}
+          disabled={submit.isPending || !linesReady}
           onClick={() => submit.mutate()}
           className="gap-2"
         >
@@ -626,7 +681,11 @@ function CreateReturnDialog({
           ) : (
             <Plus className="h-4 w-4" />
           )}
-          {submit.isPending ? "Saving…" : "Log Return"}
+          {submit.isPending
+            ? "Saving…"
+            : lines.length > 1
+              ? `Log ${lines.length} Returns`
+              : "Log Return"}
         </Button>
       </DialogFooter>
     </DialogContent>
@@ -682,30 +741,15 @@ function InspectDialog({ row, onDone }: { row: ReturnRow; onDone: () => void }) 
         <div className="grid grid-cols-3 gap-3">
           <div>
             <Label>Accepted (good)</Label>
-            <MoneyInput
-              min={0}
-              step="0.001"
-              value={accepted}
-              onChange={setAccepted}
-            />
+            <MoneyInput min={0} step="0.001" value={accepted} onChange={setAccepted} />
           </div>
           <div>
             <Label>Damaged</Label>
-            <MoneyInput
-              min={0}
-              step="0.001"
-              value={damaged}
-              onChange={setDamaged}
-            />
+            <MoneyInput min={0} step="0.001" value={damaged} onChange={setDamaged} />
           </div>
           <div>
             <Label>Rejected</Label>
-            <MoneyInput
-              min={0}
-              step="0.001"
-              value={rejected}
-              onChange={setRejected}
-            />
+            <MoneyInput min={0} step="0.001" value={rejected} onChange={setRejected} />
           </div>
         </div>
         {!balanced && (

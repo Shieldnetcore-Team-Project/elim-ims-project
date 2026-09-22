@@ -166,7 +166,8 @@ function ExpensesPage() {
   const settings = useFactorySettings(factoryId);
   const currency = settings.data?.currency ?? "NGN";
   const qc = useQueryClient();
-  const { canWrite, canApprove, canReject, canPost, canCancel, canReverse } = usePermissions();
+  const { canWrite, canApprove, canReject, canPost, canCancel, canReverse, canDelete } =
+    usePermissions();
   const write = canWrite("expenses");
   // Cash-in entries are recorded via create_cash_transaction / the
   // cash_transactions table, both gated server-side on 'receipts-payments'
@@ -181,6 +182,12 @@ function ExpensesPage() {
   const post = canPost("expenses");
   const cancel = canCancel("expenses");
   const reverse = canReverse("expenses");
+  // request_delete() checks 'expenses':'delete' for a cash-out row and
+  // 'receipts-payments':'delete' for a cash-in row (see request_delete()'s
+  // per-table module mapping) — mirror that split here so the button only
+  // shows where the RPC would actually accept it.
+  const deleteExpensePerm = canDelete("expenses");
+  const deleteCashInPerm = canDelete("receipts-payments");
   const [formOpen, setFormOpen] = useState(false);
   const [defaultEntryType, setDefaultEntryType] = useState<EntryType>("cash_out");
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
@@ -761,52 +768,56 @@ function ExpensesPage() {
                           </>
                         )}
                         {e && e.status === "pending_approval" && (
-                          <>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              title="Edit"
-                              onClick={() => {
-                                setEditingExpense(e);
-                                setEditingCashIn(null);
-                                setFormOpen(true);
-                              }}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              title="Delete"
-                              onClick={() => setDeleteExpenseTarget(e)}
-                            >
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
-                          </>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Edit"
+                            onClick={() => {
+                              setEditingExpense(e);
+                              setEditingCashIn(null);
+                              setFormOpen(true);
+                            }}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
                         )}
                         {c && canEditCashIn && (
-                          <>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              title="Edit"
-                              onClick={() => {
-                                setEditingCashIn(c);
-                                setEditingExpense(null);
-                                setFormOpen(true);
-                              }}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              title="Delete"
-                              onClick={() => setDeleteCashInTarget(c)}
-                            >
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
-                          </>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Edit"
+                            onClick={() => {
+                              setEditingCashIn(c);
+                              setEditingExpense(null);
+                              setFormOpen(true);
+                            }}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {/* Delete only requests it (with a required reason) — nothing is
+                            removed until an admin approves it, same as Sales, so this shows
+                            on every row (any status) rather than just pending/self-recorded
+                            ones like Edit above. */}
+                        {e && deleteExpensePerm && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Request deletion"
+                            onClick={() => setDeleteExpenseTarget(e)}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        )}
+                        {c && deleteCashInPerm && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Request deletion"
+                            onClick={() => setDeleteCashInTarget(c)}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
                         )}
                       </div>
                     </TableCell>

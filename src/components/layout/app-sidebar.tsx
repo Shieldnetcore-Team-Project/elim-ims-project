@@ -18,14 +18,22 @@ import { usePendingAttention } from "@/lib/pending-attention";
 import { Badge } from "@/components/ui/badge";
 
 export function AppSidebar() {
-  const { state, setOpenMobile } = useSidebar();
+  const { state, setOpen, setOpenMobile, isMobile } = useSidebar();
   const collapsed = state === "collapsed";
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { can } = usePermissions();
   const { byUrl } = usePendingAttention();
 
   return (
-    <Sidebar collapsible="icon">
+    <Sidebar
+      collapsible="icon"
+      // Desktop only: expand on hover, collapse the moment the cursor
+      // leaves, on top of the existing click/keyboard toggle. Mobile uses a
+      // separate slide-out Sheet (see Sidebar's isMobile branch), where hover
+      // doesn't apply.
+      onMouseEnter={() => !isMobile && setOpen(true)}
+      onMouseLeave={() => !isMobile && setOpen(false)}
+    >
       <SidebarHeader className="border-b border-sidebar-border">
         <div className="flex items-center px-2 py-2">
           {collapsed ? (

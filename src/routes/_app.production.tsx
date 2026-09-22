@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useFactoryId, useFactorySettings } from "@/lib/use-factory";
 import { usePermissions, useMyProductionScope } from "@/lib/permissions";
+import { useActiveFactoryCode, setActiveFactoryCode } from "@/lib/factory-store";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -65,15 +66,21 @@ export const Route = createFileRoute("/_app/production")({
 
 // Nylon and Water production are isolated per profiles.production_scope (see
 // has_production_scope_access() — enforced at the RLS/RPC layer). The Factory
-// Switcher (src/components/layout/factory-switcher.tsx) locks a scoped user
-// onto their own factory and hides the option to switch, so this should
-// normally never trigger. It stays as a defense-in-depth fallback for the
-// brief window before the scope query resolves, or if scope is changed
-// server-side while the app is open with a stale factory selection cached.
+// Switcher (src/components/layout/factory-switcher.tsx) no longer locks a
+// scoped user's factory selection app-wide — Sales, Customers, Expenses etc.
+// are shared across both factories for everyone. This page is the one place
+// production_scope still matters on the front end, so it owns the
+// auto-correct itself: the moment a scoped user lands here on the "wrong"
+// factory (because they were freely switching around the rest of the app),
+// this snaps their active factory back to their own scope. The warning card
+// below is a defense-in-depth fallback for the brief window before that
+// effect and the scope query resolve.
 function ProductionFactoryGate() {
   const factory = useFactoryId();
   const factoryId = factory.data;
   const myScope = useMyProductionScope();
+  const active = useActiveFactoryCode();
+  const qc = useQueryClient();
   const currentFactory = useQuery({
     queryKey: ["factory-code-for-gate", factoryId],
     enabled: !!factoryId,
@@ -88,9 +95,18 @@ function ProductionFactoryGate() {
     },
   });
 
+  const scope = myScope.data ?? "BOTH";
+  const lockedCode = scope === "WATER" ? "water" : scope === "NYLON" ? "nylon" : null;
+
+  useEffect(() => {
+    if (lockedCode && active !== lockedCode) {
+      setActiveFactoryCode(lockedCode);
+      qc.invalidateQueries();
+    }
+  }, [lockedCode, active, qc]);
+
   if (!factoryId || myScope.isLoading || currentFactory.isLoading) return null;
 
-  const scope = myScope.data ?? "BOTH";
   const isRestricted =
     scope !== "BOTH" &&
     currentFactory.data?.code &&
@@ -777,12 +793,7 @@ function ProductionForm({
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label>{selectedPackaging ? `Quantity (${quantityUnit})` : "Quantity produced"}</Label>
-            <MoneyInput
-              min={0.001}
-              step="0.001"
-              value={quantity}
-              onChange={setQuantity}
-            />
+            <MoneyInput min={0.001} step="0.001" value={quantity} onChange={setQuantity} />
             {selectedPackaging && (
               <p className="mt-1 text-xs text-muted-foreground">
                 = {num(computedBaseQty)} {selectedProduct?.unit} (base unit)
