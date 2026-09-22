@@ -92,6 +92,7 @@ type SaleRow = {
   id: string;
   invoice_number: string;
   sale_date: string;
+  created_at: string;
   customer_id: string | null;
   customer_name: string | null;
   grand_total: number;
@@ -476,7 +477,7 @@ function SalesPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Invoice</TableHead>
-                <TableHead>Date</TableHead>
+                <TableHead>Date &amp; Time</TableHead>
                 <TableHead>Customer</TableHead>
                 <TableHead className="text-right">Total</TableHead>
                 <TableHead className="text-right">Paid</TableHead>
@@ -501,7 +502,18 @@ function SalesPage() {
                 return (
                   <TableRow key={s.id}>
                     <TableCell className="font-mono text-xs">{s.invoice_number}</TableCell>
-                    <TableCell>{s.sale_date}</TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      {new Date(s.created_at).toLocaleString()}
+                      {/* sale_date is a business/backdating field, separate
+                          from when the record was actually entered — flag it
+                          only when it doesn't match, instead of always
+                          showing two dates for the common case. */}
+                      {s.sale_date !== new Date(s.created_at).toLocaleDateString("en-CA") && (
+                        <div className="text-xs text-muted-foreground">
+                          Recorded for {s.sale_date}
+                        </div>
+                      )}
+                    </TableCell>
                     <TableCell>
                       {s.customer_id ? (
                         <button
