@@ -115,6 +115,7 @@ function LedgerPage() {
   const reversePayments = canReverse("payments");
   const [formOpen, setFormOpen] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
+  const [cashOutOpen, setCashOutOpen] = useState(false);
   const [detailTarget, setDetailTarget] = useState<UnifiedRow | null>(null);
   const [reverseTarget, setReverseTarget] = useState<UnifiedRow | null>(null);
   const [q, setQ] = useState("");
@@ -412,6 +413,24 @@ function LedgerPage() {
                 sales={sales.data ?? []}
                 saving={recordPayment.isPending}
                 onSubmit={(v) => recordPayment.mutate(v)}
+              />
+            )}
+          </Dialog>
+        )}
+        {writeLedger && (
+          <Dialog open={cashOutOpen} onOpenChange={setCashOutOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" className="gap-2">
+                <Wallet className="h-4 w-4" /> Cash Out
+              </Button>
+            </DialogTrigger>
+            {cashOutOpen && factoryId && (
+              <CashOutDialog
+                factoryId={factoryId}
+                onDone={() => {
+                  setCashOutOpen(false);
+                  invalidateAll();
+                }}
               />
             )}
           </Dialog>
@@ -859,6 +878,110 @@ function NewPaymentDialog({
           }
         >
           {saving ? "Saving…" : "Record & Print Receipt"}
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  );
+}
+
+// Sales staff collect cash from customers all shift and periodically hand it
+// over to accounts/the till. This logs that hand-over as a plain cash
+// inflow (create_cash_transaction, category 'other_inflow') — the same
+// mechanism New Transaction above uses, just a focused, one-click version of
+// it for this specific, everyday case. Whoever is on this page (accounts/
+// cashier, receiving the cash) records it, rather than the salesperson
+// self-serving it — this used to live on the Sales page, gated on sales
+// write, but that meant it couldn't be recorded by the person actually
+// holding the till; 'receipts-payments' write (writeLedger) is the right
+// permission for it now that it lives here.
+function CashOutDialog({ factoryId, onDone }: { factoryId: string; onDone: () => void }) {
+  const [amount, setAmount] = useState(0);
+  const [method, setMethod] = useState<PaymentMethod>("cash");
+  const [receivedFrom, setReceivedFrom] = useState("");
+  const [notes, setNotes] = useState("");
+  const [recordedBy, setRecordedBy] = useState("");
+
+  const submit = useMutation({
+    mutationFn: async () => {
+      if (amount <= 0) throw new Error("Amount must be greater than 0");
+      if (!recordedBy.trim()) throw new Error("Enter who is recording this transaction");
+      const { data, error } = await supabase.rpc("create_cash_transaction", {
+        payload: {
+          factory_id: factoryId,
+          transaction_type: "receipt",
+          category: "other_inflow",
+          amount,
+          payment_method: method,
+          payer_payee: receivedFrom || null,
+          description: notes || "Cash remitted from sales",
+          related_reference: "sales_cash_out",
+          recorded_by_name: recordedBy.trim(),
+        } as any,
+      });
+      if (error) throw error;
+      return data as { transaction_number: string };
+    },
+    onSuccess: (data) => {
+      toast.success(`Cash-out recorded — ${data.transaction_number}`);
+      onDone();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return (
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle>Cash Out</DialogTitle>
+      </DialogHeader>
+      <div className="grid gap-3">
+        <p className="text-sm text-muted-foreground">
+          Record cash collected from sales that's being handed over to you now.
+        </p>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label>Amount</Label>
+            <MoneyInput value={amount} onChange={setAmount} />
+          </div>
+          <div>
+            <Label>Payment method</Label>
+            <Select value={method} onValueChange={(v) => setMethod(v as PaymentMethod)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(["cash", "transfer", "pos", "card", "cheque"] as PaymentMethod[]).map((m) => (
+                  <SelectItem key={m} value={m} className="capitalize">
+                    {m}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <div>
+          <Label>Received from (optional)</Label>
+          <Input
+            value={receivedFrom}
+            onChange={(e) => setReceivedFrom(e.target.value)}
+            placeholder="e.g. Sales floor, salesperson's name"
+          />
+        </div>
+        <div>
+          <Label>Notes (optional)</Label>
+          <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
+        </div>
+        <div>
+          <Label>Recorded by</Label>
+          <Input
+            value={recordedBy}
+            onChange={(e) => setRecordedBy(e.target.value)}
+            placeholder="Your name"
+          />
+        </div>
+      </div>
+      <DialogFooter>
+        <Button disabled={submit.isPending || amount <= 0} onClick={() => submit.mutate()}>
+          {submit.isPending ? "Saving…" : "Cash Out"}
         </Button>
       </DialogFooter>
     </DialogContent>

@@ -4102,7 +4102,6 @@ export type Database = {
       create_purchase_order: { Args: { payload: Json }; Returns: Json }
       create_rep_return: { Args: { payload: Json }; Returns: Json }
       create_sale: { Args: { payload: Json }; Returns: Json }
-      create_sales_cash_remittance: { Args: { payload: Json }; Returns: Json }
       create_sales_return: { Args: { payload: Json }; Returns: Json }
       create_staff_deduction: { Args: { payload: Json }; Returns: Json }
       create_staff_loan: { Args: { payload: Json }; Returns: Json }
