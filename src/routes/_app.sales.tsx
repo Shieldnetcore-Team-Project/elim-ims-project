@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { RequireAccess } from "@/components/layout/require-access";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useFactoryId, useFactorySettings } from "@/lib/use-factory";
@@ -52,6 +52,7 @@ import {
   Ban,
   PiggyBank,
   Wallet,
+  Pencil,
 } from "lucide-react";
 import { money, num } from "@/lib/format";
 import { toast } from "sonner";
@@ -112,6 +113,27 @@ type CartItem = {
   unit_price: number;
   stock: number;
 };
+// Full detail needed to re-open a still-pending sale in PosDialog for
+// editing — a superset of SaleRow's list-view fields.
+type EditingSaleData = {
+  id: string;
+  invoice_number: string;
+  sale_date: string;
+  customer_id: string | null;
+  customer_name: string | null;
+  customer_phone: string | null;
+  customer_address: string | null;
+  discount: number;
+  vat: number;
+  is_pr: boolean;
+  sales_person: string | null;
+  sales_rep_id: string | null;
+  remarks: string | null;
+  pending_payments: { amount: number; method: PaymentMethod }[] | null;
+  amount_paid: number;
+  payment_method: PaymentMethod;
+  items: { product_id: string; quantity: number; unit_price: number }[];
+};
 
 const saleStatusBadge = (s: string): "default" | "secondary" | "outline" | "destructive" =>
   s === "posted" ? "secondary" : s === "rejected" || s === "cancelled" ? "destructive" : "outline";
@@ -126,12 +148,17 @@ function SalesPage() {
     ["customer_account_transactions", "sales", "payments_received"],
     [["sales-list"], ["customer-account"], ["customer-sales-full"], ["customer-payments-full"]],
   );
-  const { canWrite, canApprove, canReject, canCancel, canDelete } = usePermissions();
+  const { canWrite, canApprove, canReject, canCancel, canDelete, canEdit } = usePermissions();
   const write = canWrite("sales");
   const approve = canApprove("sales");
   const reject = canReject("sales");
   const cancel = canCancel("sales");
   const canRequestDelete = canDelete("sales");
+  // Editing only makes sense while nothing has taken effect yet — see
+  // edit_sale()'s own guard. The next approve_sale() call reviews whatever
+  // the sale looks like at that point, which is the "approval" an edit is
+  // subject to; there's no separate edit-approval step.
+  const canEditSale = canEdit("sales");
   // Mirrors approve_sale()/reject_sale()'s own self-approval exception --
   // an admin (super_admin) can approve/reject a sale even if they're the
   // one who recorded it; every other approver role still can't.
@@ -146,6 +173,9 @@ function SalesPage() {
   const [rejectTarget, setRejectTarget] = useState<SaleRow | null>(null);
   const [cancelTarget, setCancelTarget] = useState<SaleRow | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<SaleRow | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editingSale, setEditingSale] = useState<EditingSaleData | null>(null);
+  const [loadingEditId, setLoadingEditId] = useState<string | null>(null);
 
   const currentUser = useQuery({
     queryKey: ["current-user-id"],
@@ -217,6 +247,50 @@ function SalesPage() {
       },
       action,
     );
+  };
+
+  // Loads the full detail (including line items) a still-pending sale needs
+  // to reopen in PosDialog for editing — the list row above only carries the
+  // summary fields.
+  const openEditSale = async (saleId: string) => {
+    setLoadingEditId(saleId);
+    const { data, error } = await supabase
+      .from("sales")
+      .select(
+        "id,invoice_number,sale_date,customer_id,customer_name,customer_phone,customer_address,discount,vat,is_pr,sales_person,sales_rep_id,remarks,pending_payments,amount_paid,payment_method,sale_items(product_id,quantity,unit_price)",
+      )
+      .eq("id", saleId)
+      .single();
+    setLoadingEditId(null);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    const s = data as any;
+    setEditingSale({
+      id: s.id,
+      invoice_number: s.invoice_number,
+      sale_date: s.sale_date,
+      customer_id: s.customer_id,
+      customer_name: s.customer_name,
+      customer_phone: s.customer_phone,
+      customer_address: s.customer_address,
+      discount: Number(s.discount),
+      vat: Number(s.vat),
+      is_pr: s.is_pr,
+      sales_person: s.sales_person,
+      sales_rep_id: s.sales_rep_id,
+      remarks: s.remarks,
+      pending_payments: s.pending_payments,
+      amount_paid: Number(s.amount_paid),
+      payment_method: s.payment_method,
+      items: (s.sale_items ?? []).map((it: any) => ({
+        product_id: it.product_id,
+        quantity: Number(it.quantity),
+        unit_price: Number(it.unit_price),
+      })),
+    });
+    setEditOpen(true);
   };
 
   const pay = useMutation({
@@ -568,6 +642,17 @@ function SalesPage() {
                         >
                           <FileDown className="h-4 w-4" /> PDF
                         </Button>
+                        {s.status === "pending_approval" && canEditSale && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Edit"
+                            disabled={loadingEditId === s.id}
+                            onClick={() => openEditSale(s.id)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        )}
                         {canDeleteRow && (
                           <Button
                             variant="ghost"
@@ -676,6 +761,29 @@ function SalesPage() {
               setCashOutOpen(false);
               qc.invalidateQueries({ queryKey: ["expenses-cash-in"] });
               qc.invalidateQueries({ queryKey: ["cf-cash-transactions"] });
+            }}
+          />
+        )}
+      </Dialog>
+
+      <Dialog
+        open={editOpen}
+        onOpenChange={(v) => {
+          setEditOpen(v);
+          if (!v) setEditingSale(null);
+        }}
+      >
+        {editOpen && editingSale && factoryId && (
+          <PosDialog
+            factoryId={factoryId}
+            editingSale={editingSale}
+            onDone={() => {
+              setEditOpen(false);
+              setEditingSale(null);
+              qc.invalidateQueries({ queryKey: ["sales-list"] });
+              qc.invalidateQueries({ queryKey: ["customer-account"] });
+              qc.invalidateQueries({ queryKey: ["customer-sales-full"] });
+              qc.invalidateQueries({ queryKey: ["customer-payments-full"] });
             }}
           />
         )}
@@ -1313,12 +1421,17 @@ export function PosDialog({
   factoryId,
   onDone,
   presetCustomerId,
+  editingSale,
 }: {
   factoryId: string;
   onDone: () => void;
   // Set from the Sales table's per-row "add products to account" icon, so
   // the customer is already selected instead of defaulting to Walk-in.
   presetCustomerId?: string;
+  // Set from the Sales table's per-row Edit icon (pending sales only) — the
+  // whole form pre-fills from this and submits to edit_sale() instead of
+  // create_sale().
+  editingSale?: EditingSaleData;
 }) {
   const settings = useFactorySettings(factoryId);
   const products = useQuery({
@@ -1363,11 +1476,15 @@ export function PosDialog({
   });
 
   const [cart, setCart] = useState<CartItem[]>([]);
-  const [saleDate, setSaleDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
-  const [customerId, setCustomerId] = useState<string>(presetCustomerId ?? "walkin");
-  const [customerName, setCustomerName] = useState("");
-  const [customerPhone, setCustomerPhone] = useState("");
-  const [customerAddress, setCustomerAddress] = useState("");
+  const [saleDate, setSaleDate] = useState<string>(
+    () => editingSale?.sale_date ?? new Date().toISOString().slice(0, 10),
+  );
+  const [customerId, setCustomerId] = useState<string>(
+    editingSale?.customer_id ?? presetCustomerId ?? "walkin",
+  );
+  const [customerName, setCustomerName] = useState(editingSale?.customer_name ?? "");
+  const [customerPhone, setCustomerPhone] = useState(editingSale?.customer_phone ?? "");
+  const [customerAddress, setCustomerAddress] = useState(editingSale?.customer_address ?? "");
 
   // customers-brief loads async, so the preset id above may resolve before
   // its name/phone/address are known — fill those in as soon as the list
@@ -1381,22 +1498,28 @@ export function PosDialog({
       setCustomerAddress(c.address ?? "");
     }
   }, [presetCustomerId, customers.data]);
-  const [discountInput, setDiscountInput] = useState(0);
+  const [discountInput, setDiscountInput] = useState(editingSale?.discount ?? 0);
   const [discountType, setDiscountType] = useState<"amount" | "percent">("amount");
-  const [applyVat, setApplyVat] = useState(true);
-  const [isPr, setIsPr] = useState(false);
-  const [payments, setPayments] = useState<PaymentLine[]>([{ amount: 0, method: "cash" }]);
+  const [applyVat, setApplyVat] = useState(editingSale ? editingSale.vat > 0 : true);
+  const [isPr, setIsPr] = useState(editingSale?.is_pr ?? false);
+  const [payments, setPayments] = useState<PaymentLine[]>(() => {
+    if (editingSale?.pending_payments?.length) return editingSale.pending_payments;
+    if (editingSale && editingSale.amount_paid > 0) {
+      return [{ amount: editingSale.amount_paid, method: editingSale.payment_method }];
+    }
+    return [{ amount: 0, method: "cash" }];
+  });
   const amountPaid = useMemo(() => payments.reduce((s, p) => s + (p.amount || 0), 0), [payments]);
   // The customer's real account (ledger-backed): advance they can draw on and
   // any debt they already owe. Both feed the live figures below.
   const customerAccount = useCustomerAccount(customerId);
   const availableCredit = customerAccount.data?.summary.available_advance ?? 0;
   const existingDebt = customerAccount.data?.summary.outstanding_debt ?? 0;
-  const [salesPerson, setSalesPerson] = useState("");
-  const [remarks, setRemarks] = useState("");
+  const [salesPerson, setSalesPerson] = useState(editingSale?.sales_person ?? "");
+  const [remarks, setRemarks] = useState(editingSale?.remarks ?? "");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [pickerId, setPickerId] = useState<string>("");
-  const [salesRepId, setSalesRepId] = useState<string>("none");
+  const [salesRepId, setSalesRepId] = useState<string>(editingSale?.sales_rep_id ?? "none");
 
   const currentUserName = useQuery({
     queryKey: ["current-user-full-name"],
@@ -1449,6 +1572,35 @@ export function PosDialog({
     repMode
       ? Number(repStock.data?.find((r) => r.product_id === p.id)?.quantity ?? 0)
       : Number(p.current_stock);
+
+  // Rebuilds the cart from the sale being edited once products (and rep
+  // stock, if this was a rep sale) have loaded — runs once, not on every
+  // render, so it doesn't fight with the user's own cart edits afterward.
+  const editCartInitialized = useRef(false);
+  useEffect(() => {
+    if (!editingSale || editCartInitialized.current) return;
+    if (!products.data) return;
+    if (editingSale.sales_rep_id && repStock.isLoading) return;
+    setCart(
+      editingSale.items.map((it) => {
+        const p = products.data?.find((x) => x.id === it.product_id);
+        // The item's own quantity is already "spoken for" by this same sale
+        // (nothing has been decremented for a pending sale), so it's added
+        // back on top of current availability rather than excluded from it.
+        const avail = (p ? effStock(p) : 0) + it.quantity;
+        return {
+          product_id: it.product_id,
+          name: p?.name ?? "Unknown product",
+          unit: p?.unit ?? "",
+          quantity: it.quantity,
+          unit_price: it.unit_price,
+          stock: avail,
+        };
+      }),
+    );
+    editCartInitialized.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingSale, products.data, repStock.isLoading]);
 
   const vatRate = Number(settings.data?.vat_rate ?? 0);
   const visibleProducts = useMemo(() => {
@@ -1570,35 +1722,46 @@ export function PosDialog({
         const c = customers.data?.find((x) => x.id === finalCustomer);
         displayName = c?.name ?? displayName;
       }
-      const { data, error } = await supabase.rpc("create_sale", {
-        payload: {
-          factory_id: factoryId,
-          sale_date: saleDate,
-          customer_id: finalCustomer,
-          customer_name: displayName || null,
-          customer_phone: customerPhone || null,
-          customer_address: customerAddress || null,
-          discount: totals.discount,
-          vat: totals.vat,
-          payments: isPr ? [] : payments.filter((p) => p.amount > 0),
-          sales_person: salesPerson || null,
-          sales_rep_id: repMode ? salesRepId : null,
-          is_pr: isPr,
-          remarks: remarks || null,
-          items: sellableCart.map((c) => ({
-            product_id: c.product_id,
-            quantity: c.quantity,
-            unit_price: c.unit_price,
-          })),
-        } as any,
-      });
+      const payload = {
+        factory_id: factoryId,
+        sale_date: saleDate,
+        customer_id: finalCustomer,
+        customer_name: displayName || null,
+        customer_phone: customerPhone || null,
+        customer_address: customerAddress || null,
+        discount: totals.discount,
+        vat: totals.vat,
+        payments: isPr ? [] : payments.filter((p) => p.amount > 0),
+        sales_person: salesPerson || null,
+        sales_rep_id: repMode ? salesRepId : null,
+        is_pr: isPr,
+        remarks: remarks || null,
+        items: sellableCart.map((c) => ({
+          product_id: c.product_id,
+          quantity: c.quantity,
+          unit_price: c.unit_price,
+        })),
+      };
+      if (editingSale) {
+        const { data, error } = await supabase.rpc("edit_sale", {
+          p_id: editingSale.id,
+          payload: payload as any,
+        });
+        if (error) throw error;
+        return data as any;
+      }
+      const { data, error } = await supabase.rpc("create_sale", { payload: payload as any });
       if (error) throw error;
       return data as any;
     },
     onSuccess: (res) => {
-      toast.success(`${res.invoice_number} submitted — awaiting manager approval`);
+      toast.success(
+        editingSale
+          ? `${res.invoice_number} updated — awaiting manager approval`
+          : `${res.invoice_number} submitted — awaiting manager approval`,
+      );
       logAudit({
-        action: "sale",
+        action: editingSale ? "edit" : "sale",
         entity: "sales",
         entityId: res.sale_id,
         factoryId,
@@ -1627,7 +1790,7 @@ export function PosDialog({
           email: settings.data?.email,
           logo_url: settings.data?.logo_url,
         },
-        invoice_number: "PREVIEW",
+        invoice_number: editingSale?.invoice_number ?? "PREVIEW",
         sale_date: saleDate,
         customer: {
           name: customerName || customers.data?.find((c) => c.id === customerId)?.name,
@@ -1659,7 +1822,9 @@ export function PosDialog({
   return (
     <DialogContent className="flex max-h-[92vh] w-[95vw] max-w-6xl flex-col gap-0 overflow-hidden p-0">
       <DialogHeader className="shrink-0 border-b px-6 py-4">
-        <DialogTitle>New Sale</DialogTitle>
+        <DialogTitle>
+          {editingSale ? `Edit Sale — ${editingSale.invoice_number}` : "New Sale"}
+        </DialogTitle>
       </DialogHeader>
       <div className="grid flex-1 gap-6 overflow-y-auto px-6 py-4 md:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <div className="min-w-0 space-y-3">
@@ -2047,7 +2212,7 @@ export function PosDialog({
           className="gap-2"
         >
           <ReceiptIcon className="h-4 w-4" />
-          {submit.isPending ? "Processing…" : "Save Sale"}
+          {submit.isPending ? "Processing…" : editingSale ? "Save Changes" : "Save Sale"}
         </Button>
       </DialogFooter>
     </DialogContent>

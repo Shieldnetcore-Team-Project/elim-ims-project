@@ -4108,6 +4108,7 @@ export type Database = {
       create_staff_loan: { Args: { payload: Json }; Returns: Json }
       create_stock_dispatch: { Args: { payload: Json }; Returns: Json }
       delete_user_account: { Args: { target_id: string }; Returns: Json }
+      edit_sale: { Args: { p_id: string; payload: Json }; Returns: Json }
       flag_payment: { Args: { p_id: string; p_reason: string }; Returns: Json }
       get_all_users_last_login: {
         Args: never
