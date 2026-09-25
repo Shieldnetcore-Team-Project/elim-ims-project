@@ -1,4 +1,4 @@
-import { Droplet, Layers, Check, ChevronsUpDown } from "lucide-react";
+import { Droplet, Check, ChevronsUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useActiveFactoryCode, setActiveFactoryCode } from "@/lib/factory-store";
@@ -6,20 +6,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
 
-const FACTORIES = [
-  { code: "water" as const, name: "Water Factory", icon: Droplet },
-  { code: "nylon" as const, name: "Nylon Factory", icon: Layers },
-];
+const FACTORIES = [{ code: "water" as const, name: "Water Factory", icon: Droplet }];
 
-// Every user can switch freely between the two factories everywhere in the
-// app -- Sales, Customers, Expenses, etc. are shared across both. A
-// NYLON/WATER production_scope only isolates the Production module itself
-// (enforced there by ProductionFactoryGate in src/routes/_app.production.tsx,
-// which auto-corrects the active factory back to the user's own scope the
-// moment they land on that page, plus has_production_scope_access() at the
-// RLS/RPC layer) -- it used to also lock this switcher for the whole app,
-// which meant a scoped sales user could never see the other factory's data
-// anywhere, not just in Production.
+// Kept as a switcher component (rather than inlining a static label) so a
+// second factory can be reintroduced later without touching the top bar.
 export function FactorySwitcher() {
   const active = useActiveFactoryCode();
   const [open, setOpen] = useState(false);
@@ -27,6 +17,15 @@ export function FactorySwitcher() {
 
   const current = FACTORIES.find((f) => f.code === active) ?? FACTORIES[0];
   const Icon = current.icon;
+
+  if (FACTORIES.length <= 1) {
+    return (
+      <span className="flex h-9 min-w-[180px] items-center gap-2 rounded-md border border-input px-3 text-sm font-medium">
+        <Icon className="h-4 w-4 text-primary" />
+        {current.name}
+      </span>
+    );
+  }
 
   return (
     <Popover open={open} onOpenChange={setOpen}>

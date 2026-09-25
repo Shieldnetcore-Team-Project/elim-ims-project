@@ -28,7 +28,6 @@ import {
   Wallet,
   Search,
   Droplet,
-  Layers,
   ArrowRight,
   ChevronDown,
 } from "lucide-react";
@@ -47,7 +46,6 @@ export const Route = createFileRoute("/_app/inventory")({
 
 const FACTORY_LABEL = {
   water: { name: "Water Factory", icon: Droplet },
-  nylon: { name: "Nylon Factory", icon: Layers },
 } as const;
 
 type RawMaterialRow = {

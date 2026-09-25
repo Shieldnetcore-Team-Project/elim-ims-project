@@ -1,42 +1,17 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
-
-const KEY = "fmis.activeFactoryCode";
-type Listener = () => void;
-const listeners = new Set<Listener>();
-
-function read(): "water" | "nylon" {
-  if (typeof window === "undefined") return "water";
-  const v = window.localStorage.getItem(KEY);
-  return v === "nylon" ? "nylon" : "water";
+// Only "water" exists as a factory now. This module previously read/wrote a
+// "fmis.activeFactoryCode" localStorage key so users could switch between
+// Water and Nylon; that's gone, but the exported API is kept so callers
+// (FactorySwitcher, production scope gating, etc.) don't need to change. A
+// browser with a stale "nylon" value cached from before the factory was
+// removed would otherwise still try to operate in a nonexistent context.
+export function setActiveFactoryCode(_code: "water") {
+  // No-op: nothing to switch to.
 }
 
-export function setActiveFactoryCode(code: "water" | "nylon") {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(KEY, code);
-  listeners.forEach((l) => l());
+export function useActiveFactoryCode(): "water" {
+  return "water";
 }
 
-function subscribe(l: Listener) {
-  listeners.add(l);
-  return () => listeners.delete(l);
-}
-
-export function useActiveFactoryCode(): "water" | "nylon" {
-  return useSyncExternalStore(
-    subscribe,
-    () => read(),
-    () => "water",
-  );
-}
-
-export function useHydratedFactoryCode(): "water" | "nylon" | null {
-  const [c, setC] = useState<"water" | "nylon" | null>(null);
-  useEffect(() => {
-    setC(read());
-    const un = subscribe(() => setC(read()));
-    return () => {
-      un();
-    };
-  }, []);
-  return c;
+export function useHydratedFactoryCode(): "water" {
+  return "water";
 }

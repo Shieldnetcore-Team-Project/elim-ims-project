@@ -64,17 +64,11 @@ export const Route = createFileRoute("/_app/production")({
   ),
 });
 
-// Nylon and Water production are isolated per profiles.production_scope (see
-// has_production_scope_access() — enforced at the RLS/RPC layer). The Factory
-// Switcher (src/components/layout/factory-switcher.tsx) no longer locks a
-// scoped user's factory selection app-wide — Sales, Customers, Expenses etc.
-// are shared across both factories for everyone. This page is the one place
-// production_scope still matters on the front end, so it owns the
-// auto-correct itself: the moment a scoped user lands here on the "wrong"
-// factory (because they were freely switching around the rest of the app),
-// this snaps their active factory back to their own scope. The warning card
-// below is a defense-in-depth fallback for the brief window before that
-// effect and the scope query resolve.
+// Access to Production can still be scoped per profiles.production_scope (see
+// has_production_scope_access() — enforced at the RLS/RPC layer), a holdover
+// from when this app managed more than one factory. With only Water Factory
+// left, a "WATER" scope is the only meaningful restriction; the warning card
+// below is a defense-in-depth fallback for a scope that doesn't match.
 function ProductionFactoryGate() {
   const factory = useFactoryId();
   const factoryId = factory.data;
@@ -96,7 +90,7 @@ function ProductionFactoryGate() {
   });
 
   const scope = myScope.data ?? "BOTH";
-  const lockedCode = scope === "WATER" ? "water" : scope === "NYLON" ? "nylon" : null;
+  const lockedCode = scope === "WATER" ? ("water" as const) : null;
 
   useEffect(() => {
     if (lockedCode && active !== lockedCode) {

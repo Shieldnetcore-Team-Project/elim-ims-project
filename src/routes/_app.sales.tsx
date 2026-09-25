@@ -1354,9 +1354,8 @@ export function PosDialog({
         .select("id,name,sku,unit,unit_price,current_stock,category_id")
         .eq("factory_id", factoryId)
         .eq("active", true)
-        // Don't require a category: the Nylon factory has no product categories,
-        // so every Nylon finished product is uncategorized. Semi-finished items
-        // are kept out by being inactive instead.
+        // Don't require a category: some finished products are uncategorized.
+        // Semi-finished items are kept out by being inactive instead.
         .order("name");
       if (error) throw error;
       return (data ?? []) as Product[];

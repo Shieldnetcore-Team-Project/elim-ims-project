@@ -305,10 +305,7 @@ export function SettingsPage() {
               <CardTitle>Factory Management</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <p className="text-sm text-muted-foreground">
-                Rename the two factories. Each keeps fully separate data — Water and Nylon can't be
-                merged or removed here.
-              </p>
+              <p className="text-sm text-muted-foreground">Rename the factory below.</p>
               {(factories.data ?? []).map((f) => (
                 <FactoryRow
                   key={f.id}
@@ -675,7 +672,7 @@ type ProductionTypeRow = {
 };
 
 // Configurable production types (spec §5): Production's "type" dropdown reads
-// straight from this table, so adding "NYLON ROPE" next quarter is a data
+// straight from this table, so adding a new type next quarter is a data
 // entry here, never a code change or deploy.
 function ProductionTypesCard() {
   const qc = useQueryClient();
@@ -684,7 +681,7 @@ function ProductionTypesCard() {
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const [department, setDepartment] = useState("Production");
-  const [scope, setScope] = useState<"NYLON" | "WATER" | "BOTH">("BOTH");
+  const [scope, setScope] = useState<"NYLON" | "WATER" | "BOTH">("WATER");
   const [uom, setUom] = useState("");
 
   const types = useQuery({
@@ -802,7 +799,7 @@ function ProductionTypesCard() {
               <Input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Nylon Bag"
+                placeholder="e.g. Sachet Water"
               />
             </div>
             <div>
@@ -810,7 +807,7 @@ function ProductionTypesCard() {
               <Input
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
-                placeholder="e.g. NYLON_BAG"
+                placeholder="e.g. SACHET_WATER"
               />
             </div>
             <div>
@@ -820,8 +817,6 @@ function ProductionTypesCard() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="BOTH">Both</SelectItem>
-                  <SelectItem value="NYLON">Nylon</SelectItem>
                   <SelectItem value="WATER">Water</SelectItem>
                 </SelectContent>
               </Select>

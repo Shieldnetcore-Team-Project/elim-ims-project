@@ -52,8 +52,6 @@ const statusVariant = (status: string): "default" | "secondary" | "outline" | "d
 };
 
 const SCOPES: { value: ProductionScope; label: string }[] = [
-  { value: "BOTH", label: "All Factories" },
-  { value: "NYLON", label: "Nylon Factory" },
   { value: "WATER", label: "Water Factory" },
 ];
 

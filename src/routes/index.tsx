@@ -35,8 +35,8 @@ const FEATURES = [
   },
   {
     icon: Users,
-    title: "Two factories, one login",
-    desc: "Water and Nylon, fully separated, one platform.",
+    title: "Payroll & HR",
+    desc: "Employee records, payroll runs, and staff loans in one place.",
   },
 ];
 
@@ -103,14 +103,12 @@ export const Route = createFileRoute("/")({
       { title: "Elim Table Water — Factory Management & Inventory System" },
       {
         name: "description",
-        content:
-          "Enterprise inventory, sales, production, payroll, and reporting for the Water Factory and Nylon Factory.",
+        content: "Enterprise inventory, sales, production, payroll, and reporting for the Water Factory.",
       },
       { property: "og:title", content: "Elim Table Water — Factory Management & Inventory System" },
       {
         property: "og:description",
-        content:
-          "One platform for two factories. Fully separated data, secure roles, real-time dashboards.",
+        content: "One platform for the factory. Secure roles, real-time dashboards, complete audit history.",
       },
       { property: "og:type", content: "website" },
     ],
@@ -242,24 +240,23 @@ function Landing() {
 
           <div className="mt-10">
             <div className="inline-flex items-center gap-2 rounded-full border border-sidebar-border bg-sidebar-accent px-3 py-1 text-xs font-medium text-sidebar-accent-foreground">
-              <span className="h-1.5 w-1.5 rounded-full bg-accent" /> Enterprise · Two-factory ready
+              <span className="h-1.5 w-1.5 rounded-full bg-accent" /> Enterprise-ready
             </div>
             <h1 className="mt-6 text-4xl font-semibold leading-tight">
               Factory Management &<br />
               Inventory System
             </h1>
             <p className="mt-4 max-w-md mx-auto text-sidebar-foreground/70">
-              Run your <strong className="text-sidebar-foreground">Water Factory</strong> and{" "}
-              <strong className="text-sidebar-foreground">Nylon Factory</strong> on one platform.
-              Sales, production, raw materials, payroll, and reports — all cleanly separated by
-              factory, with role-based access and complete audit history.
+              Run your <strong className="text-sidebar-foreground">Water Factory</strong> on one
+              platform. Sales, production, raw materials, payroll, and reports — with role-based
+              access and complete audit history.
             </p>
           </div>
         </div>
 
         <div className="flex items-center justify-between text-xs text-sidebar-foreground/60">
           <span>© {new Date().getFullYear()} Elim Table Water</span>
-          <span>Water Factory · Nylon Factory</span>
+          <span>Water Factory</span>
         </div>
       </div>
 

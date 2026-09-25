@@ -63,8 +63,8 @@ export const Route = createFileRoute("/_app/users")({
 });
 
 // No departments table exists yet -- this mirrors the "Sales", "Production",
-// "Finance" already used on Employees/Production Requests, plus the two
-// factories, so the dropdown reflects how the business is actually organized.
+// "Finance" already used on Employees/Production Requests, plus the factory,
+// so the dropdown reflects how the business is actually organized.
 // "Other…" (below) covers anything that doesn't fit, and keeps this list from
 // blocking an edit just because it's incomplete.
 const DEPARTMENT_OPTIONS = [
@@ -74,7 +74,6 @@ const DEPARTMENT_OPTIONS = [
   "Finance & Accounts",
   "Inventory / Store",
   "Water Factory",
-  "Nylon Factory",
 ];
 
 type ProductionScope = "NYLON" | "WATER" | "BOTH";
@@ -482,9 +481,7 @@ export function UsersPage() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="BOTH">Both factories</SelectItem>
-                        <SelectItem value="NYLON">Nylon only</SelectItem>
-                        <SelectItem value="WATER">Water only</SelectItem>
+                        <SelectItem value="WATER">Water</SelectItem>
                       </SelectContent>
                     </Select>
                     <p className="mt-1 text-[11px] text-muted-foreground">

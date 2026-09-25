@@ -27,11 +27,7 @@ import { Copy, Eye, EyeOff, RefreshCw, UserPlus } from "lucide-react";
 
 type Factory = { id: string; name: string };
 
-const SCOPES: { value: ProductionScope; label: string }[] = [
-  { value: "BOTH", label: "Both factories" },
-  { value: "WATER", label: "Water only" },
-  { value: "NYLON", label: "Nylon only" },
-];
+const SCOPES: { value: ProductionScope; label: string }[] = [{ value: "WATER", label: "Water" }];
 
 // Avoids look-alike characters (0/O, 1/l/I) so a password read off a screen and
 // typed by hand doesn't bounce.
@@ -52,7 +48,7 @@ const EMPTY = {
   department: "",
   role: "",
   factory_id: "",
-  production_scope: "BOTH" as ProductionScope,
+  production_scope: "WATER" as ProductionScope,
 };
 
 export function CreateUserDialog() {

@@ -77,8 +77,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { title: "Elim Table Water — Factory Management & Inventory System" },
       {
         name: "description",
-        content:
-          "Enterprise inventory, sales, production, payroll, and reporting for the Water Factory and Nylon Factory.",
+        content: "Enterprise inventory, sales, production, payroll, and reporting for the Water Factory.",
       },
       {
         property: "og:title",
@@ -86,8 +85,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       },
       {
         property: "og:description",
-        content:
-          "One platform for two factories. Fully separated data, secure roles, real-time dashboards.",
+        content: "One platform for the factory. Secure roles, real-time dashboards, complete audit history.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
