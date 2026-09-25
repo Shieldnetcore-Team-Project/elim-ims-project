@@ -11,4 +11,4 @@ jobs:
     steps:
       - name: Ping deployed app
         run: |
-          curl -fsS --max-time 30 https://bluesprint-ims.onrender.com/ -o /dev/null
+          curl -fsS --max-time 30 https://elim-ims-project.onrender.com/ -o /dev/null

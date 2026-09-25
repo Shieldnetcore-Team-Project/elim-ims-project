@@ -2,6 +2,14 @@ project_id = "phbmcftkxwjiijvyvdiu"
 
 [auth]
 enable_signup = true
+# Production URL on Render. Auth emails (password reset, signup) redirect here.
+# Mirror this in the dashboard: Authentication -> URL Configuration.
+site_url = "https://elim-ims-project.onrender.com"
+additional_redirect_urls = [
+  "https://elim-ims-project.onrender.com/**",
+  "http://localhost:3000/**",
+  "http://localhost:5173/**",
+]
 
 # Signup confirmation emails are off on purpose. Access is already gated by the in-app
 # approval workflow (profiles.status starts at 'pending' and only approve_user clears it),

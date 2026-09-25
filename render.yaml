@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: bluesprint-ims
+    name: elim-ims-project
     runtime: node
     plan: starter
     buildCommand: npm install && npm run build
