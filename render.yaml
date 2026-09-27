@@ -5,6 +5,7 @@ services:
     plan: starter
     buildCommand: npm install && npm run build
     startCommand: node .output/server/index.mjs
+    healthCheckPath: /api/health
     autoDeploy: true
     envVars:
       - key: NODE_VERSION

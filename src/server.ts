@@ -46,6 +46,10 @@ function isH3SwallowedErrorBody(body: string): boolean {
 
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
+    // Render's health check. Answered here so it never goes through SSR.
+    if (new URL(request.url).pathname === "/api/health") {
+      return new Response("ok", { headers: { "content-type": "text/plain" } });
+    }
     try {
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);
