@@ -260,7 +260,7 @@ function Landing() {
         </div>
       </div>
 
-      <div className="flex items-center justify-center p-6">
+      <div className="flex flex-col items-center justify-center p-6">
         <div className="w-full max-w-md lg:hidden mb-6 flex justify-center">
           <div className="h-10 w-40 overflow-hidden rounded-lg bg-white">
             <img
