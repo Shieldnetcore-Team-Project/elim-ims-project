@@ -260,19 +260,18 @@ function Landing() {
         </div>
       </div>
 
-      <div className="flex flex-col items-center justify-center p-6">
-        <div className="w-full max-w-md lg:hidden mb-6 flex justify-center">
-          <div className="h-10 w-40 overflow-hidden rounded-lg bg-white">
-            <img
-              src="/assets/elim-logo.png"
-              alt="Elim Table Water"
-              className="h-full w-full object-contain"
-            />
-          </div>
-        </div>
-
+      <div className="flex items-center justify-center p-6">
         <Card className="w-full max-w-md">
           <CardHeader>
+            <div className="mb-4 flex justify-center lg:hidden">
+              <div className="h-16 w-48 overflow-hidden rounded-lg bg-white">
+                <img
+                  src="/assets/elim-logo.png"
+                  alt="Elim Table Water"
+                  className="h-full w-full object-contain"
+                />
+              </div>
+            </div>
             <CardTitle className="text-2xl">Welcome</CardTitle>
             <CardDescription>Sign in to access your factory dashboard</CardDescription>
           </CardHeader>
