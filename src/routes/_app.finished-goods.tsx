@@ -71,7 +71,7 @@ import { PosDialog } from "./_app.sales";
 
 export const Route = createFileRoute("/_app/finished-goods")({
   head: () => ({
-    meta: [{ title: "Finished Goods — Elim Table Water" }, { name: "robots", content: "noindex" }],
+    meta: [{ title: "Finished Products — Elim Table Water" }, { name: "robots", content: "noindex" }],
   }),
   component: () => (
     <RequireAccess module="finished-goods">
@@ -459,7 +459,7 @@ function FinishedGoodsPage() {
         phone: settings.data?.phone,
         logo_url: settings.data?.logo_url,
       },
-      title: "Finished Goods Card",
+      title: "Finished Products Card",
       item_name: p.name,
       unit: p.unit,
       current_stock: Number(p.current_stock),
@@ -485,7 +485,7 @@ function FinishedGoodsPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Finished Goods</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Finished Products</h1>
           <p className="text-sm text-muted-foreground">
             Available stock plus production, sales, damages, returns, adjustments, and transfers.
           </p>
@@ -543,7 +543,7 @@ function FinishedGoodsPage() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <SummaryCard
           icon={Boxes}
-          label={typeFilter === "semi_finished" ? "Semi-Finished SKUs" : "Finished Goods SKUs"}
+          label={typeFilter === "semi_finished" ? "Semi-Finished SKUs" : "Finished Products SKUs"}
           value={String(summary.totalSkus)}
         />
         <SummaryCard icon={Wallet} label="Inventory Value" value={money(summary.totalValue)} />

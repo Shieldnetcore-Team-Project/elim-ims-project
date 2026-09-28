@@ -17,8 +17,10 @@ import { Route as AppAdminRouteImport } from './routes/_app.admin'
 import { Route as AppApprovalWorkflowsRouteImport } from './routes/_app.approval-workflows'
 import { Route as AppApprovalsRouteImport } from './routes/_app.approvals'
 import { Route as AppAuditLogsRouteImport } from './routes/_app.audit-logs'
+import { Route as AppBottleTrackingRouteImport } from './routes/_app.bottle-tracking'
 import { Route as AppCashLedgerRouteImport } from './routes/_app.cash-ledger'
 import { Route as AppCostingRouteImport } from './routes/_app.costing'
+import { Route as AppCreditSalesRouteImport } from './routes/_app.credit-sales'
 import { Route as AppCustomersRouteImport } from './routes/_app.customers'
 import { Route as AppDashboardRouteImport } from './routes/_app.dashboard'
 import { Route as AppDistributionRouteImport } from './routes/_app.distribution'
@@ -28,12 +30,14 @@ import { Route as AppFinanceRouteImport } from './routes/_app.finance'
 import { Route as AppFinishedGoodsRouteImport } from './routes/_app.finished-goods'
 import { Route as AppInventoryRouteImport } from './routes/_app.inventory'
 import { Route as AppLogisticsRouteImport } from './routes/_app.logistics'
+import { Route as AppMarketerPerformanceRouteImport } from './routes/_app.marketer-performance'
 import { Route as AppPayrollRouteImport } from './routes/_app.payroll'
 import { Route as AppPermissionsRouteImport } from './routes/_app.permissions'
 import { Route as AppProcurementRouteImport } from './routes/_app.procurement'
 import { Route as AppProductionRouteImport } from './routes/_app.production'
 import { Route as AppProductionRequestsRouteImport } from './routes/_app.production-requests'
 import { Route as AppPurchaseOrdersRouteImport } from './routes/_app.purchase-orders'
+import { Route as AppQualityControlRouteImport } from './routes/_app.quality-control'
 import { Route as AppRawMaterialsRouteImport } from './routes/_app.raw-materials'
 import { Route as AppReportsRouteImport } from './routes/_app.reports'
 import { Route as AppRoleManagementRouteImport } from './routes/_app.role-management'
@@ -85,6 +89,11 @@ const AppAuditLogsRoute = AppAuditLogsRouteImport.update({
   path: '/audit-logs',
   getParentRoute: () => AppRoute,
 } as any)
+const AppBottleTrackingRoute = AppBottleTrackingRouteImport.update({
+  id: '/bottle-tracking',
+  path: '/bottle-tracking',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppCashLedgerRoute = AppCashLedgerRouteImport.update({
   id: '/cash-ledger',
   path: '/cash-ledger',
@@ -93,6 +102,11 @@ const AppCashLedgerRoute = AppCashLedgerRouteImport.update({
 const AppCostingRoute = AppCostingRouteImport.update({
   id: '/costing',
   path: '/costing',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppCreditSalesRoute = AppCreditSalesRouteImport.update({
+  id: '/credit-sales',
+  path: '/credit-sales',
   getParentRoute: () => AppRoute,
 } as any)
 const AppCustomersRoute = AppCustomersRouteImport.update({
@@ -140,6 +154,11 @@ const AppLogisticsRoute = AppLogisticsRouteImport.update({
   path: '/logistics',
   getParentRoute: () => AppRoute,
 } as any)
+const AppMarketerPerformanceRoute = AppMarketerPerformanceRouteImport.update({
+  id: '/marketer-performance',
+  path: '/marketer-performance',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppPayrollRoute = AppPayrollRouteImport.update({
   id: '/payroll',
   path: '/payroll',
@@ -168,6 +187,11 @@ const AppProductionRequestsRoute = AppProductionRequestsRouteImport.update({
 const AppPurchaseOrdersRoute = AppPurchaseOrdersRouteImport.update({
   id: '/purchase-orders',
   path: '/purchase-orders',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppQualityControlRoute = AppQualityControlRouteImport.update({
+  id: '/quality-control',
+  path: '/quality-control',
   getParentRoute: () => AppRoute,
 } as any)
 const AppRawMaterialsRoute = AppRawMaterialsRouteImport.update({
@@ -234,8 +258,10 @@ export interface FileRoutesByFullPath {
   '/approval-workflows': typeof AppApprovalWorkflowsRoute
   '/approvals': typeof AppApprovalsRoute
   '/audit-logs': typeof AppAuditLogsRoute
+  '/bottle-tracking': typeof AppBottleTrackingRoute
   '/cash-ledger': typeof AppCashLedgerRouteWithChildren
   '/costing': typeof AppCostingRoute
+  '/credit-sales': typeof AppCreditSalesRoute
   '/customers': typeof AppCustomersRoute
   '/dashboard': typeof AppDashboardRoute
   '/distribution': typeof AppDistributionRoute
@@ -245,12 +271,14 @@ export interface FileRoutesByFullPath {
   '/finished-goods': typeof AppFinishedGoodsRoute
   '/inventory': typeof AppInventoryRoute
   '/logistics': typeof AppLogisticsRoute
+  '/marketer-performance': typeof AppMarketerPerformanceRoute
   '/payroll': typeof AppPayrollRoute
   '/permissions': typeof AppPermissionsRoute
   '/procurement': typeof AppProcurementRoute
   '/production': typeof AppProductionRoute
   '/production-requests': typeof AppProductionRequestsRoute
   '/purchase-orders': typeof AppPurchaseOrdersRoute
+  '/quality-control': typeof AppQualityControlRoute
   '/raw-materials': typeof AppRawMaterialsRoute
   '/reports': typeof AppReportsRoute
   '/role-management': typeof AppRoleManagementRoute
@@ -271,7 +299,9 @@ export interface FileRoutesByTo {
   '/approval-workflows': typeof AppApprovalWorkflowsRoute
   '/approvals': typeof AppApprovalsRoute
   '/audit-logs': typeof AppAuditLogsRoute
+  '/bottle-tracking': typeof AppBottleTrackingRoute
   '/costing': typeof AppCostingRoute
+  '/credit-sales': typeof AppCreditSalesRoute
   '/customers': typeof AppCustomersRoute
   '/dashboard': typeof AppDashboardRoute
   '/distribution': typeof AppDistributionRoute
@@ -281,12 +311,14 @@ export interface FileRoutesByTo {
   '/finished-goods': typeof AppFinishedGoodsRoute
   '/inventory': typeof AppInventoryRoute
   '/logistics': typeof AppLogisticsRoute
+  '/marketer-performance': typeof AppMarketerPerformanceRoute
   '/payroll': typeof AppPayrollRoute
   '/permissions': typeof AppPermissionsRoute
   '/procurement': typeof AppProcurementRoute
   '/production': typeof AppProductionRoute
   '/production-requests': typeof AppProductionRequestsRoute
   '/purchase-orders': typeof AppPurchaseOrdersRoute
+  '/quality-control': typeof AppQualityControlRoute
   '/raw-materials': typeof AppRawMaterialsRoute
   '/reports': typeof AppReportsRoute
   '/role-management': typeof AppRoleManagementRoute
@@ -309,8 +341,10 @@ export interface FileRoutesById {
   '/_app/approval-workflows': typeof AppApprovalWorkflowsRoute
   '/_app/approvals': typeof AppApprovalsRoute
   '/_app/audit-logs': typeof AppAuditLogsRoute
+  '/_app/bottle-tracking': typeof AppBottleTrackingRoute
   '/_app/cash-ledger': typeof AppCashLedgerRouteWithChildren
   '/_app/costing': typeof AppCostingRoute
+  '/_app/credit-sales': typeof AppCreditSalesRoute
   '/_app/customers': typeof AppCustomersRoute
   '/_app/dashboard': typeof AppDashboardRoute
   '/_app/distribution': typeof AppDistributionRoute
@@ -320,12 +354,14 @@ export interface FileRoutesById {
   '/_app/finished-goods': typeof AppFinishedGoodsRoute
   '/_app/inventory': typeof AppInventoryRoute
   '/_app/logistics': typeof AppLogisticsRoute
+  '/_app/marketer-performance': typeof AppMarketerPerformanceRoute
   '/_app/payroll': typeof AppPayrollRoute
   '/_app/permissions': typeof AppPermissionsRoute
   '/_app/procurement': typeof AppProcurementRoute
   '/_app/production': typeof AppProductionRoute
   '/_app/production-requests': typeof AppProductionRequestsRoute
   '/_app/purchase-orders': typeof AppPurchaseOrdersRoute
+  '/_app/quality-control': typeof AppQualityControlRoute
   '/_app/raw-materials': typeof AppRawMaterialsRoute
   '/_app/reports': typeof AppReportsRoute
   '/_app/role-management': typeof AppRoleManagementRoute
@@ -348,8 +384,10 @@ export interface FileRouteTypes {
     | '/approval-workflows'
     | '/approvals'
     | '/audit-logs'
+    | '/bottle-tracking'
     | '/cash-ledger'
     | '/costing'
+    | '/credit-sales'
     | '/customers'
     | '/dashboard'
     | '/distribution'
@@ -359,12 +397,14 @@ export interface FileRouteTypes {
     | '/finished-goods'
     | '/inventory'
     | '/logistics'
+    | '/marketer-performance'
     | '/payroll'
     | '/permissions'
     | '/procurement'
     | '/production'
     | '/production-requests'
     | '/purchase-orders'
+    | '/quality-control'
     | '/raw-materials'
     | '/reports'
     | '/role-management'
@@ -385,7 +425,9 @@ export interface FileRouteTypes {
     | '/approval-workflows'
     | '/approvals'
     | '/audit-logs'
+    | '/bottle-tracking'
     | '/costing'
+    | '/credit-sales'
     | '/customers'
     | '/dashboard'
     | '/distribution'
@@ -395,12 +437,14 @@ export interface FileRouteTypes {
     | '/finished-goods'
     | '/inventory'
     | '/logistics'
+    | '/marketer-performance'
     | '/payroll'
     | '/permissions'
     | '/procurement'
     | '/production'
     | '/production-requests'
     | '/purchase-orders'
+    | '/quality-control'
     | '/raw-materials'
     | '/reports'
     | '/role-management'
@@ -422,8 +466,10 @@ export interface FileRouteTypes {
     | '/_app/approval-workflows'
     | '/_app/approvals'
     | '/_app/audit-logs'
+    | '/_app/bottle-tracking'
     | '/_app/cash-ledger'
     | '/_app/costing'
+    | '/_app/credit-sales'
     | '/_app/customers'
     | '/_app/dashboard'
     | '/_app/distribution'
@@ -433,12 +479,14 @@ export interface FileRouteTypes {
     | '/_app/finished-goods'
     | '/_app/inventory'
     | '/_app/logistics'
+    | '/_app/marketer-performance'
     | '/_app/payroll'
     | '/_app/permissions'
     | '/_app/procurement'
     | '/_app/production'
     | '/_app/production-requests'
     | '/_app/purchase-orders'
+    | '/_app/quality-control'
     | '/_app/raw-materials'
     | '/_app/reports'
     | '/_app/role-management'
@@ -516,6 +564,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAuditLogsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/bottle-tracking': {
+      id: '/_app/bottle-tracking'
+      path: '/bottle-tracking'
+      fullPath: '/bottle-tracking'
+      preLoaderRoute: typeof AppBottleTrackingRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/cash-ledger': {
       id: '/_app/cash-ledger'
       path: '/cash-ledger'
@@ -528,6 +583,13 @@ declare module '@tanstack/react-router' {
       path: '/costing'
       fullPath: '/costing'
       preLoaderRoute: typeof AppCostingRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/credit-sales': {
+      id: '/_app/credit-sales'
+      path: '/credit-sales'
+      fullPath: '/credit-sales'
+      preLoaderRoute: typeof AppCreditSalesRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/customers': {
@@ -593,6 +655,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppLogisticsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/marketer-performance': {
+      id: '/_app/marketer-performance'
+      path: '/marketer-performance'
+      fullPath: '/marketer-performance'
+      preLoaderRoute: typeof AppMarketerPerformanceRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/payroll': {
       id: '/_app/payroll'
       path: '/payroll'
@@ -633,6 +702,13 @@ declare module '@tanstack/react-router' {
       path: '/purchase-orders'
       fullPath: '/purchase-orders'
       preLoaderRoute: typeof AppPurchaseOrdersRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/quality-control': {
+      id: '/_app/quality-control'
+      path: '/quality-control'
+      fullPath: '/quality-control'
+      preLoaderRoute: typeof AppQualityControlRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/raw-materials': {
@@ -737,8 +813,10 @@ interface AppRouteChildren {
   AppApprovalWorkflowsRoute: typeof AppApprovalWorkflowsRoute
   AppApprovalsRoute: typeof AppApprovalsRoute
   AppAuditLogsRoute: typeof AppAuditLogsRoute
+  AppBottleTrackingRoute: typeof AppBottleTrackingRoute
   AppCashLedgerRoute: typeof AppCashLedgerRouteWithChildren
   AppCostingRoute: typeof AppCostingRoute
+  AppCreditSalesRoute: typeof AppCreditSalesRoute
   AppCustomersRoute: typeof AppCustomersRoute
   AppDashboardRoute: typeof AppDashboardRoute
   AppDistributionRoute: typeof AppDistributionRoute
@@ -748,12 +826,14 @@ interface AppRouteChildren {
   AppFinishedGoodsRoute: typeof AppFinishedGoodsRoute
   AppInventoryRoute: typeof AppInventoryRoute
   AppLogisticsRoute: typeof AppLogisticsRoute
+  AppMarketerPerformanceRoute: typeof AppMarketerPerformanceRoute
   AppPayrollRoute: typeof AppPayrollRoute
   AppPermissionsRoute: typeof AppPermissionsRoute
   AppProcurementRoute: typeof AppProcurementRoute
   AppProductionRoute: typeof AppProductionRoute
   AppProductionRequestsRoute: typeof AppProductionRequestsRoute
   AppPurchaseOrdersRoute: typeof AppPurchaseOrdersRoute
+  AppQualityControlRoute: typeof AppQualityControlRoute
   AppRawMaterialsRoute: typeof AppRawMaterialsRoute
   AppReportsRoute: typeof AppReportsRoute
   AppRoleManagementRoute: typeof AppRoleManagementRoute
@@ -770,8 +850,10 @@ const AppRouteChildren: AppRouteChildren = {
   AppApprovalWorkflowsRoute: AppApprovalWorkflowsRoute,
   AppApprovalsRoute: AppApprovalsRoute,
   AppAuditLogsRoute: AppAuditLogsRoute,
+  AppBottleTrackingRoute: AppBottleTrackingRoute,
   AppCashLedgerRoute: AppCashLedgerRouteWithChildren,
   AppCostingRoute: AppCostingRoute,
+  AppCreditSalesRoute: AppCreditSalesRoute,
   AppCustomersRoute: AppCustomersRoute,
   AppDashboardRoute: AppDashboardRoute,
   AppDistributionRoute: AppDistributionRoute,
@@ -781,12 +863,14 @@ const AppRouteChildren: AppRouteChildren = {
   AppFinishedGoodsRoute: AppFinishedGoodsRoute,
   AppInventoryRoute: AppInventoryRoute,
   AppLogisticsRoute: AppLogisticsRoute,
+  AppMarketerPerformanceRoute: AppMarketerPerformanceRoute,
   AppPayrollRoute: AppPayrollRoute,
   AppPermissionsRoute: AppPermissionsRoute,
   AppProcurementRoute: AppProcurementRoute,
   AppProductionRoute: AppProductionRoute,
   AppProductionRequestsRoute: AppProductionRequestsRoute,
   AppPurchaseOrdersRoute: AppPurchaseOrdersRoute,
+  AppQualityControlRoute: AppQualityControlRoute,
   AppRawMaterialsRoute: AppRawMaterialsRoute,
   AppReportsRoute: AppReportsRoute,
   AppRoleManagementRoute: AppRoleManagementRoute,

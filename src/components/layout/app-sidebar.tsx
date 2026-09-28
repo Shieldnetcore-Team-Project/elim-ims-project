@@ -13,7 +13,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { usePermissions } from "@/lib/permissions";
-import { nav } from "@/lib/nav";
+import { activeNavTitle, itemUrls, nav } from "@/lib/nav";
 import { usePendingAttention } from "@/lib/pending-attention";
 import { Badge } from "@/components/ui/badge";
 
@@ -21,6 +21,8 @@ export function AppSidebar() {
   const { state, setOpen, setOpenMobile, isMobile } = useSidebar();
   const collapsed = state === "collapsed";
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const fromSection = useRouterState({ select: (s) => s.location.state?.section });
+  const activeTitle = activeNavTitle(pathname, fromSection);
   const { can } = usePermissions();
   const { byUrl } = usePendingAttention();
 
@@ -67,13 +69,18 @@ export function AppSidebar() {
               <SidebarGroupContent>
                 <SidebarMenu>
                   {items.map((item) => {
-                    const active = pathname === item.url || pathname.startsWith(item.url + "/");
-                    const pending = byUrl.get(item.url) ?? 0;
+                    // An entry covers its own url plus any tab routes grouped
+                    // under it (e.g. Retail -> /sales-returns) for the
+                    // pending-count badge. Only one entry is highlighted: a
+                    // page under two entries follows the one it was opened from.
+                    const pending = itemUrls(item).reduce((n, u) => n + (byUrl.get(u) ?? 0), 0);
+                    const active = item.title === activeTitle;
                     return (
-                      <SidebarMenuItem key={item.url}>
+                      <SidebarMenuItem key={item.title}>
                         <SidebarMenuButton asChild isActive={active}>
                           <Link
                             to={item.url}
+                            state={{ section: item.title }}
                             // On mobile the sidebar is a sheet; close it so the page shows.
                             onClick={() => setOpenMobile(false)}
                             className={

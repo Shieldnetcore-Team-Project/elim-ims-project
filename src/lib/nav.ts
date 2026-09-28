@@ -2,24 +2,21 @@ import {
   LayoutDashboard,
   ShoppingCart,
   Factory as FactoryIcon,
-  Package,
-  Boxes,
   Receipt,
   Wallet,
   Users,
   Truck,
   UserCog,
   FileBarChart,
-  ClipboardList,
   Calculator,
   PackageCheck,
   CheckSquare,
   HandCoins,
   FileStack,
   Landmark,
-  Undo2,
   LayoutGrid,
   Warehouse,
+  ClipboardCheck,
   Settings,
 } from "lucide-react";
 import { type ModuleKey } from "@/lib/permissions";
@@ -32,12 +29,35 @@ import { type ModuleKey } from "@/lib/permissions";
 // (src/components/permissions/user-page-access.tsx) to render a page's tabs
 // nested under it. It's optional and additive -- `modules` alone still drives
 // sidebar visibility (app-sidebar.tsx), so leaving `tabs` off changes nothing.
+// A tab with a `url` is its own route: those pages render the tabs as a
+// SectionTabs bar (src/components/layout/section-tabs.tsx), and the sidebar
+// keeps the parent entry highlighted on any of them. `search` targets one
+// in-page tab of that route (e.g. /distribution?tab=accounts), and
+// `inBar: false` keeps a route grouped under the entry (highlight, badges)
+// without showing it in the tab bar.
+export type NavTab = {
+  label: string;
+  module: ModuleKey;
+  url?: string;
+  search?: Record<string, string>;
+  inBar?: boolean;
+};
+
+// A page can sit under more than one entry (Orders is in both Retail and
+// Warehouse). Links carry the entry they were followed from in history state,
+// so the sidebar highlight and the page's tab bar stay with that entry.
+declare module "@tanstack/history" {
+  interface HistoryState {
+    section?: string;
+  }
+}
+
 export type NavItem = { title: string; url: string; icon: typeof LayoutDashboard } & (
   | { module: ModuleKey; modules?: never; tabs?: never }
   | {
       modules: ModuleKey[];
       module?: never;
-      tabs?: { label: string; module: ModuleKey }[];
+      tabs?: NavTab[];
     }
 );
 
@@ -47,9 +67,11 @@ export type NavItem = { title: string; url: string; icon: typeof LayoutDashboard
 // than duplicating a page — see the duplicate-page audit before this change.
 // (Finance used to carry an "Invoices" entry that just re-pointed at Sales;
 // removed as a redundant duplicate link rather than a real page.)
-// "Inventory" = raw materials, "Store" = finished goods, matching the
-// Inventory/Store dashboard split in §11. "Inventory Overview" is a separate,
-// newer read-only page combining both for the active factory.
+// Retail (sales), Production and Warehouse each group several routes under one entry,
+// shown as tabs on the pages. Warehouse holds the read-only overview plus raw
+// materials and finished products (formerly "Inventory Overview", "Inventory"
+// and "Store" in the sidebar). Quality Control inspects supplier deliveries
+// before the warehouse confirms them into raw materials.
 export const nav: { section: string; items: NavItem[] }[] = [
   {
     section: "Overview",
@@ -61,27 +83,81 @@ export const nav: { section: string; items: NavItem[] }[] = [
   {
     section: "Operations",
     items: [
-      { title: "Sales", url: "/sales", icon: ShoppingCart, module: "sales" },
-      { title: "Sales Returns", url: "/sales-returns", icon: Undo2, module: "sales-returns" },
-      { title: "Production", url: "/production", icon: FactoryIcon, module: "production" },
       {
-        title: "Production Requests",
-        url: "/production-requests",
-        icon: ClipboardList,
-        module: "production-requests",
-      },
-      {
-        title: "Inventory Overview",
-        url: "/inventory",
-        icon: Warehouse,
-        modules: ["raw-materials", "finished-goods"],
+        title: "Retail",
+        url: "/sales",
+        icon: ShoppingCart,
+        modules: ["sales", "sales-returns"],
         tabs: [
-          { label: "Raw Materials", module: "raw-materials" },
-          { label: "Finished Goods", module: "finished-goods" },
+          { label: "Sales & POS", module: "sales", url: "/sales" },
+          { label: "Sales Returns", module: "sales-returns", url: "/sales-returns" },
         ],
       },
-      { title: "Inventory", url: "/raw-materials", icon: Boxes, module: "raw-materials" },
-      { title: "Store", url: "/finished-goods", icon: Package, module: "finished-goods" },
+      {
+        title: "Production",
+        url: "/production",
+        icon: FactoryIcon,
+        modules: ["production", "production-requests"],
+        tabs: [
+          { label: "Production", module: "production", url: "/production" },
+          {
+            label: "Production Requests",
+            module: "production-requests",
+            url: "/production-requests",
+          },
+        ],
+      },
+      {
+        title: "Quality Control",
+        url: "/quality-control",
+        icon: ClipboardCheck,
+        module: "goods-receiving",
+      },
+      {
+        title: "Warehouse",
+        url: "/inventory",
+        icon: Warehouse,
+        modules: [
+          "raw-materials",
+          "finished-goods",
+          "sales",
+          "sales-returns",
+          "distribution",
+          "debts",
+          "customers",
+        ],
+        // Stock plus the order-to-cash screens: customer orders, returns,
+        // marketer (sales rep) van stock and reconciliation, credit sales and
+        // customers. The Stock overview has its own Raw Materials / Finished
+        // Products tabs linking to the full pages, so those stay out of the bar.
+        tabs: [
+          { label: "Stock", module: "raw-materials", url: "/inventory" },
+          { label: "Orders", module: "sales", url: "/sales" },
+          { label: "Returns", module: "sales-returns", url: "/sales-returns" },
+          { label: "Marketer stock", module: "distribution", url: "/distribution" },
+          {
+            label: "Reconciliation",
+            module: "distribution",
+            url: "/distribution",
+            search: { tab: "accounts" },
+          },
+          { label: "Credit sales", module: "debts", url: "/credit-sales" },
+          {
+            label: "Performance & commission",
+            module: "distribution",
+            url: "/marketer-performance",
+          },
+          { label: "Bottle tracking", module: "distribution", url: "/bottle-tracking" },
+          { label: "Customers", module: "customers", url: "/customers" },
+          { label: "Raw Materials", module: "raw-materials", url: "/raw-materials", inBar: false },
+          {
+            label: "Finished Products",
+            module: "finished-goods",
+            url: "/finished-goods",
+            inBar: false,
+          },
+        ],
+      },
       { title: "Distribution", url: "/distribution", icon: Truck, module: "distribution" },
       { title: "Costing", url: "/costing", icon: Calculator, module: "costing" },
     ],
@@ -156,3 +232,26 @@ export const nav: { section: string; items: NavItem[] }[] = [
     ],
   },
 ];
+
+const navItems = nav.flatMap((g) => g.items);
+
+// Every route an entry covers: its own url plus its tabs' urls.
+export function itemUrls(item: NavItem): string[] {
+  return [...new Set([item.url, ...(item.tabs ?? []).flatMap((t) => t.url ?? [])])];
+}
+
+const covers = (item: NavItem, pathname: string) =>
+  itemUrls(item).some((u) => pathname === u || pathname.startsWith(u + "/"));
+
+// The sidebar entry a page is being viewed under. The entry the user came from
+// (history state) wins when it covers the page; otherwise the entry whose own
+// url this is, then the first entry that covers it.
+export function activeNavTitle(pathname: string, fromSection?: string): string | undefined {
+  const owners = navItems.filter((i) => covers(i, pathname));
+  if (fromSection && owners.some((i) => i.title === fromSection)) return fromSection;
+  return (owners.find((i) => i.url === pathname) ?? owners[0])?.title;
+}
+
+export function navItemByTitle(title: string): NavItem | undefined {
+  return navItems.find((i) => i.title === title);
+}

@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { RequireAccess } from "@/components/layout/require-access";
+import { SectionTabs } from "@/components/layout/section-tabs";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -35,12 +36,15 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 
 export const Route = createFileRoute("/_app/inventory")({
   head: () => ({
-    meta: [{ title: "Inventory Overview — Elim Table Water" }, { name: "robots", content: "noindex" }],
+    meta: [{ title: "Warehouse — Elim Table Water" }, { name: "robots", content: "noindex" }],
   }),
   component: () => (
-    <RequireAccess module="raw-materials">
-      <InventoryOverviewPage />
-    </RequireAccess>
+    <>
+      <SectionTabs section="Warehouse" />
+      <RequireAccess module="raw-materials">
+        <InventoryOverviewPage />
+      </RequireAccess>
+    </>
   ),
 });
 
@@ -195,7 +199,7 @@ function InventoryOverviewPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Inventory Overview</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Warehouse Overview</h1>
           <p className="text-sm text-muted-foreground">
             Every raw material and finished product on hand, isolated to the factory currently
             selected in the top bar.
@@ -257,7 +261,7 @@ function InventoryOverviewPage() {
       <Tabs defaultValue="materials">
         <TabsList>
           <TabsTrigger value="materials">Raw Materials</TabsTrigger>
-          {canSeeFinishedGoods && <TabsTrigger value="products">Finished Goods</TabsTrigger>}
+          {canSeeFinishedGoods && <TabsTrigger value="products">Finished Products</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="materials">
@@ -339,7 +343,7 @@ function InventoryOverviewPage() {
           <TabsContent value="products">
             <Card className="rounded-2xl">
               <CardHeader className="flex-row items-center justify-between gap-3">
-                <CardTitle>Finished Goods — {factoryLabel.name}</CardTitle>
+                <CardTitle>Finished Products — {factoryLabel.name}</CardTitle>
                 <div className="relative w-full max-w-xs">
                   <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                   <Input

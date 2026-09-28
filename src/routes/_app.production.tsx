@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { RequireAccess } from "@/components/layout/require-access";
+import { SectionTabs } from "@/components/layout/section-tabs";
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -58,9 +59,12 @@ import { QuickAddProductDialog, ADD_NEW_ITEM } from "@/components/shared/quick-a
 export const Route = createFileRoute("/_app/production")({
   head: () => ({ meta: [{ title: "Production — Elim Table Water" }, { name: "robots", content: "noindex" }] }),
   component: () => (
-    <RequireAccess module="production">
-      <ProductionFactoryGate />
-    </RequireAccess>
+    <>
+      <SectionTabs section="Production" />
+      <RequireAccess module="production">
+        <ProductionFactoryGate />
+      </RequireAccess>
+    </>
   ),
 });
 

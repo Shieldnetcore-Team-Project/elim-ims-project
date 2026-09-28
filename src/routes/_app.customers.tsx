@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { RequireAccess } from "@/components/layout/require-access";
+import { SectionTabs } from "@/components/layout/section-tabs";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -29,6 +30,13 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Plus,
   Search,
   Pencil,
@@ -38,6 +46,7 @@ import {
   Wallet,
   HandCoins,
   AlertTriangle,
+  CreditCard,
 } from "lucide-react";
 import { money } from "@/lib/format";
 import { toast } from "sonner";
@@ -47,9 +56,12 @@ import { AccountAdjustmentsCard } from "@/components/customers/account-adjustmen
 export const Route = createFileRoute("/_app/customers")({
   head: () => ({ meta: [{ title: "Customers — Elim Table Water" }, { name: "robots", content: "noindex" }] }),
   component: () => (
-    <RequireAccess module="customers">
-      <CustomersPage />
-    </RequireAccess>
+    <>
+      <SectionTabs section="Customers" />
+      <RequireAccess module="customers">
+        <CustomersPage />
+      </RequireAccess>
+    </>
   ),
 });
 
@@ -63,13 +75,20 @@ export type Customer = {
   total_purchases: number;
   total_transactions: number;
   registered: boolean;
+  credit_limit: number | null;
+  credit_days: number;
+  sales_rep_id: string | null;
 };
 
 function CustomersPage() {
   const { data: factoryId } = useFactoryId();
   const qc = useQueryClient();
-  const { canWrite } = usePermissions();
+  const { canWrite, canApprove } = usePermissions();
   const write = canWrite("customers");
+  // Credit limits and payment terms are set via set_customer_credit_terms(),
+  // which needs customers:approve -- not the ordinary edit permission.
+  const setTerms = canApprove("customers");
+  const [termsFor, setTermsFor] = useState<Customer | null>(null);
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Customer | null>(null);
@@ -87,6 +106,25 @@ function CustomersPage() {
     },
   });
 
+  // Marketers the customer can be assigned to. Only readable with Distribution
+  // access; without it the field is hidden and an existing assignment is left
+  // as it is.
+  const reps = useQuery({
+    queryKey: ["customer-form-reps", factoryId],
+    enabled: !!factoryId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("sales_reps")
+        .select("id,full_name,status")
+        .eq("factory_id", factoryId!)
+        .order("full_name");
+      if (error) return [];
+      return data ?? [];
+    },
+  });
+  const repList = reps.data ?? [];
+  const repName = (id: string | null) => repList.find((r) => r.id === id)?.full_name;
+
   const save = useMutation({
     mutationFn: async (form: Partial<Customer>) => {
       if (!factoryId) throw new Error("No factory");
@@ -98,6 +136,7 @@ function CustomersPage() {
             phone: form.phone,
             email: form.email,
             address: form.address,
+            ...(repList.length ? { sales_rep_id: form.sales_rep_id ?? null } : {}),
             // Filling and saving this form is what "registering" a customer
             // means here — applies whether reached via Edit or the Register
             // action on an auto-created walk-in.
@@ -112,6 +151,7 @@ function CustomersPage() {
           phone: form.phone,
           email: form.email,
           address: form.address,
+          ...(repList.length ? { sales_rep_id: form.sales_rep_id ?? null } : {}),
           registered: true,
         });
         if (error) throw error;
@@ -151,6 +191,7 @@ function CustomersPage() {
             <CustomerDialog
               key={editing?.id ?? "new"}
               editing={editing}
+              reps={repList.filter((r) => r.status === "active" || r.id === editing?.sales_rep_id)}
               onSubmit={(f) => save.mutate(f)}
               saving={save.isPending}
             />
@@ -205,10 +246,13 @@ function CustomersPage() {
               <TableRow>
                 <TableHead>Name</TableHead>
                 <TableHead>Phone</TableHead>
+                {repList.length > 0 && <TableHead>Marketer</TableHead>}
                 <TableHead>Transactions</TableHead>
                 <TableHead className="text-right">Total Goods</TableHead>
                 <TableHead className="text-right">Paid</TableHead>
                 <TableHead className="text-right">Balance</TableHead>
+                <TableHead className="text-right">Credit limit</TableHead>
+                <TableHead>Terms</TableHead>
                 <TableHead className="w-24"></TableHead>
               </TableRow>
             </TableHeader>
@@ -228,6 +272,9 @@ function CustomersPage() {
                       </div>
                     </TableCell>
                     <TableCell>{c.phone ?? "—"}</TableCell>
+                    {repList.length > 0 && (
+                      <TableCell>{repName(c.sales_rep_id) ?? "—"}</TableCell>
+                    )}
                     <TableCell>
                       <Badge variant="secondary">
                         {c.total_transactions} sale{c.total_transactions === 1 ? "" : "s"}
@@ -246,6 +293,14 @@ function CustomersPage() {
                           : "—"}
                       </span>
                     </TableCell>
+                    <TableCell className="text-right">
+                      {c.credit_limit == null ? (
+                        <span className="text-muted-foreground">No limit</span>
+                      ) : (
+                        money(Number(c.credit_limit))
+                      )}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap">{c.credit_days} days</TableCell>
                     <TableCell>
                       <div className="flex justify-end gap-1">
                         {!c.registered && (
@@ -259,6 +314,16 @@ function CustomersPage() {
                             }}
                           >
                             <UserPlus className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {setTerms && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Credit limit & payment terms"
+                            onClick={() => setTermsFor(c)}
+                          >
+                            <CreditCard className="h-4 w-4" />
                           </Button>
                         )}
                         <Button
@@ -287,7 +352,7 @@ function CustomersPage() {
               })}
               {(list.data ?? []).length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
                     No customers yet.
                   </TableCell>
                 </TableRow>
@@ -296,6 +361,19 @@ function CustomersPage() {
           </Table>
         </CardContent>
       </Card>
+
+      <Dialog open={!!termsFor} onOpenChange={(v) => !v && setTermsFor(null)}>
+        {termsFor && (
+          <CreditTermsDialog
+            customer={termsFor}
+            onDone={() => {
+              setTermsFor(null);
+              qc.invalidateQueries({ queryKey: ["customers"] });
+              qc.invalidateQueries({ queryKey: ["credit-sales"] });
+            }}
+          />
+        )}
+      </Dialog>
 
       <Dialog open={!!viewing} onOpenChange={(v) => !v && setViewing(null)}>
         {viewing && <CustomerProfileDialog customer={viewing} />}
@@ -467,10 +545,12 @@ export function CustomerProfileDialog({ customer }: { customer: Customer }) {
 
 function CustomerDialog({
   editing,
+  reps,
   onSubmit,
   saving,
 }: {
   editing: Customer | null;
+  reps: { id: string; full_name: string }[];
   onSubmit: (f: Partial<Customer>) => void;
   saving: boolean;
 }) {
@@ -478,6 +558,7 @@ function CustomerDialog({
   const [phone, setPhone] = useState(editing?.phone ?? "");
   const [email, setEmail] = useState(editing?.email ?? "");
   const [address, setAddress] = useState(editing?.address ?? "");
+  const [repId, setRepId] = useState(editing?.sales_rep_id ?? "none");
   return (
     <DialogContent>
       <DialogHeader>
@@ -502,6 +583,28 @@ function CustomerDialog({
           <Label>Address</Label>
           <Textarea value={address} onChange={(e) => setAddress(e.target.value)} />
         </div>
+        {reps.length > 0 && (
+          <div>
+            <Label>Marketer</Label>
+            <Select value={repId} onValueChange={setRepId}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">— None (served by the warehouse) —</SelectItem>
+                {reps.map((r) => (
+                  <SelectItem key={r.id} value={r.id}>
+                    {r.full_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="mt-1 text-xs text-muted-foreground">
+              The customer shows on this marketer's account, and they collect the customer's
+              payments.
+            </p>
+          </div>
+        )}
       </div>
       <DialogFooter>
         <Button
@@ -512,10 +615,95 @@ function CustomerDialog({
               phone: phone || null,
               email: email || null,
               address: address || null,
+              sales_rep_id: repId === "none" ? null : repId,
             })
           }
         >
           {saving ? "Saving…" : "Save"}
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  );
+}
+
+// Credit limit (blank = no limit, 0 = no credit at all) and payment terms.
+// approve_sale() refuses a sale that would take the customer over the limit
+// unless an admin approves it; new debts fall due credit_days after the sale.
+function CreditTermsDialog({ customer, onDone }: { customer: Customer; onDone: () => void }) {
+  const [limit, setLimit] = useState(
+    customer.credit_limit == null ? "" : String(Number(customer.credit_limit)),
+  );
+  const [days, setDays] = useState(String(customer.credit_days ?? 30));
+  const [reason, setReason] = useState("");
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const limitValue = limit.trim() === "" ? null : Number(limit);
+      if (limitValue != null && (!Number.isFinite(limitValue) || limitValue < 0))
+        throw new Error("Credit limit must be 0 or more, or blank for no limit");
+      const daysValue = Number(days);
+      if (!Number.isInteger(daysValue) || daysValue < 0 || daysValue > 365)
+        throw new Error("Payment terms must be a whole number of days from 0 to 365");
+      const { error } = await supabase.rpc("set_customer_credit_terms", {
+        p_customer: customer.id,
+        p_credit_limit: limitValue,
+        p_credit_days: daysValue,
+        p_reason: reason.trim() || undefined,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Credit terms saved");
+      onDone();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return (
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle>Credit terms — {customer.name}</DialogTitle>
+      </DialogHeader>
+      <div className="grid gap-3">
+        <p className="text-sm text-muted-foreground">
+          Currently owes {money(Number(customer.outstanding_balance))}.
+        </p>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label>Credit limit</Label>
+            <Input
+              type="number"
+              min={0}
+              step="0.01"
+              value={limit}
+              onChange={(e) => setLimit(e.target.value)}
+              placeholder="No limit"
+            />
+          </div>
+          <div>
+            <Label>Payment terms (days)</Label>
+            <Input
+              type="number"
+              min={0}
+              max={365}
+              step={1}
+              value={days}
+              onChange={(e) => setDays(e.target.value)}
+            />
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Leave the limit blank for no limit, or set 0 to allow no credit. A sale that would take
+          this customer over the limit can only be approved by an admin.
+        </p>
+        <div>
+          <Label>Reason (optional)</Label>
+          <Textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} />
+        </div>
+      </div>
+      <DialogFooter>
+        <Button disabled={save.isPending} onClick={() => save.mutate()}>
+          {save.isPending ? "Saving…" : "Save terms"}
         </Button>
       </DialogFooter>
     </DialogContent>

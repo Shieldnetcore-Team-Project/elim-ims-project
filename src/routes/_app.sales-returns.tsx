@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { RequireAccess } from "@/components/layout/require-access";
+import { SectionTabs } from "@/components/layout/section-tabs";
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -54,9 +55,12 @@ export const Route = createFileRoute("/_app/sales-returns")({
     meta: [{ title: "Sales Returns — Elim Table Water" }, { name: "robots", content: "noindex" }],
   }),
   component: () => (
-    <RequireAccess module="sales-returns">
-      <SalesReturnsPage />
-    </RequireAccess>
+    <>
+      <SectionTabs section="Retail" />
+      <RequireAccess module="sales-returns">
+        <SalesReturnsPage />
+      </RequireAccess>
+    </>
   ),
 });
 

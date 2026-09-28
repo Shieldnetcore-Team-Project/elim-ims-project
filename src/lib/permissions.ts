@@ -120,7 +120,7 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   "production-requests": "Purchase/Production Requests",
   "purchase-orders": "Purchase Orders",
   "raw-materials": "Raw Materials",
-  "finished-goods": "Finished Goods (Store)",
+  "finished-goods": "Finished Products (Store)",
   finance: "Finance",
   expenses: "Expenses",
   payroll: "Payroll",
@@ -140,7 +140,7 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   logistics: "Logistics",
   distribution: "Distribution (Sales Reps)",
   approvals: "Approvals",
-  "goods-receiving": "Goods Receiving",
+  "goods-receiving": "Quality Control (Goods Receiving)",
 };
 
 // Level 2 of the dual-operation model: independent, non-hierarchical action

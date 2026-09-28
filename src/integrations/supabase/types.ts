@@ -225,6 +225,91 @@ export type Database = {
           },
         ]
       }
+      container_movements: {
+        Row: {
+          container_type_id: string
+          created_at: string
+          created_by: string | null
+          dispatch_id: string | null
+          factory_id: string
+          from_id: string | null
+          from_type: string
+          id: string
+          notes: string | null
+          quantity: number
+          reference: string | null
+          rep_return_id: string | null
+          sale_id: string | null
+          sales_return_id: string | null
+          seq: number
+          source: string
+          to_id: string | null
+          to_type: string
+        }
+        Insert: {
+          container_type_id: string
+          created_at?: string
+          created_by?: string | null
+          dispatch_id?: string | null
+          factory_id: string
+          from_id?: string | null
+          from_type: string
+          id?: string
+          notes?: string | null
+          quantity: number
+          reference?: string | null
+          rep_return_id?: string | null
+          sale_id?: string | null
+          sales_return_id?: string | null
+          source: string
+          to_id?: string | null
+          to_type: string
+        }
+        Update: {
+          container_type_id?: string
+          created_at?: string
+          created_by?: string | null
+          dispatch_id?: string | null
+          factory_id?: string
+          from_id?: string | null
+          from_type?: string
+          id?: string
+          notes?: string | null
+          quantity?: number
+          reference?: string | null
+          rep_return_id?: string | null
+          sale_id?: string | null
+          sales_return_id?: string | null
+          source?: string
+          to_id?: string | null
+          to_type?: string
+        }
+        Relationships: []
+      }
+      container_types: {
+        Row: {
+          active: boolean
+          created_at: string
+          factory_id: string
+          id: string
+          name: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          factory_id: string
+          id?: string
+          name: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          factory_id?: string
+          id?: string
+          name?: string
+        }
+        Relationships: []
+      }
       costing_sheets: {
         Row: {
           apply_to_product: boolean
@@ -326,6 +411,8 @@ export type Database = {
           address: string | null
           created_at: string
           credit_balance: number
+          credit_days: number
+          credit_limit: number | null
           email: string | null
           factory_id: string
           id: string
@@ -333,6 +420,7 @@ export type Database = {
           outstanding_balance: number
           phone: string | null
           registered: boolean
+          sales_rep_id: string | null
           total_purchases: number
           total_transactions: number
           updated_at: string
@@ -341,6 +429,8 @@ export type Database = {
           address?: string | null
           created_at?: string
           credit_balance?: number
+          credit_days?: number
+          credit_limit?: number | null
           email?: string | null
           factory_id: string
           id?: string
@@ -348,6 +438,7 @@ export type Database = {
           outstanding_balance?: number
           phone?: string | null
           registered?: boolean
+          sales_rep_id?: string | null
           total_purchases?: number
           total_transactions?: number
           updated_at?: string
@@ -356,6 +447,8 @@ export type Database = {
           address?: string | null
           created_at?: string
           credit_balance?: number
+          credit_days?: number
+          credit_limit?: number | null
           email?: string | null
           factory_id?: string
           id?: string
@@ -363,6 +456,7 @@ export type Database = {
           outstanding_balance?: number
           phone?: string | null
           registered?: boolean
+          sales_rep_id?: string | null
           total_purchases?: number
           total_transactions?: number
           updated_at?: string
@@ -502,9 +596,12 @@ export type Database = {
           amount_paid: number
           created_at: string
           customer_id: string | null
+          due_date: string | null
           factory_id: string
           id: string
+          initial_amount_paid: number | null
           outstanding: number
+          paid_at: string | null
           sale_id: string | null
           sales_rep_id: string | null
           status: Database["public"]["Enums"]["debt_status"]
@@ -523,9 +620,12 @@ export type Database = {
           amount_paid?: number
           created_at?: string
           customer_id?: string | null
+          due_date?: string | null
           factory_id: string
           id?: string
+          initial_amount_paid?: number | null
           outstanding?: number
+          paid_at?: string | null
           sale_id?: string | null
           sales_rep_id?: string | null
           status?: Database["public"]["Enums"]["debt_status"]
@@ -544,9 +644,12 @@ export type Database = {
           amount_paid?: number
           created_at?: string
           customer_id?: string | null
+          due_date?: string | null
           factory_id?: string
           id?: string
+          initial_amount_paid?: number | null
           outstanding?: number
+          paid_at?: string | null
           sale_id?: string | null
           sales_rep_id?: string | null
           status?: Database["public"]["Enums"]["debt_status"]
@@ -1323,6 +1426,7 @@ export type Database = {
       payments_received: {
         Row: {
           amount: number
+          collected_by_rep: string | null
           created_at: string
           customer_id: string | null
           factory_id: string
@@ -1341,6 +1445,7 @@ export type Database = {
         }
         Insert: {
           amount: number
+          collected_by_rep?: string | null
           created_at?: string
           customer_id?: string | null
           factory_id: string
@@ -1359,6 +1464,7 @@ export type Database = {
         }
         Update: {
           amount?: number
+          collected_by_rep?: string | null
           created_at?: string
           customer_id?: string | null
           factory_id?: string
@@ -1539,6 +1645,71 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      product_containers: {
+        Row: {
+          container_type_id: string
+          product_id: string
+          quantity_per_unit: number
+        }
+        Insert: {
+          container_type_id: string
+          product_id: string
+          quantity_per_unit: number
+        }
+        Update: {
+          container_type_id?: string
+          product_id?: string
+          quantity_per_unit?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_containers_container_type_id_fkey"
+            columns: ["container_type_id"]
+            isOneToOne: false
+            referencedRelation: "container_types"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_containers_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      product_commission_rates: {
+        Row: {
+          amount_per_unit: number
+          factory_id: string
+          product_id: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          amount_per_unit: number
+          factory_id: string
+          product_id: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          amount_per_unit?: number
+          factory_id?: string
+          product_id?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_commission_rates_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: true
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       product_categories: {
         Row: {
@@ -2816,6 +2987,7 @@ export type Database = {
       }
       sale_items: {
         Row: {
+          commission_per_unit: number
           id: string
           line_total: number
           product_id: string
@@ -2824,6 +2996,7 @@ export type Database = {
           unit_price: number
         }
         Insert: {
+          commission_per_unit?: number
           id?: string
           line_total: number
           product_id: string
@@ -2832,6 +3005,7 @@ export type Database = {
           unit_price: number
         }
         Update: {
+          commission_per_unit?: number
           id?: string
           line_total?: number
           product_id?: string
@@ -4137,6 +4311,22 @@ export type Database = {
           unit: string
         }[]
       }
+      marketer_performance: {
+        Args: { p_factory: string; p_from: string; p_to: string }
+        Returns: {
+          cash_remitted: number
+          commission_earned: number
+          commission_reversed: number
+          full_name: string
+          net_commission: number
+          rep_status: string
+          sales_count: number
+          sales_rep_id: string
+          sales_value: number
+          units_returned: number
+          units_sold: number
+        }[]
+      }
       has_permission:
         | {
             Args: { _action?: unknown; _module: unknown; _user_id: string }
@@ -4193,6 +4383,7 @@ export type Database = {
       }
       process_payroll: { Args: { payload: Json }; Returns: Json }
       purge_expired_deleted_sales: { Args: never; Returns: Json }
+      record_container_movement: { Args: { payload: Json }; Returns: string }
       record_customer_advance: { Args: { payload: Json }; Returns: Json }
       record_payment: { Args: { payload: Json }; Returns: Json }
       record_rep_remittance: { Args: { payload: Json }; Returns: Json }
@@ -4268,6 +4459,39 @@ export type Database = {
         Args: { reason: string; target_id: string }
         Returns: Json
       }
+      rep_customers: {
+        Args: { p_sales_rep_id: string }
+        Returns: {
+          advance_balance: number
+          assigned: boolean
+          collected_by_rep: number
+          customer_id: string
+          last_collection: string | null
+          name: string
+          phone: string | null
+          total_owed: number
+        }[]
+      }
+      rep_customer_invoices: {
+        Args: { p_from?: string; p_sales_rep_id: string; p_to?: string }
+        Returns: {
+          advance_applied: number
+          cash_paid: number
+          customer_id: string | null
+          customer_name: string
+          customer_phone: string | null
+          debt_status: string | null
+          due_date: string | null
+          grand_total: number
+          invoice_number: string
+          outstanding: number
+          paid_at: string | null
+          sale_date: string
+          sale_id: string
+          sold_by_rep: boolean
+          written_off: number
+        }[]
+      }
       rep_account_summary: {
         Args: { p_from?: string; p_sales_rep_id: string; p_to?: string }
         Returns: Json
@@ -4281,6 +4505,27 @@ export type Database = {
         Returns: Json
       }
       request_new_material: { Args: { payload: Json }; Returns: Json }
+      save_container_type: {
+        Args: { p_active?: boolean; p_factory: string; p_id: string | null; p_name: string }
+        Returns: string
+      }
+      set_product_container: {
+        Args: { p_container_type: string; p_product: string; p_quantity: number }
+        Returns: undefined
+      }
+      set_customer_credit_terms: {
+        Args: {
+          p_credit_days: number
+          p_credit_limit: number | null
+          p_customer: string
+          p_reason?: string
+        }
+        Returns: Json
+      }
+      set_product_commission: {
+        Args: { p_amount: number; p_product: string; p_reason?: string }
+        Returns: Json
+      }
       set_product_cost_price: {
         Args: { p_id: string; p_cost: number }
         Returns: undefined

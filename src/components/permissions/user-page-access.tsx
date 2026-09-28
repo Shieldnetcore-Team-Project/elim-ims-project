@@ -12,8 +12,8 @@ import { RotateCcw, ShieldCheck } from "lucide-react";
 // A page is visible when the user holds `view` on the module behind it — the
 // sidebar gates every entry on can(module) (i.e. can(module, 'view')). This
 // mirrors the sidebar one-to-one: one row per actual nav page, in the same
-// section order. A page with real internal tabs (Payments, Procurement,
-// Inventory Overview — see NavItem.tabs in src/lib/nav.ts) nests one checkbox
+// section order. A page with real internal tabs (Sales, Production, Warehouse,
+// Payments, Procurement — see NavItem.tabs in src/lib/nav.ts) nests one checkbox
 // per tab underneath it, so an admin can grant the whole page but still deny
 // one tab inside it. A plain single-module page renders as one checkbox, same
 // as always. Modules with no sidebar entry of their own — the pages reached
@@ -35,8 +35,15 @@ function buildSections(): { section: string; pages: PageEntry[] }[] {
 
   for (const group of nav) {
     for (const item of group.items) {
+      // Tabs gated on the same module (Warehouse's Overview and Raw
+      // Materials) share one checkbox, labelled with both names.
       const items = item.tabs
-        ? item.tabs
+        ? item.tabs.reduce<{ module: ModuleKey; label: string }[]>((acc, t) => {
+            const existing = acc.find((a) => a.module === t.module);
+            if (existing) existing.label += ` / ${t.label}`;
+            else acc.push({ module: t.module, label: t.label });
+            return acc;
+          }, [])
         : item.modules
           ? item.modules.map((m) => ({ module: m, label: MODULE_LABELS[m] }))
           : [{ module: item.module, label: item.title }];

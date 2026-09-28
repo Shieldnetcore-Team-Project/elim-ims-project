@@ -240,6 +240,10 @@ function DebtsPage() {
     qc.invalidateQueries({ queryKey: ["debt-payments"] });
   };
 
+  // One key per payment: a double-click sends the same key twice and the
+  // server replays the first result instead of recording it again. Rotated
+  // after each success, since the debt dialog stays open for the next one.
+  const [payKey, setPayKey] = useState(() => crypto.randomUUID());
   const pay = useMutation({
     mutationFn: async (input: {
       debt: Debt;
@@ -256,12 +260,15 @@ function DebtsPage() {
           amount: input.amount,
           payment_method: input.method,
           remarks: input.remarks,
+          idempotency_key: payKey,
         } as any,
       });
       if (error) throw error;
       return { res: data as any, input };
     },
     onSuccess: ({ res, input }) => {
+      setPayKey(crypto.randomUUID());
+      if (res.duplicate) return;
       toast.success(`Receipt ${res.receipt_number}`);
       generateReceiptPdf({
         company: {

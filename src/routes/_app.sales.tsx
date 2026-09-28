@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { RequireAccess } from "@/components/layout/require-access";
+import { SectionTabs } from "@/components/layout/section-tabs";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -70,9 +71,12 @@ import { QuickAddProductDialog, ADD_NEW_ITEM } from "@/components/shared/quick-a
 export const Route = createFileRoute("/_app/sales")({
   head: () => ({ meta: [{ title: "Sales & POS — Elim Table Water" }, { name: "robots", content: "noindex" }] }),
   component: () => (
-    <RequireAccess module="sales">
-      <SalesPage />
-    </RequireAccess>
+    <>
+      <SectionTabs section="Retail" />
+      <RequireAccess module="sales">
+        <SalesPage />
+      </RequireAccess>
+    </>
   ),
 });
 
@@ -88,7 +92,13 @@ type Product = {
   category_id: string | null;
 };
 type Category = { id: string; name: string };
-type Customer = { id: string; name: string; phone: string | null; address: string | null };
+type Customer = {
+  id: string;
+  name: string;
+  phone: string | null;
+  address: string | null;
+  credit_limit?: number | null;
+};
 type SaleRow = {
   id: string;
   invoice_number: string;
@@ -307,6 +317,9 @@ function SalesPage() {
     setEditOpen(true);
   };
 
+  // One key per payment: a double-click sends the same key twice and the
+  // server replays the first result instead of recording it again.
+  const [payKey, setPayKey] = useState(() => crypto.randomUUID());
   const pay = useMutation({
     mutationFn: async (input: {
       sale: SaleRow;
@@ -320,12 +333,15 @@ function SalesPage() {
           sale_id: input.sale.id,
           payments: input.payments,
           remarks: input.remarks,
+          idempotency_key: payKey,
         } as any,
       });
       if (error) throw error;
       return { res: data as any, input };
     },
     onSuccess: ({ res }) => {
+      setPayKey(crypto.randomUUID());
+      if (res.duplicate) return;
       const lines: { receipt_number: string; amount: number; payment_method: string }[] =
         res.payments;
       toast.success(
@@ -1374,11 +1390,11 @@ export function PosDialog({
     },
   });
   const customers = useQuery({
-    queryKey: ["customers-brief", factoryId],
+    queryKey: ["customers-pos", factoryId],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("customers")
-        .select("id,name,phone,address")
+        .select("id,name,phone,address,credit_limit")
         .eq("factory_id", factoryId)
         .order("name");
       if (error) throw error;
@@ -1553,6 +1569,13 @@ export function PosDialog({
       }),
     [totals.grand, amountPaid, availableCredit, existingDebt],
   );
+  // approve_sale() refuses a sale that takes the customer over their credit
+  // limit (only an admin can approve it), so flag it before it is submitted.
+  const creditLimit =
+    customerId === "walkin"
+      ? null
+      : (customers.data ?? []).find((c) => c.id === customerId)?.credit_limit ?? null;
+  const overLimit = creditLimit != null && position.amountDue > 0 && position.debtAfter > Number(creditLimit);
 
   // What actually gets sold -- excludes lines the user has cleared to 0
   // while editing but hasn't removed or refilled yet.
@@ -2078,6 +2101,13 @@ export function PosDialog({
                   <p className="text-xs text-muted-foreground">
                     No advance on this account — the amount due becomes a debt unless it is paid
                     now.
+                  </p>
+                )}
+                {totals.grand > 0 && overLimit && (
+                  <p className="rounded-md bg-destructive/10 px-2 py-1 text-xs font-medium text-destructive">
+                    Over credit limit: the customer would owe {money(position.debtAfter)} against a
+                    limit of {money(Number(creditLimit))}. Collect more payment now, or only an admin
+                    can approve this sale.
                   </p>
                 )}
                 {existingDebt > 0 && (

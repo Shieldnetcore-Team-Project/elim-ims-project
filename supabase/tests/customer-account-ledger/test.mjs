@@ -35,10 +35,13 @@ const legacySale = (await one(`INSERT INTO sales(factory_id,invoice_number,custo
   VALUES ($1,'LEG-1',$2,500,200,300,'posted',$3) RETURNING id`, [F, legacyCust, cashier])).id;
 await db.query(`INSERT INTO debts(factory_id,customer_id,sale_id,total_amount,amount_paid,outstanding,status) VALUES ($1,$2,$3,500,200,300,'partial')`, [F, legacyCust, legacySale]);
 await db.query(`INSERT INTO payments_received(factory_id,receipt_number,customer_id,sale_id,amount) VALUES ($1,'LEG-RCP-1',$2,$3,200)`, [F, legacyCust, legacySale]);
+// debts.due_date / paid_at are new columns the credit-terms migration
+// deliberately backfills, so they're left out; every original column must
+// still be untouched.
 const legacyFingerprint = async () =>
   (await one(`SELECT md5(
     (SELECT string_agg(s::text, '|' ORDER BY id) FROM sales s) || (SELECT string_agg(p::text, '|' ORDER BY id) FROM payments_received p)
-    || (SELECT string_agg(d::text, '|' ORDER BY id) FROM debts d))  AS h`)).h;
+    || (SELECT string_agg((to_jsonb(d) - 'due_date' - 'paid_at')::text, '|' ORDER BY id) FROM debts d))  AS h`)).h;
 const before = await legacyFingerprint();
 
 // ---------- apply the migration under test ----------
@@ -386,6 +389,66 @@ console.log("Test 9: permissions and maker-checker adjustments");
 }
 
 // ---------- reconciliation ----------
+// ---------- 20260928110000_customer_account_ledger_gaps.sql ----------
+console.log("Repeated idempotency key replays the original result");
+{
+  const c = await cust("REPLAY");
+  const sid = await newSale(c, 3000);
+  await approve(sid); // 3000 debt
+  const key = "22222222-2222-2222-2222-222222222222";
+  const r1 = await advance(c, 5000, { idempotency_key: key }); // 3000 settles debt, 2000 credit
+  const r2 = await advance(c, 5000, { idempotency_key: key });
+  ok("first call settled 3k and added 2k", num(r1.settled_debt) === 3000 && num(r1.credit_added) === 2000, JSON.stringify(r1));
+  ok("replay flagged duplicate, same payment and receipt", r2.duplicate === true && r2.payment_id === r1.payment_id && r2.receipt_number === r1.receipt_number, JSON.stringify(r2));
+  ok("replay carries amount / settled / credit", num(r2.amount) === 5000 && num(r2.settled_debt) === 3000 && num(r2.credit_added) === 2000, JSON.stringify(r2));
+  ok("replay carries the allocations", r2.allocations.length === 1 && r2.allocations[0].sale_id === sid && num(r2.allocations[0].amount) === 3000, JSON.stringify(r2.allocations));
+  ok("nothing posted twice", (await q("SELECT 1 FROM payments_received WHERE customer_id=$1", [c])).length === 1 && (await acct(c)).cacheCredit === 2000 && inSync(await acct(c)));
+
+  const other = await cust("REPLAY-OTHER");
+  const e = await fails(() => advance(other, 5000, { idempotency_key: key }));
+  ok("same key for a different customer is refused", !!e && /different customer/.test(e), e);
+  ok("and posts nothing for that customer", (await q("SELECT 1 FROM payments_received WHERE customer_id=$1", [other])).length === 0);
+
+  const pkey = "33333333-3333-3333-3333-333333333333";
+  const p1 = await pay(c, 700, { idempotency_key: pkey });
+  const p2 = await pay(c, 700, { idempotency_key: pkey });
+  ok("record_payment replay matches the first call", p2.duplicate === true && p2.payment_id === p1.payment_id && num(p2.credit_added) === 700, JSON.stringify(p2));
+  ok("record_payment posted once", (await acct(c)).cacheCredit === 2700 && inSync(await acct(c)));
+}
+console.log("A reversed (posted then deleted) sale cannot be restored");
+{
+  const c = await cust("RESTORE");
+  await advance(c, 10000);
+  const sid = await newSale(c, 4000);
+  await approve(sid);
+  const dr = (await one("INSERT INTO delete_requests(factory_id,table_name,entity_id,entity_label,reason,requested_by) VALUES ($1,'sales',$2,'INV','error',$3) RETURNING id", [F, sid, cashier])).id;
+  await as(admin);
+  await one("SELECT approve_delete($1)", [dr]);
+  const e = await fails(() => one("SELECT restore_sale($1)", [sid]));
+  ok("restore refused with a clear message", !!e && /Record it again/.test(e), e);
+  ok("sale stays deleted, account untouched", !!(await saleRow(sid)).deleted_at && (await acct(c)).cacheCredit === 10000 && inSync(await acct(c)));
+
+  const pending = await newSale(c, 1000);
+  await db.query("UPDATE sales SET deleted_at = now() WHERE id=$1", [pending]);
+  await as(admin);
+  await one("SELECT restore_sale($1)", [pending]);
+  ok("a never-approved deleted sale still restores", (await saleRow(pending)).deleted_at === null);
+}
+console.log("Voiding a sale with cash, advance and debt still balances (lock-order rewrite)");
+{
+  const c = await cust("VOID2");
+  await advance(c, 1000);
+  const sid = await newSale(c, 5000, 500); // 500 cash, 1000 advance, 3500 debt
+  await approve(sid);
+  ok("set-up: 3.5k debt, advance used", (await acct(c)).cacheDebt === 3500 && (await acct(c)).cacheCredit === 0);
+  const dr = (await one("INSERT INTO delete_requests(factory_id,table_name,entity_id,entity_label,reason,requested_by) VALUES ($1,'sales',$2,'INV','void',$3) RETURNING id", [F, sid, cashier])).id;
+  await as(admin);
+  await one("SELECT approve_delete($1)", [dr]);
+  const a = await acct(c);
+  ok("debt cleared, cash 500 + advance 1000 back as credit", a.cacheDebt === 0 && a.cacheCredit === 1500 && inSync(a), JSON.stringify(a));
+  ok("debt row removed", (await q("SELECT 1 FROM debts WHERE sale_id=$1", [sid])).length === 0);
+}
+
 console.log("Reconciliation");
 {
   await as(admin);

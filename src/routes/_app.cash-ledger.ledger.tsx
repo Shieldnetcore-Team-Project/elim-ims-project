@@ -79,7 +79,8 @@ type UnifiedRow = {
   reviewStatus?: string;
   receivedBy?: string | null;
 };
-type Customer = { id: string; name: string };
+type Customer = { id: string; name: string; sales_rep_id?: string | null };
+type RepBrief = { id: string; full_name: string };
 type SaleBrief = {
   id: string;
   invoice_number: string;
@@ -146,11 +147,27 @@ function LedgerPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("customers")
-        .select("id,name")
+        .select("id,name,sales_rep_id")
         .eq("factory_id", factoryId!)
         .order("name");
       if (error) throw error;
       return (data ?? []) as Customer[];
+    },
+  });
+  // Marketers who can be credited with collecting a payment. Only readable
+  // with Distribution access; without it the choice is simply not offered.
+  const reps = useQuery({
+    queryKey: ["payment-collector-reps", factoryId],
+    enabled: !!factoryId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("sales_reps")
+        .select("id,full_name")
+        .eq("factory_id", factoryId!)
+        .eq("status", "active")
+        .order("full_name");
+      if (error) return [] as RepBrief[];
+      return (data ?? []) as RepBrief[];
     },
   });
 
@@ -301,6 +318,9 @@ function LedgerPage() {
   const totalReceipts = rows.filter((r) => r.type === "receipt").reduce((s, r) => s + r.amount, 0);
   const totalPayments = rows.filter((r) => r.type === "payment").reduce((s, r) => s + r.amount, 0);
 
+  // One key per payment: a double-click sends the same key twice and the
+  // server replays the first result instead of recording it again.
+  const [payKey, setPayKey] = useState(() => crypto.randomUUID());
   const recordPayment = useMutation({
     mutationFn: async (input: {
       customer_id: string | null;
@@ -311,6 +331,7 @@ function LedgerPage() {
       date: string;
       customer_name: string;
       invoice_number: string;
+      collected_by_rep: string | null;
     }) => {
       const { data, error } = await supabase.rpc("record_payment", {
         payload: {
@@ -321,12 +342,16 @@ function LedgerPage() {
           payment_method: input.method,
           remarks: input.remarks,
           payment_date: input.date,
+          collected_by_rep: input.collected_by_rep,
+          idempotency_key: payKey,
         } as any,
       });
       if (error) throw error;
       return { res: data as any, input };
     },
     onSuccess: ({ res, input }) => {
+      setPayKey(crypto.randomUUID());
+      if (res.duplicate) return;
       toast.success(`Receipt ${res.receipt_number}`);
       logAudit({
         action: "payment",
@@ -410,6 +435,7 @@ function LedgerPage() {
             {payOpen && (
               <NewPaymentDialog
                 customers={customers.data ?? []}
+                reps={reps.data ?? []}
                 sales={sales.data ?? []}
                 saving={recordPayment.isPending}
                 onSubmit={(v) => recordPayment.mutate(v)}
@@ -749,11 +775,13 @@ function ReversePaymentDialog({
 
 function NewPaymentDialog({
   customers,
+  reps,
   sales,
   onSubmit,
   saving,
 }: {
   customers: Customer[];
+  reps: RepBrief[];
   sales: SaleBrief[];
   onSubmit: (v: {
     customer_id: string | null;
@@ -764,10 +792,17 @@ function NewPaymentDialog({
     date: string;
     customer_name: string;
     invoice_number: string;
+    collected_by_rep: string | null;
   }) => void;
   saving: boolean;
 }) {
-  const [customerId, setCustomerId] = useState<string>("none");
+  const [customerId, setCustomerIdRaw] = useState<string>("none");
+  const [repId, setRepId] = useState<string>("none");
+  // Choosing a customer pre-selects their assigned marketer as the collector.
+  const setCustomerId = (id: string) => {
+    setCustomerIdRaw(id);
+    setRepId(customers.find((c) => c.id === id)?.sales_rep_id ?? "none");
+  };
   const [saleId, setSaleId] = useState<string>("none");
   const [amount, setAmount] = useState(0);
   const [method, setMethod] = useState<PaymentMethod>("cash");
@@ -850,6 +885,29 @@ function NewPaymentDialog({
             </SelectContent>
           </Select>
         </div>
+        {reps.length > 0 && (
+          <div>
+            <Label>Collected by marketer</Label>
+            <Select value={repId} onValueChange={setRepId}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">— Paid at the office —</SelectItem>
+                {reps.map((r) => (
+                  <SelectItem key={r.id} value={r.id}>
+                    {r.full_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {repId !== "none" && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Shows on the marketer&apos;s account; don&apos;t also record it as a remittance.
+              </p>
+            )}
+          </div>
+        )}
         <div>
           <Label>Remarks</Label>
           <Textarea rows={2} value={remarks} onChange={(e) => setRemarks(e.target.value)} />
@@ -874,6 +932,7 @@ function NewPaymentDialog({
               method,
               remarks,
               date,
+              collected_by_rep: repId === "none" ? null : repId,
             })
           }
         >

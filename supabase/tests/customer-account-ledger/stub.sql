@@ -47,6 +47,7 @@ CREATE TABLE public.factories (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), na
 CREATE TABLE public.settings (factory_id uuid PRIMARY KEY, receipt_prefix text);
 CREATE TABLE public.customers (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(), factory_id uuid NOT NULL REFERENCES public.factories(id), name text NOT NULL,
+  phone text, email text, address text, registered boolean NOT NULL DEFAULT false,
   outstanding_balance numeric(14,2) NOT NULL DEFAULT 0, total_purchases numeric(14,2) NOT NULL DEFAULT 0,
   credit_balance numeric(14,2) NOT NULL DEFAULT 0 CHECK (credit_balance >= 0), total_transactions int NOT NULL DEFAULT 0,
   created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now());

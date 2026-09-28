@@ -260,174 +260,187 @@ function Landing() {
         </div>
       </div>
 
-      <div className="flex items-center justify-center p-6">
-        <Card className="w-full max-w-md">
-          <CardHeader>
-            <div className="mb-4 flex justify-center lg:hidden">
-              <div className="h-16 w-48 overflow-hidden rounded-lg bg-white">
-                <img
-                  src="/assets/elim-logo.png"
-                  alt="Elim Table Water"
-                  className="h-full w-full object-contain"
-                />
+      <div className="flex min-h-screen flex-col p-6">
+        <div className="flex flex-1 items-center justify-center">
+          <Card className="w-full max-w-md">
+            <CardHeader>
+              <div className="mb-4 flex justify-center lg:hidden">
+                <div className="h-16 w-48 overflow-hidden rounded-lg bg-white">
+                  <img
+                    src="/assets/elim-logo.png"
+                    alt="Elim Table Water"
+                    className="h-full w-full object-contain"
+                  />
+                </div>
               </div>
-            </div>
-            <CardTitle className="text-2xl">Welcome</CardTitle>
-            <CardDescription>Sign in to access your factory dashboard</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Tabs defaultValue="signin">
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="signin">Sign in</TabsTrigger>
-                <TabsTrigger value="signup">Sign up</TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="signin">
-                <form onSubmit={signIn} className="space-y-4 pt-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="email">Email</Label>
-                    <Input
-                      id="email"
-                      name="email"
-                      type="email"
-                      autoComplete="email"
-                      required
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Label htmlFor="password">Password</Label>
-                      <button
-                        type="button"
-                        onClick={forgot}
-                        className="text-xs text-primary hover:underline"
-                      >
-                        Forgot?
-                      </button>
-                    </div>
-                    <PasswordInput
-                      id="password"
-                      name="password"
-                      autoComplete="current-password"
-                      required
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                    />
-                  </div>
-                  <Button type="submit" className="w-full" disabled={loading}>
-                    {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    Sign in
-                  </Button>
-                </form>
-              </TabsContent>
-
-              <TabsContent value="signup">
-                <form onSubmit={signUp} className="space-y-4 pt-4">
-                  <div className="grid grid-cols-2 gap-3">
+              <CardTitle className="text-2xl">Welcome</CardTitle>
+              <CardDescription>Sign in to access your factory dashboard</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Tabs defaultValue="signin">
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="signin">Sign in</TabsTrigger>
+                  <TabsTrigger value="signup">Sign up</TabsTrigger>
+                </TabsList>
+  
+                <TabsContent value="signin">
+                  <form onSubmit={signIn} className="space-y-4 pt-4">
                     <div className="space-y-2">
-                      <Label htmlFor="su-name">Full name</Label>
+                      <Label htmlFor="email">Email</Label>
                       <Input
-                        id="su-name"
+                        id="email"
+                        name="email"
+                        type="email"
+                        autoComplete="email"
                         required
-                        value={suFullName}
-                        onChange={(e) => setSuFullName(e.target.value)}
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="su-username">Username</Label>
-                      <Input
-                        id="su-username"
-                        value={suUsername}
-                        onChange={(e) => setSuUsername(e.target.value)}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="su-email">Email</Label>
-                    <Input
-                      id="su-email"
-                      type="email"
-                      required
-                      value={suEmail}
-                      onChange={(e) => setSuEmail(e.target.value)}
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-2">
-                      <Label htmlFor="su-phone">Phone</Label>
-                      <Input
-                        id="su-phone"
-                        type="tel"
-                        value={suPhone}
-                        onChange={(e) => setSuPhone(e.target.value)}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="su-department">Department</Label>
-                      <Input
-                        id="su-department"
-                        value={suDepartment}
-                        onChange={(e) => setSuDepartment(e.target.value)}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Role requested</Label>
-                    <Select value={suRole} onValueChange={(v) => setSuRole(v as Role)}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select role" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {requestableRoles.map((r) => (
-                          <SelectItem key={r.slug} value={r.slug}>
-                            {r.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-2">
-                      <Label htmlFor="su-password">Password</Label>
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="password">Password</Label>
+                        <button
+                          type="button"
+                          onClick={forgot}
+                          className="text-xs text-primary hover:underline"
+                        >
+                          Forgot?
+                        </button>
+                      </div>
                       <PasswordInput
-                        id="su-password"
+                        id="password"
+                        name="password"
+                        autoComplete="current-password"
                         required
-                        minLength={6}
-                        value={suPassword}
-                        onChange={(e) => setSuPassword(e.target.value)}
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
                       />
                     </div>
+                    <Button type="submit" className="w-full" disabled={loading}>
+                      {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      Sign in
+                    </Button>
+                  </form>
+                </TabsContent>
+  
+                <TabsContent value="signup">
+                  <form onSubmit={signUp} className="space-y-4 pt-4">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-2">
+                        <Label htmlFor="su-name">Full name</Label>
+                        <Input
+                          id="su-name"
+                          required
+                          value={suFullName}
+                          onChange={(e) => setSuFullName(e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="su-username">Username</Label>
+                        <Input
+                          id="su-username"
+                          value={suUsername}
+                          onChange={(e) => setSuUsername(e.target.value)}
+                        />
+                      </div>
+                    </div>
+  
                     <div className="space-y-2">
-                      <Label htmlFor="su-confirm">Confirm password</Label>
-                      <PasswordInput
-                        id="su-confirm"
+                      <Label htmlFor="su-email">Email</Label>
+                      <Input
+                        id="su-email"
+                        type="email"
                         required
-                        minLength={6}
-                        value={suConfirmPassword}
-                        onChange={(e) => setSuConfirmPassword(e.target.value)}
+                        value={suEmail}
+                        onChange={(e) => setSuEmail(e.target.value)}
                       />
                     </div>
-                  </div>
+  
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-2">
+                        <Label htmlFor="su-phone">Phone</Label>
+                        <Input
+                          id="su-phone"
+                          type="tel"
+                          value={suPhone}
+                          onChange={(e) => setSuPhone(e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="su-department">Department</Label>
+                        <Input
+                          id="su-department"
+                          value={suDepartment}
+                          onChange={(e) => setSuDepartment(e.target.value)}
+                        />
+                      </div>
+                    </div>
+  
+                    <div className="space-y-2">
+                      <Label>Role requested</Label>
+                      <Select value={suRole} onValueChange={(v) => setSuRole(v as Role)}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select role" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {requestableRoles.map((r) => (
+                            <SelectItem key={r.slug} value={r.slug}>
+                              {r.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+  
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-2">
+                        <Label htmlFor="su-password">Password</Label>
+                        <PasswordInput
+                          id="su-password"
+                          required
+                          minLength={6}
+                          value={suPassword}
+                          onChange={(e) => setSuPassword(e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="su-confirm">Confirm password</Label>
+                        <PasswordInput
+                          id="su-confirm"
+                          required
+                          minLength={6}
+                          value={suConfirmPassword}
+                          onChange={(e) => setSuConfirmPassword(e.target.value)}
+                        />
+                      </div>
+                    </div>
+  
+                    <p className="text-xs text-muted-foreground">
+                      An Admin reviews and approves new accounts before you can sign in.
+                    </p>
+  
+                    <Button type="submit" className="w-full" disabled={loading}>
+                      {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      Create account
+                    </Button>
+                  </form>
+                </TabsContent>
+              </Tabs>
+            </CardContent>
+          </Card>
+        </div>
 
-                  <p className="text-xs text-muted-foreground">
-                    An Admin reviews and approves new accounts before you can sign in.
-                  </p>
-
-                  <Button type="submit" className="w-full" disabled={loading}>
-                    {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    Create account
-                  </Button>
-                </form>
-              </TabsContent>
-            </Tabs>
-          </CardContent>
-        </Card>
+        <div className="mt-6 flex items-center justify-end gap-2 text-xs text-muted-foreground">
+          <img
+            src="/assets/shieldnetcore-logo.png"
+            alt="ShieldNetCore Technologies"
+            className="h-5 w-5 object-contain"
+          />
+          <span>
+            Built by <span className="font-medium text-foreground">ShieldNetCore Technologies</span>
+          </span>
+        </div>
       </div>
     </div>
   );
