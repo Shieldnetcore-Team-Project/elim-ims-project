@@ -120,7 +120,7 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   "production-requests": "Purchase/Production Requests",
   "purchase-orders": "Purchase Orders",
   "raw-materials": "Raw Materials",
-  "finished-goods": "Finished Products (Store)",
+  "finished-goods": "Finished Products (Warehouse)",
   finance: "Finance",
   expenses: "Expenses",
   payroll: "Payroll",

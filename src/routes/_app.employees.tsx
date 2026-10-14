@@ -67,7 +67,9 @@ import {
 } from "lucide-react";
 
 export const Route = createFileRoute("/_app/employees")({
-  head: () => ({ meta: [{ title: "Employees — Elim Table Water" }, { name: "robots", content: "noindex" }] }),
+  head: () => ({
+    meta: [{ title: "Employees — Elim Table Water" }, { name: "robots", content: "noindex" }],
+  }),
   component: () => (
     <RequireAccess module="employees">
       <EmployeesPage />
@@ -91,6 +93,9 @@ type Employee = {
   meal_allowance: number | null;
   medical_allowance: number | null;
   other_allowances: number | null;
+  // Not yet a column in the employees table — optional so gross pay picks it
+  // up automatically once it is added.
+  utilities_allowance?: number | null;
   employment_date: string | null;
   status: string | null;
   bank_name: string | null;
@@ -99,6 +104,43 @@ type Employee = {
   photo_url: string | null;
 };
 type EmployeeDoc = { id: string; file_name: string; file_path: string; created_at: string };
+
+type SalaryParts = Pick<
+  Employee,
+  | "basic_salary"
+  | "housing_allowance"
+  | "transport_allowance"
+  | "meal_allowance"
+  | "medical_allowance"
+  | "utilities_allowance"
+  | "other_allowances"
+>;
+
+/** Gross pay = basic + every allowance (meal = "Productivity", medical = "Inconvenience"). */
+function grossSalary(e: SalaryParts) {
+  return (
+    Number(e.basic_salary ?? 0) +
+    Number(e.housing_allowance ?? 0) +
+    Number(e.transport_allowance ?? 0) +
+    Number(e.meal_allowance ?? 0) +
+    Number(e.medical_allowance ?? 0) +
+    Number(e.utilities_allowance ?? 0) +
+    Number(e.other_allowances ?? 0)
+  );
+}
+
+function TotalCard({ caption, value }: { caption: string; value: number | undefined }) {
+  return (
+    <div className="rounded-2xl border bg-card px-4 py-3">
+      <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        {caption}
+      </div>
+      <div className="mt-1 text-xl font-semibold tabular-nums">
+        {value === undefined ? "—" : money(value)}
+      </div>
+    </div>
+  );
+}
 
 function useSignedUrl(path: string | null | undefined) {
   const [url, setUrl] = useState<string | null>(null);
@@ -159,7 +201,70 @@ function EmployeesPage() {
     },
   });
 
-  const invalidateAll = () => qc.invalidateQueries({ queryKey: ["employees-list"] });
+  const invalidateAll = () => {
+    qc.invalidateQueries({ queryKey: ["employees-list"] });
+    qc.invalidateQueries({ queryKey: ["employees-gross", factoryId] });
+  };
+
+  // Header totals ignore the search box and include every status.
+  const grossAll = useQuery({
+    queryKey: ["employees-gross", factoryId],
+    enabled: !!factoryId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("employees")
+        .select("*")
+        .eq("factory_id", factoryId!);
+      if (error) throw error;
+      const rows = (data ?? []) as Employee[];
+      return { total: rows.reduce((s, e) => s + grossSalary(e), 0), count: rows.length };
+    },
+  });
+
+  const now = new Date();
+  const month = now.getMonth() + 1;
+  const year = now.getFullYear();
+  const monthLabel = `${DED_MONTHS[month - 1]} ${year}`;
+
+  const totals = useQuery({
+    queryKey: ["employee-totals", factoryId, month, year],
+    enabled: !!factoryId,
+    queryFn: async () => {
+      const [ded, loans] = await Promise.all([
+        supabase
+          .from("staff_deductions")
+          .select("employee_id,kind,amount")
+          .eq("factory_id", factoryId!)
+          .in("kind", ["fine", "contribution"])
+          .in("status", ["approved", "applied"])
+          .eq("period_month", month)
+          .eq("period_year", year),
+        supabase
+          .from("staff_loans")
+          .select("outstanding")
+          .eq("factory_id", factoryId!)
+          .eq("status", "active"),
+      ]);
+      if (ded.error) throw ded.error;
+      if (loans.error) throw loans.error;
+      const sumKind = (kind: string) => {
+        const rows = (ded.data ?? []).filter((d) => d.kind === kind);
+        return {
+          total: rows.reduce((s, d) => s + Number(d.amount ?? 0), 0),
+          staff: new Set(rows.map((d) => d.employee_id)).size,
+        };
+      };
+      const loanRows = loans.data ?? [];
+      return {
+        fines: sumKind("fine"),
+        contributions: sumKind("contribution"),
+        loans: {
+          total: loanRows.reduce((s, l) => s + Number(l.outstanding ?? 0), 0),
+          count: loanRows.length,
+        },
+      };
+    },
+  });
 
   const del = useMutation({
     mutationFn: async ({ emp, reason }: { emp: Employee; reason: string }) => {
@@ -181,6 +286,24 @@ function EmployeesPage() {
           <p className="text-sm text-muted-foreground">
             Records, documents, and compensation profile.
           </p>
+        </div>
+        <div className="grid flex-1 grid-cols-2 gap-3 lg:grid-cols-4">
+          <TotalCard
+            caption={`Total Gross Salary (${grossAll.data?.count ?? 0} employees)`}
+            value={grossAll.data?.total}
+          />
+          <TotalCard
+            caption={`Faulters — ${monthLabel} (${totals.data?.fines.staff ?? 0} staff)`}
+            value={totals.data?.fines.total}
+          />
+          <TotalCard
+            caption={`Contributions — ${monthLabel} (${totals.data?.contributions.staff ?? 0} staff)`}
+            value={totals.data?.contributions.total}
+          />
+          <TotalCard
+            caption={`Staff Loans Outstanding (${totals.data?.loans.count ?? 0} loans)`}
+            value={totals.data?.loans.total}
+          />
         </div>
         {write && (
           <Dialog
@@ -231,7 +354,7 @@ function EmployeesPage() {
                 <TableHead>Name</TableHead>
                 <TableHead>Department</TableHead>
                 <TableHead>Position</TableHead>
-                <TableHead className="text-right">Basic Salary</TableHead>
+                <TableHead className="text-right">Gross Salary</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead></TableHead>
               </TableRow>
@@ -248,7 +371,7 @@ function EmployeesPage() {
                   </TableCell>
                   <TableCell>{e.department ?? "—"}</TableCell>
                   <TableCell>{e.position ?? "—"}</TableCell>
-                  <TableCell className="text-right">{money(Number(e.basic_salary))}</TableCell>
+                  <TableCell className="text-right">{money(grossSalary(e))}</TableCell>
                   <TableCell>
                     <Badge
                       variant={e.status === "active" ? "secondary" : "outline"}
@@ -499,16 +622,32 @@ function EmployeeForm({
         </div>
         <div className="grid grid-cols-3 gap-3">
           <div>
-            <Label>Meal</Label>
+            <Label>Productivity</Label>
             <MoneyInput value={meal} onChange={setMeal} />
           </div>
           <div>
-            <Label>Medical</Label>
+            <Label>Inconvenience</Label>
             <MoneyInput value={medical} onChange={setMedical} />
           </div>
           <div>
             <Label>Other</Label>
             <MoneyInput value={otherAllow} onChange={setOtherAllow} />
+          </div>
+        </div>
+        <div>
+          <Label>Gross salary (total)</Label>
+          <div className="flex h-9 items-center rounded-md border bg-muted px-3 text-sm font-semibold tabular-nums">
+            {money(
+              grossSalary({
+                basic_salary: basicSalary,
+                housing_allowance: housing,
+                transport_allowance: transport,
+                meal_allowance: meal,
+                medical_allowance: medical,
+                utilities_allowance: editing?.utilities_allowance ?? 0,
+                other_allowances: otherAllow,
+              }),
+            )}
           </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
@@ -775,8 +914,14 @@ function LoansDeductionsDialog({ employee, factoryId }: { employee: Employee; fa
     },
   });
 
-  const refreshLoans = () => qc.invalidateQueries({ queryKey: ["staff-loans", employee.id] });
-  const refreshDed = () => qc.invalidateQueries({ queryKey: ["staff-deductions", employee.id] });
+  const refreshLoans = () => {
+    qc.invalidateQueries({ queryKey: ["staff-loans", employee.id] });
+    qc.invalidateQueries({ queryKey: ["employee-totals"] });
+  };
+  const refreshDed = () => {
+    qc.invalidateQueries({ queryKey: ["staff-deductions", employee.id] });
+    qc.invalidateQueries({ queryKey: ["employee-totals"] });
+  };
 
   // ---- loan form ----
   const [principal, setPrincipal] = useState(0);
@@ -1052,11 +1197,7 @@ function LoansDeductionsDialog({ employee, factoryId }: { employee: Employee; fa
                   ) : (
                     <>
                       <Label className="text-xs">Number of months</Label>
-                      <MoneyInput
-                        min={1}
-                        value={instMonths}
-                        onChange={setInstMonths}
-                      />
+                      <MoneyInput min={1} value={instMonths} onChange={setInstMonths} />
                     </>
                   )}
                 </div>
@@ -1205,11 +1346,7 @@ function LoansDeductionsDialog({ employee, factoryId }: { employee: Employee; fa
                 </div>
                 <div>
                   <Label className="text-xs">Year</Label>
-                  <MoneyInput
-                    groupThousands={false}
-                    value={pYear}
-                    onChange={setPYear}
-                  />
+                  <MoneyInput groupThousands={false} value={pYear} onChange={setPYear} />
                 </div>
               </div>
               <div>
