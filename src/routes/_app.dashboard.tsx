@@ -849,7 +849,7 @@ function InventoryDashboard({ factoryId }: { factoryId: string }) {
 // ============================================================================
 // PRODUCTION — production
 // ============================================================================
-// Runs that still count: awaiting the store's confirmation, or confirmed.
+// Runs that still count: posted and awaiting the warehouse, or accepted.
 const LIVE_RUN_STATUSES = ["pending_confirmation", "posted"];
 
 function ProductionDashboard({ factoryId }: { factoryId: string }) {
@@ -972,7 +972,7 @@ function ProductionDashboard({ factoryId }: { factoryId: string }) {
         />
         <KPI
           icon={CheckSquare}
-          label="Runs Confirmed Today"
+          label="Runs Accepted Today"
           value={String(confirmedToday)}
           hint={`${(runsToday.data ?? []).length} run(s) today in total`}
           tone="success"
@@ -1010,7 +1010,7 @@ function ProductionDashboard({ factoryId }: { factoryId: string }) {
 }
 
 // ============================================================================
-// STORE — store_officer (finished goods)
+// WAREHOUSE — store_officer (finished goods)
 // ============================================================================
 function StoreDashboard({ factoryId }: { factoryId: string }) {
   const today = startOfDay(new Date()).toISOString();
@@ -1040,7 +1040,7 @@ function StoreDashboard({ factoryId }: { factoryId: string }) {
             .range(a, b) as any,
       ),
   });
-  // Batches the store confirmed today: what actually entered stock (accepted
+  // Batches the warehouse accepted today: what actually entered stock (accepted
   // quantity, not what production reported).
   const receivedToday = useQuery({
     queryKey: ["sto-received-today", factoryId],
@@ -1118,7 +1118,7 @@ function StoreDashboard({ factoryId }: { factoryId: string }) {
         />
         <KPI
           icon={CheckSquare}
-          label="Awaiting Confirmation"
+          label="Awaiting Acceptance"
           value={String(awaitingConfirmation.data ?? 0)}
           hint="Production batches to confirm"
           tone={(awaitingConfirmation.data ?? 0) > 0 ? "warning" : "success"}

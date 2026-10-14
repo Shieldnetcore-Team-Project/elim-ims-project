@@ -811,7 +811,7 @@ function FinishedGoodsPage() {
         <Card className="rounded-2xl border-dashed">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              Pending Production Batches to Confirm
+              Production Batches to Accept
               <Badge variant="destructive">{pendingBatches.data!.length}</Badge>
             </CardTitle>
           </CardHeader>
@@ -848,7 +848,7 @@ function FinishedGoodsPage() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              title="Confirm"
+                              title="Accept"
                               onClick={() => setConfirmTarget(b)}
                             >
                               <Check className="h-4 w-4 text-success" />
@@ -1346,7 +1346,7 @@ function ConfirmBatchDialog({ batch, onDone }: { batch: PendingBatch; onDone: ()
       if (error) throw error;
     },
     onSuccess: () => {
-      toast.success(`Confirmed — ${num(accepted)} ${unit} posted to stock`);
+      toast.success(`Accepted — ${num(accepted)} ${unit} added to stock`);
       onDone();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -1356,7 +1356,7 @@ function ConfirmBatchDialog({ batch, onDone }: { batch: PendingBatch; onDone: ()
     <DialogContent>
       <DialogHeader>
         <DialogTitle className="flex items-center gap-2">
-          <Factory className="h-5 w-5" /> Confirm Batch — {batch.production_number}
+          <Factory className="h-5 w-5" /> Accept Batch — {batch.production_number}
         </DialogTitle>
       </DialogHeader>
       <div className="grid gap-3">
@@ -1393,7 +1393,7 @@ function ConfirmBatchDialog({ batch, onDone }: { batch: PendingBatch; onDone: ()
       </div>
       <DialogFooter>
         <Button disabled={confirm.isPending} onClick={() => confirm.mutate()}>
-          {confirm.isPending ? "Confirming…" : "Confirm"}
+          {confirm.isPending ? "Accepting…" : "Accept"}
         </Button>
       </DialogFooter>
     </DialogContent>
@@ -1435,8 +1435,8 @@ function RejectBatchDialog({
           />
         </div>
         <p className="text-xs text-muted-foreground">
-          This batch will not be posted to stock. The linked production request (if any) reopens so
-          Production can submit a fresh batch.
+          This batch will not be added to stock. The linked production request (if any) reopens so
+          Production can post a fresh batch.
         </p>
       </div>
       <DialogFooter>

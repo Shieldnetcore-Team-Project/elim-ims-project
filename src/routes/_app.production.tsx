@@ -164,6 +164,12 @@ const statusBadge = (s: string): "default" | "secondary" | "outline" | "destruct
   if (s === "confirmed") return "default";
   return "outline";
 };
+// Production posts a batch (pending_confirmation); the Warehouse accepts it
+// into stock (posted).
+const PRODUCTION_STATUS_LABELS: Record<string, string> = {
+  pending_confirmation: "Posted — awaiting warehouse",
+  posted: "Accepted",
+};
 type EligibleRequest = {
   id: string;
   request_number: string;
@@ -310,8 +316,8 @@ function ProductionPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Production</h1>
           <p className="text-sm text-muted-foreground">
-            Batch runs recorded here — Store must confirm each one before it enters finished goods
-            inventory.
+            Production posts each batch here — the Warehouse must accept it before it enters finished
+            goods inventory.
           </p>
         </div>
         {write && (
@@ -444,7 +450,7 @@ function ProductionPage() {
                   </TableCell>
                   <TableCell>
                     <Badge variant={statusBadge(row.status)} className="capitalize">
-                      {row.status.replace(/_/g, " ")}
+                      {PRODUCTION_STATUS_LABELS[row.status] ?? row.status.replace(/_/g, " ")}
                     </Badge>
                   </TableCell>
                   <TableCell>
@@ -562,7 +568,7 @@ function ProductionForm({
     editing ? Number(editing.packaging_quantity ?? editing.quantity_produced) : 0,
   );
   const [unit, setUnit] = useState(editing?.unit ?? "");
-  // Always in the product's base/stocking unit (like Store's own Confirm
+  // Always in the product's base/stocking unit (like the Warehouse's own Accept
   // Batch fields), regardless of what unit "Quantity produced" is entered
   // in above — avoids re-deriving a packaging conversion for this figure too.
   const [damagedQuantity, setDamagedQuantity] = useState(
@@ -674,7 +680,7 @@ function ProductionForm({
       }
     },
     onSuccess: () => {
-      toast.success(editing ? "Production updated" : "Submitted — awaiting Store confirmation");
+      toast.success(editing ? "Production updated" : "Posted — awaiting Warehouse acceptance");
       logAudit({
         action: "production",
         entity: "production",
@@ -807,8 +813,8 @@ function ProductionForm({
           <Label>Damaged quantity {selectedProduct ? `(${selectedProduct.unit})` : ""}</Label>
           <MoneyInput min={0} step="0.001" value={damagedQuantity} onChange={setDamagedQuantity} />
           <p className="mt-1 text-xs text-muted-foreground">
-            Damage already known at production time. Store can review and adjust this when they
-            confirm the batch.
+            Damage already known at production time. The Warehouse can review and adjust this when
+            they accept the batch.
           </p>
         </div>
         <div>
@@ -836,7 +842,7 @@ function ProductionForm({
       </div>
       <DialogFooter>
         <Button disabled={save.isPending} onClick={() => save.mutate()}>
-          {save.isPending ? "Saving…" : editing ? "Update" : "Save"}
+          {save.isPending ? "Posting…" : editing ? "Update" : "Post"}
         </Button>
       </DialogFooter>
     </DialogContent>

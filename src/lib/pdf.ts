@@ -419,15 +419,15 @@ export async function generateProductionSlipPdf(
     y += 20;
   }
 
-  // Store confirmation — only present once Store has actually acted on this batch.
+  // Warehouse acceptance — only present once the Warehouse has actually acted on this batch.
   if (opts.confirmed_at) {
     y += 12;
     doc.setFontSize(11);
-    doc.text("Store Confirmation", 40, y);
+    doc.text("Warehouse Acceptance", 40, y);
     y += 16;
     doc.setFontSize(10);
     const confRows: [string, string][] = [
-      ["Confirmed on", new Date(opts.confirmed_at).toLocaleString()],
+      ["Accepted on", new Date(opts.confirmed_at).toLocaleString()],
       ["Accepted", opts.accepted_quantity != null ? `${opts.accepted_quantity} ${opts.unit}` : "—"],
       ["Damaged", opts.damaged_quantity ? `${opts.damaged_quantity} ${opts.unit}` : "—"],
       ["Rejected", opts.rejected_quantity ? `${opts.rejected_quantity} ${opts.unit}` : "—"],
@@ -444,7 +444,7 @@ export async function generateProductionSlipPdf(
   doc.line(260, y, 420, y);
   y += 12;
   doc.text("Prepared by / Date", 40, y);
-  doc.text("Store Confirmed by / Date", 260, y);
+  doc.text("Warehouse Accepted by / Date", 260, y);
 
   if (action === "download") {
     doc.save(`${opts.production_number}.pdf`);

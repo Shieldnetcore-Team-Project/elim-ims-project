@@ -485,7 +485,7 @@ function SalesPage() {
                     qc.invalidateQueries({ queryKey: ["customer-sales-full"] });
                     qc.invalidateQueries({ queryKey: ["customer-payments-full"] });
                     // A sale decrements products.current_stock — make sure the
-                    // Finished Goods / Store page picks that up even if it's
+                    // Finished Goods / Warehouse page picks that up even if it's
                     // already mounted elsewhere, instead of relying only on
                     // realtime or a fresh navigation.
                     qc.invalidateQueries({ queryKey: ["finished-goods"] });
@@ -1342,7 +1342,7 @@ function CustomerAccountPanel({
   );
 }
 
-// Exported so the Store (Finished Goods) page can offer the exact same
+// Exported so the Warehouse (Finished Goods) page can offer the exact same
 // checkout flow -- same create_sale RPC, same stock/customer/debt effects --
 // rather than a second, divergent way to record a sale.
 export function PosDialog({
