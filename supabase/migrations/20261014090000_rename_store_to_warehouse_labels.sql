@@ -41,7 +41,7 @@ DECLARE
 BEGIN
   SELECT * INTO v_row FROM production WHERE id = p_id FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'Production batch not found'; END IF;
-  IF NOT public.has_permission(v_uid, 'production', 'confirm'::action_key) THEN RAISE EXCEPTION 'Insufficient permissions'; END IF;
+  IF NOT public.has_permission(v_uid, 'production'::module_key, 'confirm'::action_key) THEN RAISE EXCEPTION 'Insufficient permissions'; END IF;
   IF v_row.created_by = v_uid AND NOT (public.has_role(v_uid, 'super_admin') OR public.has_role(v_uid, 'chairman')) THEN
     RAISE EXCEPTION 'Warehouse acceptance must be done by someone other than who posted the batch';
   END IF;
