@@ -328,3 +328,61 @@ export const adminListAuthUsers = createServerFn({ method: "GET" })
 
     return { ok: true, users };
   });
+
+// Public self-signup, used by the sign-up form instead of supabase.auth.signUp.
+// signUp sends a confirmation email whenever "Confirm email" is on for the
+// hosted project, and Supabase's built-in mailer only allows a few auth emails
+// an hour, so signups past that failed with "email rate limit exceeded".
+// Creating the user through the Admin API with email_confirm sends no mail.
+// Nothing is granted here: handle_new_user() gives the account a 'pending'
+// profile, and roles only come from an admin approving it, exactly as with
+// signUp. No auth middleware -- the caller isn't signed in yet -- so the input
+// is limited to the same fields the form sent to signUp.
+const signUpInput = z.object({
+  email: z.string().trim().min(1, "Email is required").email("Enter a valid email"),
+  password: z.string().min(6, "Password must be at least 6 characters").max(72),
+  full_name: z.string().trim().min(1, "Full name is required").max(120),
+  username: z.string().trim().max(60).optional(),
+  phone: z.string().trim().max(30).optional(),
+  department: z.string().trim().max(60).optional(),
+  role_requested: z.string().trim().min(1, "Select the role you're requesting").max(60),
+});
+
+export type PublicSignUpResult = { ok: true } | { ok: false; error: string };
+
+export const publicSignUp = createServerFn({ method: "POST" })
+  .validator((data: unknown) => signUpInput.parse(data))
+  .handler(async ({ data }): Promise<PublicSignUpResult> => {
+    let admin: ReturnType<typeof createAdminClient>;
+    try {
+      admin = createAdminClient();
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : "Server is not configured" };
+    }
+
+    // The requested role is only a note for the approving admin, but keep it to
+    // real, non-owner roles so the Pending list never shows nonsense.
+    const { data: role } = await admin
+      .from("roles")
+      .select("slug")
+      .eq("slug", data.role_requested)
+      .maybeSingle();
+    if (!role || data.role_requested === "super_admin") {
+      return { ok: false, error: "Select a valid role" };
+    }
+
+    const { error } = await admin.auth.admin.createUser({
+      email: data.email,
+      password: data.password,
+      email_confirm: true,
+      user_metadata: {
+        full_name: data.full_name,
+        username: data.username || undefined,
+        phone: data.phone || undefined,
+        department: data.department || undefined,
+        role_requested: data.role_requested,
+      },
+    });
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  });

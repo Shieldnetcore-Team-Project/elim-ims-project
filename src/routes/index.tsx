@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAllRoles, type Role } from "@/lib/permissions";
+import { publicSignUp, type PublicSignUpResult } from "@/lib/admin-users";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -191,29 +192,29 @@ function Landing() {
     if (suPassword !== suConfirmPassword) return toast.error("Passwords don't match");
     if (!suRole) return toast.error("Select the role you're requesting");
 
+    // Created server-side so no confirmation email is sent (Supabase's built-in
+    // mailer caps those at a few an hour). The account starts 'pending' until an
+    // admin approves it, and no session is created here.
     setLoading(true);
-    const { data, error } = await supabase.auth.signUp({
-      email: suEmail,
-      password: suPassword,
-      options: {
-        emailRedirectTo: `${window.location.origin}/dashboard`,
+    let result: PublicSignUpResult;
+    try {
+      result = await publicSignUp({
         data: {
+          email: suEmail,
+          password: suPassword,
           full_name: suFullName,
           username: suUsername || undefined,
           phone: suPhone || undefined,
           department: suDepartment || undefined,
           role_requested: suRole,
         },
-      },
-    });
-
-    // With email confirmation turned off, signUp returns a live session straight away.
-    // New accounts are still 'pending' until an admin approves them, so drop that session
-    // instead of letting an unapproved user walk into the app.
-    if (data?.session) await supabase.auth.signOut();
+      });
+    } catch {
+      result = { ok: false, error: "Check the form and try again" };
+    }
 
     setLoading(false);
-    if (error) return toast.error(error.message);
+    if (!result.ok) return toast.error(result.error);
     toast.success("Account created. An admin must approve your account before you can sign in.");
   };
 
