@@ -1493,7 +1493,7 @@ export function PosDialog({
     },
   });
   const repMode = salesRepId !== "none";
-  // When a rep is selling, the goods left the store at dispatch time, so the
+  // When a rep is selling, the goods left the warehouse at dispatch time, so the
   // sellable quantity is what's on the rep's van — not products.current_stock.
   const effStock = (p: { id: string; current_stock: number }) =>
     repMode
@@ -2006,7 +2006,7 @@ export function PosDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">Direct from store</SelectItem>
+                <SelectItem value="none">Direct from warehouse</SelectItem>
                 {(reps.data ?? []).map((r) => (
                   <SelectItem key={r.id} value={r.id}>
                     {r.full_name}

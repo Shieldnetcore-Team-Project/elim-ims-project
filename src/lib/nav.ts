@@ -70,7 +70,7 @@ export type NavItem = { title: string; url: string; icon: typeof LayoutDashboard
 // Retail (sales), Production and Warehouse each group several routes under one entry,
 // shown as tabs on the pages. Warehouse holds the read-only overview plus raw
 // materials and finished products (formerly "Inventory Overview", "Inventory"
-// and "Store" in the sidebar). Quality Control inspects supplier deliveries
+// and the old "Store" in the sidebar). Quality Control inspects supplier deliveries
 // before the warehouse confirms them into raw materials.
 export const nav: { section: string; items: NavItem[] }[] = [
   {

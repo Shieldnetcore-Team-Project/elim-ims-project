@@ -67,7 +67,7 @@ export const Route = createFileRoute("/_app/dashboard")({
 // view the same module without that module being their primary lens —
 // e.g. chairman can view Sales but still wants the admin rollup, not the
 // sales-floor view.
-type Variant = "admin" | "finance" | "sales" | "inventory" | "production" | "store" | "generic";
+type Variant = "admin" | "finance" | "sales" | "inventory" | "production" | "warehouse" | "generic";
 
 function pickVariant(roles: Role[]): Variant {
   if (roles.includes("super_admin") || roles.includes("chairman")) return "admin";
@@ -75,7 +75,7 @@ function pickVariant(roles: Role[]): Variant {
   if (roles.includes("sales") || roles.includes("cashier")) return "sales";
   if (roles.includes("inventory_officer")) return "inventory";
   if (roles.includes("production")) return "production";
-  if (roles.includes("store_officer")) return "store";
+  if (roles.includes("store_officer")) return "warehouse";
   return "generic";
 }
 
@@ -102,8 +102,8 @@ function DashboardRouter() {
       return <InventoryDashboard factoryId={factoryId} />;
     case "production":
       return <ProductionDashboard factoryId={factoryId} />;
-    case "store":
-      return <StoreDashboard factoryId={factoryId} />;
+    case "warehouse":
+      return <WarehouseDashboard factoryId={factoryId} />;
     default:
       return <GenericDashboard factoryId={factoryId} />;
   }
@@ -1012,7 +1012,7 @@ function ProductionDashboard({ factoryId }: { factoryId: string }) {
 // ============================================================================
 // WAREHOUSE — store_officer (finished goods)
 // ============================================================================
-function StoreDashboard({ factoryId }: { factoryId: string }) {
+function WarehouseDashboard({ factoryId }: { factoryId: string }) {
   const today = startOfDay(new Date()).toISOString();
   useRealtimeInvalidate(
     ["products", "production", "inventory_movements", "deliveries"],

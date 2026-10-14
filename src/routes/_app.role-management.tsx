@@ -291,7 +291,7 @@ export function RoleManagementPage() {
                   setFormLabel(e.target.value);
                   if (!slugTouched) setFormSlug(slugify(e.target.value));
                 }}
-                placeholder="e.g. Store Checker"
+                placeholder="e.g. Warehouse Checker"
               />
             </div>
             <div className="space-y-1.5">
@@ -302,7 +302,7 @@ export function RoleManagementPage() {
                   setFormSlug(slugify(e.target.value));
                   setSlugTouched(true);
                 }}
-                placeholder="e.g. store_checker"
+                placeholder="e.g. warehouse_checker"
               />
               <p className="text-xs text-muted-foreground">
                 Used internally, can't be changed after creation.

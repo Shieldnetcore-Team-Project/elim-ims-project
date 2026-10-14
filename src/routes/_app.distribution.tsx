@@ -237,7 +237,7 @@ function DistributionPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Distribution</h1>
         <p className="text-sm text-muted-foreground">
-          Every product leaves the store on a dispatch to a sales rep. The rep sells from van stock,
+          Every product leaves the warehouse on a dispatch to a sales rep. The rep sells from van stock,
           returns what's unsold for inspection, and remits cash — their account nets it all against
           the value of goods they took.
         </p>
@@ -851,7 +851,7 @@ function NewDispatchDialog({
   return (
     <DialogContent className="max-w-2xl">
       <DialogHeader>
-        <DialogTitle>New Dispatch — store → rep</DialogTitle>
+        <DialogTitle>New Dispatch — warehouse → rep</DialogTitle>
       </DialogHeader>
       <div className="grid gap-3">
         <div className="grid grid-cols-2 gap-3">
@@ -927,7 +927,7 @@ function NewDispatchDialog({
         </div>
 
         <div>
-          <Label>Products (store stock shown in brackets)</Label>
+          <Label>Products (warehouse stock shown in brackets)</Label>
           <LineEditor
             products={products}
             lines={lines}
@@ -981,7 +981,7 @@ function ReverseDialog({ row, onDone }: { row: DispatchRow; onDone: () => void }
       </DialogHeader>
       <p className="text-sm text-muted-foreground">
         Only possible while every dispatched unit is still on the rep's van. Stock goes back to the
-        store.
+        warehouse.
       </p>
       <div>
         <Label>Reason</Label>
@@ -1318,7 +1318,7 @@ function InspectReturnDialog({ row, onDone }: { row: ReturnRow; onDone: () => vo
       if (error) throw error;
     },
     onSuccess: () => {
-      toast.success("Return inspected — accepted stock posted to store");
+      toast.success("Return inspected — accepted stock posted to warehouse");
       onDone();
     },
     onError: (e: Error) => toast.error(e.message),

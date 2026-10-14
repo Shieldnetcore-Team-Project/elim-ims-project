@@ -72,7 +72,7 @@ const DEPARTMENT_OPTIONS = [
   "Sales",
   "Production",
   "Finance & Accounts",
-  "Inventory / Store",
+  "Inventory / Warehouse",
   "Water Factory",
 ];
 
