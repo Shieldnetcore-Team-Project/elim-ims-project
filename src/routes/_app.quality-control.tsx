@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { RequireAccess } from "@/components/layout/require-access";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useFactoryId } from "@/lib/use-factory";
@@ -39,6 +39,8 @@ import { num } from "@/lib/format";
 import { toast } from "sonner";
 import { ClipboardCheck, Search } from "lucide-react";
 import { useRealtimeInvalidate } from "@/lib/realtime";
+import { useCurrentUserName } from "@/lib/use-current-user";
+import { AddMaterialDialog, MaterialCombobox } from "@/components/shared/material-picker";
 
 // Quality Control: supplier deliveries are inspected here before they can
 // reach the Store. Each inspection is a goods receipt (the existing
@@ -330,6 +332,11 @@ function QualityControlPage() {
 }
 
 function InspectionDialog({ factoryId, onDone }: { factoryId: string; onDone: () => void }) {
+  const { canSubmit } = usePermissions();
+  // Whoever can record an inspection can also add a material that isn't in
+  // the list yet; it's saved to the raw materials list for every later entry.
+  const canAddMaterial = canSubmit("goods-receiving");
+  const currentUserName = useCurrentUserName();
   const materials = useQuery({
     queryKey: ["qc-materials", factoryId],
     queryFn: async () => {
@@ -337,6 +344,7 @@ function InspectionDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
         .from("raw_materials")
         .select("id,name,unit,unit_cost,supplier_id")
         .eq("factory_id", factoryId)
+        .eq("active", true)
         .order("name");
       if (error) throw error;
       return (data ?? []) as Material[];
@@ -379,9 +387,22 @@ function InspectionDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
   const [deliveryReference, setDeliveryReference] = useState("");
   const [inspectedBy, setInspectedBy] = useState("");
   const [notes, setNotes] = useState("");
+  const [addMaterialName, setAddMaterialName] = useState<string | null>(null);
+  // Materials added from this form, usable before the list refetches.
+  const [addedMaterials, setAddedMaterials] = useState<Material[]>([]);
+  const allMaterials = [
+    ...(materials.data ?? []),
+    ...addedMaterials.filter((a) => !(materials.data ?? []).some((m) => m.id === a.id)),
+  ];
+
+  // The inspector is the signed-in user unless they type someone else.
+  useEffect(() => {
+    if (!inspectedBy && currentUserName.data) setInspectedBy(currentUserName.data);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUserName.data]);
 
   const order = (orders.data ?? []).find((o) => o.id === orderId);
-  const material = (materials.data ?? []).find((m) => m.id === materialId);
+  const material = allMaterials.find((m) => m.id === materialId);
   const outstanding = order ? Number(order.quantity_ordered) - Number(order.quantity_received) : null;
   const passed = Math.max(quantity - failedQuantity, 0);
 
@@ -395,7 +416,7 @@ function InspectionDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
   };
   const pickMaterial = (id: string) => {
     setMaterialId(id);
-    const m = (materials.data ?? []).find((x) => x.id === id);
+    const m = allMaterials.find((x) => x.id === id);
     if (!m) return;
     setUnitCost(Number(m.unit_cost));
     if (m.supplier_id && supplierId === "none") setSupplierId(m.supplier_id);
@@ -452,8 +473,8 @@ function InspectionDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
                 {(orders.data ?? []).map((o) => (
                   <SelectItem key={o.id} value={o.id}>
                     {o.po_number} ·{" "}
-                    {(materials.data ?? []).find((m) => m.id === o.material_id)?.name ?? "Material"}{" "}
-                    · {num(Number(o.quantity_ordered) - Number(o.quantity_received))} outstanding
+                    {allMaterials.find((m) => m.id === o.material_id)?.name ?? "Material"} ·{" "}
+                    {num(Number(o.quantity_ordered) - Number(o.quantity_received))} outstanding
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -462,18 +483,19 @@ function InspectionDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
         )}
         <div>
           <Label>Material</Label>
-          <Select value={materialId} onValueChange={pickMaterial} disabled={!!order}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select material" />
-            </SelectTrigger>
-            <SelectContent>
-              {(materials.data ?? []).map((m) => (
-                <SelectItem key={m.id} value={m.id}>
-                  {m.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <MaterialCombobox
+            value={materialId}
+            materials={allMaterials}
+            onChange={pickMaterial}
+            onAddNew={canAddMaterial ? (query) => setAddMaterialName(query) : undefined}
+            disabled={!!order}
+          />
+          {canAddMaterial && !order && (
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Not in the list? Type its name and choose &quot;Add as a new material&quot; —
+              it&apos;s saved for every inspection after this.
+            </p>
+          )}
         </div>
         <div>
           <Label>Supplier</Label>
@@ -528,7 +550,11 @@ function InspectionDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
         </div>
         <div>
           <Label>Inspected by</Label>
-          <Input value={inspectedBy} onChange={(e) => setInspectedBy(e.target.value)} />
+          <Input
+            value={inspectedBy}
+            onChange={(e) => setInspectedBy(e.target.value)}
+            placeholder="Inspector's name"
+          />
         </div>
         <div>
           <Label>Inspection notes</Label>
@@ -548,6 +574,22 @@ function InspectionDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
           {save.isPending ? "Submitting…" : "Send to Store"}
         </Button>
       </DialogFooter>
+
+      <Dialog open={addMaterialName != null} onOpenChange={(v) => !v && setAddMaterialName(null)}>
+        {addMaterialName != null && (
+          <AddMaterialDialog
+            factoryId={factoryId}
+            initialName={addMaterialName}
+            // Stock arrives through this inspection, not as an opening balance.
+            canSetStock={false}
+            onCreated={(mat) => {
+              setAddedMaterials((prev) => [...prev, { ...mat, unit_cost: 0, supplier_id: null }]);
+              pickMaterial(mat.id);
+              setAddMaterialName(null);
+            }}
+          />
+        )}
+      </Dialog>
     </DialogContent>
   );
 }
