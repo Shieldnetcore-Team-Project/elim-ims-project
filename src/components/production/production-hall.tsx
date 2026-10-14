@@ -83,6 +83,7 @@ const RELEASE_STATUS: Record<
   accepted: { label: "In Warehouse", variant: "default" },
   rejected: { label: "Refused — back in hall", variant: "destructive" },
   cancelled: { label: "Withdrawn", variant: "outline" },
+  reversed: { label: "Reversed — back in hall", variant: "outline" },
 };
 
 export function ProductionHall({ factoryId }: { factoryId: string }) {
@@ -90,6 +91,8 @@ export function ProductionHall({ factoryId }: { factoryId: string }) {
   const { can } = usePermissions();
   const canRelease = can("production", "create");
   const canWithdraw = can("production", "cancel");
+  // Reversing an accepted release takes it back out of Warehouse stock.
+  const canReverse = can("production", "confirm");
   const [releaseFor, setReleaseFor] = useState<HallRow | null>(null);
 
   useRealtimeInvalidate(
@@ -138,6 +141,25 @@ export function ProductionHall({ factoryId }: { factoryId: string }) {
     onSuccess: () => {
       toast.success("Release withdrawn — the goods are back in the production hall");
       refresh();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const reverse = useMutation({
+    mutationFn: async (r: Release) => {
+      const { error } = await supabase.rpc("reverse_production_release", {
+        p_id: r.id,
+        p_reason: "Reversed from the Production Hall",
+      });
+      if (error) throw error;
+      return r;
+    },
+    onSuccess: (r) => {
+      toast.success(
+        `${r.release_number} reversed — taken out of Warehouse stock, back in the hall`,
+      );
+      refresh();
+      qc.invalidateQueries({ queryKey: ["finished-goods"] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -278,6 +300,25 @@ export function ProductionHall({ factoryId }: { factoryId: string }) {
                           onClick={() => withdraw.mutate(r.id)}
                         >
                           <Undo2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                      {r.status === "accepted" && canReverse && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="gap-1 text-destructive"
+                          title="Reverse: take it back out of Warehouse stock"
+                          disabled={reverse.isPending}
+                          onClick={() => {
+                            if (
+                              window.confirm(
+                                `Reverse ${r.release_number}? Its accepted quantity is taken back out of Warehouse stock and returns to the production hall.`,
+                              )
+                            )
+                              reverse.mutate(r);
+                          }}
+                        >
+                          <Undo2 className="h-3.5 w-3.5" /> Reverse
                         </Button>
                       )}
                     </TableCell>

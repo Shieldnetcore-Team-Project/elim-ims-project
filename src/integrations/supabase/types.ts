@@ -4512,6 +4512,10 @@ export type Database = {
         }
         Returns: Json
       }
+      cancel_production_with_releases: {
+        Args: { p_id: string; p_reason?: string }
+        Returns: Json
+      }
       cancel_production_release: {
         Args: { p_id: string; p_reason?: string }
         Returns: Json
@@ -4534,6 +4538,10 @@ export type Database = {
       }
       release_to_warehouse: {
         Args: { payload: Json }
+        Returns: Json
+      }
+      reverse_production_release: {
+        Args: { p_id: string; p_reason?: string }
         Returns: Json
       }
       reject_production_batch: {

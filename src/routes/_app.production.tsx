@@ -186,7 +186,13 @@ function ProductionPage() {
   const factoryId = factory.data;
   const settings = useFactorySettings(factoryId);
   const qc = useQueryClient();
-  const { canWrite, canCancel, canPrint, canExport } = usePermissions();
+  const { canWrite, canCancel, canPrint, canExport, canConfirm } = usePermissions();
+  // Undoing releases takes stock back out of the Warehouse, so it needs the
+  // Warehouse's acceptance right (admins have every right).
+  const canReverseReleases = canConfirm("production");
+  // A batch whose goods were already released can't simply be cancelled; this
+  // holds it while the user decides whether to reverse those releases first.
+  const [releasedBlock, setReleasedBlock] = useState<ProductionRow | null>(null);
   const write = canWrite("production");
   const cancel = canCancel("production");
   const allowPrint = canPrint("production");
@@ -268,6 +274,46 @@ function ProductionPage() {
         oldValue: row,
       });
       invalidateAll();
+    },
+    onError: (e: Error, row) => {
+      if (e.message.includes("already been released")) {
+        if (canReverseReleases) setReleasedBlock(row);
+        else
+          toast.error(
+            "This batch's goods were already released to the Warehouse. Ask the Warehouse or an admin to reverse the releases, then cancel it.",
+          );
+        return;
+      }
+      toast.error(e.message);
+    },
+  });
+
+  const cancelWithReleases = useMutation({
+    mutationFn: async (row: ProductionRow) => {
+      const { data, error } = await supabase.rpc("cancel_production_with_releases", {
+        p_id: row.id,
+        p_reason: `Batch ${row.production_number} cancelled`,
+      });
+      if (error) throw error;
+      return { row, undone: (data as { releases_undone?: string[] })?.releases_undone ?? [] };
+    },
+    onSuccess: ({ row, undone }) => {
+      toast.success(
+        undone.length
+          ? `Batch cancelled — reversed ${undone.join(", ")}`
+          : "Production batch cancelled",
+      );
+      logAudit({
+        action: "cancel",
+        entity: "production",
+        entityId: row.id,
+        factoryId,
+        oldValue: row,
+      });
+      setReleasedBlock(null);
+      invalidateAll();
+      qc.invalidateQueries({ queryKey: ["production-hall"] });
+      qc.invalidateQueries({ queryKey: ["production-releases"] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -386,6 +432,33 @@ function ProductionPage() {
 
       {factoryId && <ProductionHall factoryId={factoryId} />}
 
+      <AlertDialog open={!!releasedBlock} onOpenChange={(v) => !v && setReleasedBlock(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Goods from this batch were already released</AlertDialogTitle>
+            <AlertDialogDescription>
+              {releasedBlock?.production_number} can only be cancelled after the releases that took
+              its goods to the Warehouse are reversed. Continuing reverses just enough of the latest
+              releases of this product: ones still awaiting the Warehouse are withdrawn, and accepted
+              ones are taken back out of finished-goods stock. It fails, changing nothing, if the
+              Warehouse has already sold those goods.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Back</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={cancelWithReleases.isPending}
+              onClick={(e) => {
+                e.preventDefault();
+                if (releasedBlock) cancelWithReleases.mutate(releasedBlock);
+              }}
+            >
+              {cancelWithReleases.isPending ? "Reversing…" : "Reverse releases and cancel"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <Card className="rounded-2xl">
         <CardHeader>
           <CardTitle>Production Runs</CardTitle>
@@ -503,9 +576,9 @@ function ProductionPage() {
                             <AlertDialogHeader>
                               <AlertDialogTitle>Cancel this batch?</AlertDialogTitle>
                               <AlertDialogDescription>
-                                Nothing has posted to finished-goods stock yet, so this simply
-                                removes the pending batch. Its linked production request (if any)
-                                becomes available for a new batch.
+                                Removes the batch and its quantity from the production hall. Its
+                                linked production request (if any) becomes available for a new
+                                batch.
                               </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>
