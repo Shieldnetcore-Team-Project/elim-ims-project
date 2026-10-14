@@ -443,7 +443,10 @@ function RequestForm({
   onDone: () => void;
 }) {
   const { canSubmit } = usePermissions();
-  const canAddMaterial = canSubmit("raw-materials");
+  // Anyone raising a request can add a material that isn't listed yet; only
+  // the Store (raw-materials:submit) also records its opening stock and cost.
+  const canSetStock = canSubmit("raw-materials");
+  const canAddMaterial = canSetStock || canSubmit("production-requests");
   const [requestedBy, setRequestedBy] = useState("");
   const [department, setDepartment] = useState("");
   const [remarks, setRemarks] = useState("");
@@ -454,15 +457,18 @@ function RequestForm({
   // per-material quantities below, since that's the number that actually
   // drives the request.
   const quantity = items.reduce((s, it) => s + (Number(it.quantity) || 0), 0);
-  // Materials requested inline via "Add new material" this session — not yet
-  // admin-approved (request_new_material inserts pending_approval/inactive),
-  // but usable here so the request doesn't stall waiting on that approval.
-  const [pendingMaterials, setPendingMaterials] = useState<Material[]>([]);
+  // Materials added inline via "Add new material" this session. They're saved
+  // to the raw materials list straight away (so every later request has them
+  // in the dropdown); kept here too so this form can use them before the list
+  // refetches.
+  const [addedMaterials, setAddedMaterials] = useState<Material[]>([]);
   const [addMaterialFor, setAddMaterialFor] = useState<{ index: number; query: string } | null>(
     null,
   );
-  const allMaterials = [...materials, ...pendingMaterials];
-  const pendingIds = pendingMaterials.map((m) => m.id);
+  const allMaterials = [
+    ...materials,
+    ...addedMaterials.filter((a) => !materials.some((m) => m.id === a.id)),
+  ];
 
   const updateItem = (i: number, patch: Partial<{ materialId: string; quantity: number }>) => {
     setItems((prev) => prev.map((it, idx) => (idx === i ? { ...it, ...patch } : it)));
@@ -544,7 +550,6 @@ function RequestForm({
                     <MaterialCombobox
                       value={it.materialId}
                       materials={allMaterials}
-                      pendingIds={pendingIds}
                       onChange={(v) => updateItem(i, { materialId: v })}
                       onAddNew={
                         canAddMaterial
@@ -552,12 +557,6 @@ function RequestForm({
                           : undefined
                       }
                     />
-                    {m && pendingIds.includes(m.id) && (
-                      <p className="mt-1 text-[11px] text-muted-foreground">
-                        Pending approval — usable in this request now, stock available once
-                        approved.
-                      </p>
-                    )}
                   </div>
                   <MoneyInput
                     min={0.001}
@@ -606,8 +605,9 @@ function RequestForm({
           <AddMaterialDialog
             factoryId={factoryId}
             initialName={addMaterialFor.query}
+            canSetStock={canSetStock}
             onCreated={(mat) => {
-              setPendingMaterials((prev) => [...prev, mat]);
+              setAddedMaterials((prev) => [...prev, mat]);
               updateItem(addMaterialFor.index, { materialId: mat.id });
               setAddMaterialFor(null);
             }}
@@ -621,13 +621,11 @@ function RequestForm({
 function MaterialCombobox({
   value,
   materials,
-  pendingIds,
   onChange,
   onAddNew,
 }: {
   value: string;
   materials: Material[];
-  pendingIds: string[];
   onChange: (id: string) => void;
   onAddNew?: (query: string) => void;
 }) {
@@ -638,7 +636,7 @@ function MaterialCombobox({
   const filtered = query
     ? materials.filter((m) => m.name.toLowerCase().includes(query))
     : materials;
-  const exactMatch = materials.some((m) => m.name.toLowerCase() === query);
+  const exactMatch = materials.some((m) => m.name.trim().toLowerCase() === query);
 
   return (
     <Popover
@@ -684,11 +682,6 @@ function MaterialCombobox({
                   <span className="flex-1 truncate">
                     {m.name} · stock {num(Number(m.current_stock))} {m.unit}
                   </span>
-                  {pendingIds.includes(m.id) && (
-                    <Badge variant="outline" className="ml-1 shrink-0 text-[10px]">
-                      Pending
-                    </Badge>
-                  )}
                 </CommandItem>
               ))}
             </CommandGroup>
@@ -719,12 +712,15 @@ function MaterialCombobox({
 function AddMaterialDialog({
   factoryId,
   initialName,
+  canSetStock,
   onCreated,
 }: {
   factoryId: string;
   initialName: string;
+  canSetStock: boolean;
   onCreated: (material: Material) => void;
 }) {
+  const qc = useQueryClient();
   const unitsOfMeasure = useUnitsOfMeasure();
   const unitOptions = unitsOfMeasure.data ?? UNIT_OPTIONS_FALLBACK;
   const [name, setName] = useState(initialName);
@@ -744,28 +740,36 @@ function AddMaterialDialog({
           factory_id: factoryId,
           name: name.trim(),
           unit: unit.trim(),
-          unit_cost: unitCost,
-          opening_stock: openingStock,
+          unit_cost: canSetStock ? unitCost : 0,
+          opening_stock: canSetStock ? openingStock : 0,
           reorder_level: reorderLevel,
         } as any,
       });
       if (error) throw error;
-      return data as { id: string };
+      return data as { id: string; existing?: boolean };
     },
     onSuccess: (data) => {
-      toast.success(`"${name.trim()}" submitted for approval — added to this request`);
-      logAudit({
-        action: "create",
-        entity: "raw_materials",
-        entityId: data.id,
-        factoryId,
-        newValue: { name: name.trim(), unit: unit.trim(), approval_status: "pending_approval" },
-      });
+      // Refresh the materials list so the new material is in the dropdown for
+      // every request from now on, not just this one.
+      qc.invalidateQueries({ queryKey: ["raw-materials-brief"] });
+      qc.invalidateQueries({ queryKey: ["raw-materials-list"] });
+      if (data.existing) {
+        toast.success(`"${name.trim()}" is already in the materials list — selected it`);
+      } else {
+        toast.success(`"${name.trim()}" saved — it's now in the materials list for every request`);
+        logAudit({
+          action: "create",
+          entity: "raw_materials",
+          entityId: data.id,
+          factoryId,
+          newValue: { name: name.trim(), unit: unit.trim() },
+        });
+      }
       onCreated({
         id: data.id,
         name: name.trim(),
         unit: unit.trim(),
-        current_stock: openingStock,
+        current_stock: canSetStock ? openingStock : 0,
       });
     },
     onError: (e: Error) => toast.error(e.message),
@@ -778,8 +782,9 @@ function AddMaterialDialog({
       </DialogHeader>
       <div className="grid gap-3">
         <p className="text-xs text-muted-foreground">
-          New materials go to an admin for approval before their stock can be issued — it's added to
-          this request now and ready to use once approved.
+          The material is saved to the Store's raw materials list and added to this request. It will
+          be in the dropdown for every request after this, so it only needs adding once.
+          {!canSetStock && " The Store records its stock and cost when it arrives."}
         </p>
         <div>
           <Label>Raw material name</Label>
@@ -811,20 +816,22 @@ function AddMaterialDialog({
             )}
           </div>
           <div>
-            <Label>Opening stock</Label>
-            <MoneyInput min={0} step="0.001" value={openingStock} onChange={setOpeningStock} />
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <Label>Unit cost</Label>
-            <MoneyInput value={unitCost} onChange={setUnitCost} />
-          </div>
-          <div>
             <Label>Reorder level</Label>
             <MoneyInput min={0} step="0.001" value={reorderLevel} onChange={setReorderLevel} />
           </div>
         </div>
+        {canSetStock && (
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Opening stock</Label>
+              <MoneyInput min={0} step="0.001" value={openingStock} onChange={setOpeningStock} />
+            </div>
+            <div>
+              <Label>Unit cost</Label>
+              <MoneyInput value={unitCost} onChange={setUnitCost} />
+            </div>
+          </div>
+        )}
       </div>
       <DialogFooter>
         <Button disabled={save.isPending} onClick={() => save.mutate()} className="gap-2">
@@ -833,7 +840,7 @@ function AddMaterialDialog({
           ) : (
             <Plus className="h-4 w-4" />
           )}
-          {save.isPending ? "Submitting…" : "Submit Material"}
+          {save.isPending ? "Saving…" : "Save Material"}
         </Button>
       </DialogFooter>
     </DialogContent>
