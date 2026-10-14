@@ -934,8 +934,18 @@ function ProductionDashboard({ factoryId }: { factoryId: string }) {
     },
   });
 
+  // Made and not yet released to the Warehouse (see ProductionHall).
+  const inHall = useQuery({
+    queryKey: ["production-hall", factoryId],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("production_hall_stock", { p_factory: factoryId });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
   const producedToday = sum(runsToday.data ?? [], (r) => r.quantity_produced);
-  const confirmedToday = (runsToday.data ?? []).filter((r) => r.status === "posted").length;
+  const unitsInHall = sum(inHall.data ?? [], (r) => r.in_hall);
 
   return (
     <div className="space-y-6">
@@ -972,10 +982,10 @@ function ProductionDashboard({ factoryId }: { factoryId: string }) {
         />
         <KPI
           icon={CheckSquare}
-          label="Runs Accepted Today"
-          value={String(confirmedToday)}
-          hint={`${(runsToday.data ?? []).length} run(s) today in total`}
-          tone="success"
+          label="In Production Hall"
+          value={num(unitsInHall)}
+          hint="Made, not yet released to the Warehouse"
+          tone={unitsInHall > 0 ? "warning" : "success"}
         />
       </div>
       <Card className="rounded-2xl">
@@ -993,7 +1003,11 @@ function ProductionDashboard({ factoryId }: { factoryId: string }) {
                     <div className="font-medium">{r.products?.name ?? "—"}</div>
                     <div className="text-xs text-muted-foreground">
                       {r.production_number} · {format(new Date(r.created_at), "MMM d, HH:mm")} ·{" "}
-                      <span className="capitalize">{String(r.status).replace(/_/g, " ")}</span>
+                      <span className="capitalize">
+                        {r.status === "pending_confirmation"
+                          ? "in production hall"
+                          : String(r.status).replace(/_/g, " ")}
+                      </span>
                     </div>
                   </div>
                   <div>
@@ -1040,29 +1054,30 @@ function WarehouseDashboard({ factoryId }: { factoryId: string }) {
             .range(a, b) as any,
       ),
   });
-  // Batches the warehouse accepted today: what actually entered stock (accepted
-  // quantity, not what production reported).
+  // Production releases the warehouse accepted today: what actually entered
+  // stock (accepted quantity, not what production released).
   const receivedToday = useQuery({
     queryKey: ["sto-received-today", factoryId],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("production")
-        .select("quantity_produced,accepted_quantity")
+        .from("production_releases")
+        .select("quantity,accepted_quantity")
         .eq("factory_id", factoryId)
-        .eq("status", "posted")
-        .gte("confirmed_at", today);
+        .eq("status", "accepted")
+        .gte("accepted_at", today);
       if (error) throw error;
-      return sum(data ?? [], (r) => r.accepted_quantity ?? r.quantity_produced);
+      return sum(data ?? [], (r) => r.accepted_quantity ?? r.quantity);
     },
   });
+  // Releases from the production hall waiting for the warehouse.
   const awaitingConfirmation = useQuery({
     queryKey: ["sto-awaiting-confirmation", factoryId],
     queryFn: async () => {
       const { count, error } = await supabase
-        .from("production")
+        .from("production_releases")
         .select("id", { count: "exact", head: true })
         .eq("factory_id", factoryId)
-        .eq("status", "pending_confirmation");
+        .eq("status", "pending");
       if (error) throw error;
       return count ?? 0;
     },
@@ -1120,7 +1135,7 @@ function WarehouseDashboard({ factoryId }: { factoryId: string }) {
           icon={CheckSquare}
           label="Awaiting Acceptance"
           value={String(awaitingConfirmation.data ?? 0)}
-          hint="Production batches to confirm"
+          hint="Production releases to accept"
           tone={(awaitingConfirmation.data ?? 0) > 0 ? "warning" : "success"}
         />
         <KPI

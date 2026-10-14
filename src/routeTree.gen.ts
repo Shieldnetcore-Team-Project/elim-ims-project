@@ -36,6 +36,7 @@ import { Route as AppPayrollRouteImport } from './routes/_app.payroll'
 import { Route as AppPermissionsRouteImport } from './routes/_app.permissions'
 import { Route as AppProcurementRouteImport } from './routes/_app.procurement'
 import { Route as AppProductionRouteImport } from './routes/_app.production'
+import { Route as AppProductionReportRouteImport } from './routes/_app.production-report'
 import { Route as AppProductionRequestsRouteImport } from './routes/_app.production-requests'
 import { Route as AppPurchaseOrdersRouteImport } from './routes/_app.purchase-orders'
 import { Route as AppQualityControlRouteImport } from './routes/_app.quality-control'
@@ -186,6 +187,11 @@ const AppProductionRoute = AppProductionRouteImport.update({
   path: '/production',
   getParentRoute: () => AppRoute,
 } as any)
+const AppProductionReportRoute = AppProductionReportRouteImport.update({
+  id: '/production-report',
+  path: '/production-report',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppProductionRequestsRoute = AppProductionRequestsRouteImport.update({
   id: '/production-requests',
   path: '/production-requests',
@@ -289,6 +295,7 @@ export interface FileRoutesByFullPath {
   '/permissions': typeof AppPermissionsRoute
   '/procurement': typeof AppProcurementRoute
   '/production': typeof AppProductionRoute
+  '/production-report': typeof AppProductionReportRoute
   '/production-requests': typeof AppProductionRequestsRoute
   '/purchase-orders': typeof AppPurchaseOrdersRoute
   '/quality-control': typeof AppQualityControlRoute
@@ -331,6 +338,7 @@ export interface FileRoutesByTo {
   '/permissions': typeof AppPermissionsRoute
   '/procurement': typeof AppProcurementRoute
   '/production': typeof AppProductionRoute
+  '/production-report': typeof AppProductionReportRoute
   '/production-requests': typeof AppProductionRequestsRoute
   '/purchase-orders': typeof AppPurchaseOrdersRoute
   '/quality-control': typeof AppQualityControlRoute
@@ -376,6 +384,7 @@ export interface FileRoutesById {
   '/_app/permissions': typeof AppPermissionsRoute
   '/_app/procurement': typeof AppProcurementRoute
   '/_app/production': typeof AppProductionRoute
+  '/_app/production-report': typeof AppProductionReportRoute
   '/_app/production-requests': typeof AppProductionRequestsRoute
   '/_app/purchase-orders': typeof AppPurchaseOrdersRoute
   '/_app/quality-control': typeof AppQualityControlRoute
@@ -421,6 +430,7 @@ export interface FileRouteTypes {
     | '/permissions'
     | '/procurement'
     | '/production'
+    | '/production-report'
     | '/production-requests'
     | '/purchase-orders'
     | '/quality-control'
@@ -463,6 +473,7 @@ export interface FileRouteTypes {
     | '/permissions'
     | '/procurement'
     | '/production'
+    | '/production-report'
     | '/production-requests'
     | '/purchase-orders'
     | '/quality-control'
@@ -507,6 +518,7 @@ export interface FileRouteTypes {
     | '/_app/permissions'
     | '/_app/procurement'
     | '/_app/production'
+    | '/_app/production-report'
     | '/_app/production-requests'
     | '/_app/purchase-orders'
     | '/_app/quality-control'
@@ -721,6 +733,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppProductionRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/production-report': {
+      id: '/_app/production-report'
+      path: '/production-report'
+      fullPath: '/production-report'
+      preLoaderRoute: typeof AppProductionReportRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/production-requests': {
       id: '/_app/production-requests'
       path: '/production-requests'
@@ -870,6 +889,7 @@ interface AppRouteChildren {
   AppPermissionsRoute: typeof AppPermissionsRoute
   AppProcurementRoute: typeof AppProcurementRoute
   AppProductionRoute: typeof AppProductionRoute
+  AppProductionReportRoute: typeof AppProductionReportRoute
   AppProductionRequestsRoute: typeof AppProductionRequestsRoute
   AppPurchaseOrdersRoute: typeof AppPurchaseOrdersRoute
   AppQualityControlRoute: typeof AppQualityControlRoute
@@ -909,6 +929,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppPermissionsRoute: AppPermissionsRoute,
   AppProcurementRoute: AppProcurementRoute,
   AppProductionRoute: AppProductionRoute,
+  AppProductionReportRoute: AppProductionReportRoute,
   AppProductionRequestsRoute: AppProductionRequestsRoute,
   AppPurchaseOrdersRoute: AppPurchaseOrdersRoute,
   AppQualityControlRoute: AppQualityControlRoute,

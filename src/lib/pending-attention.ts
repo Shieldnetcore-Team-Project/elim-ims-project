@@ -115,12 +115,13 @@ export function usePendingAttention() {
       .eq("status", "pending_confirmation")
       .neq("submitted_by", uid ?? ""),
   );
+  // Production releases from the hall waiting for the Warehouse to accept.
   const productionBatches = useCount("production-batches", canConfirm("production"), uid, () =>
     supabase
-      .from("production")
+      .from("production_releases")
       .select("id", { count: "exact", head: true })
-      .eq("status", "pending_confirmation")
-      .neq("created_by", uid ?? ""),
+      .eq("status", "pending")
+      .neq("released_by", uid ?? ""),
   );
   const costingSheets = useCount("costing-sheets", canApprove("costing"), uid, () =>
     supabase
@@ -234,7 +235,7 @@ export function usePendingAttention() {
     },
     {
       key: "production-batches",
-      label: "Production batches awaiting confirmation",
+      label: "Production releases awaiting the Warehouse",
       to: "/finished-goods",
       query: productionBatches,
     },

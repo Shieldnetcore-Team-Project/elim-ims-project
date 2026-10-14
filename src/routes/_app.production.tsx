@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { RequireAccess } from "@/components/layout/require-access";
 import { SectionTabs } from "@/components/layout/section-tabs";
+import { ProductionHall } from "@/components/production/production-hall";
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -164,11 +165,12 @@ const statusBadge = (s: string): "default" | "secondary" | "outline" | "destruct
   if (s === "confirmed") return "default";
   return "outline";
 };
-// Production posts a batch (pending_confirmation); the Warehouse accepts it
-// into stock (posted).
+// A recorded batch (pending_confirmation) sits in the production hall until
+// Production releases it to the Warehouse (see ProductionHall). Batches the
+// Warehouse accepted whole, before releases existed, are posted.
 const PRODUCTION_STATUS_LABELS: Record<string, string> = {
-  pending_confirmation: "Posted — awaiting warehouse",
-  posted: "Accepted",
+  pending_confirmation: "In production hall",
+  posted: "Accepted by Warehouse",
 };
 type EligibleRequest = {
   id: string;
@@ -316,8 +318,8 @@ function ProductionPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Production</h1>
           <p className="text-sm text-muted-foreground">
-            Production posts each batch here — the Warehouse must accept it before it enters finished
-            goods inventory.
+            Record each batch as it is produced — it goes into the production hall. Release it to the
+            Warehouse as needed; the Warehouse accepts each release into finished goods.
           </p>
         </div>
         {write && (
@@ -381,6 +383,8 @@ function ProductionPage() {
           </AlertDescription>
         </Alert>
       )}
+
+      {factoryId && <ProductionHall factoryId={factoryId} />}
 
       <Card className="rounded-2xl">
         <CardHeader>
@@ -680,7 +684,7 @@ function ProductionForm({
       }
     },
     onSuccess: () => {
-      toast.success(editing ? "Production updated" : "Posted — awaiting Warehouse acceptance");
+      toast.success(editing ? "Production updated" : "Recorded — added to the production hall");
       logAudit({
         action: "production",
         entity: "production",
@@ -813,8 +817,8 @@ function ProductionForm({
           <Label>Damaged quantity {selectedProduct ? `(${selectedProduct.unit})` : ""}</Label>
           <MoneyInput min={0} step="0.001" value={damagedQuantity} onChange={setDamagedQuantity} />
           <p className="mt-1 text-xs text-muted-foreground">
-            Damage already known at production time. The Warehouse can review and adjust this when
-            they accept the batch.
+            Damage already known at production time. Only the good quantity goes into the production
+            hall to be released.
           </p>
         </div>
         <div>
@@ -842,7 +846,7 @@ function ProductionForm({
       </div>
       <DialogFooter>
         <Button disabled={save.isPending} onClick={() => save.mutate()}>
-          {save.isPending ? "Posting…" : editing ? "Update" : "Post"}
+          {save.isPending ? "Saving…" : editing ? "Update" : "Record production"}
         </Button>
       </DialogFooter>
     </DialogContent>

@@ -256,14 +256,15 @@ function ApprovalsPage() {
     queryKey: ["approvals-production-batches"],
     enabled: canConfirm("production"),
     queryFn: async () => {
+      // Releases from the production hall waiting for the Warehouse.
       const { data, error } = await supabase
-        .from("production")
-        .select("id,batch_number,quantity_produced,unit,created_by,products(name)")
-        .eq("status", "pending_confirmation")
-        .order("production_date", { ascending: false })
+        .from("production_releases")
+        .select("id,release_number,quantity,unit,released_by,products(name)")
+        .eq("status", "pending")
+        .order("released_at", { ascending: false })
         .limit(50);
       if (error) throw error;
-      return (data ?? []).filter((r: any) => r.created_by !== uid) as any[];
+      return (data ?? []).filter((r: any) => r.released_by !== uid) as any[];
     },
   });
 
@@ -583,15 +584,15 @@ function ApprovalsPage() {
           {canConfirm("production") && (
             <QueueCard
               icon={Factory}
-              title="Production Batches"
+              title="Production Releases"
               to="/finished-goods"
-              empty="No production batches awaiting confirmation."
+              empty="No production releases awaiting the Warehouse."
               rows={(productionBatches.data ?? []).map((r: any) => ({
                 key: r.id,
                 cells: [
-                  r.batch_number ?? "—",
+                  r.release_number,
                   r.products?.name ?? "—",
-                  `${r.quantity_produced} ${r.unit ?? ""}`,
+                  `${r.quantity} ${r.unit ?? ""}`,
                 ],
               }))}
             />

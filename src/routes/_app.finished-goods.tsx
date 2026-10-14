@@ -116,16 +116,18 @@ type PendingAdjustment = {
   status: string;
   products: { name: string; unit: string } | null;
 };
+// A release from the production hall, waiting for the Warehouse to accept it.
 type PendingBatch = {
   id: string;
-  production_number: string;
-  quantity_produced: number;
-  damaged_quantity: number | null;
-  unit: string;
-  batch_number: string | null;
-  created_by: string | null;
-  created_at: string;
+  release_number: string;
+  quantity: number;
+  unit: string | null;
+  notes: string | null;
+  released_by: string | null;
+  released_by_name: string | null;
+  released_at: string;
   products: { name: string; unit: string } | null;
+  production_requests: { request_number: string } | null;
 };
 
 function SummaryCard({
@@ -277,13 +279,13 @@ function FinishedGoodsPage() {
     enabled: !!factoryId,
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("production")
+        .from("production_releases")
         .select(
-          "id,production_number,quantity_produced,damaged_quantity,unit,batch_number,created_by,created_at,products(name,unit)",
+          "id,release_number,quantity,unit,notes,released_by,released_by_name,released_at,products(name,unit),production_requests(request_number)",
         )
         .eq("factory_id", factoryId!)
-        .eq("status", "pending_confirmation")
-        .order("created_at", { ascending: false });
+        .eq("status", "pending")
+        .order("released_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as unknown as PendingBatch[];
     },
@@ -348,20 +350,22 @@ function FinishedGoodsPage() {
     qc.invalidateQueries({ queryKey: ["stock-adjustment-requests"] });
     qc.invalidateQueries({ queryKey: ["production-list"] });
     qc.invalidateQueries({ queryKey: ["pending-production-batches"] });
+    qc.invalidateQueries({ queryKey: ["production-hall"] });
+    qc.invalidateQueries({ queryKey: ["production-releases"] });
     qc.invalidateQueries({ queryKey: ["damage-records-finished-goods"] });
     qc.invalidateQueries({ queryKey: ["damage-value-finished-goods"] });
   };
 
   const rejectBatch = useMutation({
     mutationFn: async ({ id, reason }: { id: string; reason: string }) => {
-      const { error } = await supabase.rpc("reject_production_batch", {
+      const { error } = await supabase.rpc("reject_production_release", {
         p_id: id,
         p_reason: reason,
       });
       if (error) throw error;
     },
     onSuccess: () => {
-      toast.success("Batch rejected");
+      toast.success("Release refused — the goods are back in the production hall");
       invalidateAll();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -811,7 +815,7 @@ function FinishedGoodsPage() {
         <Card className="rounded-2xl border-dashed">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              Production Batches to Accept
+              Production Releases to Accept
               <Badge variant="destructive">{pendingBatches.data!.length}</Badge>
             </CardTitle>
           </CardHeader>
@@ -819,28 +823,33 @@ function FinishedGoodsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Batch #</TableHead>
+                  <TableHead>Release #</TableHead>
                   <TableHead>Product</TableHead>
-                  <TableHead className="text-right">Quantity Produced</TableHead>
-                  <TableHead>Recorded</TableHead>
+                  <TableHead className="text-right">Quantity Released</TableHead>
+                  <TableHead>Released</TableHead>
                   <TableHead></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {(pendingBatches.data ?? []).map((b) => {
-                  const isSelf = b.created_by === currentUser.data;
+                  const isSelf = b.released_by === currentUser.data;
                   return (
                     <TableRow key={b.id}>
                       <TableCell className="font-mono text-xs">
-                        {b.production_number}
-                        {b.batch_number ? ` · ${b.batch_number}` : ""}
+                        {b.release_number}
+                        {b.production_requests && (
+                          <div className="text-[11px] text-muted-foreground">
+                            for {b.production_requests.request_number}
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell className="font-medium">{b.products?.name ?? "—"}</TableCell>
                       <TableCell className="text-right">
-                        {num(Number(b.quantity_produced))} {b.products?.unit ?? b.unit}
+                        {num(Number(b.quantity))} {b.products?.unit ?? b.unit}
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
-                        {new Date(b.created_at).toLocaleString()}
+                        {new Date(b.released_at).toLocaleString()}
+                        {b.released_by_name && <div>by {b.released_by_name}</div>}
                       </TableCell>
                       <TableCell>
                         <div className="flex justify-end gap-1">
@@ -1322,13 +1331,11 @@ function AdjustDialog({
 }
 
 function ConfirmBatchDialog({ batch, onDone }: { batch: PendingBatch; onDone: () => void }) {
-  const [actualReceived, setActualReceived] = useState(Number(batch.quantity_produced));
-  // Seeded from what Production already reported at batch creation, not 0 —
-  // otherwise confirming here would silently overwrite their figure.
-  const [damaged, setDamaged] = useState(Number(batch.damaged_quantity ?? 0));
+  const [actualReceived, setActualReceived] = useState(Number(batch.quantity));
+  const [damaged, setDamaged] = useState(0);
   const [rejected, setRejected] = useState(0);
   const accepted = Math.max(actualReceived - damaged - rejected, 0);
-  const unit = batch.products?.unit ?? batch.unit;
+  const unit = batch.products?.unit ?? batch.unit ?? "";
 
   const confirm = useMutation({
     mutationFn: async () => {
@@ -1337,9 +1344,11 @@ function ConfirmBatchDialog({ batch, onDone }: { batch: PendingBatch; onDone: ()
         throw new Error("Damaged/rejected quantities cannot be negative");
       if (damaged + rejected > actualReceived)
         throw new Error("Damaged + rejected cannot exceed actual quantity received");
-      const { error } = await supabase.rpc("confirm_production_batch", {
+      if (actualReceived > Number(batch.quantity))
+        throw new Error("Received cannot be more than was released");
+      const { error } = await supabase.rpc("accept_production_release", {
         p_id: batch.id,
-        p_actual_received: actualReceived,
+        p_received: actualReceived,
         p_damaged: damaged,
         p_rejected: rejected,
       });
@@ -1356,13 +1365,14 @@ function ConfirmBatchDialog({ batch, onDone }: { batch: PendingBatch; onDone: ()
     <DialogContent>
       <DialogHeader>
         <DialogTitle className="flex items-center gap-2">
-          <Factory className="h-5 w-5" /> Accept Batch — {batch.production_number}
+          <Factory className="h-5 w-5" /> Accept Release — {batch.release_number}
         </DialogTitle>
       </DialogHeader>
       <div className="grid gap-3">
         <p className="text-sm text-muted-foreground">
-          {batch.products?.name} · Produced: {num(Number(batch.quantity_produced))} {unit}
+          {batch.products?.name} · Released by Production: {num(Number(batch.quantity))} {unit}
         </p>
+        {batch.notes && <p className="text-xs text-muted-foreground">Note: {batch.notes}</p>}
         <div>
           <Label>Actual Quantity Received</Label>
           <MoneyInput min={0} step="0.001" value={actualReceived} onChange={setActualReceived} />
@@ -1371,11 +1381,6 @@ function ConfirmBatchDialog({ batch, onDone }: { batch: PendingBatch; onDone: ()
           <div>
             <Label>Damaged Quantity</Label>
             <MoneyInput min={0} step="0.001" value={damaged} onChange={setDamaged} />
-            {Number(batch.damaged_quantity ?? 0) > 0 && (
-              <p className="mt-1 text-xs text-muted-foreground">
-                Pre-filled from what Production reported — adjust if needed.
-              </p>
-            )}
           </div>
           <div>
             <Label>Rejected Quantity</Label>
@@ -1389,6 +1394,12 @@ function ConfirmBatchDialog({ batch, onDone }: { batch: PendingBatch; onDone: ()
           <div className="mt-1 text-xl font-semibold">
             {num(accepted)} {unit}
           </div>
+          {actualReceived < Number(batch.quantity) && (
+            <p className="mt-1 text-xs text-warning">
+              {num(Number(batch.quantity) - actualReceived)} {unit} released but not received —
+              recorded as a shortfall.
+            </p>
+          )}
         </div>
       </div>
       <DialogFooter>
@@ -1416,12 +1427,12 @@ function RejectBatchDialog({
     <DialogContent>
       <DialogHeader>
         <DialogTitle className="flex items-center gap-2">
-          <X className="h-5 w-5 text-destructive" /> Reject Batch — {batch.production_number}
+          <X className="h-5 w-5 text-destructive" /> Refuse Release — {batch.release_number}
         </DialogTitle>
       </DialogHeader>
       <div className="grid gap-3">
         <p className="text-sm text-muted-foreground">
-          {batch.products?.name} · Produced: {num(Number(batch.quantity_produced))}{" "}
+          {batch.products?.name} · Released: {num(Number(batch.quantity))}{" "}
           {batch.products?.unit ?? batch.unit}
         </p>
         <div>
@@ -1430,13 +1441,13 @@ function RejectBatchDialog({
             rows={3}
             value={reason}
             onChange={(e) => setReason(e.target.value)}
-            placeholder="Explain why this batch is being rejected…"
+            placeholder="Explain why this release is being refused…"
             autoFocus
           />
         </div>
         <p className="text-xs text-muted-foreground">
-          This batch will not be added to stock. The linked production request (if any) reopens so
-          Production can post a fresh batch.
+          Nothing is added to stock. The goods go back into the production hall balance, and
+          Production can release them again.
         </p>
       </div>
       <DialogFooter>
@@ -1445,7 +1456,7 @@ function RejectBatchDialog({
           disabled={isPending || !trimmed}
           onClick={() => onReject(trimmed)}
         >
-          {isPending ? "Rejecting…" : "Reject batch"}
+          {isPending ? "Refusing…" : "Refuse release"}
         </Button>
       </DialogFooter>
     </DialogContent>

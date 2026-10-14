@@ -1278,3 +1278,87 @@ export async function generateCustomerStatementPdf(
     window.open(doc.output("bloburl"), "_blank");
   }
 }
+
+// Production hall stock report: per product, what was in the hall at the start
+// of the period, what was produced, what was released to the Warehouse, and
+// what is still in the hall at the end. Laid out like the department's
+// existing paper report (centred letterhead, blue table).
+export async function generateProductionStockReportPdf(
+  opts: {
+    company: {
+      name?: string | null;
+      address?: string | null;
+      phone?: string | null;
+      email?: string | null;
+      logo_url?: string | null;
+    };
+    from: string;
+    to: string;
+    rows: {
+      product: string;
+      opening: number;
+      produced: number;
+      total: number;
+      released: number;
+      balance: number;
+    }[];
+  },
+  action: PdfAction = "download",
+) {
+  const doc = new jsPDF({ unit: "pt", format: "a4" });
+  const pageW = doc.internal.pageSize.getWidth();
+  let y = await drawLogoHeader(doc, opts.company.logo_url, 40, 140, 60);
+  doc.setFont("times", "bold");
+  if (opts.company.name) {
+    doc.setFontSize(13);
+    doc.text(opts.company.name, pageW / 2, y, { align: "center" });
+    y += 15;
+  }
+  doc.setFontSize(10);
+  if (opts.company.address) {
+    doc.text(opts.company.address, pageW / 2, y, { align: "center", maxWidth: pageW - 80 });
+    y += 14;
+  }
+  const contact = [
+    opts.company.phone ? `Tel: ${opts.company.phone}` : "",
+    opts.company.email ? `Email: ${opts.company.email}` : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
+  if (contact) {
+    doc.text(contact, pageW / 2, y, { align: "center" });
+    y += 14;
+  }
+  y += 18;
+  doc.setFontSize(12);
+  doc.text(`PRODUCTION DEPARTMENT: PRODUCTS REPORT FROM ${opts.from} TO ${opts.to}`, pageW / 2, y, {
+    align: "center",
+  });
+  y += 12;
+
+  const n = (v: number) => String(Math.round(v * 1000) / 1000);
+  autoTable(doc, {
+    startY: y,
+    head: [["S/N", "Product", "Opening", "Produced", "Total", "Released", "Balance"]],
+    body: opts.rows.map((r, i) => [
+      String(i + 1),
+      r.product,
+      n(r.opening),
+      n(r.produced),
+      n(r.total),
+      n(r.released),
+      n(r.balance),
+    ]),
+    styles: { font: "times", fontSize: 10, lineColor: [0, 0, 0], lineWidth: 0.5 },
+    headStyles: { fillColor: [31, 101, 196], textColor: 255, fontStyle: "bold" },
+    columnStyles: { 0: { cellWidth: 34 } },
+    margin: { left: 30, right: 30 },
+  });
+
+  if (action === "download") {
+    doc.save(`production-report-${opts.from}-to-${opts.to}.pdf`);
+  } else {
+    if (action === "print") doc.autoPrint();
+    window.open(doc.output("bloburl"), "_blank");
+  }
+}

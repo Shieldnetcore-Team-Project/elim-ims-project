@@ -109,6 +109,7 @@ export const nav: { section: string; items: NavItem[] }[] = [
             module: "production-requests",
             url: "/production-requests",
           },
+          { label: "Products Report", module: "production", url: "/production-report" },
         ],
       },
       {

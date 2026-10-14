@@ -1992,6 +1992,75 @@ export type Database = {
           },
         ]
       }
+      production_releases: {
+        Row: {
+          accepted_at: string | null
+          accepted_by: string | null
+          accepted_quantity: number | null
+          created_at: string
+          damaged_quantity: number | null
+          factory_id: string
+          id: string
+          notes: string | null
+          product_id: string
+          production_request_id: string | null
+          quantity: number
+          received_quantity: number | null
+          reject_reason: string | null
+          rejected_quantity: number | null
+          release_number: string
+          released_at: string
+          released_by: string | null
+          released_by_name: string | null
+          status: string
+          unit: string | null
+        }
+        Insert: {
+          accepted_at?: string | null
+          accepted_by?: string | null
+          accepted_quantity?: number | null
+          created_at?: string
+          damaged_quantity?: number | null
+          factory_id: string
+          id?: string
+          notes?: string | null
+          product_id: string
+          production_request_id?: string | null
+          quantity: number
+          received_quantity?: number | null
+          reject_reason?: string | null
+          rejected_quantity?: number | null
+          release_number: string
+          released_at?: string
+          released_by?: string | null
+          released_by_name?: string | null
+          status?: string
+          unit?: string | null
+        }
+        Update: {
+          accepted_at?: string | null
+          accepted_by?: string | null
+          accepted_quantity?: number | null
+          created_at?: string
+          damaged_quantity?: number | null
+          factory_id?: string
+          id?: string
+          notes?: string | null
+          product_id?: string
+          production_request_id?: string | null
+          quantity?: number
+          received_quantity?: number | null
+          reject_reason?: string | null
+          rejected_quantity?: number | null
+          release_number?: string
+          released_at?: string
+          released_by?: string | null
+          released_by_name?: string | null
+          status?: string
+          unit?: string | null
+        }
+        Relationships: []
+      }
       production_requests: {
         Row: {
           approval_date: string | null
@@ -4431,6 +4500,40 @@ export type Database = {
       }
       reject_payroll: {
         Args: { p_id: string; p_reason?: string }
+        Returns: Json
+      }
+      accept_production_release: {
+        Args: {
+          p_comment?: string
+          p_damaged?: number
+          p_id: string
+          p_received: number
+          p_rejected?: number
+        }
+        Returns: Json
+      }
+      cancel_production_release: {
+        Args: { p_id: string; p_reason?: string }
+        Returns: Json
+      }
+      production_hall_stock: {
+        Args: { p_factory: string }
+        Returns: {
+          awaiting_warehouse: number
+          in_hall: number
+          produced: number
+          product_id: string
+          product_name: string
+          released: number
+          unit: string
+        }[]
+      }
+      reject_production_release: {
+        Args: { p_id: string; p_reason: string }
+        Returns: Json
+      }
+      release_to_warehouse: {
+        Args: { payload: Json }
         Returns: Json
       }
       reject_production_batch: {
