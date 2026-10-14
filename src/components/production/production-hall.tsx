@@ -86,10 +86,74 @@ const RELEASE_STATUS: Record<
   reversed: { label: "Reversed — back in hall", variant: "outline" },
 };
 
+// Whoever can put stock into the hall (record or post batches) can release it.
+// Mirrors release_to_warehouse()'s check.
+function useCanRelease() {
+  const { can } = usePermissions();
+  return can("production", "create") || can("production", "submit") || can("production", "edit");
+}
+
+function useHallStock(factoryId: string) {
+  return useQuery({
+    queryKey: ["production-hall", factoryId],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("production_hall_stock", {
+        p_factory: factoryId,
+      });
+      if (error) throw error;
+      return (data ?? []) as HallRow[];
+    },
+  });
+}
+
+// "Release" on a batch row of the Production page: releases that product from
+// the hall (up to what is in the hall now, which may span several batches).
+export function ReleaseBatchButton({
+  factoryId,
+  productId,
+}: {
+  factoryId: string;
+  productId: string;
+}) {
+  const qc = useQueryClient();
+  const canRelease = useCanRelease();
+  const hall = useHallStock(factoryId);
+  const [open, setOpen] = useState(false);
+  const row = (hall.data ?? []).find((r) => r.product_id === productId);
+  if (!canRelease || !row || Number(row.in_hall) <= 0) return null;
+  return (
+    <>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="gap-1"
+        title="Release to Warehouse"
+        onClick={() => setOpen(true)}
+      >
+        <ArrowRightLeft className="h-3.5 w-3.5" /> Release
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        {open && (
+          <ReleaseDialog
+            factoryId={factoryId}
+            row={row}
+            onDone={() => {
+              setOpen(false);
+              qc.invalidateQueries({ queryKey: ["production-hall"] });
+              qc.invalidateQueries({ queryKey: ["production-releases"] });
+              qc.invalidateQueries({ queryKey: ["production-report"] });
+            }}
+          />
+        )}
+      </Dialog>
+    </>
+  );
+}
+
 export function ProductionHall({ factoryId }: { factoryId: string }) {
   const qc = useQueryClient();
   const { can } = usePermissions();
-  const canRelease = can("production", "create");
+  const canRelease = useCanRelease();
   const canWithdraw = can("production", "cancel");
   // Reversing an accepted release takes it back out of Warehouse stock.
   const canReverse = can("production", "confirm");
@@ -100,16 +164,7 @@ export function ProductionHall({ factoryId }: { factoryId: string }) {
     [["production-hall"], ["production-releases"]],
   );
 
-  const hall = useQuery({
-    queryKey: ["production-hall", factoryId],
-    queryFn: async () => {
-      const { data, error } = await supabase.rpc("production_hall_stock", {
-        p_factory: factoryId,
-      });
-      if (error) throw error;
-      return (data ?? []) as HallRow[];
-    },
-  });
+  const hall = useHallStock(factoryId);
 
   const releases = useQuery({
     queryKey: ["production-releases", factoryId],

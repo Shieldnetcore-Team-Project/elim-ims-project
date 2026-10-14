@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { RequireAccess } from "@/components/layout/require-access";
 import { SectionTabs } from "@/components/layout/section-tabs";
-import { ProductionHall } from "@/components/production/production-hall";
+import { ProductionHall, ReleaseBatchButton } from "@/components/production/production-hall";
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -58,7 +58,9 @@ import { logAudit } from "@/lib/audit";
 import { QuickAddProductDialog, ADD_NEW_ITEM } from "@/components/shared/quick-add-item";
 
 export const Route = createFileRoute("/_app/production")({
-  head: () => ({ meta: [{ title: "Production — Elim Table Water" }, { name: "robots", content: "noindex" }] }),
+  head: () => ({
+    meta: [{ title: "Production — Elim Table Water" }, { name: "robots", content: "noindex" }],
+  }),
   component: () => (
     <>
       <SectionTabs section="Production" />
@@ -364,8 +366,8 @@ function ProductionPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Production</h1>
           <p className="text-sm text-muted-foreground">
-            Record each batch as it is produced — it goes into the production hall. Release it to the
-            Warehouse as needed; the Warehouse accepts each release into finished goods.
+            Record each batch as it is produced — it goes into the production hall. Release it to
+            the Warehouse as needed; the Warehouse accepts each release into finished goods.
           </p>
         </div>
         {write && (
@@ -439,9 +441,9 @@ function ProductionPage() {
             <AlertDialogDescription>
               {releasedBlock?.production_number} can only be cancelled after the releases that took
               its goods to the Warehouse are reversed. Continuing reverses just enough of the latest
-              releases of this product: ones still awaiting the Warehouse are withdrawn, and accepted
-              ones are taken back out of finished-goods stock. It fails, changing nothing, if the
-              Warehouse has already sold those goods.
+              releases of this product: ones still awaiting the Warehouse are withdrawn, and
+              accepted ones are taken back out of finished-goods stock. It fails, changing nothing,
+              if the Warehouse has already sold those goods.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -552,6 +554,9 @@ function ProductionPage() {
                           <FileDown className="h-4 w-4" />
                         </Button>
                       )}
+                      {row.status === "pending_confirmation" && factoryId && (
+                        <ReleaseBatchButton factoryId={factoryId} productId={row.product_id} />
+                      )}
                       {row.status === "pending_confirmation" && (
                         <Button
                           variant="ghost"
@@ -645,12 +650,10 @@ function ProductionForm({
     editing ? Number(editing.packaging_quantity ?? editing.quantity_produced) : 0,
   );
   const [unit, setUnit] = useState(editing?.unit ?? "");
-  // Always in the product's base/stocking unit (like the Warehouse's own Accept
-  // Batch fields), regardless of what unit "Quantity produced" is entered
-  // in above — avoids re-deriving a packaging conversion for this figure too.
-  const [damagedQuantity, setDamagedQuantity] = useState(
-    editing ? Number(editing.damaged_quantity ?? 0) : 0,
-  );
+  // Production no longer enters damage — the Warehouse records it when it
+  // accepts a release. Kept only so editing an older batch preserves the damage
+  // it was recorded with (base/stocking unit).
+  const [damagedQuantity] = useState(editing ? Number(editing.damaged_quantity ?? 0) : 0);
   const [cost, setCost] = useState(editing ? Number(editing.production_cost ?? 0) : 0);
   const [supervisor, setSupervisor] = useState(editing?.supervisor ?? "");
   const [batch] = useState(editing?.batch_number ?? generateBatchNumber());
@@ -885,14 +888,6 @@ function ProductionForm({
             <Label>Unit</Label>
             <Input value={unit} onChange={(e) => setUnit(e.target.value)} />
           </div>
-        </div>
-        <div>
-          <Label>Damaged quantity {selectedProduct ? `(${selectedProduct.unit})` : ""}</Label>
-          <MoneyInput min={0} step="0.001" value={damagedQuantity} onChange={setDamagedQuantity} />
-          <p className="mt-1 text-xs text-muted-foreground">
-            Damage already known at production time. Only the good quantity goes into the production
-            hall to be released.
-          </p>
         </div>
         <div>
           <Label>Production cost</Label>
