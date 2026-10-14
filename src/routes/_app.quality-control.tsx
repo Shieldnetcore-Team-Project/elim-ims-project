@@ -41,9 +41,9 @@ import { ClipboardCheck, Search } from "lucide-react";
 import { useRealtimeInvalidate } from "@/lib/realtime";
 
 // Quality Control: supplier deliveries are inspected here before they can
-// reach the warehouse. Each inspection is a goods receipt (the existing
+// reach the Store. Each inspection is a goods receipt (the existing
 // goods-receiving workflow): QC records what arrived and how much failed
-// inspection, then the warehouse confirms it on the Raw Materials page,
+// inspection, then the Store confirms it on the Raw Materials page,
 // which posts only the passed quantity to stock. Failed quantity goes to
 // the damage ledger. Dual control still applies -- whoever records the
 // inspection can't be the one who confirms it.
@@ -92,10 +92,10 @@ type Inspection = {
 };
 
 const STATUS_LABELS: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
-  pending_confirmation: { label: "Awaiting warehouse", variant: "secondary" },
+  pending_confirmation: { label: "Awaiting store", variant: "secondary" },
   confirmed: { label: "Confirmed", variant: "default" },
-  posted: { label: "In warehouse", variant: "default" },
-  rejected: { label: "Rejected by warehouse", variant: "destructive" },
+  posted: { label: "In store", variant: "default" },
+  rejected: { label: "Rejected by store", variant: "destructive" },
   cancelled: { label: "Cancelled", variant: "outline" },
 };
 
@@ -168,8 +168,8 @@ function QualityControlPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Quality Control</h1>
           <p className="text-sm text-muted-foreground">
-            Inspect supplier deliveries. Passed quantity goes to the warehouse once it confirms
-            receipt; failed quantity is written off.
+            Inspect supplier deliveries. Passed quantity goes to the Store once it confirms receipt;
+            failed quantity is written off.
           </p>
         </div>
         {submit && (
@@ -197,7 +197,7 @@ function QualityControlPage() {
         <Card className="rounded-2xl">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Awaiting warehouse
+              Awaiting store
             </CardTitle>
           </CardHeader>
           <CardContent className="text-2xl font-semibold">{awaiting.length}</CardContent>
@@ -205,7 +205,7 @@ function QualityControlPage() {
         <Card className="rounded-2xl">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Passed &amp; in warehouse
+              Passed &amp; in store
             </CardTitle>
           </CardHeader>
           <CardContent className="text-2xl font-semibold">{num(passedTotal)}</CardContent>
@@ -300,7 +300,7 @@ function QualityControlPage() {
                     </TableCell>
                     <TableCell className="max-w-xs text-xs text-muted-foreground">
                       {r.status === "rejected" && r.reject_reason
-                        ? `Warehouse: ${r.reject_reason}`
+                        ? `Store: ${r.reject_reason}`
                         : (r.remarks ?? "")}
                     </TableCell>
                     <TableCell>
@@ -428,7 +428,7 @@ function InspectionDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
       if (error) throw error;
     },
     onSuccess: () => {
-      toast.success("Inspection recorded — sent to the warehouse for confirmation");
+      toast.success("Inspection recorded — sent to the Store for confirmation");
       onDone();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -508,7 +508,7 @@ function InspectionDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
           </div>
         </div>
         <p className="text-xs text-muted-foreground">
-          Passed: {num(passed)} {material?.unit ?? ""} — only this goes into the warehouse. Failed
+          Passed: {num(passed)} {material?.unit ?? ""} — only this goes into the Store. Failed
           quantity is written off to the damage ledger.
           {outstanding != null && ` ${num(outstanding)} outstanding on this PO.`}
         </p>
@@ -545,7 +545,7 @@ function InspectionDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
           disabled={save.isPending || !materialId || quantity <= 0 || failedQuantity > quantity}
           onClick={() => save.mutate()}
         >
-          {save.isPending ? "Submitting…" : "Send to Warehouse"}
+          {save.isPending ? "Submitting…" : "Send to Store"}
         </Button>
       </DialogFooter>
     </DialogContent>

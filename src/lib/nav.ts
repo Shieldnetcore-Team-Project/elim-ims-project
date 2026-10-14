@@ -16,8 +16,10 @@ import {
   Landmark,
   LayoutGrid,
   Warehouse,
+  Store,
   ClipboardCheck,
   Settings,
+  BookOpenCheck,
 } from "lucide-react";
 import { type ModuleKey } from "@/lib/permissions";
 
@@ -67,11 +69,12 @@ export type NavItem = { title: string; url: string; icon: typeof LayoutDashboard
 // than duplicating a page — see the duplicate-page audit before this change.
 // (Finance used to carry an "Invoices" entry that just re-pointed at Sales;
 // removed as a redundant duplicate link rather than a real page.)
-// Retail (sales), Production and Warehouse each group several routes under one entry,
-// shown as tabs on the pages. Warehouse holds the read-only overview plus raw
-// materials and finished products (formerly "Inventory Overview", "Inventory"
-// and the old "Store" in the sidebar). Quality Control inspects supplier deliveries
-// before the warehouse confirms them into raw materials.
+// Retail (sales), Production, Store and Warehouse each group several routes under one
+// entry, shown as tabs on the pages. Store holds all raw materials (stocked and
+// received there) and the requests queue: the Warehouse requests the materials for a
+// product, and the Store approves and issues them to Production. Warehouse holds the
+// stock overview and finished products. Quality Control inspects supplier deliveries
+// before the Store confirms them into raw materials.
 export const nav: { section: string; items: NavItem[] }[] = [
   {
     section: "Overview",
@@ -101,7 +104,7 @@ export const nav: { section: string; items: NavItem[] }[] = [
         tabs: [
           { label: "Production", module: "production", url: "/production" },
           {
-            label: "Production Requests",
+            label: "Store Requests",
             module: "production-requests",
             url: "/production-requests",
           },
@@ -112,6 +115,16 @@ export const nav: { section: string; items: NavItem[] }[] = [
         url: "/quality-control",
         icon: ClipboardCheck,
         module: "goods-receiving",
+      },
+      {
+        title: "Store",
+        url: "/raw-materials",
+        icon: Store,
+        modules: ["raw-materials", "production-requests"],
+        tabs: [
+          { label: "Raw Materials", module: "raw-materials", url: "/raw-materials" },
+          { label: "Requests", module: "production-requests", url: "/production-requests" },
+        ],
       },
       {
         title: "Warehouse",
@@ -132,6 +145,7 @@ export const nav: { section: string; items: NavItem[] }[] = [
         // Products tabs linking to the full pages, so those stay out of the bar.
         tabs: [
           { label: "Stock", module: "raw-materials", url: "/inventory" },
+          { label: "Store requests", module: "production-requests", url: "/production-requests" },
           { label: "Orders", module: "sales", url: "/sales" },
           { label: "Returns", module: "sales-returns", url: "/sales-returns" },
           { label: "Marketer stock", module: "distribution", url: "/distribution" },
@@ -149,7 +163,6 @@ export const nav: { section: string; items: NavItem[] }[] = [
           },
           { label: "Bottle tracking", module: "distribution", url: "/bottle-tracking" },
           { label: "Customers", module: "customers", url: "/customers" },
-          { label: "Raw Materials", module: "raw-materials", url: "/raw-materials", inBar: false },
           {
             label: "Finished Products",
             module: "finished-goods",
@@ -181,6 +194,7 @@ export const nav: { section: string; items: NavItem[] }[] = [
     section: "Finance",
     items: [
       { title: "Finance Overview", url: "/finance", icon: Landmark, module: "finance" },
+      { title: "Accountant", url: "/accountant", icon: BookOpenCheck, module: "finance" },
       {
         title: "Payments",
         url: "/cash-ledger",

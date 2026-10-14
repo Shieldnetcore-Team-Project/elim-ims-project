@@ -237,10 +237,10 @@ function ProductionRequestsPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Production Requests</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Store Requests</h1>
           <p className="text-sm text-muted-foreground">
-            Request, approve, and issue raw materials for a production run — the link between
-            Inventory and Production.
+            The Warehouse requests the raw materials for a product to be made; the Store approves
+            the request and issues the materials to Production.
           </p>
         </div>
         {submit && (
