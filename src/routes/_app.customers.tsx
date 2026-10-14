@@ -117,6 +117,8 @@ function CustomersPage() {
         .from("sales_reps")
         .select("id,full_name,status")
         .eq("factory_id", factoryId!)
+        // Customers belong to field reps; the retail outlet has none.
+        .eq("kind", "rep")
         .order("full_name");
       if (error) return [];
       return data ?? [];

@@ -3153,6 +3153,7 @@ export type Database = {
           factory_id: string
           full_name: string
           id: string
+          kind: string
           phone: string | null
           remarks: string | null
           status: string
@@ -3166,6 +3167,7 @@ export type Database = {
           factory_id: string
           full_name: string
           id?: string
+          kind?: string
           phone?: string | null
           remarks?: string | null
           status?: string
@@ -3179,6 +3181,7 @@ export type Database = {
           factory_id?: string
           full_name?: string
           id?: string
+          kind?: string
           phone?: string | null
           remarks?: string | null
           status?: string

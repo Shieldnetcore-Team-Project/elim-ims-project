@@ -41,6 +41,7 @@ import { Route as AppPurchaseOrdersRouteImport } from './routes/_app.purchase-or
 import { Route as AppQualityControlRouteImport } from './routes/_app.quality-control'
 import { Route as AppRawMaterialsRouteImport } from './routes/_app.raw-materials'
 import { Route as AppReportsRouteImport } from './routes/_app.reports'
+import { Route as AppRetailOutletRouteImport } from './routes/_app.retail-outlet'
 import { Route as AppRoleManagementRouteImport } from './routes/_app.role-management'
 import { Route as AppSalesRouteImport } from './routes/_app.sales'
 import { Route as AppSalesReturnsRouteImport } from './routes/_app.sales-returns'
@@ -210,6 +211,11 @@ const AppReportsRoute = AppReportsRouteImport.update({
   path: '/reports',
   getParentRoute: () => AppRoute,
 } as any)
+const AppRetailOutletRoute = AppRetailOutletRouteImport.update({
+  id: '/retail-outlet',
+  path: '/retail-outlet',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppRoleManagementRoute = AppRoleManagementRouteImport.update({
   id: '/role-management',
   path: '/role-management',
@@ -288,6 +294,7 @@ export interface FileRoutesByFullPath {
   '/quality-control': typeof AppQualityControlRoute
   '/raw-materials': typeof AppRawMaterialsRoute
   '/reports': typeof AppReportsRoute
+  '/retail-outlet': typeof AppRetailOutletRoute
   '/role-management': typeof AppRoleManagementRoute
   '/sales': typeof AppSalesRoute
   '/sales-returns': typeof AppSalesReturnsRoute
@@ -329,6 +336,7 @@ export interface FileRoutesByTo {
   '/quality-control': typeof AppQualityControlRoute
   '/raw-materials': typeof AppRawMaterialsRoute
   '/reports': typeof AppReportsRoute
+  '/retail-outlet': typeof AppRetailOutletRoute
   '/role-management': typeof AppRoleManagementRoute
   '/sales': typeof AppSalesRoute
   '/sales-returns': typeof AppSalesReturnsRoute
@@ -373,6 +381,7 @@ export interface FileRoutesById {
   '/_app/quality-control': typeof AppQualityControlRoute
   '/_app/raw-materials': typeof AppRawMaterialsRoute
   '/_app/reports': typeof AppReportsRoute
+  '/_app/retail-outlet': typeof AppRetailOutletRoute
   '/_app/role-management': typeof AppRoleManagementRoute
   '/_app/sales': typeof AppSalesRoute
   '/_app/sales-returns': typeof AppSalesReturnsRoute
@@ -417,6 +426,7 @@ export interface FileRouteTypes {
     | '/quality-control'
     | '/raw-materials'
     | '/reports'
+    | '/retail-outlet'
     | '/role-management'
     | '/sales'
     | '/sales-returns'
@@ -458,6 +468,7 @@ export interface FileRouteTypes {
     | '/quality-control'
     | '/raw-materials'
     | '/reports'
+    | '/retail-outlet'
     | '/role-management'
     | '/sales'
     | '/sales-returns'
@@ -501,6 +512,7 @@ export interface FileRouteTypes {
     | '/_app/quality-control'
     | '/_app/raw-materials'
     | '/_app/reports'
+    | '/_app/retail-outlet'
     | '/_app/role-management'
     | '/_app/sales'
     | '/_app/sales-returns'
@@ -744,6 +756,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppReportsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/retail-outlet': {
+      id: '/_app/retail-outlet'
+      path: '/retail-outlet'
+      fullPath: '/retail-outlet'
+      preLoaderRoute: typeof AppRetailOutletRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/role-management': {
       id: '/_app/role-management'
       path: '/role-management'
@@ -856,6 +875,7 @@ interface AppRouteChildren {
   AppQualityControlRoute: typeof AppQualityControlRoute
   AppRawMaterialsRoute: typeof AppRawMaterialsRoute
   AppReportsRoute: typeof AppReportsRoute
+  AppRetailOutletRoute: typeof AppRetailOutletRoute
   AppRoleManagementRoute: typeof AppRoleManagementRoute
   AppSalesRoute: typeof AppSalesRoute
   AppSalesReturnsRoute: typeof AppSalesReturnsRoute
@@ -894,6 +914,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppQualityControlRoute: AppQualityControlRoute,
   AppRawMaterialsRoute: AppRawMaterialsRoute,
   AppReportsRoute: AppReportsRoute,
+  AppRetailOutletRoute: AppRetailOutletRoute,
   AppRoleManagementRoute: AppRoleManagementRoute,
   AppSalesRoute: AppSalesRoute,
   AppSalesReturnsRoute: AppSalesReturnsRoute,

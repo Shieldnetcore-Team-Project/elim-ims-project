@@ -85,7 +85,14 @@ type Rep = {
   status: string;
   employee_id: string | null;
   remarks: string | null;
+  // 'rep' is a field sales rep; 'outlet' is the company's own retail outlet.
+  // Both hold stock dispatched from the Warehouse and sell from it.
+  kind: "rep" | "outlet";
 };
+// How a stock holder reads in pickers: outlets are marked so they aren't
+// mistaken for a rep.
+const repLabel = (r: { full_name: string; kind?: string }) =>
+  r.kind === "outlet" ? `${r.full_name} (Retail outlet)` : r.full_name;
 type Product = {
   id: string;
   name: string;
@@ -170,7 +177,7 @@ function DistributionPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("sales_reps")
-        .select("id,code,full_name,phone,status,employee_id,remarks")
+        .select("id,code,full_name,phone,status,employee_id,remarks,kind")
         .eq("factory_id", factoryId!)
         .order("full_name");
       if (error) throw error;
@@ -237,19 +244,19 @@ function DistributionPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Distribution</h1>
         <p className="text-sm text-muted-foreground">
-          Every product leaves the warehouse on a dispatch to a sales rep. The rep sells from van stock,
-          returns what's unsold for inspection, and remits cash — their account nets it all against
-          the value of goods they took.
+          Products leave the warehouse on a dispatch to a sales rep or the company's retail outlet.
+          Each sells from its own stock, returns what's unsold for inspection, and remits cash —
+          its account nets it all against the value of goods it took.
         </p>
       </div>
 
       <Tabs value={tab ?? "reps"} onValueChange={setTab}>
         <TabsList className="flex-wrap">
-          <TabsTrigger value="reps">Sales Reps</TabsTrigger>
+          <TabsTrigger value="reps">Reps &amp; Outlets</TabsTrigger>
           <TabsTrigger value="dispatches">Dispatches</TabsTrigger>
-          <TabsTrigger value="returns">Rep Returns</TabsTrigger>
+          <TabsTrigger value="returns">Returns</TabsTrigger>
           <TabsTrigger value="remittances">Remittances</TabsTrigger>
-          <TabsTrigger value="accounts">Rep Accounts</TabsTrigger>
+          <TabsTrigger value="accounts">Accounts</TabsTrigger>
         </TabsList>
 
         <TabsContent value="reps" className="mt-4">
@@ -320,7 +327,7 @@ function RepsTab({ factoryId, reps, perms }: { factoryId: string; reps: Rep[]; p
   return (
     <Card className="rounded-2xl">
       <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle>Sales Reps</CardTitle>
+        <CardTitle>Sales Reps &amp; Retail Outlets</CardTitle>
         {canCreate && (
           <Button
             size="sm"
@@ -330,7 +337,7 @@ function RepsTab({ factoryId, reps, perms }: { factoryId: string; reps: Rep[]; p
               setOpen(true);
             }}
           >
-            <Plus className="h-4 w-4" /> Add Rep
+            <Plus className="h-4 w-4" /> Add Rep / Outlet
           </Button>
         )}
       </CardHeader>
@@ -340,6 +347,7 @@ function RepsTab({ factoryId, reps, perms }: { factoryId: string; reps: Rep[]; p
             <TableRow>
               <TableHead>Code</TableHead>
               <TableHead>Name</TableHead>
+              <TableHead>Type</TableHead>
               <TableHead>Phone</TableHead>
               <TableHead>Status</TableHead>
               <TableHead></TableHead>
@@ -350,6 +358,11 @@ function RepsTab({ factoryId, reps, perms }: { factoryId: string; reps: Rep[]; p
               <TableRow key={r.id}>
                 <TableCell className="font-mono text-xs">{r.code ?? "—"}</TableCell>
                 <TableCell className="font-medium">{r.full_name}</TableCell>
+                <TableCell>
+                  <Badge variant="outline">
+                    {r.kind === "outlet" ? "Retail outlet" : "Sales rep"}
+                  </Badge>
+                </TableCell>
                 <TableCell>{r.phone ?? "—"}</TableCell>
                 <TableCell>
                   <Badge variant={r.status === "active" ? "secondary" : "outline"}>
@@ -387,8 +400,8 @@ function RepsTab({ factoryId, reps, perms }: { factoryId: string; reps: Rep[]; p
             ))}
             {reps.length === 0 && (
               <TableRow>
-                <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
-                  No sales reps yet.
+                <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
+                  No sales reps or outlets yet.
                 </TableCell>
               </TableRow>
             )}
@@ -434,6 +447,7 @@ function RepDialog({
   const [phone, setPhone] = useState(rep?.phone ?? "");
   const [status, setStatus] = useState(rep?.status ?? "active");
   const [remarks, setRemarks] = useState(rep?.remarks ?? "");
+  const [kind, setKind] = useState<Rep["kind"]>(rep?.kind ?? "rep");
 
   const save = useMutation({
     mutationFn: async () => {
@@ -444,6 +458,7 @@ function RepDialog({
         code: code.trim() || null,
         phone: phone.trim() || null,
         status,
+        kind,
         remarks: remarks.trim() || null,
       };
       if (rep) {
@@ -455,7 +470,8 @@ function RepDialog({
       }
     },
     onSuccess: () => {
-      toast.success(rep ? "Rep updated" : "Rep added");
+      const what = kind === "outlet" ? "Outlet" : "Rep";
+      toast.success(rep ? `${what} updated` : `${what} added`);
       logAudit({ action: rep ? "update" : "create", entity: "sales_reps", factoryId });
       onDone();
     },
@@ -465,11 +481,23 @@ function RepDialog({
   return (
     <DialogContent className="max-w-md">
       <DialogHeader>
-        <DialogTitle>{rep ? "Edit Sales Rep" : "Add Sales Rep"}</DialogTitle>
+        <DialogTitle>{rep ? "Edit Rep / Outlet" : "Add Rep / Outlet"}</DialogTitle>
       </DialogHeader>
       <div className="grid gap-3">
         <div>
-          <Label>Full name</Label>
+          <Label>Type</Label>
+          <Select value={kind} onValueChange={(v) => setKind(v as Rep["kind"])}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="rep">Sales rep — sells from a van, earns commission</SelectItem>
+              <SelectItem value="outlet">Retail outlet — company shop, sells to walk-ins</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <Label>{kind === "outlet" ? "Outlet name" : "Full name"}</Label>
           <Input value={fullName} onChange={(e) => setFullName(e.target.value)} />
         </div>
         <div className="grid grid-cols-2 gap-3">
@@ -851,20 +879,20 @@ function NewDispatchDialog({
   return (
     <DialogContent className="max-w-2xl">
       <DialogHeader>
-        <DialogTitle>New Dispatch — warehouse → rep</DialogTitle>
+        <DialogTitle>New Dispatch — warehouse → rep / outlet</DialogTitle>
       </DialogHeader>
       <div className="grid gap-3">
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <Label>Sales rep</Label>
+            <Label>Rep / outlet</Label>
             <Select value={repId} onValueChange={setRepId}>
               <SelectTrigger>
-                <SelectValue placeholder="Select rep…" />
+                <SelectValue placeholder="Select rep or outlet…" />
               </SelectTrigger>
               <SelectContent>
                 {reps.map((r) => (
                   <SelectItem key={r.id} value={r.id}>
-                    {r.full_name}
+                    {repLabel(r)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -1224,15 +1252,15 @@ function LogReturnDialog({
       <div className="grid gap-3">
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <Label>Sales rep</Label>
+            <Label>Rep / outlet</Label>
             <Select value={repId} onValueChange={setRepId}>
               <SelectTrigger>
-                <SelectValue placeholder="Select rep…" />
+                <SelectValue placeholder="Select rep or outlet…" />
               </SelectTrigger>
               <SelectContent>
                 {reps.map((r) => (
                   <SelectItem key={r.id} value={r.id}>
-                    {r.full_name}
+                    {repLabel(r)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -1566,15 +1594,15 @@ function RemittanceDialog({
       </DialogHeader>
       <div className="grid gap-3">
         <div>
-          <Label>Sales rep</Label>
+          <Label>Rep / outlet</Label>
           <Select value={repId} onValueChange={setRepId}>
             <SelectTrigger>
-              <SelectValue placeholder="Select rep…" />
+              <SelectValue placeholder="Select rep or outlet…" />
             </SelectTrigger>
             <SelectContent>
               {reps.map((r) => (
                 <SelectItem key={r.id} value={r.id}>
-                  {r.full_name}
+                  {repLabel(r)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -1695,15 +1723,15 @@ function AccountsTab({ factoryId, reps, perms }: { factoryId: string; reps: Rep[
       <Card className="rounded-2xl">
         <CardContent className="flex flex-wrap items-end gap-3 pt-6">
           <div className="min-w-48">
-            <Label>Sales rep</Label>
+            <Label>Rep / outlet</Label>
             <Select value={repId} onValueChange={setRepId}>
               <SelectTrigger>
-                <SelectValue placeholder="Select rep…" />
+                <SelectValue placeholder="Select rep or outlet…" />
               </SelectTrigger>
               <SelectContent>
                 {reps.map((r) => (
                   <SelectItem key={r.id} value={r.id}>
-                    {r.full_name}
+                    {repLabel(r)}
                   </SelectItem>
                 ))}
               </SelectContent>

@@ -165,6 +165,8 @@ function LedgerPage() {
         .select("id,full_name")
         .eq("factory_id", factoryId!)
         .eq("status", "active")
+        // Only field reps collect customer payments; not the retail outlet.
+        .eq("kind", "rep")
         .order("full_name");
       if (error) return [] as RepBrief[];
       return (data ?? []) as RepBrief[];

@@ -26,7 +26,8 @@
 --
 --   * Then ADDS BACK the two standard raw materials, Empty Dispenser Bottle
 --     (Old) and (New), with zero stock, so the Store request dropdown always
---     has them (raw_materials_left at the end shows 2).
+--     has them (raw_materials_left at the end shows 2), and the default
+--     Retail Outlet, so the Warehouse can stock it straight away.
 --
 -- Not covered (Supabase Storage is separate from the database): uploaded
 -- files such as expense attachments and employee documents stay in storage.
@@ -121,6 +122,11 @@ DO $seed$
 BEGIN
   IF to_regprocedure('public.seed_standard_raw_materials()') IS NOT NULL THEN
     PERFORM public.seed_standard_raw_materials();
+  END IF;
+  -- The default Retail Outlet (migration 20261014170000), so the Warehouse can
+  -- stock the outlet straight away.
+  IF to_regprocedure('public.seed_retail_outlet()') IS NOT NULL THEN
+    PERFORM public.seed_retail_outlet();
   END IF;
 END
 $seed$;

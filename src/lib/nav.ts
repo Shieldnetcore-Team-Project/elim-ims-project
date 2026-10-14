@@ -88,10 +88,11 @@ export const nav: { section: string; items: NavItem[] }[] = [
     items: [
       {
         title: "Retail",
-        url: "/sales",
+        url: "/retail-outlet",
         icon: ShoppingCart,
         modules: ["sales", "sales-returns"],
         tabs: [
+          { label: "Retail Outlet", module: "sales", url: "/retail-outlet" },
           { label: "Sales & POS", module: "sales", url: "/sales" },
           { label: "Sales Returns", module: "sales-returns", url: "/sales-returns" },
         ],
@@ -148,7 +149,7 @@ export const nav: { section: string; items: NavItem[] }[] = [
           { label: "Store requests", module: "production-requests", url: "/production-requests" },
           { label: "Orders", module: "sales", url: "/sales" },
           { label: "Returns", module: "sales-returns", url: "/sales-returns" },
-          { label: "Marketer stock", module: "distribution", url: "/distribution" },
+          { label: "Reps & outlet stock", module: "distribution", url: "/distribution" },
           {
             label: "Reconciliation",
             module: "distribution",

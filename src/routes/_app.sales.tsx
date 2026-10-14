@@ -1307,10 +1307,14 @@ export function PosDialog({
   factoryId,
   onDone,
   presetCustomerId,
+  presetSalesRepId,
   editingSale,
 }: {
   factoryId: string;
   onDone: () => void;
+  // Set from the Retail Outlet page so the sale comes off the outlet's stock
+  // instead of defaulting to a direct warehouse sale.
+  presetSalesRepId?: string;
   // Set from the Sales table's per-row "add products to account" icon, so
   // the customer is already selected instead of defaulting to Walk-in.
   presetCustomerId?: string;
@@ -1404,7 +1408,9 @@ export function PosDialog({
   const [remarks, setRemarks] = useState(editingSale?.remarks ?? "");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [pickerId, setPickerId] = useState<string>("");
-  const [salesRepId, setSalesRepId] = useState<string>(editingSale?.sales_rep_id ?? "none");
+  const [salesRepId, setSalesRepId] = useState<string>(
+    editingSale?.sales_rep_id ?? presetSalesRepId ?? "none",
+  );
 
   const currentUserName = useQuery({
     queryKey: ["current-user-full-name"],
@@ -1430,12 +1436,12 @@ export function PosDialog({
     queryFn: async () => {
       const { data, error } = await supabase
         .from("sales_reps")
-        .select("id,full_name")
+        .select("id,full_name,kind")
         .eq("factory_id", factoryId)
         .eq("status", "active")
         .order("full_name");
       if (error) throw error;
-      return (data ?? []) as { id: string; full_name: string }[];
+      return (data ?? []) as { id: string; full_name: string; kind: "rep" | "outlet" }[];
     },
   });
   const repStock = useQuery({
@@ -1949,7 +1955,7 @@ export function PosDialog({
             </div>
           )}
           <div>
-            <Label className="text-xs">Sales rep (van stock)</Label>
+            <Label className="text-xs">Sell from</Label>
             <Select
               value={salesRepId}
               onValueChange={(v) => {
@@ -1964,12 +1970,21 @@ export function PosDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">Direct from warehouse</SelectItem>
-                {(reps.data ?? []).map((r) => (
-                  <SelectItem key={r.id} value={r.id}>
-                    {r.full_name}
-                  </SelectItem>
-                ))}
+                <SelectItem value="none">Warehouse (direct sale)</SelectItem>
+                {(reps.data ?? [])
+                  .filter((r) => r.kind === "outlet")
+                  .map((r) => (
+                    <SelectItem key={r.id} value={r.id}>
+                      {r.full_name} — outlet stock
+                    </SelectItem>
+                  ))}
+                {(reps.data ?? [])
+                  .filter((r) => r.kind !== "outlet")
+                  .map((r) => (
+                    <SelectItem key={r.id} value={r.id}>
+                      {r.full_name} — rep van stock
+                    </SelectItem>
+                  ))}
               </SelectContent>
             </Select>
           </div>
