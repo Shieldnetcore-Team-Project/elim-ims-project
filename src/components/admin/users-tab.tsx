@@ -134,8 +134,8 @@ export function UsersTab() {
                     </Badge>
                   </TableCell>
                   <TableCell className="text-sm">
-                    {SCOPES.find((s) => s.value === a.production_scope)?.label ??
-                      a.production_scope}
+                    {/* Water is the only factory, so every user belongs to it. */}
+                    {SCOPES[0].label}
                   </TableCell>
                   <TableCell>
                     <Badge variant={statusVariant(a.status)} className="capitalize">

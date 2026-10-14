@@ -9,10 +9,15 @@ export function FactoryTab() {
   const { accounts, factories } = useAccountsAdmin();
   const rows = accounts.data ?? [];
 
-  const countFor = (scope: "WATER" | "BOTH") =>
-    rows.filter((a) => a.status !== "pending" && a.production_scope === scope).length;
-
-  const cards = [{ code: "water", label: "Water Factory", count: countFor("WATER") }];
+  // Water is the only factory, so every active user belongs to it, whatever
+  // legacy production_scope (WATER/BOTH) their profile still carries.
+  const cards = [
+    {
+      code: "water",
+      label: "Water Factory",
+      count: rows.filter((a) => a.status !== "pending").length,
+    },
+  ];
 
   return (
     <div className="grid gap-3 sm:grid-cols-3">
