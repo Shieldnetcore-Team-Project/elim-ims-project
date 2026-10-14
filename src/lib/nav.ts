@@ -240,10 +240,34 @@ export const nav: { section: string; items: NavItem[] }[] = [
   {
     section: "Administration",
     items: [
-      // The Admin Panel consolidates Users, Pending, Permissions, Audit Log,
-      // and Auth Users into one tabbed page to keep the sidebar short.
+      // The Admin Panel consolidates Users, Pending, Delete Requests, Deleted
+      // Sales, Permissions, Audit Log, Factory and Auth Users into one tabbed
+      // page to keep the sidebar short.
       // Settings gets its own entry here since nothing else links to it.
-      { title: "Admin Panel", url: "/admin", icon: LayoutGrid, module: "users" },
+      {
+        title: "Admin Panel",
+        url: "/admin",
+        icon: LayoutGrid,
+        // Each tab is granted on its own; the entry shows for anyone with one.
+        modules: [
+          "users",
+          "account-approvals",
+          "delete-requests",
+          "deleted-sales",
+          "permissions",
+          "audit-logs",
+          "auth-users",
+        ],
+        tabs: [
+          { label: "Users & Factory", module: "users" },
+          { label: "Pending", module: "account-approvals" },
+          { label: "Delete Requests", module: "delete-requests" },
+          { label: "Deleted Sales", module: "deleted-sales" },
+          { label: "Permissions", module: "permissions" },
+          { label: "Audit Log", module: "audit-logs" },
+          { label: "Auth Users", module: "auth-users" },
+        ],
+      },
       { title: "System Settings", url: "/settings", icon: Settings, module: "settings" },
     ],
   },

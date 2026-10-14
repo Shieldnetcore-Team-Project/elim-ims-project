@@ -8,7 +8,7 @@ import {
   MODULE_LABELS,
   ALL_ACTIONS,
   useAllRoles,
-  useIsSuperAdmin,
+  usePermissions,
   type ModuleKey,
   type Action,
   type Role,
@@ -42,14 +42,17 @@ export const Route = createFileRoute("/_app/permissions")({
     meta: [{ title: "Roles & Permissions — Elim Table Water" }, { name: "robots", content: "noindex" }],
   }),
   component: () => (
-    <RequireAccess module="users">
+    <RequireAccess module="permissions">
       <PermissionsPage />
     </RequireAccess>
   ),
 });
 
 export function PermissionsPage() {
-  const isSuperAdmin = useIsSuperAdmin();
+  // Changing access needs the Permissions tab's edit right (super_admin and
+  // chairman hold every right), not a hard-wired super_admin check.
+  const { can, loading: permsLoading } = usePermissions();
+  const canManage = can("permissions", "edit");
   const roles = useAllRoles();
   const [module, setModule] = useState<ModuleKey>("expenses");
   const qc = useQueryClient();
@@ -99,7 +102,7 @@ export function PermissionsPage() {
         </p>
       </div>
 
-      {!isSuperAdmin.data && !isSuperAdmin.isLoading && (
+      {!canManage && !permsLoading && (
         <Card className="rounded-2xl border-dashed">
           <CardContent className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
             <ShieldAlert className="h-4 w-4" /> You can view this matrix, but only an Admin can
@@ -152,7 +155,7 @@ export function PermissionsPage() {
                         <TableCell key={action} className="text-center">
                           <Checkbox
                             checked={checked}
-                            disabled={!isSuperAdmin.data || toggle.isPending}
+                            disabled={!canManage || toggle.isPending}
                             onCheckedChange={(v) =>
                               toggle.mutate({ role: role.slug, action, grant: !!v })
                             }
@@ -175,7 +178,7 @@ export function PermissionsPage() {
         </CardContent>
       </Card>
 
-      <UserOverridesPicker isSuperAdmin={!!isSuperAdmin.data} />
+      <UserOverridesPicker isSuperAdmin={canManage} />
     </div>
   );
 }

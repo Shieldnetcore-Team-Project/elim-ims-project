@@ -79,7 +79,12 @@ export type ModuleKey =
   | "logistics"
   | "distribution"
   | "approvals"
-  | "goods-receiving";
+  | "goods-receiving"
+  // Admin Panel tabs, each grantable on its own.
+  | "delete-requests"
+  | "deleted-sales"
+  | "permissions"
+  | "auth-users";
 
 export const ALL_MODULES: ModuleKey[] = [
   "dashboard",
@@ -110,6 +115,10 @@ export const ALL_MODULES: ModuleKey[] = [
   "distribution",
   "approvals",
   "goods-receiving",
+  "delete-requests",
+  "deleted-sales",
+  "permissions",
+  "auth-users",
 ];
 
 export const MODULE_LABELS: Record<ModuleKey, string> = {
@@ -141,6 +150,10 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   distribution: "Distribution (Sales Reps)",
   approvals: "Approvals",
   "goods-receiving": "Quality Control (Goods Receiving)",
+  "delete-requests": "Admin: Delete Requests",
+  "deleted-sales": "Admin: Deleted Sales",
+  permissions: "Admin: Roles & Permissions",
+  "auth-users": "Admin: Auth Users",
 };
 
 // Level 2 of the dual-operation model: independent, non-hierarchical action

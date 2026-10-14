@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useAccountsAdmin, type Account } from "@/lib/use-accounts-admin";
-import { useAllRoles, useIsSuperAdmin, type Role } from "@/lib/permissions";
+import { useAllRoles, usePermissions, type Role } from "@/lib/permissions";
 import { UserPermissionOverridesEditor } from "@/components/permissions/user-permission-overrides";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -34,7 +34,8 @@ import { Check, X, UserCheck } from "lucide-react";
 
 export function PendingTab() {
   const { accounts, approve, reject } = useAccountsAdmin();
-  const isSuperAdmin = useIsSuperAdmin();
+  // Editing a user's overrides is a Permissions-tab right, not super_admin only.
+  const canManagePermissions = usePermissions().can("permissions", "edit");
   const allRoles = useAllRoles();
   const roleLabel = (slug: string | null) =>
     slug ? (allRoles.data?.find((r) => r.slug === slug)?.label ?? slug) : "—";
@@ -144,7 +145,7 @@ export function PendingTab() {
               />
               <UserPermissionOverridesEditor
                 userId={approveTarget.id}
-                isSuperAdmin={!!isSuperAdmin.data}
+                isSuperAdmin={canManagePermissions}
               />
             </div>
             <DialogFooter>

@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { RequireAccess } from "@/components/layout/require-access";
-import { useAllRoles, useIsSuperAdmin } from "@/lib/permissions";
+import { useAllRoles, usePermissions } from "@/lib/permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,7 +44,7 @@ export const Route = createFileRoute("/_app/role-management")({
     meta: [{ title: "Role Management — Elim Table Water" }, { name: "robots", content: "noindex" }],
   }),
   component: () => (
-    <RequireAccess module="users">
+    <RequireAccess module="permissions">
       <RoleManagementPage />
     </RequireAccess>
   ),
@@ -59,7 +59,10 @@ const slugify = (label: string) =>
 
 export function RoleManagementPage() {
   const qc = useQueryClient();
-  const isSuperAdmin = useIsSuperAdmin();
+  // Changing access needs the Permissions tab's edit right (super_admin and
+  // chairman hold every right), not a hard-wired super_admin check.
+  const { can, loading: permsLoading } = usePermissions();
+  const canManage = can("permissions", "edit");
   const roles = useAllRoles();
 
   const assignedCounts = useQuery({
@@ -162,14 +165,14 @@ export function RoleManagementPage() {
             a role is set on the Roles &amp; Permissions matrix.
           </p>
         </div>
-        {isSuperAdmin.data && (
+        {canManage && (
           <Button onClick={openCreate} className="gap-1.5">
             <ShieldPlus className="h-4 w-4" /> New role
           </Button>
         )}
       </div>
 
-      {!isSuperAdmin.data && !isSuperAdmin.isLoading && (
+      {!canManage && !permsLoading && (
         <Card className="rounded-2xl border-dashed">
           <CardContent className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
             <ShieldAlert className="h-4 w-4" /> You can view roles, but only an Admin can
@@ -216,7 +219,7 @@ export function RoleManagementPage() {
                       )}
                     </TableCell>
                     <TableCell>
-                      {isSuperAdmin.data && (
+                      {canManage && (
                         <div className="flex justify-end gap-1">
                           <Button
                             variant="ghost"

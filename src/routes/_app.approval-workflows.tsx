@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { RequireAccess } from "@/components/layout/require-access";
-import { MODULE_LABELS, useIsSuperAdmin, type ModuleKey } from "@/lib/permissions";
+import { MODULE_LABELS, usePermissions, type ModuleKey } from "@/lib/permissions";
 import {
   WORKFLOW_ACTION_LABELS,
   WORKFLOW_STATUS_LABELS,
@@ -30,7 +30,7 @@ export const Route = createFileRoute("/_app/approval-workflows")({
     meta: [{ title: "Approval Workflows — Elim Table Water" }, { name: "robots", content: "noindex" }],
   }),
   component: () => (
-    <RequireAccess module="users">
+    <RequireAccess module="permissions">
       <ApprovalWorkflowsPage />
     </RequireAccess>
   ),
@@ -47,7 +47,10 @@ type ConfigRow = {
 };
 
 export function ApprovalWorkflowsPage() {
-  const isSuperAdmin = useIsSuperAdmin();
+  // Changing access needs the Permissions tab's edit right (super_admin and
+  // chairman hold every right), not a hard-wired super_admin check.
+  const { can, loading: permsLoading } = usePermissions();
+  const canManage = can("permissions", "edit");
   const qc = useQueryClient();
   const [editing, setEditing] = useState<Record<string, number>>({});
 
@@ -157,7 +160,7 @@ export function ApprovalWorkflowsPage() {
                     </Badge>
                   </TableCell>
                   <TableCell className="text-center">
-                    {isSuperAdmin.data ? (
+                    {canManage ? (
                       <div className="flex items-center justify-center gap-1">
                         <MoneyInput
                           min={1}

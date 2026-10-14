@@ -296,13 +296,16 @@ export const adminListAuthUsers = createServerFn({ method: "GET" })
     const { data: grants, error: grantsError } = await supabase.rpc("get_my_permissions");
     if (grantsError) return { ok: false, error: grantsError.message };
 
+    // The Auth Users tab is its own grant; account-approvals managers keep the
+    // access they had.
     const allowed = (grants ?? []).some(
       (g) =>
-        g.module === "account-approvals" &&
-        (g.action === "view" ||
-          g.action === "create" ||
-          g.action === "edit" ||
-          g.action === "delete"),
+        (g.module === "auth-users" && g.action === "view") ||
+        (g.module === "account-approvals" &&
+          (g.action === "view" ||
+            g.action === "create" ||
+            g.action === "edit" ||
+            g.action === "delete")),
     );
     if (!allowed) return { ok: false, error: "You don't have permission to view auth users" };
 
