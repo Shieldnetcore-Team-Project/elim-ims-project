@@ -73,6 +73,8 @@ const DEPARTMENT_OPTIONS = [
   "Production",
   "Finance & Accounts",
   "Inventory / Warehouse",
+  "Store",
+  "Quality Control",
   "Water Factory",
 ];
 

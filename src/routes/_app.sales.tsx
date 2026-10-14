@@ -207,6 +207,9 @@ function SalesPage() {
           "id,invoice_number,sale_date,customer_id,customer_name,grand_total,amount_paid,balance,credit_applied,payment_method,created_at,is_pr,status,created_by,rejected_reason,sales_person,sale_items(products(name))",
         )
         .eq("factory_id", factoryId!)
+        // Super admins can also read soft-deleted sales (Admin → Deleted
+        // Sales); they don't belong in the live list.
+        .is("deleted_at", null)
         .order("created_at", { ascending: false })
         .limit(200);
       if (error) throw error;

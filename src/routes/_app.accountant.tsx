@@ -146,6 +146,8 @@ function AccountantPage() {
           "id,invoice_number,sale_date,customer_name,grand_total,amount_paid,balance,status,is_pr",
         )
         .eq("factory_id", factoryId!)
+        // Admins can also read soft-deleted sales; they aren't real invoices.
+        .is("deleted_at", null)
         .order("created_at", { ascending: false })
         .limit(200);
       if (error) throw error;
