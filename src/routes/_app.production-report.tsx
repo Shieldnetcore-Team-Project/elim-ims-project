@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { RequireAccess } from "@/components/layout/require-access";
 import { SectionTabs } from "@/components/layout/section-tabs";
@@ -8,6 +8,8 @@ import { useFactoryId, useFactorySettings } from "@/lib/use-factory";
 import { useRealtimeInvalidate } from "@/lib/realtime";
 import { num } from "@/lib/format";
 import { generateProductionStockReportPdf } from "@/lib/pdf";
+import { exportCsv } from "@/lib/export";
+import { SHIFT_LABEL, type Shift } from "@/lib/production-shift";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -64,6 +66,7 @@ type Batch = {
   quantity_produced: number;
   damaged_quantity: number | null;
   production_date: string;
+  shift: Shift | null;
   confirmed_at: string | null;
   status: string;
   products: { name: string } | null;
@@ -116,7 +119,7 @@ function ProductionReportPage() {
         const { data, error } = await supabase
           .from("production")
           .select(
-            "product_id,quantity_produced,damaged_quantity,production_date,confirmed_at,status,products(name)",
+            "product_id,quantity_produced,damaged_quantity,production_date,shift,confirmed_at,status,products(name)",
           )
           .eq("factory_id", factoryId!)
           .in("status", LIVE)
@@ -164,12 +167,12 @@ function ProductionReportPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("products")
-        .select("id,name")
+        .select("id,name,product_categories(name)")
         .eq("factory_id", factoryId!)
         .eq("active", true)
         .order("name");
-      if (error) return [] as { id: string; name: string }[];
-      return data ?? [];
+      if (error) return [] as ReportProduct[];
+      return (data ?? []) as unknown as ReportProduct[];
     },
   });
 
@@ -235,10 +238,16 @@ function ProductionReportPage() {
       action,
     );
 
+  const monthStart = `${today.slice(0, 8)}01`;
+  const lastMonthEnd = shift(monthStart, -1);
   const quick: { label: string; from: string; to: string }[] = [
     { label: "Today", from: today, to: today },
     { label: "Yesterday", from: shift(today, -1), to: shift(today, -1) },
     { label: "This week", from: startOfWeek(today), to: today },
+    { label: "Last week", from: shift(startOfWeek(today), -7), to: shift(startOfWeek(today), -1) },
+    { label: "This month", from: monthStart, to: today },
+    { label: "Last month", from: `${lastMonthEnd.slice(0, 8)}01`, to: lastMonthEnd },
+    { label: "This year", from: `${today.slice(0, 4)}-01-01`, to: today },
   ];
 
   if (!factoryId) return null;
@@ -352,6 +361,325 @@ function ProductionReportPage() {
           </p>
         </CardContent>
       </Card>
+
+      <ProductTypeSummary
+        batches={batches.data ?? []}
+        products={products.data ?? []}
+        from={from}
+        to={to}
+      />
+
+      <ShiftBreakdown batches={batches.data ?? []} from={from} to={to} />
     </div>
+  );
+}
+
+type ReportProduct = { id: string; name: string; product_categories: { name: string } | null };
+type TypeRow = { name: string; category: string; night: number; day: number; other: number };
+
+// The general record: everything produced in the period, per product, grouped
+// by product type (category: Bottle / Dispenser / Sachet Water), with Night,
+// Day and total, and a subtotal for each type.
+function ProductTypeSummary({
+  batches,
+  products,
+  from,
+  to,
+}: {
+  batches: Batch[];
+  products: ReportProduct[];
+  from: string;
+  to: string;
+}) {
+  const groups = useMemo(() => {
+    const catOf = new Map(
+      products.map((p) => [p.id, p.product_categories?.name ?? "Uncategorised"]),
+    );
+    const byProduct = new Map<
+      string,
+      { name: string; category: string; night: number; day: number; other: number }
+    >();
+    for (const p of products)
+      byProduct.set(p.id, { name: p.name, category: catOf.get(p.id)!, night: 0, day: 0, other: 0 });
+    for (const b of batches) {
+      if (b.production_date < from || b.production_date > to) continue;
+      let r = byProduct.get(b.product_id);
+      if (!r) {
+        r = {
+          name: b.products?.name ?? "—",
+          category: catOf.get(b.product_id) ?? "Uncategorised",
+          night: 0,
+          day: 0,
+          other: 0,
+        };
+        byProduct.set(b.product_id, r);
+      }
+      const qty = Number(b.quantity_produced) - Number(b.damaged_quantity ?? 0);
+      if (b.shift === "night") r.night += qty;
+      else if (b.shift === "day") r.day += qty;
+      else r.other += qty;
+    }
+    const cats = new Map<string, TypeRow[]>();
+    for (const r of byProduct.values()) {
+      const list = cats.get(r.category) ?? [];
+      list.push(r);
+      cats.set(r.category, list);
+    }
+    return [...cats.entries()]
+      .sort(([a], [b]) =>
+        a === "Uncategorised" ? 1 : b === "Uncategorised" ? -1 : a.localeCompare(b),
+      )
+      .map(([category, items]) => ({
+        category,
+        items: items.sort((a, b) => a.name.localeCompare(b.name)),
+        night: items.reduce((t, r) => t + r.night, 0),
+        day: items.reduce((t, r) => t + r.day, 0),
+        other: items.reduce((t, r) => t + r.other, 0),
+      }));
+  }, [batches, products, from, to]);
+
+  const showOther = groups.some((g) => g.other > 0);
+  const grand = groups.reduce(
+    (t, g) => ({ night: t.night + g.night, day: t.day + g.day, other: t.other + g.other }),
+    { night: 0, day: 0, other: 0 },
+  );
+
+  return (
+    <Card className="rounded-2xl">
+      <CardHeader>
+        <CardTitle className="text-base">Totals by product type</CardTitle>
+        <p className="mt-1 text-sm text-muted-foreground">
+          The general record of everything produced from {from} to {to}, for each type of product.
+        </p>
+      </CardHeader>
+      <CardContent className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Product</TableHead>
+              <TableHead className="text-right">Night</TableHead>
+              <TableHead className="text-right">Day</TableHead>
+              {showOther && <TableHead className="text-right">No shift</TableHead>}
+              <TableHead className="text-right">Total produced</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {groups.map((g) => (
+              <Fragment key={g.category}>
+                <TableRow className="bg-muted/40">
+                  <TableCell className="font-semibold">{g.category}</TableCell>
+                  <TableCell className="text-right font-semibold">{num(g.night)}</TableCell>
+                  <TableCell className="text-right font-semibold">{num(g.day)}</TableCell>
+                  {showOther && (
+                    <TableCell className="text-right font-semibold">{num(g.other)}</TableCell>
+                  )}
+                  <TableCell className="text-right font-semibold">
+                    {num(g.night + g.day + g.other)}
+                  </TableCell>
+                </TableRow>
+                {g.items.map((r) => (
+                  <TableRow key={g.category + r.name}>
+                    <TableCell className="pl-8">{r.name}</TableCell>
+                    <TableCell className="text-right">{r.night ? num(r.night) : "—"}</TableCell>
+                    <TableCell className="text-right">{r.day ? num(r.day) : "—"}</TableCell>
+                    {showOther && (
+                      <TableCell className="text-right">{r.other ? num(r.other) : "—"}</TableCell>
+                    )}
+                    <TableCell className="text-right">{num(r.night + r.day + r.other)}</TableCell>
+                  </TableRow>
+                ))}
+              </Fragment>
+            ))}
+            {groups.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
+                  No products yet.
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+          {groups.length > 0 && (
+            <TableFooter>
+              <TableRow>
+                <TableCell>All products</TableCell>
+                <TableCell className="text-right">{num(grand.night)}</TableCell>
+                <TableCell className="text-right">{num(grand.day)}</TableCell>
+                {showOther && <TableCell className="text-right">{num(grand.other)}</TableCell>}
+                <TableCell className="text-right">
+                  {num(grand.night + grand.day + grand.other)}
+                </TableCell>
+              </TableRow>
+            </TableFooter>
+          )}
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
+
+type Group = "day" | "week" | "month";
+const GROUP_LABEL: Record<Group, string> = { day: "Daily", week: "Weekly", month: "Monthly" };
+
+// What was produced in the period, per product, split by shift (Day / Night)
+// and grouped by day, week or month. Batches recorded before shifts existed
+// show as "—".
+function ShiftBreakdown({ batches, from, to }: { batches: Batch[]; from: string; to: string }) {
+  const [group, setGroup] = useState<Group>("day");
+
+  const { products, rows, totals } = useMemo(() => {
+    const periodOf = (day: string) =>
+      group === "day" ? day : group === "week" ? startOfWeek(day) : day.slice(0, 7);
+    const productNames = new Map<string, string>();
+    const byKey = new Map<
+      string,
+      { period: string; shift: Shift | null; qty: Map<string, number>; total: number }
+    >();
+    const totals = new Map<string, number>();
+    for (const b of batches) {
+      if (b.production_date < from || b.production_date > to) continue;
+      const qty = Number(b.quantity_produced) - Number(b.damaged_quantity ?? 0);
+      const period = periodOf(b.production_date);
+      const key = `${period}|${b.shift ?? ""}`;
+      let r = byKey.get(key);
+      if (!r) {
+        r = { period, shift: b.shift, qty: new Map(), total: 0 };
+        byKey.set(key, r);
+      }
+      productNames.set(b.product_id, b.products?.name ?? "—");
+      r.qty.set(b.product_id, (r.qty.get(b.product_id) ?? 0) + qty);
+      r.total += qty;
+      totals.set(b.product_id, (totals.get(b.product_id) ?? 0) + qty);
+    }
+    const shiftOrder = (s: Shift | null) => (s === "night" ? 0 : s === "day" ? 1 : 2);
+    const rows = [...byKey.values()].sort(
+      (a, b) => a.period.localeCompare(b.period) || shiftOrder(a.shift) - shiftOrder(b.shift),
+    );
+    const products = [...productNames.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return { products, rows, totals };
+  }, [batches, from, to, group]);
+
+  const periodLabel = (p: string) =>
+    group === "day"
+      ? new Date(`${p}T12:00:00`).toLocaleDateString(undefined, {
+          weekday: "short",
+          day: "numeric",
+          month: "short",
+          year: "numeric",
+        })
+      : group === "week"
+        ? `Week of ${new Date(`${p}T12:00:00`).toLocaleDateString()}`
+        : new Date(`${p}-01T12:00:00`).toLocaleDateString(undefined, {
+            month: "long",
+            year: "numeric",
+          });
+
+  const grand = rows.reduce((t, r) => t + r.total, 0);
+
+  const download = () =>
+    exportCsv(
+      `production-by-shift-${from}-to-${to}`,
+      [
+        { key: "period", label: group === "day" ? "Date" : group === "week" ? "Week" : "Month" },
+        { key: "shift", label: "Shift" },
+        ...products.map((p) => ({ key: p.id, label: p.name })),
+        { key: "total", label: "Total" },
+      ],
+      rows.map((r) => ({
+        period: periodLabel(r.period),
+        shift: r.shift ? SHIFT_LABEL[r.shift] : "—",
+        ...Object.fromEntries(products.map((p) => [p.id, r.qty.get(p.id) ?? 0])),
+        total: r.total,
+      })),
+    );
+
+  return (
+    <Card className="rounded-2xl">
+      <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
+        <div>
+          <CardTitle className="text-base">Produced by shift</CardTitle>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Every product produced from {from} to {to}, by Night and Day shift.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {(Object.keys(GROUP_LABEL) as Group[]).map((g) => (
+            <Button
+              key={g}
+              size="sm"
+              variant={group === g ? "default" : "outline"}
+              onClick={() => setGroup(g)}
+            >
+              {GROUP_LABEL[g]}
+            </Button>
+          ))}
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-2"
+            disabled={!rows.length}
+            onClick={download}
+          >
+            <Download className="h-4 w-4" /> CSV
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>
+                {group === "day" ? "Date" : group === "week" ? "Week" : "Month"}
+              </TableHead>
+              <TableHead>Shift</TableHead>
+              {products.map((p) => (
+                <TableHead key={p.id} className="text-right">
+                  {p.name}
+                </TableHead>
+              ))}
+              <TableHead className="text-right">Total</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((r) => (
+              <TableRow key={`${r.period}|${r.shift ?? ""}`}>
+                <TableCell className="whitespace-nowrap">{periodLabel(r.period)}</TableCell>
+                <TableCell>{r.shift ? SHIFT_LABEL[r.shift] : "—"}</TableCell>
+                {products.map((p) => (
+                  <TableCell key={p.id} className="text-right">
+                    {r.qty.get(p.id) ? num(r.qty.get(p.id)!) : "—"}
+                  </TableCell>
+                ))}
+                <TableCell className="text-right font-semibold">{num(r.total)}</TableCell>
+              </TableRow>
+            ))}
+            {rows.length === 0 && (
+              <TableRow>
+                <TableCell
+                  colSpan={products.length + 3}
+                  className="py-8 text-center text-muted-foreground"
+                >
+                  Nothing produced in this period.
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+          {rows.length > 0 && (
+            <TableFooter>
+              <TableRow>
+                <TableCell colSpan={2}>Total</TableCell>
+                {products.map((p) => (
+                  <TableCell key={p.id} className="text-right">
+                    {num(totals.get(p.id) ?? 0)}
+                  </TableCell>
+                ))}
+                <TableCell className="text-right">{num(grand)}</TableCell>
+              </TableRow>
+            </TableFooter>
+          )}
+        </Table>
+      </CardContent>
+    </Card>
   );
 }

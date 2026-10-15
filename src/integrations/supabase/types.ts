@@ -1854,6 +1854,7 @@ export type Database = {
           reject_reason: string | null
           rejected_quantity: number
           remarks: string | null
+          shift: string | null
           status: string
           supervisor: string | null
           unit: string | null
@@ -1883,6 +1884,7 @@ export type Database = {
           reject_reason?: string | null
           rejected_quantity?: number
           remarks?: string | null
+          shift?: string | null
           status?: string
           supervisor?: string | null
           unit?: string | null
@@ -1912,6 +1914,7 @@ export type Database = {
           reject_reason?: string | null
           rejected_quantity?: number
           remarks?: string | null
+          shift?: string | null
           status?: string
           supervisor?: string | null
           unit?: string | null

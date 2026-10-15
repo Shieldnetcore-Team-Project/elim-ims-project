@@ -107,7 +107,6 @@ export function QuickAddProductDialog({
   const [customUnit, setCustomUnit] = useState("");
   const [unitPrice, setUnitPrice] = useState(0);
   const [costPrice, setCostPrice] = useState(0);
-  const [openingStock, setOpeningStock] = useState(0);
   const unit = unitChoice === "__custom__" ? customUnit : unitChoice;
 
   useEffect(() => {
@@ -119,7 +118,6 @@ export function QuickAddProductDialog({
       setCustomUnit("");
       setUnitPrice(0);
       setCostPrice(0);
-      setOpeningStock(0);
     }
   }, [open]);
 
@@ -155,7 +153,7 @@ export function QuickAddProductDialog({
             category_id: categoryId === "none" ? null : categoryId,
             unit_price: unitPrice,
             cost_price: costPrice,
-            current_stock: openingStock,
+            current_stock: 0,
           },
         } as any,
       );
@@ -245,10 +243,6 @@ export function QuickAddProductDialog({
               customUnit={customUnit}
               setCustomUnit={setCustomUnit}
             />
-            <div>
-              <Label>Opening stock</Label>
-              <MoneyInput min={0} step="0.001" value={openingStock} onChange={setOpeningStock} />
-            </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>

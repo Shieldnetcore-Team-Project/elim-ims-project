@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { RequireAccess } from "@/components/layout/require-access";
 import { SectionTabs } from "@/components/layout/section-tabs";
 import { ProductionHall, ReleaseBatchButton } from "@/components/production/production-hall";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useFactoryId, useFactorySettings } from "@/lib/use-factory";
@@ -50,12 +50,23 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Pencil, Ban, Printer, FileDown, Loader2, AlertTriangle } from "lucide-react";
+import {
+  Plus,
+  Pencil,
+  Ban,
+  Printer,
+  FileDown,
+  Loader2,
+  AlertTriangle,
+  ClipboardList,
+  Trash2,
+} from "lucide-react";
 import { money, num } from "@/lib/format";
 import { toast } from "sonner";
 import { generateProductionSlipPdf } from "@/lib/pdf";
 import { logAudit } from "@/lib/audit";
 import { QuickAddProductDialog, ADD_NEW_ITEM } from "@/components/shared/quick-add-item";
+import { SHIFT_LABEL, addDays, localDay, suggestedEntry, type Shift } from "@/lib/production-shift";
 
 export const Route = createFileRoute("/_app/production")({
   head: () => ({
@@ -138,6 +149,7 @@ type ProductionRow = {
   id: string;
   production_number: string;
   production_date: string;
+  shift: Shift | null;
   product_id: string;
   quantity_produced: number;
   unit: string;
@@ -200,6 +212,7 @@ function ProductionPage() {
   const allowPrint = canPrint("production");
   const allowExport = canExport("production");
   const [formOpen, setFormOpen] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
   const [editing, setEditing] = useState<ProductionRow | null>(null);
 
   const products = useQuery({
@@ -224,7 +237,7 @@ function ProductionPage() {
       const { data, error } = await supabase
         .from("production")
         .select(
-          "id,production_number,production_date,product_id,quantity_produced,unit,production_cost,supervisor,batch_number,remarks,status,accepted_quantity,damaged_quantity,rejected_quantity,confirmed_by,confirmed_at,department,production_scope,packaging_unit,packaging_quantity,products(name,unit),production_requests!production_production_request_id_fkey(request_number),production_types(name)",
+          "id,production_number,production_date,shift,product_id,quantity_produced,unit,production_cost,supervisor,batch_number,remarks,status,accepted_quantity,damaged_quantity,rejected_quantity,confirmed_by,confirmed_at,department,production_scope,packaging_unit,packaging_quantity,products(name,unit),production_requests!production_production_request_id_fkey(request_number),production_types(name)",
         )
         .eq("factory_id", factoryId!)
         .order("created_at", { ascending: false })
@@ -371,53 +384,74 @@ function ProductionPage() {
           </p>
         </div>
         {write && (
-          <Dialog
-            open={formOpen}
-            onOpenChange={(v) => {
-              setFormOpen(v);
-              if (!v) setEditing(null);
-            }}
-          >
-            <DialogTrigger asChild>
-              <Button
-                className="gap-2"
-                disabled={factory.isLoading}
-                onClick={() => setEditing(null)}
-              >
-                {factory.isLoading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Plus className="h-4 w-4" />
-                )}
-                New Production
-              </Button>
-            </DialogTrigger>
-            {formOpen &&
-              (factoryId ? (
-                <ProductionForm
+          <div className="flex flex-wrap items-center gap-2">
+            <Dialog open={sheetOpen} onOpenChange={setSheetOpen}>
+              <DialogTrigger asChild>
+                <Button className="gap-2" disabled={factory.isLoading || !factoryId}>
+                  <ClipboardList className="h-4 w-4" /> Daily Production Sheet
+                </Button>
+              </DialogTrigger>
+              {sheetOpen && factoryId && (
+                <DailyProductionSheet
                   factoryId={factoryId}
                   products={products.data ?? []}
-                  eligibleRequests={eligibleRequests.data ?? []}
-                  editing={editing}
+                  recorded={list.data ?? []}
                   onDone={() => {
-                    setFormOpen(false);
-                    setEditing(null);
+                    setSheetOpen(false);
                     invalidateAll();
                   }}
                 />
-              ) : (
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Can't load factory data</DialogTitle>
-                  </DialogHeader>
-                  <p className="text-sm text-muted-foreground">
-                    {factory.error instanceof Error
-                      ? factory.error.message
-                      : "Factory data is unavailable right now."}
-                  </p>
-                </DialogContent>
-              ))}
-          </Dialog>
+              )}
+            </Dialog>
+            <Dialog
+              open={formOpen}
+              onOpenChange={(v) => {
+                setFormOpen(v);
+                if (!v) setEditing(null);
+              }}
+            >
+              <DialogTrigger asChild>
+                <Button
+                  variant="outline"
+                  className="gap-2"
+                  disabled={factory.isLoading}
+                  onClick={() => setEditing(null)}
+                >
+                  {factory.isLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Plus className="h-4 w-4" />
+                  )}
+                  Single batch
+                </Button>
+              </DialogTrigger>
+              {formOpen &&
+                (factoryId ? (
+                  <ProductionForm
+                    factoryId={factoryId}
+                    products={products.data ?? []}
+                    eligibleRequests={eligibleRequests.data ?? []}
+                    editing={editing}
+                    onDone={() => {
+                      setFormOpen(false);
+                      setEditing(null);
+                      invalidateAll();
+                    }}
+                  />
+                ) : (
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Can't load factory data</DialogTitle>
+                    </DialogHeader>
+                    <p className="text-sm text-muted-foreground">
+                      {factory.error instanceof Error
+                        ? factory.error.message
+                        : "Factory data is unavailable right now."}
+                    </p>
+                  </DialogContent>
+                ))}
+            </Dialog>
+          </div>
         )}
       </div>
 
@@ -487,7 +521,14 @@ function ProductionPage() {
               {(list.data ?? []).map((row) => (
                 <TableRow key={row.id}>
                   <TableCell className="font-mono text-xs">{row.production_number}</TableCell>
-                  <TableCell>{row.production_date}</TableCell>
+                  <TableCell className="whitespace-nowrap">
+                    {row.production_date}
+                    {row.shift && (
+                      <Badge variant="outline" className="ml-2">
+                        {SHIFT_LABEL[row.shift]}
+                      </Badge>
+                    )}
+                  </TableCell>
                   <TableCell>{row.production_types?.name ?? "—"}</TableCell>
                   <TableCell className="font-medium">
                     {row.products?.name ?? "—"}
@@ -604,6 +645,280 @@ function ProductionPage() {
   );
 }
 
+// The production manager's daily record: one sheet per date and shift listing
+// every product, so each shift gets its own fresh entry per product (no
+// opening stock; what was made before is already on earlier days' records).
+// Each quantity entered becomes its own batch (create_production), tagged with
+// the date and shift. What is already recorded for that date and shift is
+// shown beside each product so a shift isn't entered twice.
+function DailyProductionSheet({
+  factoryId,
+  products,
+  recorded,
+  onDone,
+}: {
+  factoryId: string;
+  products: Product[];
+  recorded: ProductionRow[];
+  onDone: () => void;
+}) {
+  const [suggested] = useState(suggestedEntry);
+  const [date, setDate] = useState(suggested.date);
+  const [shift, setShift] = useState<Shift>(suggested.shift);
+  // The sheet starts empty; the manager adds a row per product produced.
+  const [rows, setRows] = useState<{ key: number; productId: string; qty: number }[]>([]);
+  const [nextKey, setNextKey] = useState(1);
+  const [addingFor, setAddingFor] = useState<number | null>(null);
+  const addRow = () => {
+    setRows((rs) => [...rs, { key: nextKey, productId: "", qty: 0 }]);
+    setNextKey((k) => k + 1);
+  };
+  const update = (key: number, patch: Partial<{ productId: string; qty: number }>) =>
+    setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+  const [supervisor, setSupervisor] = useState("");
+  const [remarks, setRemarks] = useState("");
+  const today = localDay();
+
+  const currentUserName = useQuery({
+    queryKey: ["current-user-full-name"],
+    queryFn: async () => {
+      const { data: userData } = await supabase.auth.getUser();
+      if (!userData.user) return null;
+      const { data } = await supabase
+        .from("profiles")
+        .select("full_name")
+        .eq("id", userData.user.id)
+        .maybeSingle();
+      return data?.full_name || userData.user.email || null;
+    },
+    staleTime: Infinity,
+  });
+  useEffect(() => {
+    if (!supervisor && currentUserName.data) setSupervisor(currentUserName.data);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUserName.data]);
+
+  const already = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of recorded)
+      if (
+        r.production_date === date &&
+        r.shift === shift &&
+        !["cancelled", "rejected"].includes(r.status)
+      )
+        m.set(r.product_id, (m.get(r.product_id) ?? 0) + Number(r.quantity_produced));
+    return m;
+  }, [recorded, date, shift]);
+
+  const lines = rows
+    .filter((r) => r.productId && r.qty > 0)
+    .map((r) => ({ qty: r.qty, p: products.find((x) => x.id === r.productId) }))
+    .filter((l): l is { qty: number; p: Product } => !!l.p);
+  const save = useMutation({
+    mutationFn: async () => {
+      if (rows.some((r) => !r.productId))
+        throw new Error("Pick a product in every row, or remove it");
+      if (rows.some((r) => r.productId && r.qty <= 0))
+        throw new Error("Enter the quantity produced in every row, or remove it");
+      if (lines.length === 0) throw new Error("Add at least one product with its quantity");
+      const batch = generateBatchNumber();
+      let done = 0;
+      for (const { p, qty } of lines) {
+        const { error } = await supabase.rpc("create_production", {
+          payload: {
+            factory_id: factoryId,
+            product_id: p.id,
+            quantity_produced: qty,
+            unit: p.unit,
+            production_date: date,
+            shift,
+            supervisor: supervisor || null,
+            batch_number: `${batch}-${shift === "night" ? "N" : "D"}`,
+            remarks: remarks || null,
+          } as never,
+        });
+        if (error)
+          throw new Error(
+            `${done} of ${lines.length} saved; stopped at ${p.name}: ${error.message}`,
+          );
+        done++;
+      }
+      return done;
+    },
+    onSuccess: (n) => {
+      toast.success(
+        `${n} product${n === 1 ? "" : "s"} recorded for the ${SHIFT_LABEL[shift].toLowerCase()} shift of ${date}`,
+      );
+      onDone();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return (
+    <DialogContent className="max-w-2xl">
+      <DialogHeader>
+        <DialogTitle>Daily Production Sheet</DialogTitle>
+      </DialogHeader>
+      <div className="grid max-h-[75vh] gap-3 overflow-y-auto pr-1">
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant={date === addDays(today, -1) && shift === "night" ? "default" : "outline"}
+            onClick={() => {
+              setDate(addDays(today, -1));
+              setShift("night");
+            }}
+          >
+            Last night&apos;s batch
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={date === today && shift === "day" ? "default" : "outline"}
+            onClick={() => {
+              setDate(today);
+              setShift("day");
+            }}
+          >
+            Today&apos;s day batch
+          </Button>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label>Production date</Label>
+            <Input type="date" value={date} max={today} onChange={(e) => setDate(e.target.value)} />
+          </div>
+          <div>
+            <Label>Shift</Label>
+            <Select value={shift} onValueChange={(v) => setShift(v as Shift)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="day">Day</SelectItem>
+                <SelectItem value="night">Night</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <p className="-mt-1 text-xs text-muted-foreground">
+          A night batch is dated the night it was made — record last night&apos;s output in the
+          morning under yesterday&apos;s date.
+        </p>
+
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Product</TableHead>
+              <TableHead className="text-right">Already recorded</TableHead>
+              <TableHead className="w-36 text-right">Produced now</TableHead>
+              <TableHead className="w-10" />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((row) => {
+              const p = products.find((x) => x.id === row.productId);
+              const taken = new Set(rows.filter((r) => r.key !== row.key).map((r) => r.productId));
+              return (
+                <TableRow key={row.key}>
+                  <TableCell>
+                    <Select
+                      value={row.productId}
+                      onValueChange={(v) =>
+                        v === ADD_NEW_ITEM
+                          ? setAddingFor(row.key)
+                          : update(row.key, { productId: v })
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select product…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {products
+                          .filter((x) => !taken.has(x.id))
+                          .map((x) => (
+                            <SelectItem key={x.id} value={x.id}>
+                              {x.name} · {x.unit}
+                            </SelectItem>
+                          ))}
+                        <SelectItem value={ADD_NEW_ITEM} className="font-medium text-primary">
+                          + Add new product…
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </TableCell>
+                  <TableCell className="text-right text-muted-foreground">
+                    {p && already.get(p.id) ? num(already.get(p.id)!) : "—"}
+                  </TableCell>
+                  <TableCell>
+                    <MoneyInput
+                      min={0}
+                      step="0.001"
+                      value={row.qty}
+                      onChange={(v) => update(row.key, { qty: v })}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      title="Remove"
+                      onClick={() => setRows((rs) => rs.filter((r) => r.key !== row.key))}
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+            {rows.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={4} className="py-6 text-center text-muted-foreground">
+                  Click Add product for each product produced this shift.
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+        <div>
+          <Button type="button" variant="outline" size="sm" className="gap-2" onClick={addRow}>
+            <Plus className="h-4 w-4" /> Add product
+          </Button>
+        </div>
+        {/* "+ Add new product…" in a row's dropdown creates the product and
+            selects it in that row. */}
+        <QuickAddProductDialog
+          open={addingFor !== null}
+          onOpenChange={(v) => !v && setAddingFor(null)}
+          factoryId={factoryId}
+          onCreated={(id) => {
+            if (addingFor !== null) update(addingFor, { productId: id });
+          }}
+        />
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label>Supervisor</Label>
+            <Input value={supervisor} onChange={(e) => setSupervisor(e.target.value)} />
+          </div>
+          <div>
+            <Label>Remarks (optional)</Label>
+            <Input value={remarks} onChange={(e) => setRemarks(e.target.value)} />
+          </div>
+        </div>
+      </div>
+      <DialogFooter>
+        <Button disabled={save.isPending} onClick={() => save.mutate()} className="gap-2">
+          {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+          Record {lines.length || ""} product{lines.length === 1 ? "" : "s"}
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  );
+}
+
 function generateBatchNumber() {
   const now = new Date();
   const stamp =
@@ -632,9 +947,12 @@ function ProductionForm({
   const [requestId, setRequestId] = useState("");
   const [productId, setProductId] = useState(editing?.product_id ?? "");
   const [addingProduct, setAddingProduct] = useState(false);
-  const [date, setDate] = useState(
-    editing?.production_date ?? new Date().toISOString().slice(0, 10),
-  );
+  // New entries default to the likely batch: in the morning, last night's
+  // (yesterday, night shift); from noon, today's day shift.
+  const [suggested] = useState(suggestedEntry);
+  const [date, setDate] = useState(editing?.production_date ?? suggested.date);
+  const [shift, setShift] = useState<Shift | "">(editing ? (editing.shift ?? "") : suggested.shift);
+  const today = localDay();
   const [quantityUnit, setQuantityUnit] = useState(editing?.packaging_unit ?? "__base__");
   const [quantity, setQuantity] = useState(
     editing ? Number(editing.packaging_quantity ?? editing.quantity_produced) : 0,
@@ -709,6 +1027,7 @@ function ProductionForm({
   const save = useMutation({
     mutationFn: async () => {
       if (!productId) throw new Error("Select a finished product");
+      if (!shift) throw new Error("Select the shift — Day or Night");
       if (quantity <= 0) throw new Error("Quantity must be greater than 0");
       if (editing) {
         const { error } = await supabase.rpc("update_production", {
@@ -722,6 +1041,7 @@ function ProductionForm({
             batch_number: batch || null,
             remarks: remarks || null,
             production_date: date,
+            shift,
           } as any,
         });
         if (error) throw error;
@@ -739,6 +1059,7 @@ function ProductionForm({
             batch_number: batch || null,
             remarks: remarks || null,
             production_date: date,
+            shift,
             production_request_id: requestId || null,
           } as any,
         });
@@ -775,10 +1096,54 @@ function ProductionForm({
         <DialogTitle>{editing ? "Update Production" : "New Production"}</DialogTitle>
       </DialogHeader>
       <div className="grid gap-3 max-h-[75vh] overflow-y-auto pr-1">
-        <div>
-          <Label>Production date</Label>
-          <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        {!editing && (
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant={date === addDays(today, -1) && shift === "night" ? "default" : "outline"}
+              onClick={() => {
+                setDate(addDays(today, -1));
+                setShift("night");
+              }}
+            >
+              Last night&apos;s batch
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={date === today && shift === "day" ? "default" : "outline"}
+              onClick={() => {
+                setDate(today);
+                setShift("day");
+              }}
+            >
+              Today&apos;s day batch
+            </Button>
+          </div>
+        )}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label>Production date</Label>
+            <Input type="date" value={date} max={today} onChange={(e) => setDate(e.target.value)} />
+          </div>
+          <div>
+            <Label>Shift</Label>
+            <Select value={shift} onValueChange={(v) => setShift(v as Shift)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select shift…" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="day">Day</SelectItem>
+                <SelectItem value="night">Night</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
+        <p className="-mt-1 text-xs text-muted-foreground">
+          A night batch is dated the night it was made — record last night&apos;s output in the
+          morning under yesterday&apos;s date.
+        </p>
         {!editing && eligibleRequests.length > 0 && (
           <div>
             <Label>Link to Production Request (optional)</Label>

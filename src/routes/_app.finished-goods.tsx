@@ -1053,7 +1053,7 @@ function ProductForm({
           ...payload,
           cost_price: costPrice,
           factory_id: factoryId,
-          current_stock: openingStock,
+          current_stock: 0,
           active: true,
         });
         if (error) throw error;
@@ -1167,16 +1167,14 @@ function ProductForm({
           </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <div>
-            <Label>Opening stock</Label>
-            <MoneyInput
-              min={0}
-              step="0.001"
-              value={openingStock}
-              onChange={setOpeningStock}
-              disabled={!!editing}
-            />
-          </div>
+          {/* No opening stock: a product starts at 0 and gets stock only from
+              production released to the Warehouse (or an approved adjustment). */}
+          {editing && (
+            <div>
+              <Label>Warehouse stock</Label>
+              <MoneyInput value={openingStock} onChange={setOpeningStock} disabled />
+            </div>
+          )}
           <div>
             <Label>Reorder level</Label>
             <MoneyInput min={0} step="0.001" value={reorderLevel} onChange={setReorderLevel} />

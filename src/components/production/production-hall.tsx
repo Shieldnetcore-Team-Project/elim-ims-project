@@ -277,7 +277,7 @@ export function ProductionHall({ factoryId }: { factoryId: string }) {
                   <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
                     {hall.isLoading
                       ? "Loading…"
-                      : "The production hall is empty. Record production with New Production."}
+                      : "The production hall is empty. Record production with the Daily Production Sheet."}
                   </TableCell>
                 </TableRow>
               )}
