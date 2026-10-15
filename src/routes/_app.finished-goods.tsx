@@ -67,7 +67,11 @@ import { generateStockCardPdf } from "@/lib/pdf";
 import { useUnitsOfMeasure, UNIT_OPTIONS as UNIT_OPTIONS_FALLBACK } from "@/lib/units";
 import { ADJUSTMENT_REASONS } from "@/lib/adjustment-reasons";
 import { WarehousePostMenu } from "@/components/warehouse/post-menu";
-import { ProductNameSelect } from "@/components/shared/product-name-select";
+import {
+  ProductNameSelect,
+  assertUniqueProductName,
+  categoryForProduct,
+} from "@/components/shared/product-name-select";
 
 export const Route = createFileRoute("/_app/finished-goods")({
   head: () => ({
@@ -1022,6 +1026,7 @@ function ProductForm({
     mutationFn: async () => {
       if (!name.trim()) throw new Error("Product name is required");
       if (!unit.trim()) throw new Error("Select or enter a unit of measurement");
+      await assertUniqueProductName(factoryId, name, editing?.id);
       const payload = {
         name: name.trim(),
         sku: sku.trim() || null,
@@ -1069,7 +1074,17 @@ function ProductForm({
       <div className="grid gap-3">
         <div>
           <Label>Product name</Label>
-          <ProductNameSelect value={name} onChange={setName} />
+          <ProductNameSelect
+            value={name}
+            onChange={(n) => {
+              setName(n);
+              // File it under its category (Bottle / Dispenser / Sachet Water).
+              const cat = categoryForProduct(n);
+              const match =
+                cat && categories.find((c) => c.name.toLowerCase() === cat.toLowerCase());
+              if (match) setCategoryId(match.id);
+            }}
+          />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>

@@ -22,7 +22,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ProductNameSelect } from "@/components/shared/product-name-select";
+import {
+  ProductNameSelect,
+  assertUniqueProductName,
+  categoryForProduct,
+} from "@/components/shared/product-name-select";
 
 // Sentinel value for the "+ Add new …" entry that sits at the bottom of the
 // product / material dropdowns. Selects intercept it before touching state.
@@ -137,6 +141,7 @@ export function QuickAddProductDialog({
     mutationFn: async () => {
       if (!name.trim()) throw new Error("Product name is required");
       if (!unit.trim()) throw new Error("Select or enter a unit of measurement");
+      await assertUniqueProductName(factoryId, name);
       // Goes through an RPC (permission-checked server side) because the
       // products table itself only lets Finished Goods writers insert.
       const { data, error } = await supabase.rpc(
@@ -187,7 +192,18 @@ export function QuickAddProductDialog({
         <div className="grid gap-3">
           <div>
             <Label>Product name</Label>
-            <ProductNameSelect value={name} onChange={setName} autoFocus />
+            <ProductNameSelect
+              value={name}
+              onChange={(n) => {
+                setName(n);
+                const cat = categoryForProduct(n);
+                const match =
+                  cat &&
+                  (categories.data ?? []).find((c) => c.name.toLowerCase() === cat.toLowerCase());
+                if (match) setCategoryId(match.id);
+              }}
+              autoFocus
+            />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>

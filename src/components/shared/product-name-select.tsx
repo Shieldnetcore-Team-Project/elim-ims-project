@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -21,6 +22,32 @@ export const FINISHED_PRODUCT_NAMES = [
   "Empty Jug",
   "Sachet Water",
 ] as const;
+
+// The three product categories, and which one each listed product goes in.
+export const WATER_CATEGORIES = ["Bottle Water", "Dispenser Water", "Sachet Water"] as const;
+
+export function categoryForProduct(name: string): (typeof WATER_CATEGORIES)[number] | undefined {
+  const n = name.trim().toLowerCase();
+  if (n.includes("sachet") || n.includes("satchet")) return "Sachet Water";
+  if (n.includes("dispenser") || n.includes("jug")) return "Dispenser Water";
+  if (n.includes("bottle")) return "Bottle Water";
+  return undefined;
+}
+
+// Throws if this factory already has a product of that name (ignoring case and
+// surrounding spaces) other than `excludeId`. The database enforces the same
+// rule (products_factory_name_unique); this gives the clear message first.
+export async function assertUniqueProductName(factoryId: string, name: string, excludeId?: string) {
+  const { data, error } = await supabase
+    .from("products")
+    .select("id,name")
+    .eq("factory_id", factoryId);
+  if (error) throw error;
+  const key = name.trim().toLowerCase();
+  const twin = (data ?? []).find((p) => p.id !== excludeId && p.name.trim().toLowerCase() === key);
+  if (twin)
+    throw new Error(`"${twin.name}" already exists — edit that product instead of adding it again`);
+}
 
 const OTHER = "__other__";
 
