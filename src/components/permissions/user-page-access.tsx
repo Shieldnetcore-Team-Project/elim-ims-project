@@ -20,6 +20,14 @@ import { RotateCcw, ShieldCheck } from "lucide-react";
 // from inside the Admin Panel — fall into OTHER_SECTION, one per module.
 const OTHER_SECTION = "Admin & other";
 
+// "Can see" is the module's `view`. "Can work" adds the everyday working
+// rights on that page -- create, edit, submit (e.g. record production and
+// release it to the Warehouse, raise a request, record an inspection).
+// Approving, confirming, posting and deleting stay with roles and the detailed
+// per-action editor, since those are checker rights.
+const WORK_ACTIONS = ["create", "edit", "submit"] as const;
+const PAGE_ACTIONS = ["view", ...WORK_ACTIONS];
+
 type PageEntry = { title: string; items: { module: ModuleKey; label: string }[] };
 
 function buildSections(): { section: string; pages: PageEntry[] }[] {
@@ -83,14 +91,14 @@ export function UserPageAccess({ userId, canEdit }: { userId: string; canEdit: b
   });
 
   const roleViewGrants = useQuery({
-    queryKey: ["role-view-grants"],
+    queryKey: ["role-page-grants"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("role_permissions")
-        .select("role,module")
-        .eq("action", "view");
+        .select("role,module,action")
+        .in("action", PAGE_ACTIONS);
       if (error) throw error;
-      return new Set((data ?? []).map((r) => `${r.role}:${r.module}`));
+      return new Set((data ?? []).map((r) => `${r.role}:${r.module}:${r.action}`));
     },
   });
 
@@ -99,11 +107,12 @@ export function UserPageAccess({ userId, canEdit }: { userId: string; canEdit: b
     queryFn: async () => {
       const { data, error } = await supabase
         .from("permission_overrides")
-        .select("module,granted")
+        .select("module,action,granted")
         .eq("user_id", userId)
-        .eq("action", "view");
+        .in("action", PAGE_ACTIONS);
       if (error) throw error;
-      return new Map((data ?? []).map((o) => [o.module as ModuleKey, o.granted as boolean]));
+      // keyed "module:action"
+      return new Map((data ?? []).map((o) => [`${o.module}:${o.action}`, o.granted as boolean]));
     },
   });
 
@@ -130,6 +139,22 @@ export function UserPageAccess({ userId, canEdit }: { userId: string; canEdit: b
     onError: (e: Error) => toast.error(e.message),
   });
 
+  // "Can work": create + edit + submit together. Granting it also grants the
+  // page itself -- working on a page you can't open isn't possible.
+  const setWork = useMutation({
+    mutationFn: async ({ module, granted }: { module: ModuleKey; granted: boolean }) => {
+      const actions: string[] = granted ? [...WORK_ACTIONS, "view"] : [...WORK_ACTIONS];
+      const rows = actions.map((action) => ({ user_id: userId, module, action, granted }));
+      const { error } = await supabase.from("permission_overrides").upsert(rows);
+      if (error) throw error;
+    },
+    onSuccess: (_d, v) => {
+      toast.success(v.granted ? "Can now work on this page" : "Can no longer work on this page");
+      invalidate();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const clearOverride = useMutation({
     mutationFn: async (module: ModuleKey) => {
       const { error } = await supabase
@@ -137,7 +162,7 @@ export function UserPageAccess({ userId, canEdit }: { userId: string; canEdit: b
         .delete()
         .eq("user_id", userId)
         .eq("module", module)
-        .eq("action", "view");
+        .in("action", PAGE_ACTIONS);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -153,7 +178,7 @@ export function UserPageAccess({ userId, canEdit }: { userId: string; canEdit: b
         .from("permission_overrides")
         .delete()
         .eq("user_id", userId)
-        .eq("action", "view");
+        .in("action", PAGE_ACTIONS);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -165,16 +190,28 @@ export function UserPageAccess({ userId, canEdit }: { userId: string; canEdit: b
 
   const isAdmin = (userRoles.data ?? []).includes("super_admin");
   const loading = userRoles.isLoading || roleViewGrants.isLoading || overrides.isLoading;
-  const busy = setAccess.isPending || clearOverride.isPending || clearAll.isPending;
+  const busy =
+    setAccess.isPending || setWork.isPending || clearOverride.isPending || clearAll.isPending;
 
-  const roleAllows = (module: ModuleKey) =>
-    (userRoles.data ?? []).some((r) => roleViewGrants.data?.has(`${r}:${module}`));
+  const roleAllows = (module: ModuleKey, action: string) =>
+    (userRoles.data ?? []).some((r) => roleViewGrants.data?.has(`${r}:${module}:${action}`));
+  const allowed = (module: ModuleKey, action: string) =>
+    overrides.data?.get(`${module}:${action}`) ?? roleAllows(module, action);
 
   const state = (module: ModuleKey) => {
-    const override = overrides.data?.get(module);
-    const fromRole = roleAllows(module);
-    if (override === undefined) return { checked: fromRole, source: "role" as const };
-    return { checked: override, source: override ? ("granted" as const) : ("blocked" as const) };
+    const override = overrides.data?.get(`${module}:view`);
+    const fromRole = roleAllows(module, "view");
+    // Can work when every working action is allowed, by role or override.
+    const work = WORK_ACTIONS.every((a) => allowed(module, a));
+    const workOverride = WORK_ACTIONS.some((a) => overrides.data?.has(`${module}:${a}`));
+    if (override === undefined)
+      return { checked: fromRole, source: "role" as const, work, workOverride };
+    return {
+      checked: override,
+      source: override ? ("granted" as const) : ("blocked" as const),
+      work,
+      workOverride,
+    };
   };
 
   if (isAdmin) {
@@ -189,14 +226,16 @@ export function UserPageAccess({ userId, canEdit }: { userId: string; canEdit: b
     );
   }
 
-  const overrideCount = overrides.data?.size ?? 0;
+  const overrideCount = new Set([...(overrides.data?.keys() ?? [])].map((k) => k.split(":")[0]))
+    .size;
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">
-          Tick a page to give this user access, untick it to take access away. A tick overrides
-          whatever their role allows, so it applies to this user only.
+          Tick a page to let this user open it; tick &quot;Can work&quot; to also let them record
+          and submit there (e.g. record production and release it to the Warehouse). Ticks override
+          what their role allows, for this user only.
         </p>
         {canEdit && overrideCount > 0 && (
           <Button
@@ -231,6 +270,7 @@ export function UserPageAccess({ userId, canEdit }: { userId: string; canEdit: b
                       canEdit={canEdit}
                       busy={busy}
                       onToggle={(module, granted) => setAccess.mutate({ module, granted })}
+                      onWork={(module, granted) => setWork.mutate({ module, granted })}
                       onReset={(module) => clearOverride.mutate(module)}
                     />
                   ) : (
@@ -257,6 +297,7 @@ export function UserPageAccess({ userId, canEdit }: { userId: string; canEdit: b
                             canEdit={canEdit}
                             busy={busy}
                             onToggle={(module, granted) => setAccess.mutate({ module, granted })}
+                            onWork={(module, granted) => setWork.mutate({ module, granted })}
                             onReset={(module) => clearOverride.mutate(module)}
                           />
                         ))}
@@ -276,6 +317,8 @@ export function UserPageAccess({ userId, canEdit }: { userId: string; canEdit: b
 type PageState = (module: ModuleKey) => {
   checked: boolean;
   source: "role" | "granted" | "blocked";
+  work: boolean;
+  workOverride: boolean;
 };
 
 function PageHeaderRow({
@@ -321,6 +364,7 @@ function ModuleRow({
   canEdit,
   busy,
   onToggle,
+  onWork,
   onReset,
 }: {
   module: ModuleKey;
@@ -329,9 +373,10 @@ function ModuleRow({
   canEdit: boolean;
   busy: boolean;
   onToggle: (module: ModuleKey, granted: boolean) => void;
+  onWork: (module: ModuleKey, granted: boolean) => void;
   onReset: (module: ModuleKey) => void;
 }) {
-  const { checked, source } = state(module);
+  const { checked, source, work, workOverride } = state(module);
   return (
     <label
       htmlFor={`pa-${module}`}
@@ -363,7 +408,30 @@ function ModuleRow({
             {checked ? "Allowed by role" : "Not allowed by role"}
           </div>
         )}
-        {source !== "role" && canEdit && (
+        {checked && (
+          // Inside the row's <label>: stop clicks here from also toggling the
+          // page checkbox.
+          <div
+            className="mt-2 flex items-center gap-2"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+          >
+            <Checkbox
+              checked={work}
+              disabled={!canEdit || busy}
+              onCheckedChange={(v) => onWork(module, !!v)}
+            />
+            <span
+              className="cursor-pointer text-xs"
+              onClick={() => canEdit && !busy && onWork(module, !work)}
+            >
+              Can work — create, edit, submit
+            </span>
+          </div>
+        )}
+        {(source !== "role" || workOverride) && canEdit && (
           <button
             type="button"
             className="mt-1 text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
