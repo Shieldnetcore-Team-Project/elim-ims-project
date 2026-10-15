@@ -474,7 +474,6 @@ function ProductionPage() {
                 <TableHead>Type</TableHead>
                 <TableHead>Product</TableHead>
                 <TableHead className="text-right">Qty Produced</TableHead>
-                <TableHead className="text-right">Damaged</TableHead>
                 <TableHead className="text-right">Cost</TableHead>
                 <TableHead>Scope</TableHead>
                 <TableHead>Supervisor</TableHead>
@@ -500,15 +499,6 @@ function ProductionPage() {
                   </TableCell>
                   <TableCell className="text-right">
                     {num(Number(row.quantity_produced))} {row.unit}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {row.damaged_quantity ? (
-                      <span className="text-destructive">
-                        {num(Number(row.damaged_quantity))} {row.unit}
-                      </span>
-                    ) : (
-                      "—"
-                    )}
                   </TableCell>
                   <TableCell className="text-right">
                     {money(Number(row.production_cost ?? 0))}
@@ -650,10 +640,10 @@ function ProductionForm({
     editing ? Number(editing.packaging_quantity ?? editing.quantity_produced) : 0,
   );
   const [unit, setUnit] = useState(editing?.unit ?? "");
-  // Production no longer enters damage — the Warehouse records it when it
-  // accepts a release. Kept only so editing an older batch preserves the damage
-  // it was recorded with (base/stocking unit).
-  const [damagedQuantity] = useState(editing ? Number(editing.damaged_quantity ?? 0) : 0);
+  // Production doesn't enter damage — the Warehouse records it when it accepts
+  // a release. Editing an older batch re-sends the damage it was recorded with
+  // (base/stocking unit) so update_production doesn't wipe it.
+  const damagedQuantity = editing ? Number(editing.damaged_quantity ?? 0) : 0;
   const [cost, setCost] = useState(editing ? Number(editing.production_cost ?? 0) : 0);
   const [supervisor, setSupervisor] = useState(editing?.supervisor ?? "");
   const [batch] = useState(editing?.batch_number ?? generateBatchNumber());
@@ -720,9 +710,6 @@ function ProductionForm({
     mutationFn: async () => {
       if (!productId) throw new Error("Select a finished product");
       if (quantity <= 0) throw new Error("Quantity must be greater than 0");
-      if (damagedQuantity < 0) throw new Error("Damaged quantity cannot be negative");
-      if (damagedQuantity > computedBaseQty)
-        throw new Error("Damaged quantity cannot exceed quantity produced");
       if (editing) {
         const { error } = await supabase.rpc("update_production", {
           payload: {
@@ -746,7 +733,6 @@ function ProductionForm({
             quantity_produced: selectedPackaging ? undefined : quantity,
             packaging_unit: selectedPackaging ? quantityUnit : undefined,
             packaging_quantity: selectedPackaging ? quantity : undefined,
-            damaged_quantity: damagedQuantity,
             unit: unit || selectedProduct?.unit,
             production_cost: cost,
             supervisor: supervisor || null,
