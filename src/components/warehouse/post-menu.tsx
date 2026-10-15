@@ -12,6 +12,7 @@ import {
 import { ChevronDown, Send, Store, UserRound, Users } from "lucide-react";
 import { PosDialog } from "@/routes/_app.sales";
 import { MarketerPostDialog, PostToHolderDialog } from "@/routes/_app.distribution";
+import { DistributorPicker } from "./distributor-picker";
 
 type Target = "marketer" | "distributor" | "outlet";
 
@@ -28,11 +29,14 @@ export function WarehousePostMenu({ factoryId }: { factoryId: string }) {
   const canDispatch = canCreate("distribution");
   const canSell = canWrite("sales");
   const [target, setTarget] = useState<Target | null>(null);
+  // Distributors: picked (or added) first, then the sale form opens preset to them.
+  const [distributorId, setDistributorId] = useState<string | null>(null);
 
   if (!canDispatch && !canSell) return null;
 
   const done = () => {
     setTarget(null);
+    setDistributorId(null);
     for (const key of [
       "finished-goods",
       "products-active",
@@ -42,6 +46,11 @@ export function WarehousePostMenu({ factoryId }: { factoryId: string }) {
       "dist-products",
       "dist-rep-stock",
       "dist-account",
+      "dist-rep-customers",
+      "dist-rep-customer-accounts",
+      "customers",
+      "warehouse-activity",
+      "pending-production-batches",
     ])
       qc.invalidateQueries({ queryKey: [key] });
   };
@@ -72,9 +81,27 @@ export function WarehousePostMenu({ factoryId }: { factoryId: string }) {
           )}
         </DropdownMenuContent>
       </DropdownMenu>
-      <Dialog open={!!target} onOpenChange={(v) => !v && setTarget(null)}>
+      <Dialog
+        open={!!target}
+        onOpenChange={(v) => {
+          if (!v) {
+            setTarget(null);
+            setDistributorId(null);
+          }
+        }}
+      >
         {target === "marketer" && <MarketerPostDialog factoryId={factoryId} onDone={done} />}
-        {target === "distributor" && <PosDialog factoryId={factoryId} onDone={done} />}
+        {target === "distributor" && !distributorId && (
+          <DistributorPicker factoryId={factoryId} onPick={setDistributorId} />
+        )}
+        {target === "distributor" && distributorId && (
+          <PosDialog
+            factoryId={factoryId}
+            presetCustomerId={distributorId}
+            defaultDiscountType="per_pack"
+            onDone={done}
+          />
+        )}
         {target === "outlet" && (
           <PostToHolderDialog factoryId={factoryId} kind="outlet" onDone={done} />
         )}

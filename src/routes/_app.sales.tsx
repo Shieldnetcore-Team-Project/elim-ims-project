@@ -70,7 +70,9 @@ import { RequestDeleteDialog } from "@/components/shared/request-delete-dialog";
 import { QuickAddProductDialog, ADD_NEW_ITEM } from "@/components/shared/quick-add-item";
 
 export const Route = createFileRoute("/_app/sales")({
-  head: () => ({ meta: [{ title: "Sales & POS — Elim Table Water" }, { name: "robots", content: "noindex" }] }),
+  head: () => ({
+    meta: [{ title: "Sales & POS — Elim Table Water" }, { name: "robots", content: "noindex" }],
+  }),
   component: () => (
     <>
       <SectionTabs section="Retail" />
@@ -1309,9 +1311,12 @@ export function PosDialog({
   presetCustomerId,
   presetSalesRepId,
   editingSale,
+  defaultDiscountType,
 }: {
   factoryId: string;
   onDone: () => void;
+  // Warehouse → Distributors opens with the per-pack discount selected.
+  defaultDiscountType?: "amount" | "percent" | "per_pack";
   // Set from the Retail Outlet page so the sale comes off the outlet's stock
   // instead of defaulting to a direct warehouse sale.
   presetSalesRepId?: string;
@@ -1388,7 +1393,11 @@ export function PosDialog({
     }
   }, [presetCustomerId, customers.data]);
   const [discountInput, setDiscountInput] = useState(editingSale?.discount ?? 0);
-  const [discountType, setDiscountType] = useState<"amount" | "percent">("amount");
+  // "per_pack": a fixed amount off each pack (unit) bought -- e.g. ₦100 a pack
+  // to a distributor -- so the discount is that amount × the packs in the cart.
+  const [discountType, setDiscountType] = useState<"amount" | "percent" | "per_pack">(
+    defaultDiscountType ?? "amount",
+  );
   const [applyVat, setApplyVat] = useState(editingSale ? editingSale.vat > 0 : true);
   const [isPr, setIsPr] = useState(editingSale?.is_pr ?? false);
   const [payments, setPayments] = useState<PaymentLine[]>(() => {
@@ -1501,15 +1510,18 @@ export function PosDialog({
 
   const totals = useMemo(() => {
     const subtotal = cart.reduce((s, i) => s + i.quantity * i.unit_price, 0);
+    const packs = cart.reduce((s, i) => s + i.quantity, 0);
     // Percentage discount is always taken off the subtotal, not off a
     // previously-discounted amount -- there's only ever one discount here.
     const discount =
       discountType === "percent"
         ? Math.min(subtotal * (Math.max(discountInput, 0) / 100), subtotal)
-        : Math.min(Math.max(discountInput, 0), subtotal);
+        : discountType === "per_pack"
+          ? Math.min(Math.max(discountInput, 0) * packs, subtotal)
+          : Math.min(Math.max(discountInput, 0), subtotal);
     // PR: stock still goes out (the cart/subtotal above is unaffected), but
     // nothing is billed, paid, or owed -- everything money-related is 0.
-    if (isPr) return { subtotal, discount, vat: 0, grand: 0, balance: 0, creditApplied: 0 };
+    if (isPr) return { subtotal, packs, discount, vat: 0, grand: 0, balance: 0, creditApplied: 0 };
     const vat = applyVat ? Math.max(subtotal - discount, 0) * (vatRate / 100) : 0;
     const grand = Math.max(subtotal - discount + vat, 0);
     // Automatic, not something the cashier sets: whatever the customer's
@@ -1517,7 +1529,7 @@ export function PosDialog({
     // formula approve_sale() finalizes with server-side.
     const creditApplied = Math.min(Math.max(grand - amountPaid, 0), availableCredit);
     const balance = Math.max(grand - amountPaid - creditApplied, 0);
-    return { subtotal, discount, vat, grand, balance, creditApplied };
+    return { subtotal, packs, discount, vat, grand, balance, creditApplied };
   }, [cart, discountInput, discountType, amountPaid, availableCredit, vatRate, applyVat, isPr]);
 
   const registeredCustomer = customerId !== "walkin";
@@ -1538,8 +1550,9 @@ export function PosDialog({
   const creditLimit =
     customerId === "walkin"
       ? null
-      : (customers.data ?? []).find((c) => c.id === customerId)?.credit_limit ?? null;
-  const overLimit = creditLimit != null && position.amountDue > 0 && position.debtAfter > Number(creditLimit);
+      : ((customers.data ?? []).find((c) => c.id === customerId)?.credit_limit ?? null);
+  const overLimit =
+    creditLimit != null && position.amountDue > 0 && position.debtAfter > Number(creditLimit);
 
   // What actually gets sold -- excludes lines the user has cleared to 0
   // while editing but hasn't removed or refilled yet.
@@ -1918,17 +1931,24 @@ export function PosDialog({
               )}
               <Select
                 value={discountType}
-                onValueChange={(v) => setDiscountType(v as "amount" | "percent")}
+                onValueChange={(v) => setDiscountType(v as typeof discountType)}
               >
-                <SelectTrigger className="w-16 shrink-0">
+                <SelectTrigger className="w-24 shrink-0">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="amount">₦</SelectItem>
+                  <SelectItem value="amount">₦ total</SelectItem>
+                  <SelectItem value="per_pack">₦ / pack</SelectItem>
                   <SelectItem value="percent">%</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+            {discountType === "per_pack" && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                {money(discountInput)} × {num(totals.packs)} pack{totals.packs === 1 ? "" : "s"} ={" "}
+                {money(totals.discount)} off
+              </p>
+            )}
           </div>
           <label className="flex items-center gap-2 text-sm">
             <Checkbox
@@ -2012,7 +2032,14 @@ export function PosDialog({
             {!isPr && (
               <>
                 <div className="flex justify-between">
-                  <span>Discount{discountType === "percent" ? ` (${discountInput}%)` : ""}</span>
+                  <span>
+                    Discount
+                    {discountType === "percent"
+                      ? ` (${discountInput}%)`
+                      : discountType === "per_pack"
+                        ? ` (${money(discountInput)} × ${num(totals.packs)})`
+                        : ""}
+                  </span>
                   <span>-{money(totals.discount)}</span>
                 </div>
                 <div className="flex justify-between">
@@ -2079,8 +2106,8 @@ export function PosDialog({
                 {totals.grand > 0 && overLimit && (
                   <p className="rounded-md bg-destructive/10 px-2 py-1 text-xs font-medium text-destructive">
                     Over credit limit: the customer would owe {money(position.debtAfter)} against a
-                    limit of {money(Number(creditLimit))}. Collect more payment now, or only an admin
-                    can approve this sale.
+                    limit of {money(Number(creditLimit))}. Collect more payment now, or only an
+                    admin can approve this sale.
                   </p>
                 )}
                 {existingDebt > 0 && (

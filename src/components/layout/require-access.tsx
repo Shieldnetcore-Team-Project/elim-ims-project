@@ -1,12 +1,42 @@
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { usePermissions, type ModuleKey } from "@/lib/permissions";
+import { nav } from "@/lib/nav";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ShieldAlert } from "lucide-react";
 
-export function RequireAccess({ module, children }: { module: ModuleKey; children: ReactNode }) {
+// `anyOf`: other modules that also open the page (e.g. the Warehouse overview
+// opens with raw-materials or finished-goods). `fallbackToFirstPage`: instead
+// of "Access restricted", send the user to the first sidebar page they can
+// open -- used by the Dashboard, where everyone lands after signing in, so a
+// user given only e.g. the Warehouse starts there.
+export function RequireAccess({
+  module,
+  anyOf,
+  fallbackToFirstPage,
+  children,
+}: {
+  module: ModuleKey;
+  anyOf?: ModuleKey[];
+  fallbackToFirstPage?: boolean;
+  children: ReactNode;
+}) {
   const { can, loading, loadFailed, reload } = usePermissions();
-  if (loading) return null;
+  const navigate = useNavigate();
+  const allowed = !loading && [module, ...(anyOf ?? [])].some((m) => can(m, "view"));
+  const firstPage =
+    !loading && !loadFailed && !allowed && fallbackToFirstPage
+      ? nav
+          .flatMap((g) => g.items)
+          .find((i) => (i.modules ? i.modules.some((m) => can(m, "view")) : can(i.module, "view")))
+          ?.url
+      : undefined;
+  useEffect(() => {
+    if (firstPage) navigate({ to: firstPage, replace: true });
+  }, [firstPage, navigate]);
+
+  if (loading || firstPage) return null;
   if (loadFailed) {
     return (
       <Card className="rounded-2xl border-dashed">
@@ -24,7 +54,7 @@ export function RequireAccess({ module, children }: { module: ModuleKey; childre
       </Card>
     );
   }
-  if (!can(module, "view")) {
+  if (!allowed) {
     return (
       <div className="space-y-4">
         <Card className="rounded-2xl border-dashed">
@@ -34,8 +64,8 @@ export function RequireAccess({ module, children }: { module: ModuleKey; childre
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            Your role doesn't have access to this module. Contact an Admin or Factory Manager
-            if you believe this is a mistake.
+            Your role doesn't have access to this module. Contact an Admin or Factory Manager if you
+            believe this is a mistake.
           </CardContent>
         </Card>
       </div>

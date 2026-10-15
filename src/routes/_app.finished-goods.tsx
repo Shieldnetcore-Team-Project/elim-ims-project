@@ -58,8 +58,6 @@ import {
   Send,
   Ban,
   Check,
-  X,
-  Factory,
   Trash2,
   Search,
 } from "lucide-react";
@@ -67,10 +65,12 @@ import { generateStockCardPdf } from "@/lib/pdf";
 import { useUnitsOfMeasure, UNIT_OPTIONS as UNIT_OPTIONS_FALLBACK } from "@/lib/units";
 import { ADJUSTMENT_REASONS } from "@/lib/adjustment-reasons";
 import { WarehousePostMenu } from "@/components/warehouse/post-menu";
+import { ReleasesToAccept } from "@/components/warehouse/releases-to-accept";
 import {
   ProductNameSelect,
   assertUniqueProductName,
   categoryForProduct,
+  defaultPriceFor,
 } from "@/components/shared/product-name-select";
 
 export const Route = createFileRoute("/_app/finished-goods")({
@@ -124,19 +124,6 @@ type PendingAdjustment = {
   products: { name: string; unit: string } | null;
 };
 // A release from the production hall, waiting for the Warehouse to accept it.
-type PendingBatch = {
-  id: string;
-  release_number: string;
-  quantity: number;
-  unit: string | null;
-  notes: string | null;
-  released_by: string | null;
-  released_by_name: string | null;
-  released_at: string;
-  products: { name: string; unit: string } | null;
-  production_requests: { request_number: string } | null;
-};
-
 function SummaryCard({
   icon: Icon,
   label,
@@ -172,15 +159,12 @@ function FinishedGoodsPage() {
   const { data: factoryId } = useFactoryId();
   const settings = useFactorySettings(factoryId);
   const qc = useQueryClient();
-  const { canWrite, canSubmit, canApprove, canPost, canCancel, canConfirm, canReject } =
-    usePermissions();
+  const { canWrite, canSubmit, canApprove, canPost, canCancel } = usePermissions();
   const write = canWrite("finished-goods");
   const submit = canSubmit("finished-goods");
   const approve = canApprove("finished-goods");
   const post = canPost("finished-goods");
   const cancel = canCancel("finished-goods");
-  const confirmBatchPerm = canConfirm("production");
-  const rejectBatchPerm = canReject("production");
   useRealtimeInvalidate(
     [
       "products",
@@ -218,8 +202,6 @@ function FinishedGoodsPage() {
   const [transferTarget, setTransferTarget] = useState<Product | null>(null);
   const [historyTarget, setHistoryTarget] = useState<Product | null>(null);
   const [packagingTarget, setPackagingTarget] = useState<Product | null>(null);
-  const [confirmTarget, setConfirmTarget] = useState<PendingBatch | null>(null);
-  const [rejectTarget, setRejectTarget] = useState<PendingBatch | null>(null);
 
   const list = useQuery({
     queryKey: ["finished-goods", factoryId],
@@ -276,23 +258,6 @@ function FinishedGoodsPage() {
         .order("submitted_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as unknown as PendingAdjustment[];
-    },
-  });
-
-  const pendingBatches = useQuery({
-    queryKey: ["pending-production-batches", factoryId],
-    enabled: !!factoryId,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("production_releases")
-        .select(
-          "id,release_number,quantity,unit,notes,released_by,released_by_name,released_at,products(name,unit),production_requests(request_number)",
-        )
-        .eq("factory_id", factoryId!)
-        .eq("status", "pending")
-        .order("released_at", { ascending: false });
-      if (error) throw error;
-      return (data ?? []) as unknown as PendingBatch[];
     },
   });
 
@@ -360,21 +325,6 @@ function FinishedGoodsPage() {
     qc.invalidateQueries({ queryKey: ["damage-records-finished-goods"] });
     qc.invalidateQueries({ queryKey: ["damage-value-finished-goods"] });
   };
-
-  const rejectBatch = useMutation({
-    mutationFn: async ({ id, reason }: { id: string; reason: string }) => {
-      const { error } = await supabase.rpc("reject_production_release", {
-        p_id: id,
-        p_reason: reason,
-      });
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      toast.success("Release refused — the goods are back in the production hall");
-      invalidateAll();
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
 
   const reviewAdjustment = useMutation({
     mutationFn: async ({
@@ -585,6 +535,7 @@ function FinishedGoodsPage() {
                 <TableHead>Type</TableHead>
                 <TableHead>Category</TableHead>
                 <TableHead className="text-right">Available Stock</TableHead>
+                <TableHead className="text-right">Selling Price</TableHead>
                 <TableHead className="text-right">Cost Price</TableHead>
                 <TableHead></TableHead>
               </TableRow>
@@ -610,6 +561,9 @@ function FinishedGoodsPage() {
                           Low
                         </Badge>
                       )}
+                    </TableCell>
+                    <TableCell className="text-right font-medium">
+                      {money(Number(p.unit_price))}
                     </TableCell>
                     <TableCell className="text-right">{money(Number(p.cost_price))}</TableCell>
                     <TableCell>
@@ -688,7 +642,7 @@ function FinishedGoodsPage() {
               })}
               {searchedList.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
                     {q.trim() ? "No products match your search." : "No products yet."}
                   </TableCell>
                 </TableRow>
@@ -798,78 +752,7 @@ function FinishedGoodsPage() {
         </Card>
       )}
 
-      {(pendingBatches.data ?? []).length > 0 && (
-        <Card className="rounded-2xl border-dashed">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              Production Releases to Accept
-              <Badge variant="destructive">{pendingBatches.data!.length}</Badge>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Release #</TableHead>
-                  <TableHead>Product</TableHead>
-                  <TableHead className="text-right">Quantity Released</TableHead>
-                  <TableHead>Released</TableHead>
-                  <TableHead></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {(pendingBatches.data ?? []).map((b) => {
-                  const isSelf = b.released_by === currentUser.data;
-                  return (
-                    <TableRow key={b.id}>
-                      <TableCell className="font-mono text-xs">
-                        {b.release_number}
-                        {b.production_requests && (
-                          <div className="text-[11px] text-muted-foreground">
-                            for {b.production_requests.request_number}
-                          </div>
-                        )}
-                      </TableCell>
-                      <TableCell className="font-medium">{b.products?.name ?? "—"}</TableCell>
-                      <TableCell className="text-right">
-                        {num(Number(b.quantity))} {b.products?.unit ?? b.unit}
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {new Date(b.released_at).toLocaleString()}
-                        {b.released_by_name && <div>by {b.released_by_name}</div>}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex justify-end gap-1">
-                          {confirmBatchPerm && !isSelf && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              title="Accept"
-                              onClick={() => setConfirmTarget(b)}
-                            >
-                              <Check className="h-4 w-4 text-success" />
-                            </Button>
-                          )}
-                          {rejectBatchPerm && !isSelf && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              title="Reject"
-                              onClick={() => setRejectTarget(b)}
-                            >
-                              <X className="h-4 w-4 text-destructive" />
-                            </Button>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      )}
+      {factoryId && <ReleasesToAccept factoryId={factoryId} />}
 
       {(recentDamage.data ?? []).length > 0 && (
         <Card className="rounded-2xl">
@@ -920,33 +803,6 @@ function FinishedGoodsPage() {
           </CardContent>
         </Card>
       )}
-
-      <Dialog open={!!confirmTarget} onOpenChange={(v) => !v && setConfirmTarget(null)}>
-        {confirmTarget && (
-          <ConfirmBatchDialog
-            batch={confirmTarget}
-            onDone={() => {
-              setConfirmTarget(null);
-              invalidateAll();
-            }}
-          />
-        )}
-      </Dialog>
-
-      <Dialog open={!!rejectTarget} onOpenChange={(v) => !v && setRejectTarget(null)}>
-        {rejectTarget && (
-          <RejectBatchDialog
-            batch={rejectTarget}
-            isPending={rejectBatch.isPending}
-            onReject={(reason) =>
-              rejectBatch.mutate(
-                { id: rejectTarget.id, reason },
-                { onSuccess: () => setRejectTarget(null) },
-              )
-            }
-          />
-        )}
-      </Dialog>
 
       <Dialog open={!!adjustTarget} onOpenChange={(v) => !v && setAdjustTarget(null)}>
         {adjustTarget && (
@@ -1083,6 +939,9 @@ function ProductForm({
               const match =
                 cat && categories.find((c) => c.name.toLowerCase() === cat.toLowerCase());
               if (match) setCategoryId(match.id);
+              // New product: start from its standard selling price.
+              const price = defaultPriceFor(n);
+              if (!editing && price) setUnitPrice(price);
             }}
           />
         </div>
@@ -1320,139 +1179,6 @@ function AdjustDialog({
           onClick={() => submit.mutate()}
         >
           {submit.isPending ? "Submitting…" : "Submit for approval"}
-        </Button>
-      </DialogFooter>
-    </DialogContent>
-  );
-}
-
-function ConfirmBatchDialog({ batch, onDone }: { batch: PendingBatch; onDone: () => void }) {
-  const [actualReceived, setActualReceived] = useState(Number(batch.quantity));
-  const [damaged, setDamaged] = useState(0);
-  const [rejected, setRejected] = useState(0);
-  const accepted = Math.max(actualReceived - damaged - rejected, 0);
-  const unit = batch.products?.unit ?? batch.unit ?? "";
-
-  const confirm = useMutation({
-    mutationFn: async () => {
-      if (actualReceived < 0) throw new Error("Actual quantity received must be >= 0");
-      if (damaged < 0 || rejected < 0)
-        throw new Error("Damaged/rejected quantities cannot be negative");
-      if (damaged + rejected > actualReceived)
-        throw new Error("Damaged + rejected cannot exceed actual quantity received");
-      if (actualReceived > Number(batch.quantity))
-        throw new Error("Received cannot be more than was released");
-      const { error } = await supabase.rpc("accept_production_release", {
-        p_id: batch.id,
-        p_received: actualReceived,
-        p_damaged: damaged,
-        p_rejected: rejected,
-      });
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      toast.success(`Accepted — ${num(accepted)} ${unit} added to stock`);
-      onDone();
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
-  return (
-    <DialogContent>
-      <DialogHeader>
-        <DialogTitle className="flex items-center gap-2">
-          <Factory className="h-5 w-5" /> Accept Release — {batch.release_number}
-        </DialogTitle>
-      </DialogHeader>
-      <div className="grid gap-3">
-        <p className="text-sm text-muted-foreground">
-          {batch.products?.name} · Released by Production: {num(Number(batch.quantity))} {unit}
-        </p>
-        {batch.notes && <p className="text-xs text-muted-foreground">Note: {batch.notes}</p>}
-        <div>
-          <Label>Actual Quantity Received</Label>
-          <MoneyInput min={0} step="0.001" value={actualReceived} onChange={setActualReceived} />
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <Label>Damaged Quantity</Label>
-            <MoneyInput min={0} step="0.001" value={damaged} onChange={setDamaged} />
-          </div>
-          <div>
-            <Label>Rejected Quantity</Label>
-            <MoneyInput min={0} step="0.001" value={rejected} onChange={setRejected} />
-          </div>
-        </div>
-        <div className="rounded-md border bg-muted/30 p-3">
-          <div className="text-xs uppercase tracking-wider text-muted-foreground">
-            Accepted Quantity (enters stock)
-          </div>
-          <div className="mt-1 text-xl font-semibold">
-            {num(accepted)} {unit}
-          </div>
-          {actualReceived < Number(batch.quantity) && (
-            <p className="mt-1 text-xs text-warning">
-              {num(Number(batch.quantity) - actualReceived)} {unit} released but not received —
-              recorded as a shortfall.
-            </p>
-          )}
-        </div>
-      </div>
-      <DialogFooter>
-        <Button disabled={confirm.isPending} onClick={() => confirm.mutate()}>
-          {confirm.isPending ? "Accepting…" : "Accept"}
-        </Button>
-      </DialogFooter>
-    </DialogContent>
-  );
-}
-
-function RejectBatchDialog({
-  batch,
-  isPending,
-  onReject,
-}: {
-  batch: PendingBatch;
-  isPending: boolean;
-  onReject: (reason: string) => void;
-}) {
-  const [reason, setReason] = useState("");
-  const trimmed = reason.trim();
-
-  return (
-    <DialogContent>
-      <DialogHeader>
-        <DialogTitle className="flex items-center gap-2">
-          <X className="h-5 w-5 text-destructive" /> Refuse Release — {batch.release_number}
-        </DialogTitle>
-      </DialogHeader>
-      <div className="grid gap-3">
-        <p className="text-sm text-muted-foreground">
-          {batch.products?.name} · Released: {num(Number(batch.quantity))}{" "}
-          {batch.products?.unit ?? batch.unit}
-        </p>
-        <div>
-          <Label>Reason for rejection</Label>
-          <Textarea
-            rows={3}
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder="Explain why this release is being refused…"
-            autoFocus
-          />
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Nothing is added to stock. The goods go back into the production hall balance, and
-          Production can release them again.
-        </p>
-      </div>
-      <DialogFooter>
-        <Button
-          variant="destructive"
-          disabled={isPending || !trimmed}
-          onClick={() => onReject(trimmed)}
-        >
-          {isPending ? "Refusing…" : "Refuse release"}
         </Button>
       </DialogFooter>
     </DialogContent>

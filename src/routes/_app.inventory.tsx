@@ -34,6 +34,8 @@ import {
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { WarehousePostMenu } from "@/components/warehouse/post-menu";
+import { ReleasesToAccept } from "@/components/warehouse/releases-to-accept";
+import { WarehouseRecentActivity } from "@/components/warehouse/recent-activity";
 
 export const Route = createFileRoute("/_app/inventory")({
   head: () => ({
@@ -42,7 +44,7 @@ export const Route = createFileRoute("/_app/inventory")({
   component: () => (
     <>
       <SectionTabs section="Warehouse" />
-      <RequireAccess module="raw-materials">
+      <RequireAccess module="finished-goods">
         <InventoryOverviewPage />
       </RequireAccess>
     </>
@@ -127,25 +129,7 @@ function InventoryOverviewPage() {
   const factoryLabel = FACTORY_LABEL[factoryCode];
   const FactoryIcon = factoryLabel.icon;
 
-  const [materialSearch, setMaterialSearch] = useState("");
   const [productSearch, setProductSearch] = useState("");
-
-  const materials = useQuery({
-    queryKey: ["inventory-overview-materials", factoryId],
-    enabled: !!factoryId,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("raw_materials")
-        .select(
-          "id,name,category,unit,current_stock,unit_cost,current_value,reorder_level,active,material_categories(name)",
-        )
-        .eq("factory_id", factoryId!)
-        .eq("active", true)
-        .order("name");
-      if (error) throw error;
-      return (data ?? []) as unknown as RawMaterialRow[];
-    },
-  });
 
   const products = useQuery({
     queryKey: ["inventory-overview-products", factoryId],
@@ -164,12 +148,6 @@ function InventoryOverviewPage() {
     },
   });
 
-  const filteredMaterials = useMemo(() => {
-    const q = materialSearch.trim().toLowerCase();
-    const rows = materials.data ?? [];
-    return q ? rows.filter((m) => m.name.toLowerCase().includes(q)) : rows;
-  }, [materials.data, materialSearch]);
-
   const filteredProducts = useMemo(() => {
     const q = productSearch.trim().toLowerCase();
     const rows = products.data ?? [];
@@ -181,20 +159,13 @@ function InventoryOverviewPage() {
   }, [products.data, productSearch]);
 
   const summary = useMemo(() => {
-    const mats = materials.data ?? [];
     const prods = products.data ?? [];
-    const lowMats = mats.filter((m) => isLow(Number(m.current_stock), m.reorder_level)).length;
-    const lowProds = prods.filter((p) => isLow(Number(p.current_stock), p.reorder_level)).length;
-    const value =
-      mats.reduce((s, m) => s + Number(m.current_value), 0) +
-      prods.reduce((s, p) => s + Number(p.current_stock) * Number(p.cost_price), 0);
     return {
-      materialCount: mats.length,
       productCount: prods.length,
-      lowStock: lowMats + lowProds,
-      value,
+      lowStock: prods.filter((p) => isLow(Number(p.current_stock), p.reorder_level)).length,
+      value: prods.reduce((s, p) => s + Number(p.current_stock) * Number(p.cost_price), 0),
     };
-  }, [materials.data, products.data]);
+  }, [products.data]);
 
   return (
     <div className="space-y-6">
@@ -202,7 +173,8 @@ function InventoryOverviewPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Warehouse Overview</h1>
           <p className="text-sm text-muted-foreground">
-            Every raw material and finished product on hand at the Water Factory.
+            Every finished product on hand at the Water Factory, ready to post to marketers,
+            distributors and the Company Retail Shop.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -214,12 +186,6 @@ function InventoryOverviewPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <SummaryCard
-          icon={Boxes}
-          label="Raw Material SKUs"
-          value={String(summary.materialCount)}
-          hint="SKU = Stock Keeping Unit: each different raw material counts as one."
-        />
         <SummaryCard
           icon={Package}
           label="Finished Product SKUs"
@@ -263,86 +229,12 @@ function InventoryOverviewPage() {
         <SummaryCard icon={Wallet} label="Estimated Stock Value" value={money(summary.value)} />
       </div>
 
-      <Tabs defaultValue="materials">
+      {factoryId && <ReleasesToAccept factoryId={factoryId} alwaysShow />}
+
+      <Tabs defaultValue="products">
         <TabsList>
-          <TabsTrigger value="materials">Raw Materials</TabsTrigger>
           {canSeeFinishedGoods && <TabsTrigger value="products">Finished Products</TabsTrigger>}
         </TabsList>
-
-        <TabsContent value="materials">
-          <Card className="rounded-2xl">
-            <CardHeader className="flex-row items-center justify-between gap-3">
-              <CardTitle>Raw Materials — {factoryLabel.name}</CardTitle>
-              <div className="relative w-full max-w-xs">
-                <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input
-                  value={materialSearch}
-                  onChange={(e) => setMaterialSearch(e.target.value)}
-                  placeholder="Search materials…"
-                  className="pl-8 h-9"
-                />
-              </div>
-            </CardHeader>
-            <CardContent className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Category</TableHead>
-                    <TableHead className="text-right">Stock</TableHead>
-                    <TableHead className="text-right">Reorder Level</TableHead>
-                    <TableHead className="text-right">Unit Cost</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredMaterials.map((m) => {
-                    const low = isLow(Number(m.current_stock), m.reorder_level);
-                    return (
-                      <TableRow key={m.id}>
-                        <TableCell className="font-medium">{m.name}</TableCell>
-                        <TableCell>{m.material_categories?.name ?? m.category ?? "—"}</TableCell>
-                        <TableCell className="text-right">
-                          <span className={low ? "text-destructive font-medium" : ""}>
-                            {num(Number(m.current_stock))} {m.unit}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {m.reorder_level != null
-                            ? `${num(Number(m.reorder_level))} ${m.unit}`
-                            : "—"}
-                        </TableCell>
-                        <TableCell className="text-right">{money(Number(m.unit_cost))}</TableCell>
-                        <TableCell>
-                          {low ? (
-                            <Badge variant="destructive">Low Stock</Badge>
-                          ) : (
-                            <Badge variant="secondary">OK</Badge>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <Button asChild variant="ghost" size="sm" className="gap-1">
-                            <Link to="/raw-materials">
-                              Manage <ArrowRight className="h-3.5 w-3.5" />
-                            </Link>
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                  {filteredMaterials.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
-                        No raw materials for {factoryLabel.name}.
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </TabsContent>
 
         {canSeeFinishedGoods && (
           <TabsContent value="products">
@@ -369,7 +261,7 @@ function InventoryOverviewPage() {
                       <TableHead>Type</TableHead>
                       <TableHead className="text-right">Stock</TableHead>
                       <TableHead className="text-right">Reorder Level</TableHead>
-                      <TableHead className="text-right">Unit Price</TableHead>
+                      <TableHead className="text-right">Selling Price</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead></TableHead>
                     </TableRow>
@@ -433,6 +325,8 @@ function InventoryOverviewPage() {
           </TabsContent>
         )}
       </Tabs>
+
+      {factoryId && <WarehouseRecentActivity factoryId={factoryId} />}
     </div>
   );
 }

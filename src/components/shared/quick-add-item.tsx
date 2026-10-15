@@ -26,6 +26,7 @@ import {
   ProductNameSelect,
   assertUniqueProductName,
   categoryForProduct,
+  defaultPriceFor,
 } from "@/components/shared/product-name-select";
 
 // Sentinel value for the "+ Add new …" entry that sits at the bottom of the
@@ -199,6 +200,8 @@ export function QuickAddProductDialog({
                   cat &&
                   (categories.data ?? []).find((c) => c.name.toLowerCase() === cat.toLowerCase());
                 if (match) setCategoryId(match.id);
+                const price = defaultPriceFor(n);
+                if (price) setUnitPrice(price);
               }}
               autoFocus
             />

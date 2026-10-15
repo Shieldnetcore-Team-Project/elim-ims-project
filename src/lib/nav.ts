@@ -132,14 +132,7 @@ export const nav: { section: string; items: NavItem[] }[] = [
         title: "Warehouse",
         url: "/inventory",
         icon: Warehouse,
-        modules: [
-          "raw-materials",
-          "finished-goods",
-          "sales",
-          "sales-returns",
-          "distribution",
-          "customers",
-        ],
+        modules: ["finished-goods", "sales", "sales-returns", "distribution", "customers"],
         // Stock plus the goods side of order-to-cash: customer orders, returns,
         // marketer (sales rep) and outlet stock, and customers. Cash remitted,
         // credit and account balances are Accounting's (Finance → Marketer &
@@ -147,7 +140,7 @@ export const nav: { section: string; items: NavItem[] }[] = [
         // Raw Materials / Finished Products tabs linking to the full pages, so
         // those stay out of the bar.
         tabs: [
-          { label: "Stock", module: "raw-materials", url: "/inventory" },
+          { label: "Stock", module: "finished-goods", url: "/inventory" },
           { label: "Store requests", module: "production-requests", url: "/production-requests" },
           { label: "Orders", module: "sales", url: "/sales" },
           { label: "Returns", module: "sales-returns", url: "/sales-returns" },

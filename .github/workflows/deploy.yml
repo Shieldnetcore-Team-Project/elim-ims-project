@@ -1,0 +1,45 @@
+name: Deploy to Render
+
+# Every push to main deploys the app on Render. The build runs here first, so a
+# push that doesn't build never replaces the live site.
+#
+# Needs one repository secret: RENDER_DEPLOY_HOOK_URL -- Render dashboard ->
+# elim-ims-project -> Settings -> Deploy Hook (copy the URL), then GitHub repo
+# -> Settings -> Secrets and variables -> Actions -> New repository secret.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-render
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Trigger Render deploy
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$RENDER_DEPLOY_HOOK_URL" ]; then
+            echo "::error::RENDER_DEPLOY_HOOK_URL secret is not set (see the top of this file)."
+            exit 1
+          fi
+          curl -fsS -X POST "$RENDER_DEPLOY_HOOK_URL" -o /dev/null
+          echo "Render deploy started for ${GITHUB_SHA::7}."

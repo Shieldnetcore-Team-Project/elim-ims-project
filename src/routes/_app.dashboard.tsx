@@ -54,9 +54,11 @@ import {
 import { format, startOfDay, startOfMonth, subDays } from "date-fns";
 
 export const Route = createFileRoute("/_app/dashboard")({
-  head: () => ({ meta: [{ title: "Dashboard — Elim Table Water" }, { name: "robots", content: "noindex" }] }),
+  head: () => ({
+    meta: [{ title: "Dashboard — Elim Table Water" }, { name: "robots", content: "noindex" }],
+  }),
   component: () => (
-    <RequireAccess module="dashboard">
+    <RequireAccess module="dashboard" fallbackToFirstPage>
       <DashboardRouter />
     </RequireAccess>
   ),

@@ -1329,13 +1329,52 @@ export function MarketerPostDialog({
   onDone: () => void;
 }) {
   const perms = usePermissions();
+  const qc = useQueryClient();
   const p = useDispatchPickers(factoryId);
   const [repId, setRepId] = useState("");
   const [tab, setTab] = useState<"account" | "post">("account");
+  // "+ New marketer": the Warehouse adds a marketer on the spot. The new
+  // sales_reps row is their account — every posting to them lands on it.
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newPhone, setNewPhone] = useState("");
+  const [newCode, setNewCode] = useState("");
+  const addMarketer = useMutation({
+    mutationFn: async () => {
+      if (!newName.trim()) throw new Error("Enter the marketer's name");
+      const { data, error } = await supabase
+        .from("sales_reps")
+        .insert({
+          factory_id: factoryId,
+          full_name: newName.trim(),
+          phone: newPhone.trim() || null,
+          code: newCode.trim() || null,
+          status: "active",
+          kind: "rep",
+        })
+        .select("id")
+        .single();
+      if (error) throw error;
+      return data.id as string;
+    },
+    onSuccess: async (id) => {
+      toast.success(`Marketer "${newName.trim()}" added`);
+      logAudit({ action: "create", entity: "sales_reps", entityId: id, factoryId });
+      await qc.invalidateQueries({ queryKey: ["dist-reps"] });
+      setRepId(id);
+      setTab("post");
+      setAdding(false);
+      setNewName("");
+      setNewPhone("");
+      setNewCode("");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
   if (p.loading) return <LoadingDialog title="Post to Marketer" />;
 
   const marketers = p.holders("rep");
   const marketer = marketers.find((r) => r.id === repId);
+  const canAdd = perms.canCreate("distribution");
 
   return (
     <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
@@ -1343,26 +1382,72 @@ export function MarketerPostDialog({
         <DialogTitle>Marketers — stock &amp; posting</DialogTitle>
       </DialogHeader>
       <div className="space-y-4">
-        <div className="max-w-sm">
-          <Label>Marketer</Label>
-          <Select value={repId} onValueChange={setRepId}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select marketer…" />
-            </SelectTrigger>
-            <SelectContent>
-              {marketers.map((r) => (
-                <SelectItem key={r.id} value={r.id}>
-                  {r.full_name}
-                  {r.code ? ` · ${r.code}` : ""}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="w-full max-w-sm">
+            <Label>Marketer</Label>
+            <Select
+              value={repId}
+              onValueChange={(v) => (v === ADD_NEW_ITEM ? setAdding(true) : setRepId(v))}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select marketer…" />
+              </SelectTrigger>
+              <SelectContent>
+                {marketers.map((r) => (
+                  <SelectItem key={r.id} value={r.id}>
+                    {r.full_name}
+                    {r.code ? ` · ${r.code}` : ""}
+                  </SelectItem>
+                ))}
+                {canAdd && (
+                  <SelectItem value={ADD_NEW_ITEM} className="font-medium text-primary">
+                    + New marketer…
+                  </SelectItem>
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+          {canAdd && !adding && (
+            <Button variant="outline" className="gap-2" onClick={() => setAdding(true)}>
+              <Plus className="h-4 w-4" /> New marketer
+            </Button>
+          )}
         </div>
 
-        {marketers.length === 0 && (
+        {adding && (
+          <Card className="rounded-2xl">
+            <CardHeader>
+              <CardTitle className="text-base">New marketer</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-3 sm:grid-cols-3">
+              <div>
+                <Label>Full name</Label>
+                <Input value={newName} onChange={(e) => setNewName(e.target.value)} autoFocus />
+              </div>
+              <div>
+                <Label>Phone</Label>
+                <Input value={newPhone} onChange={(e) => setNewPhone(e.target.value)} />
+              </div>
+              <div>
+                <Label>Code (optional)</Label>
+                <Input value={newCode} onChange={(e) => setNewCode(e.target.value)} />
+              </div>
+              <div className="flex gap-2 sm:col-span-3">
+                <Button disabled={addMarketer.isPending} onClick={() => addMarketer.mutate()}>
+                  {addMarketer.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Add marketer
+                </Button>
+                <Button variant="ghost" onClick={() => setAdding(false)}>
+                  Cancel
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {marketers.length === 0 && !adding && (
           <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-            No active marketer is set up. Add one under Distribution → Reps &amp; Outlets.
+            No marketer yet. Click New marketer to add one.
           </p>
         )}
 

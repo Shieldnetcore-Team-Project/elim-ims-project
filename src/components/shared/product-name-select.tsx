@@ -23,6 +23,19 @@ export const FINISHED_PRODUCT_NAMES = [
   "Sachet Water",
 ] as const;
 
+// Selling price per pack, filled in when one of these products is created; the
+// price is kept on the product (unit_price), so posting and selling pick it up
+// automatically. Change it on the product (Finished Products → Edit).
+export const DEFAULT_PRICE: Partial<Record<(typeof FINISHED_PRODUCT_NAMES)[number], number>> = {
+  "35cl Bottle Water": 2550,
+  "50cl Bottle Water": 2650,
+  "75cl Bottle Water": 1700,
+  "1.5Ltr Bottle Water": 1700,
+};
+
+export const defaultPriceFor = (name: string) =>
+  DEFAULT_PRICE[name.trim() as (typeof FINISHED_PRODUCT_NAMES)[number]];
+
 // The three product categories, and which one each listed product goes in.
 export const WATER_CATEGORIES = ["Bottle Water", "Dispenser Water", "Sachet Water"] as const;
 
