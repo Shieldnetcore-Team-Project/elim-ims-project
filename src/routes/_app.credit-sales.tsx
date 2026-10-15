@@ -38,7 +38,7 @@ export const Route = createFileRoute("/_app/credit-sales")({
   }),
   component: () => (
     <>
-      <SectionTabs section="Warehouse" />
+      <SectionTabs section="Marketer & Retail Accounts" />
       <RequireAccess module="debts">
         <CreditSalesPage />
       </RequireAccess>

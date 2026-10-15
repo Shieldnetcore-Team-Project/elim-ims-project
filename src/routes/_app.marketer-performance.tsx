@@ -46,7 +46,7 @@ export const Route = createFileRoute("/_app/marketer-performance")({
   }),
   component: () => (
     <>
-      <SectionTabs section="Warehouse" />
+      <SectionTabs section="Marketer & Retail Accounts" />
       <RequireAccess module="distribution">
         <PerformancePage />
       </RequireAccess>

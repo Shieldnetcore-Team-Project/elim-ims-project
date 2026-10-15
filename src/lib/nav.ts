@@ -138,31 +138,20 @@ export const nav: { section: string; items: NavItem[] }[] = [
           "sales",
           "sales-returns",
           "distribution",
-          "debts",
           "customers",
         ],
-        // Stock plus the order-to-cash screens: customer orders, returns,
-        // marketer (sales rep) van stock and reconciliation, credit sales and
-        // customers. The Stock overview has its own Raw Materials / Finished
-        // Products tabs linking to the full pages, so those stay out of the bar.
+        // Stock plus the goods side of order-to-cash: customer orders, returns,
+        // marketer (sales rep) and outlet stock, and customers. Cash remitted,
+        // credit and account balances are Accounting's (Finance → Marketer &
+        // Retail Accounts), not the Warehouse's. The Stock overview has its own
+        // Raw Materials / Finished Products tabs linking to the full pages, so
+        // those stay out of the bar.
         tabs: [
           { label: "Stock", module: "raw-materials", url: "/inventory" },
           { label: "Store requests", module: "production-requests", url: "/production-requests" },
           { label: "Orders", module: "sales", url: "/sales" },
           { label: "Returns", module: "sales-returns", url: "/sales-returns" },
           { label: "Reps & outlet stock", module: "distribution", url: "/distribution" },
-          {
-            label: "Reconciliation",
-            module: "distribution",
-            url: "/distribution",
-            search: { tab: "accounts" },
-          },
-          { label: "Credit sales", module: "debts", url: "/credit-sales" },
-          {
-            label: "Performance & commission",
-            module: "distribution",
-            url: "/marketer-performance",
-          },
           { label: "Bottle tracking", module: "distribution", url: "/bottle-tracking" },
           { label: "Customers", module: "customers", url: "/customers" },
           {
@@ -207,6 +196,35 @@ export const nav: { section: string; items: NavItem[] }[] = [
           { label: "Ledger", module: "receipts-payments" },
           { label: "Debts", module: "debts" },
           { label: "Record & Approve Payments", module: "payments" },
+        ],
+      },
+      {
+        // Money owed by and collected from marketers, the retail outlet and
+        // distributors (credit customers): Accounting's, not the Warehouse's.
+        // Tabs are gated on finance/debts so stock-only roles don't get them.
+        title: "Marketer & Retail Accounts",
+        url: "/credit-sales",
+        icon: HandCoins,
+        modules: ["finance", "debts"],
+        tabs: [
+          { label: "Credit sales (distributors)", module: "debts", url: "/credit-sales" },
+          {
+            label: "Marketer & retail accounts",
+            module: "finance",
+            url: "/distribution",
+            search: { tab: "accounts" },
+          },
+          {
+            label: "Cash remitted",
+            module: "finance",
+            url: "/distribution",
+            search: { tab: "remittances" },
+          },
+          {
+            label: "Performance & commission",
+            module: "finance",
+            url: "/marketer-performance",
+          },
         ],
       },
       { title: "Financial Reports", url: "/reports", icon: FileBarChart, module: "reports" },

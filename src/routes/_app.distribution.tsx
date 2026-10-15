@@ -154,9 +154,13 @@ const statusBadge = (s: string): "default" | "secondary" | "outline" | "destruct
 function DistributionPage() {
   const { data: factoryId } = useFactoryId();
   const perms = usePermissions();
-  const { tab } = Route.useSearch();
+  // Cash remitted, credit and account balances are Accounting's: only people
+  // with a finance-side right see Remittances and Accounts (not the Warehouse).
+  const canMoney = perms.canView("finance") || perms.canView("payments") || perms.canView("debts");
+  const { tab: urlTab } = Route.useSearch();
+  const tab = !canMoney && (urlTab === "remittances" || urlTab === "accounts") ? undefined : urlTab;
   const navigate = useNavigate({ from: Route.fullPath });
-  // Keep the tab in the URL so Warehouse's Reconciliation link lands on it,
+  // Keep the tab in the URL so Finance's Marketer Accounts links land on it,
   // and keep the history state so the sidebar/tab bar stay on the same entry.
   const setTab = (v: string) =>
     navigate({
@@ -245,8 +249,8 @@ function DistributionPage() {
         <h1 className="text-2xl font-semibold tracking-tight">Distribution</h1>
         <p className="text-sm text-muted-foreground">
           Products leave the warehouse on a dispatch to a sales rep or the company's retail outlet.
-          Each sells from its own stock, returns what's unsold for inspection, and remits cash —
-          its account nets it all against the value of goods it took.
+          Each sells from its own stock, returns what's unsold for inspection, and remits cash — its
+          account nets it all against the value of goods it took.
         </p>
       </div>
 
@@ -255,8 +259,8 @@ function DistributionPage() {
           <TabsTrigger value="reps">Reps &amp; Outlets</TabsTrigger>
           <TabsTrigger value="dispatches">Dispatches</TabsTrigger>
           <TabsTrigger value="returns">Returns</TabsTrigger>
-          <TabsTrigger value="remittances">Remittances</TabsTrigger>
-          <TabsTrigger value="accounts">Accounts</TabsTrigger>
+          {canMoney && <TabsTrigger value="remittances">Remittances</TabsTrigger>}
+          {canMoney && <TabsTrigger value="accounts">Accounts</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="reps" className="mt-4">
@@ -492,7 +496,9 @@ function RepDialog({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="rep">Sales rep — sells from a van, earns commission</SelectItem>
-              <SelectItem value="outlet">Retail outlet — company shop, sells to walk-ins</SelectItem>
+              <SelectItem value="outlet">
+                Retail outlet — company shop, sells to walk-ins
+              </SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -822,6 +828,9 @@ function NewDispatchDialog({
   drivers,
   routes,
   onDone,
+  kind,
+  fixedRepId,
+  embedded,
 }: {
   factoryId: string;
   reps: Rep[];
@@ -830,8 +839,18 @@ function NewDispatchDialog({
   drivers: NamedRow[];
   routes: NamedRow[];
   onDone: () => void;
+  // Set when opened for one kind of holder (Warehouse "Post" menu): the
+  // picker only offers that kind, and a lone holder is preselected.
+  kind?: Rep["kind"];
+  // Holder already chosen by the caller: no picker is shown.
+  fixedRepId?: string;
+  // Render just the form, for use inside another dialog.
+  embedded?: boolean;
 }) {
-  const [repId, setRepId] = useState("");
+  const [pickedRepId, setRepId] = useState(kind && reps.length === 1 ? reps[0].id : "");
+  const repId = fixedRepId ?? pickedRepId;
+  const holderLabel =
+    kind === "outlet" ? "Retail shop" : kind === "rep" ? "Marketer" : "Rep / outlet";
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [vehicleId, setVehicleId] = useState("none");
   const [driverId, setDriverId] = useState("none");
@@ -850,7 +869,7 @@ function NewDispatchDialog({
 
   const submit = useMutation({
     mutationFn: async () => {
-      if (!repId) throw new Error("Select a sales rep");
+      if (!repId) throw new Error(`Select a ${holderLabel.toLowerCase()}`);
       const clean = lines.filter((l) => l.product_id && l.quantity > 0);
       if (clean.length === 0) throw new Error("Add at least one product line");
       const { data, error } = await supabase.rpc("create_stock_dispatch", {
@@ -876,28 +895,34 @@ function NewDispatchDialog({
     onError: (e: Error) => toast.error(e.message),
   });
 
-  return (
-    <DialogContent className="max-w-2xl">
-      <DialogHeader>
-        <DialogTitle>New Dispatch — warehouse → rep / outlet</DialogTitle>
-      </DialogHeader>
+  const body = (
+    <>
       <div className="grid gap-3">
+        {kind && !fixedRepId && reps.length === 0 && (
+          <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+            {kind === "outlet"
+              ? "No active retail shop is set up. Add one under Distribution → Reps & Outlets."
+              : "No active marketer is set up. Add one under Distribution → Reps & Outlets."}
+          </p>
+        )}
         <div className="grid grid-cols-2 gap-3">
-          <div>
-            <Label>Rep / outlet</Label>
-            <Select value={repId} onValueChange={setRepId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select rep or outlet…" />
-              </SelectTrigger>
-              <SelectContent>
-                {reps.map((r) => (
-                  <SelectItem key={r.id} value={r.id}>
-                    {repLabel(r)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {!fixedRepId && (
+            <div>
+              <Label>{holderLabel}</Label>
+              <Select value={repId} onValueChange={setRepId}>
+                <SelectTrigger>
+                  <SelectValue placeholder={`Select ${holderLabel.toLowerCase()}…`} />
+                </SelectTrigger>
+                <SelectContent>
+                  {reps.map((r) => (
+                    <SelectItem key={r.id} value={r.id}>
+                      {repLabel(r)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <div>
             <Label>Date</Label>
             <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
@@ -981,6 +1006,397 @@ function NewDispatchDialog({
           Post dispatch
         </Button>
       </DialogFooter>
+    </>
+  );
+
+  if (embedded) return body;
+  return (
+    <DialogContent className="max-w-2xl">
+      <DialogHeader>
+        <DialogTitle>
+          {kind === "outlet"
+            ? "Post to Company Retail Shop"
+            : kind === "rep"
+              ? "Post to Marketer"
+              : "New Dispatch — warehouse → rep / outlet"}
+        </DialogTitle>
+      </DialogHeader>
+      {body}
+    </DialogContent>
+  );
+}
+
+// Everything the dispatch form picks from, for the Warehouse "Post" dialogs
+// (same query keys as the Distribution page, so the caches are shared).
+function useDispatchPickers(factoryId: string) {
+  const reps = useQuery({
+    queryKey: ["dist-reps", factoryId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("sales_reps")
+        .select("id,code,full_name,phone,status,employee_id,remarks,kind")
+        .eq("factory_id", factoryId)
+        .order("full_name");
+      if (error) throw error;
+      return (data ?? []) as Rep[];
+    },
+  });
+  const products = useQuery({
+    queryKey: ["dist-products", factoryId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("products")
+        .select("id,name,unit,unit_price,current_stock")
+        .eq("factory_id", factoryId)
+        .eq("active", true)
+        .order("name");
+      if (error) throw error;
+      return (data ?? []) as Product[];
+    },
+  });
+  const vehicles = useQuery({
+    queryKey: ["dist-vehicles", factoryId],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("vehicles")
+        .select("id,plate_number")
+        .eq("factory_id", factoryId)
+        .order("plate_number");
+      return (data ?? []) as NamedRow[];
+    },
+  });
+  const drivers = useQuery({
+    queryKey: ["dist-drivers", factoryId],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("drivers")
+        .select("id,full_name")
+        .eq("factory_id", factoryId)
+        .order("full_name");
+      return (data ?? []) as NamedRow[];
+    },
+  });
+  const routes = useQuery({
+    queryKey: ["dist-routes", factoryId],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("delivery_routes")
+        .select("id,name")
+        .eq("factory_id", factoryId)
+        .order("name");
+      return (data ?? []) as NamedRow[];
+    },
+  });
+  return {
+    loading: reps.isLoading || products.isLoading,
+    holders: (kind: Rep["kind"]) =>
+      (reps.data ?? []).filter((r) => r.kind === kind && r.status === "active"),
+    products: products.data ?? [],
+    vehicles: vehicles.data ?? [],
+    drivers: drivers.data ?? [],
+    routes: routes.data ?? [],
+  };
+}
+
+function LoadingDialog({ title }: { title: string }) {
+  return (
+    <DialogContent className="max-w-2xl">
+      <DialogHeader>
+        <DialogTitle>{title}</DialogTitle>
+      </DialogHeader>
+      <div className="flex justify-center py-8">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
+    </DialogContent>
+  );
+}
+
+// Warehouse "Post → Company Retail Shop": the same dispatch as Distribution →
+// Dispatches, offering only the active retail outlet(s).
+export function PostToHolderDialog({
+  factoryId,
+  kind,
+  onDone,
+}: {
+  factoryId: string;
+  kind: Rep["kind"];
+  onDone: () => void;
+}) {
+  const p = useDispatchPickers(factoryId);
+  if (p.loading)
+    return (
+      <LoadingDialog
+        title={kind === "outlet" ? "Post to Company Retail Shop" : "Post to Marketer"}
+      />
+    );
+  return (
+    <NewDispatchDialog
+      factoryId={factoryId}
+      kind={kind}
+      reps={p.holders(kind)}
+      products={p.products}
+      vehicles={p.vehicles}
+      drivers={p.drivers}
+      routes={p.routes}
+      onDone={onDone}
+    />
+  );
+}
+
+// The Warehouse's view of one marketer: stock only. What they hold now, what
+// was posted to them, and the customers/offices under their name. Cash
+// remitted, credit and balances are Accounting's (Finance → Marketer & Retail
+// Accounts), so none of it is shown here.
+function RepStockView({ repId }: { repId: string }) {
+  const vanStock = useQuery({
+    queryKey: ["dist-rep-stock", repId, "van-table"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("rep_stock")
+        .select("quantity,products(name,unit,unit_price)")
+        .eq("sales_rep_id", repId)
+        .gt("quantity", 0);
+      if (error) throw error;
+      return (data ?? []) as unknown as {
+        quantity: number;
+        products: { name: string; unit: string } | null;
+      }[];
+    },
+  });
+  const postings = useQuery({
+    queryKey: ["dist-dispatches", "rep", repId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("stock_dispatches")
+        .select(
+          "id,dispatch_number,dispatch_date,status,stock_dispatch_items(quantity,products(name,unit))",
+        )
+        .eq("sales_rep_id", repId)
+        .order("created_at", { ascending: false })
+        .limit(10);
+      if (error) throw error;
+      return (data ?? []) as unknown as {
+        id: string;
+        dispatch_number: string;
+        dispatch_date: string;
+        status: string;
+        stock_dispatch_items: {
+          quantity: number;
+          products: { name: string; unit: string } | null;
+        }[];
+      }[];
+    },
+  });
+  const customers = useQuery({
+    queryKey: ["dist-rep-customer-accounts", repId],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("rep_customers", { p_sales_rep_id: repId });
+      if (error) throw error;
+      return (data ?? []) as RepCustomer[];
+    },
+  });
+
+  return (
+    <div className="space-y-4">
+      <Card className="rounded-2xl">
+        <CardHeader>
+          <CardTitle>Stock on hand</CardTitle>
+        </CardHeader>
+        <CardContent className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Product</TableHead>
+                <TableHead className="text-right">Qty</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {(vanStock.data ?? []).map((v, i) => (
+                <TableRow key={i}>
+                  <TableCell>{v.products?.name ?? "—"}</TableCell>
+                  <TableCell className="text-right">
+                    {num(Number(v.quantity))} {v.products?.unit}
+                  </TableCell>
+                </TableRow>
+              ))}
+              {(vanStock.data ?? []).length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={2} className="py-6 text-center text-muted-foreground">
+                    {vanStock.isLoading ? "Loading…" : "Holding no stock."}
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-2xl">
+        <CardHeader>
+          <CardTitle>Customers &amp; offices</CardTitle>
+        </CardHeader>
+        <CardContent className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Phone</TableHead>
+                <TableHead>Under this marketer</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {(customers.data ?? []).map((c) => (
+                <TableRow key={c.customer_id}>
+                  <TableCell className="font-medium">{c.name}</TableCell>
+                  <TableCell>{c.phone ?? "—"}</TableCell>
+                  <TableCell>
+                    <Badge variant={c.assigned ? "secondary" : "outline"}>
+                      {c.assigned ? "Assigned" : "Sold to"}
+                    </Badge>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {(customers.data ?? []).length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={3} className="py-6 text-center text-muted-foreground">
+                    {customers.isLoading
+                      ? "Loading…"
+                      : "No customers yet. Assign them under Customers → Marketer."}
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-2xl">
+        <CardHeader>
+          <CardTitle>Recent postings</CardTitle>
+        </CardHeader>
+        <CardContent className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Dispatch #</TableHead>
+                <TableHead>Date</TableHead>
+                <TableHead>Products</TableHead>
+                <TableHead>Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {(postings.data ?? []).map((d) => (
+                <TableRow key={d.id}>
+                  <TableCell className="font-mono text-xs">{d.dispatch_number}</TableCell>
+                  <TableCell className="whitespace-nowrap text-xs">
+                    {new Date(d.dispatch_date).toLocaleDateString()}
+                  </TableCell>
+                  <TableCell className="text-xs">
+                    {d.stock_dispatch_items
+                      .map((it) => `${it.products?.name ?? "—"} × ${num(Number(it.quantity))}`)
+                      .join(", ")}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={statusBadge(d.status)} className="capitalize">
+                      {d.status}
+                    </Badge>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {(postings.data ?? []).length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={4} className="py-6 text-center text-muted-foreground">
+                    {postings.isLoading ? "Loading…" : "Nothing posted yet."}
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// Warehouse "Post → Marketers". Picking a marketer shows their stock record
+// (RepStockView: stock held, postings, their customers/offices) next to the
+// form for posting them new stock.
+export function MarketerPostDialog({
+  factoryId,
+  onDone,
+}: {
+  factoryId: string;
+  onDone: () => void;
+}) {
+  const perms = usePermissions();
+  const p = useDispatchPickers(factoryId);
+  const [repId, setRepId] = useState("");
+  const [tab, setTab] = useState<"account" | "post">("account");
+  if (p.loading) return <LoadingDialog title="Post to Marketer" />;
+
+  const marketers = p.holders("rep");
+  const marketer = marketers.find((r) => r.id === repId);
+
+  return (
+    <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
+      <DialogHeader>
+        <DialogTitle>Marketers — stock &amp; posting</DialogTitle>
+      </DialogHeader>
+      <div className="space-y-4">
+        <div className="max-w-sm">
+          <Label>Marketer</Label>
+          <Select value={repId} onValueChange={setRepId}>
+            <SelectTrigger>
+              <SelectValue placeholder="Select marketer…" />
+            </SelectTrigger>
+            <SelectContent>
+              {marketers.map((r) => (
+                <SelectItem key={r.id} value={r.id}>
+                  {r.full_name}
+                  {r.code ? ` · ${r.code}` : ""}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {marketers.length === 0 && (
+          <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+            No active marketer is set up. Add one under Distribution → Reps &amp; Outlets.
+          </p>
+        )}
+
+        {marketer && (
+          <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
+            <TabsList>
+              <TabsTrigger value="account">Stock &amp; customers</TabsTrigger>
+              {perms.canCreate("distribution") && (
+                <TabsTrigger value="post">Post products</TabsTrigger>
+              )}
+            </TabsList>
+            <TabsContent value="account" className="pt-2">
+              <RepStockView repId={marketer.id} />
+            </TabsContent>
+            {perms.canCreate("distribution") && (
+              <TabsContent value="post" className="pt-2">
+                <NewDispatchDialog
+                  key={marketer.id}
+                  embedded
+                  kind="rep"
+                  fixedRepId={marketer.id}
+                  factoryId={factoryId}
+                  reps={marketers}
+                  products={p.products}
+                  vehicles={p.vehicles}
+                  drivers={p.drivers}
+                  routes={p.routes}
+                  onDone={onDone}
+                />
+              </TabsContent>
+            )}
+          </Tabs>
+        )}
+      </div>
     </DialogContent>
   );
 }
@@ -1671,6 +2087,71 @@ function AccountsTab({ factoryId, reps, perms }: { factoryId: string; reps: Rep[
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
 
+  return (
+    <div className="space-y-4">
+      <Card className="rounded-2xl">
+        <CardContent className="flex flex-wrap items-end gap-3 pt-6">
+          <div className="min-w-48">
+            <Label>Rep / outlet</Label>
+            <Select value={repId} onValueChange={setRepId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select rep or outlet…" />
+              </SelectTrigger>
+              <SelectContent>
+                {reps.map((r) => (
+                  <SelectItem key={r.id} value={r.id}>
+                    {repLabel(r)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label>From</Label>
+            <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+          </div>
+          <div>
+            <Label>To</Label>
+            <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+          </div>
+        </CardContent>
+      </Card>
+
+      {!repId && <p className="text-sm text-muted-foreground">Pick a rep to see their account.</p>}
+
+      {repId && (
+        <RepAccountView
+          factoryId={factoryId}
+          repId={repId}
+          repName={reps.find((r) => r.id === repId)?.full_name ?? "rep"}
+          perms={perms}
+          from={from}
+          to={to}
+        />
+      )}
+    </div>
+  );
+}
+
+// One rep's (marketer's) account: balance and reconciliation, the customers/
+// offices under them (RepCustomersCard: what each owes, invoices, collecting
+// payments), and van stock. Used by Distribution → Accounts and by the
+// Warehouse "Post → Marketers" dialog.
+function RepAccountView({
+  factoryId,
+  repId,
+  repName,
+  perms,
+  from = "",
+  to = "",
+}: {
+  factoryId: string;
+  repId: string;
+  repName: string;
+  perms: Perms;
+  from?: string;
+  to?: string;
+}) {
   const summary = useQuery({
     queryKey: ["dist-account", repId, from, to],
     enabled: !!repId,
@@ -1718,57 +2199,15 @@ function AccountsTab({ factoryId, reps, perms }: { factoryId: string; reps: Rep[
       ]
     : [];
 
+  if (summary.isLoading)
+    return (
+      <div className="flex justify-center py-8">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+
   return (
     <div className="space-y-4">
-      <Card className="rounded-2xl">
-        <CardContent className="flex flex-wrap items-end gap-3 pt-6">
-          <div className="min-w-48">
-            <Label>Rep / outlet</Label>
-            <Select value={repId} onValueChange={setRepId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select rep or outlet…" />
-              </SelectTrigger>
-              <SelectContent>
-                {reps.map((r) => (
-                  <SelectItem key={r.id} value={r.id}>
-                    {repLabel(r)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label>From</Label>
-            <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-          </div>
-          <div>
-            <Label>To</Label>
-            <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
-          </div>
-          {s && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-2"
-              onClick={() =>
-                exportCsv(
-                  `rep-account-${reps.find((r) => r.id === repId)?.full_name ?? repId}`,
-                  [
-                    { key: "label", label: "Line" },
-                    { key: "value", label: "Amount" },
-                  ],
-                  rows.map((r) => ({ label: r.label, value: r.value })),
-                )
-              }
-            >
-              <FileDown className="h-4 w-4" /> CSV
-            </Button>
-          )}
-        </CardContent>
-      </Card>
-
-      {!repId && <p className="text-sm text-muted-foreground">Pick a rep to see their account.</p>}
-
       {s && (
         <>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -1783,8 +2222,25 @@ function AccountsTab({ factoryId, reps, perms }: { factoryId: string; reps: Rep[
           </div>
 
           <Card className="rounded-2xl">
-            <CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between gap-2">
               <CardTitle>Account reconciliation</CardTitle>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={() =>
+                  exportCsv(
+                    `rep-account-${repName}`,
+                    [
+                      { key: "label", label: "Line" },
+                      { key: "value", label: "Amount" },
+                    ],
+                    rows.map((r) => ({ label: r.label, value: r.value })),
+                  )
+                }
+              >
+                <FileDown className="h-4 w-4" /> CSV
+              </Button>
             </CardHeader>
             <CardContent>
               <Table>
@@ -1811,11 +2267,13 @@ function AccountsTab({ factoryId, reps, perms }: { factoryId: string; reps: Rep[
             </CardContent>
           </Card>
 
+          <RepPerformanceCard factoryId={factoryId} repId={repId} from={from} to={to} />
+
           <RepCustomersCard
             factoryId={factoryId}
             canCollect={perms.canWrite("payments") || perms.canWrite("debts")}
             repId={repId}
-            repName={reps.find((r) => r.id === repId)?.full_name ?? "rep"}
+            repName={repName}
             from={from}
             to={to}
           />
@@ -1859,6 +2317,90 @@ function AccountsTab({ factoryId, reps, perms }: { factoryId: string; reps: Rep[
         </>
       )}
     </div>
+  );
+}
+
+type PerfRow = {
+  sales_rep_id: string;
+  sales_count: number;
+  units_sold: number;
+  sales_value: number;
+  commission_earned: number;
+  units_returned: number;
+  commission_reversed: number;
+  net_commission: number;
+};
+
+// This marketer's line of Performance & Commission (marketer_performance):
+// what they sold in the period and the commission earned — a fixed amount per
+// unit, less units customers returned. With no dates picked on the account it
+// covers the current month (the RPC needs a range).
+function RepPerformanceCard({
+  factoryId,
+  repId,
+  from,
+  to,
+}: {
+  factoryId: string;
+  repId: string;
+  from: string;
+  to: string;
+}) {
+  const today = new Date().toISOString().slice(0, 10);
+  const pFrom = from || `${today.slice(0, 8)}01`;
+  const pTo = to || today;
+  const perf = useQuery({
+    queryKey: ["marketer-performance", factoryId, pFrom, pTo],
+    enabled: pFrom <= pTo,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("marketer_performance", {
+        p_factory: factoryId,
+        p_from: pFrom,
+        p_to: pTo,
+      });
+      if (error) throw error;
+      return (data ?? []) as PerfRow[];
+    },
+  });
+  const r = (perf.data ?? []).find((x) => x.sales_rep_id === repId);
+
+  return (
+    <Card className="rounded-2xl">
+      <CardHeader>
+        <CardTitle>Performance &amp; Commission</CardTitle>
+        <p className="text-sm text-muted-foreground">
+          What this marketer sold from {new Date(pFrom).toLocaleDateString()} to{" "}
+          {new Date(pTo).toLocaleDateString()}
+          {!from && !to && " (this month — pick dates above to change)"} and the commission earned:
+          a fixed amount per unit, less units customers returned.
+        </p>
+      </CardHeader>
+      <CardContent>
+        {perf.isLoading ? (
+          <div className="flex justify-center py-6">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Stat
+              label="Sales · units sold"
+              value={`${r?.sales_count ?? 0} · ${num(Number(r?.units_sold ?? 0))}`}
+            />
+            <Stat label="Sales value" value={money(Number(r?.sales_value ?? 0))} />
+            <Stat label="Commission earned" value={money(Number(r?.commission_earned ?? 0))} />
+            <Stat
+              label="Units returned (commission off)"
+              value={`${num(Number(r?.units_returned ?? 0))} · −${money(Number(r?.commission_reversed ?? 0))}`}
+            />
+            <Stat
+              label="Net commission due"
+              value={money(Number(r?.net_commission ?? 0))}
+              tone="ok"
+            />
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

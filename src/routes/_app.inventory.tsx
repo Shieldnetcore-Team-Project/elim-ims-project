@@ -33,6 +33,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { WarehousePostMenu } from "@/components/warehouse/post-menu";
 
 export const Route = createFileRoute("/_app/inventory")({
   head: () => ({
@@ -201,13 +202,15 @@ function InventoryOverviewPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Warehouse Overview</h1>
           <p className="text-sm text-muted-foreground">
-            Every raw material and finished product on hand, isolated to the factory currently
-            selected in the top bar.
+            Every raw material and finished product on hand at the Water Factory.
           </p>
         </div>
-        <Badge variant="outline" className="h-9 gap-2 px-3 text-sm">
-          <FactoryIcon className="h-4 w-4 text-primary" /> {factoryLabel.name}
-        </Badge>
+        <div className="flex flex-wrap items-center gap-2">
+          {factoryId && <WarehousePostMenu factoryId={factoryId} />}
+          <Badge variant="outline" className="h-9 gap-2 px-3 text-sm">
+            <FactoryIcon className="h-4 w-4 text-primary" /> {factoryLabel.name}
+          </Badge>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -232,7 +235,9 @@ function InventoryOverviewPage() {
             </PopoverTrigger>
             <PopoverContent align="start" className="max-h-72 w-72 overflow-y-auto p-1">
               {(products.data ?? []).length === 0 ? (
-                <div className="px-2 py-3 text-sm text-muted-foreground">No finished products yet.</div>
+                <div className="px-2 py-3 text-sm text-muted-foreground">
+                  No finished products yet.
+                </div>
               ) : (
                 (products.data ?? []).map((p) => (
                   <div

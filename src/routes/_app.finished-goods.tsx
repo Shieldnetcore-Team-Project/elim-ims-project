@@ -61,17 +61,19 @@ import {
   X,
   Factory,
   Trash2,
-  ShoppingCart,
   Search,
 } from "lucide-react";
 import { generateStockCardPdf } from "@/lib/pdf";
 import { useUnitsOfMeasure, UNIT_OPTIONS as UNIT_OPTIONS_FALLBACK } from "@/lib/units";
 import { ADJUSTMENT_REASONS } from "@/lib/adjustment-reasons";
-import { PosDialog } from "./_app.sales";
+import { WarehousePostMenu } from "@/components/warehouse/post-menu";
 
 export const Route = createFileRoute("/_app/finished-goods")({
   head: () => ({
-    meta: [{ title: "Finished Products — Elim Table Water" }, { name: "robots", content: "noindex" }],
+    meta: [
+      { title: "Finished Products — Elim Table Water" },
+      { name: "robots", content: "noindex" },
+    ],
   }),
   component: () => (
     <RequireAccess module="finished-goods">
@@ -169,7 +171,6 @@ function FinishedGoodsPage() {
     usePermissions();
   const write = canWrite("finished-goods");
   const submit = canSubmit("finished-goods");
-  const canSell = canWrite("sales");
   const approve = canApprove("finished-goods");
   const post = canPost("finished-goods");
   const cancel = canCancel("finished-goods");
@@ -202,7 +203,6 @@ function FinishedGoodsPage() {
     ],
   );
   const [formOpen, setFormOpen] = useState(false);
-  const [posOpen, setPosOpen] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
   const [typeFilter, setTypeFilter] = useState<"all" | "finished" | "semi_finished">("all");
   const [q, setQ] = useState("");
@@ -495,25 +495,7 @@ function FinishedGoodsPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {canSell && (
-            <Dialog open={posOpen} onOpenChange={setPosOpen}>
-              <DialogTrigger asChild>
-                <Button variant="outline" className="gap-2">
-                  <ShoppingCart className="h-4 w-4" /> New Sale
-                </Button>
-              </DialogTrigger>
-              {posOpen && factoryId && (
-                <PosDialog
-                  factoryId={factoryId}
-                  onDone={() => {
-                    setPosOpen(false);
-                    invalidateAll();
-                    qc.invalidateQueries({ queryKey: ["sales-list"] });
-                  }}
-                />
-              )}
-            </Dialog>
-          )}
+          {factoryId && <WarehousePostMenu factoryId={factoryId} />}
           {write && (
             <Dialog
               open={formOpen}
