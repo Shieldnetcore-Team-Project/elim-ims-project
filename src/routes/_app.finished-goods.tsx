@@ -67,6 +67,7 @@ import { generateStockCardPdf } from "@/lib/pdf";
 import { useUnitsOfMeasure, UNIT_OPTIONS as UNIT_OPTIONS_FALLBACK } from "@/lib/units";
 import { ADJUSTMENT_REASONS } from "@/lib/adjustment-reasons";
 import { WarehousePostMenu } from "@/components/warehouse/post-menu";
+import { ProductNameSelect } from "@/components/shared/product-name-select";
 
 export const Route = createFileRoute("/_app/finished-goods")({
   head: () => ({
@@ -1068,7 +1069,7 @@ function ProductForm({
       <div className="grid gap-3">
         <div>
           <Label>Product name</Label>
-          <Input value={name} onChange={(e) => setName(e.target.value)} />
+          <ProductNameSelect value={name} onChange={setName} />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>

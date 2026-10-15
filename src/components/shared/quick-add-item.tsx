@@ -15,7 +15,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { ProductNameSelect } from "@/components/shared/product-name-select";
 
 // Sentinel value for the "+ Add new …" entry that sits at the bottom of the
 // product / material dropdowns. Selects intercept it before touching state.
@@ -29,7 +36,9 @@ function refreshItemLists(qc: ReturnType<typeof useQueryClient>) {
   qc.invalidateQueries({
     predicate: (q) => {
       const k = String(q.queryKey[0] ?? "");
-      return k.startsWith("products") || k.startsWith("raw-materials") || k.startsWith("dist-products");
+      return (
+        k.startsWith("products") || k.startsWith("raw-materials") || k.startsWith("dist-products")
+      );
     },
   });
 }
@@ -130,18 +139,21 @@ export function QuickAddProductDialog({
       if (!unit.trim()) throw new Error("Select or enter a unit of measurement");
       // Goes through an RPC (permission-checked server side) because the
       // products table itself only lets Finished Goods writers insert.
-      const { data, error } = await supabase.rpc("quick_add_product" as any, {
-        payload: {
-          factory_id: factoryId,
-          name: name.trim(),
-          product_type: productType,
-          unit: unit.trim(),
-          category_id: categoryId === "none" ? null : categoryId,
-          unit_price: unitPrice,
-          cost_price: costPrice,
-          current_stock: openingStock,
-        },
-      } as any);
+      const { data, error } = await supabase.rpc(
+        "quick_add_product" as any,
+        {
+          payload: {
+            factory_id: factoryId,
+            name: name.trim(),
+            product_type: productType,
+            unit: unit.trim(),
+            category_id: categoryId === "none" ? null : categoryId,
+            unit_price: unitPrice,
+            cost_price: costPrice,
+            current_stock: openingStock,
+          },
+        } as any,
+      );
       if (error) throw error;
       return (data as { id: string }).id;
     },
@@ -152,7 +164,12 @@ export function QuickAddProductDialog({
         entity: "products",
         entityId: id,
         factoryId,
-        newValue: { name: name.trim(), unit: unit.trim(), cost_price: costPrice, unit_price: unitPrice },
+        newValue: {
+          name: name.trim(),
+          unit: unit.trim(),
+          cost_price: costPrice,
+          unit_price: unitPrice,
+        },
       });
       refreshItemLists(qc);
       onCreated?.(id);
@@ -170,12 +187,15 @@ export function QuickAddProductDialog({
         <div className="grid gap-3">
           <div>
             <Label>Product name</Label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+            <ProductNameSelect value={name} onChange={setName} autoFocus />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label>Type</Label>
-              <Select value={productType} onValueChange={(v) => setProductType(v as typeof productType)}>
+              <Select
+                value={productType}
+                onValueChange={(v) => setProductType(v as typeof productType)}
+              >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
