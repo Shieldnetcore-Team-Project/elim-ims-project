@@ -57,6 +57,7 @@ import { logAudit } from "@/lib/audit";
 import { QuickAddProductDialog, ADD_NEW_ITEM } from "@/components/shared/quick-add-item";
 import { requestDelete } from "@/lib/request-delete";
 import { RequestDeleteDialog } from "@/components/shared/request-delete-dialog";
+import { DistributorsListTab } from "@/components/warehouse/distributors-list";
 
 export const Route = createFileRoute("/_app/distribution")({
   head: () => ({
@@ -67,10 +68,9 @@ export const Route = createFileRoute("/_app/distribution")({
   validateSearch: (s: Record<string, unknown>): { tab?: string } => ({
     tab: typeof s.tab === "string" ? s.tab : undefined,
   }),
-  // Marketer & retail accounts moved to the Accountant page; old links follow.
+  // Marketer & retail accounts have their own page now; old links follow.
   beforeLoad: ({ search }) => {
-    if (search.tab === "accounts")
-      throw redirect({ to: "/accountant", search: { tab: "accounts" } });
+    if (search.tab === "accounts") throw redirect({ to: "/marketer-accounts" });
   },
   component: () => (
     <>
@@ -266,6 +266,7 @@ function DistributionPage() {
       <Tabs value={tab ?? "reps"} onValueChange={setTab}>
         <TabsList className="flex-wrap">
           <TabsTrigger value="reps">Reps &amp; Outlets</TabsTrigger>
+          {perms.can("customers") && <TabsTrigger value="distributors">Distributors</TabsTrigger>}
           <TabsTrigger value="dispatches">Dispatches</TabsTrigger>
           <TabsTrigger value="returns">Returns</TabsTrigger>
           {canMoney && <TabsTrigger value="remittances">Remittances</TabsTrigger>}
@@ -274,6 +275,11 @@ function DistributionPage() {
         <TabsContent value="reps" className="mt-4">
           <RepsTab factoryId={factoryId} reps={reps.data ?? []} perms={perms} />
         </TabsContent>
+        {perms.can("customers") && (
+          <TabsContent value="distributors" className="mt-4">
+            <DistributorsListTab factoryId={factoryId} />
+          </TabsContent>
+        )}
         <TabsContent value="dispatches" className="mt-4">
           <DispatchesTab
             factoryId={factoryId}
