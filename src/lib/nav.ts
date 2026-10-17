@@ -34,7 +34,7 @@ import { type ModuleKey } from "@/lib/permissions";
 // A tab with a `url` is its own route: those pages render the tabs as a
 // SectionTabs bar (src/components/layout/section-tabs.tsx), and the sidebar
 // keeps the parent entry highlighted on any of them. `search` targets one
-// in-page tab of that route (e.g. /distribution?tab=accounts), and
+// in-page tab of that route (e.g. /accountant?tab=accounts), and
 // `inBar: false` keeps a route grouped under the entry (highlight, badges)
 // without showing it in the tab bar.
 export type NavTab = {
@@ -202,10 +202,22 @@ export const nav: { section: string; items: NavItem[] }[] = [
         tabs: [
           { label: "Credit sales (distributors)", module: "debts", url: "/credit-sales" },
           {
+            label: "Postings to assess",
+            module: "finance",
+            url: "/accountant",
+            search: { tab: "postings" },
+          },
+          {
             label: "Marketer & retail accounts",
             module: "finance",
-            url: "/distribution",
+            url: "/accountant",
             search: { tab: "accounts" },
+          },
+          {
+            label: "Distributor accounts",
+            module: "finance",
+            url: "/accountant",
+            search: { tab: "distributors" },
           },
           {
             label: "Cash remitted",

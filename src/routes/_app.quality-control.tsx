@@ -337,17 +337,21 @@ function InspectionDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
   // the list yet; it's saved to the raw materials list for every later entry.
   const canAddMaterial = canSubmit("goods-receiving");
   const currentUserName = useCurrentUserName();
+  // Every raw material, inactive ones too (marked), so any delivery can be
+  // inspected.
   const materials = useQuery({
     queryKey: ["qc-materials", factoryId],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("raw_materials")
-        .select("id,name,unit,unit_cost,supplier_id")
+        .select("id,name,unit,unit_cost,supplier_id,active")
         .eq("factory_id", factoryId)
-        .eq("active", true)
         .order("name");
       if (error) throw error;
-      return (data ?? []) as Material[];
+      return (data ?? []).map(({ active, ...m }) => ({
+        ...m,
+        name: active ? m.name : `${m.name} (inactive)`,
+      })) as Material[];
     },
   });
   const suppliers = useQuery({

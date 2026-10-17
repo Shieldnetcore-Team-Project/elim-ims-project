@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { RequireAccess } from "@/components/layout/require-access";
@@ -10,6 +10,9 @@ import { KPI } from "@/lib/dashboard-kit";
 import { money } from "@/lib/format";
 import { printSaleInvoice } from "@/lib/invoice";
 import { generateReceiptPdf } from "@/lib/pdf";
+import { AccountsTab, type Rep } from "@/routes/_app.distribution";
+import { PostingsTab } from "@/components/accounting/postings-tab";
+import { DistributorsTab } from "@/components/accounting/distributors-tab";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -42,6 +45,11 @@ export const Route = createFileRoute("/_app/accountant")({
   head: () => ({
     meta: [{ title: "Accountant — Elim Table Water" }, { name: "robots", content: "noindex" }],
   }),
+  // ?tab= opens a tab (Finance → Marketer & Retail Accounts links to
+  // postings / accounts / distributors); no param means All activity.
+  validateSearch: (s: Record<string, unknown>): { tab?: string } => ({
+    tab: typeof s.tab === "string" ? s.tab : undefined,
+  }),
   component: () => (
     <RequireAccess module="finance">
       <AccountantPage />
@@ -52,7 +60,9 @@ export const Route = createFileRoute("/_app/accountant")({
 // The accountant's desk: everything they do day to day in one place --
 // printing invoices, receiving payments and printing receipts, plus a single
 // activity feed of the money transactions (invoices, payments, expenses,
-// payroll). Recording and approving still happen on the existing pages
+// payroll). Every Warehouse posting (marketers, retail shop, distributors)
+// comes here to be assessed and paid (Postings), next to the marketer & retail
+// accounts and the distributors' accounts. Recording and approving still happen on the existing pages
 // (Payments, Expenses, Payroll, Debts); the quick actions link there rather
 // than duplicating those forms.
 
@@ -128,8 +138,34 @@ function AccountantPage() {
   const { data: factoryId } = useFactoryId();
   const settings = useFactorySettings(factoryId);
   const currency = settings.data?.currency ?? "NGN";
-  const { can } = usePermissions();
+  const perms = usePermissions();
+  const { can } = perms;
   const [q, setQ] = useState("");
+  const { tab = "activity" } = Route.useSearch();
+  const navigate = useNavigate({ from: Route.fullPath });
+  const setTab = (v: string) =>
+    navigate({
+      search: { tab: v === "activity" ? undefined : v },
+      replace: true,
+      state: (prev) => prev,
+    });
+  // Marketer & retail accounts read the distribution side (reps, van stock).
+  const canRepAccounts = perms.canView("distribution");
+  const searchable = ["activity", "invoices", "payments"].includes(tab);
+
+  const reps = useQuery({
+    queryKey: ["dist-reps", factoryId],
+    enabled: !!factoryId && canRepAccounts,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("sales_reps")
+        .select("id,code,full_name,phone,status,employee_id,remarks,kind")
+        .eq("factory_id", factoryId!)
+        .order("full_name");
+      if (error) throw error;
+      return (data ?? []) as Rep[];
+    },
+  });
 
   useRealtimeInvalidate(
     ["sales", "payments_received", "expenses", "payroll"],
@@ -354,14 +390,19 @@ function AccountantPage() {
         />
       </div>
 
-      <Tabs defaultValue="activity">
+      <Tabs value={tab} onValueChange={setTab}>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <TabsList>
+          <TabsList className="flex-wrap">
             <TabsTrigger value="activity">All activity</TabsTrigger>
+            <TabsTrigger value="postings">Postings to assess</TabsTrigger>
             <TabsTrigger value="invoices">Invoices</TabsTrigger>
             <TabsTrigger value="payments">Payments received</TabsTrigger>
+            {canRepAccounts && (
+              <TabsTrigger value="accounts">Marketer &amp; retail accounts</TabsTrigger>
+            )}
+            <TabsTrigger value="distributors">Distributors</TabsTrigger>
           </TabsList>
-          <div className="relative w-full sm:w-72">
+          <div className={`relative w-full sm:w-72 ${searchable ? "" : "hidden"}`}>
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
               className="pl-8"
@@ -427,6 +468,20 @@ function AccountantPage() {
               </Table>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="postings">
+          <PostingsTab factoryId={factoryId} currency={currency} />
+        </TabsContent>
+
+        {canRepAccounts && (
+          <TabsContent value="accounts">
+            <AccountsTab factoryId={factoryId} reps={reps.data ?? []} perms={perms} />
+          </TabsContent>
+        )}
+
+        <TabsContent value="distributors">
+          <DistributorsTab factoryId={factoryId} currency={currency} />
         </TabsContent>
 
         <TabsContent value="invoices">

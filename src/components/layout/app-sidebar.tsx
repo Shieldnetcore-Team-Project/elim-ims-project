@@ -18,7 +18,7 @@ import { usePendingAttention } from "@/lib/pending-attention";
 import { Badge } from "@/components/ui/badge";
 
 export function AppSidebar() {
-  const { state, setOpen, setOpenMobile, isMobile } = useSidebar();
+  const { state, setOpenMobile } = useSidebar();
   const collapsed = state === "collapsed";
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const fromSection = useRouterState({ select: (s) => s.location.state?.section });
@@ -27,33 +27,27 @@ export function AppSidebar() {
   const { byUrl } = usePendingAttention();
 
   return (
-    <Sidebar
-      collapsible="icon"
-      // Desktop only: expand on hover, collapse the moment the cursor
-      // leaves, on top of the existing click/keyboard toggle. Mobile uses a
-      // separate slide-out Sheet (see Sidebar's isMobile branch), where hover
-      // doesn't apply.
-      onMouseEnter={() => !isMobile && setOpen(true)}
-      onMouseLeave={() => !isMobile && setOpen(false)}
-    >
+    // Opens and collapses only through the toggle button (or its keyboard
+    // shortcut); hovering doesn't change it.
+    <Sidebar collapsible="icon">
       <SidebarHeader className="border-b border-sidebar-border">
-        <div className="flex items-center px-2 py-2">
+        <div className="flex items-center justify-center px-2 py-2">
           {collapsed ? (
-            <div className="h-8 w-8 shrink-0 overflow-hidden rounded-lg bg-white">
+            <div className="h-8 w-8 shrink-0 overflow-hidden rounded-xl">
               <img
                 src="/assets/elim-logo.png"
                 alt="Elim Table Water"
-                className="h-full w-full object-cover object-left"
+                className="h-full w-full object-cover object-center"
               />
             </div>
           ) : (
-            <div className="h-10 w-full overflow-hidden rounded-lg bg-white">
-              <img
-                src="/assets/elim-logo.png"
-                alt="Elim Table Water"
-                className="h-full w-full object-contain"
-              />
-            </div>
+            // Sized to the logo itself (about 2:1), so no background shows
+            // around it; centred, with rounded corners.
+            <img
+              src="/assets/elim-logo.png"
+              alt="Elim Table Water"
+              className="h-12 w-auto rounded-2xl"
+            />
           )}
         </div>
       </SidebarHeader>

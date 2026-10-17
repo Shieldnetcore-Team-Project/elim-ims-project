@@ -24,10 +24,11 @@
 --     (the app has no screen to re-create product categories, and Costing
 --     relies on them).
 --
---   * Then ADDS BACK the two standard raw materials, Empty Dispenser Bottle
---     (Old) and (New), with zero stock, so the Store request dropdown always
---     has them (raw_materials_left at the end shows 2), and the default
---     Retail Outlet, so the Warehouse can stock it straight away.
+--   * Then ADDS BACK the standard raw materials (dispenser bottles, sachet
+--     film, preforms, caps, water treatment and so on -- migration
+--     20261015200000) with zero stock, so every raw-material dropdown always
+--     has them, the default Retail Outlet, so the Warehouse can stock it
+--     straight away, and the company's marketers and distributors.
 --
 -- Not covered (Supabase Storage is separate from the database): uploaded
 -- files such as expense attachments and employee documents stay in storage.
@@ -48,7 +49,7 @@ DECLARE
     'audit_logs','cash_transactions','container_movements','costing_price_options','costing_sheet_items',
     'costing_sheets','customers','customer_account_adjustments','customer_account_transactions',
     'damage_records','debt_payments','debts','delete_requests','deliveries','expenses','goods_receipts',
-    'inventory_movements','notifications','payments_received','payroll','product_price_history',
+    'inventory_movements','notifications','payments_received','payroll','posting_assessments','product_price_history',
     'production','production_corrections','production_releases','production_request_items','production_requests','purchase_orders',
     'raw_material_cost_history','raw_material_movements','rep_remittances','rep_return_items',
     'rep_returns','rep_stock','rep_stock_movements','role_grant_requests','sale_items','sales',
@@ -115,9 +116,9 @@ BEGIN
 END
 $reset$;
 
--- Put back the standard raw materials every request needs in its dropdown:
--- Empty Dispenser Bottle (Old) and (New), zero stock. Defined by migration
--- 20261014160000; skipped if that migration hasn't been applied yet.
+-- Put back the standard raw materials every dropdown needs, zero stock.
+-- Defined by migration 20261014160000 (list extended in 20261015200000);
+-- skipped if that migration hasn't been applied yet.
 DO $seed$
 BEGIN
   IF to_regprocedure('public.seed_standard_raw_materials()') IS NOT NULL THEN
@@ -128,11 +129,19 @@ BEGIN
   IF to_regprocedure('public.seed_retail_outlet()') IS NOT NULL THEN
     PERFORM public.seed_retail_outlet();
   END IF;
+  -- The company's marketers (migration 20261015160000).
+  IF to_regprocedure('public.seed_marketers()') IS NOT NULL THEN
+    PERFORM public.seed_marketers();
+  END IF;
+  -- The company's distributors (migration 20261015180000).
+  IF to_regprocedure('public.seed_distributors()') IS NOT NULL THEN
+    PERFORM public.seed_distributors();
+  END IF;
 END
 $seed$;
 
--- What is left: users, settings and categories, plus the two standard
--- dispenser-bottle materials (zero stock); everything else empty.
+-- What is left: users, settings and categories, plus the standard raw
+-- materials (zero stock), retail outlet, marketers and distributors.
 SELECT 'RESET COMPLETE' AS result,
        (SELECT COUNT(*) FROM public.profiles)           AS user_accounts_kept,
        (SELECT COUNT(*) FROM public.roles)              AS roles_kept,
