@@ -31,6 +31,7 @@ import {
   Droplet,
   ArrowRight,
   ChevronDown,
+  Gift,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { WarehousePostMenu } from "@/components/warehouse/post-menu";
@@ -148,6 +149,32 @@ function InventoryOverviewPage() {
     },
   });
 
+  // Chairman's gifts (Post → Others → Chairman's gift): products given out at
+  // cost on the chairman's request. Not sales, so none of it is revenue.
+  const gifts = useQuery({
+    queryKey: ["chairmans-gifts", factoryId],
+    enabled: !!factoryId && canSeeFinishedGoods,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("chairmans_gifts" as never)
+        .select("id,gift_date,total_value")
+        .eq("factory_id", factoryId!);
+      if (error) throw error;
+      return (data ?? []) as unknown as { id: string; gift_date: string; total_value: number }[];
+    },
+  });
+  const giftSummary = useMemo(() => {
+    const thisMonth = new Date().toISOString().slice(0, 7);
+    const rows = gifts.data ?? [];
+    return {
+      value: rows.reduce((t, g) => t + Number(g.total_value), 0),
+      month: rows
+        .filter((g) => g.gift_date.slice(0, 7) === thisMonth)
+        .reduce((t, g) => t + Number(g.total_value), 0),
+      count: rows.length,
+    };
+  }, [gifts.data]);
+
   const filteredProducts = useMemo(() => {
     const q = productSearch.trim().toLowerCase();
     const rows = products.data ?? [];
@@ -227,6 +254,19 @@ function InventoryOverviewPage() {
           tone={summary.lowStock > 0 ? "destructive" : "primary"}
         />
         <SummaryCard icon={Wallet} label="Estimated Stock Value" value={money(summary.value)} />
+        {canSeeFinishedGoods && (
+          <SummaryCard
+            icon={Gift}
+            label="Chairman's Gifts"
+            value={money(giftSummary.value)}
+            tone="warning"
+            hint={`Value at cost of products given out on the chairman's request (${num(giftSummary.count)} posted). Not revenue — nobody pays for it.`}
+          >
+            <div className="mt-1 text-xs text-muted-foreground">
+              This month {money(giftSummary.month)}
+            </div>
+          </SummaryCard>
+        )}
       </div>
 
       {factoryId && <ReleasesToAccept factoryId={factoryId} alwaysShow />}

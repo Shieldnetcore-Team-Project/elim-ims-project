@@ -39,8 +39,8 @@ import {
 import { CheckCircle2, HandCoins, Loader2, Search } from "lucide-react";
 
 export type Posting = {
-  kind: "marketer" | "retail" | "distributor";
-  posting_kind: "dispatch" | "sale";
+  kind: "marketer" | "retail" | "distributor" | "chairmans_gift";
+  posting_kind: "dispatch" | "sale" | "gift";
   posting_id: string;
   reference: string;
   at: string;
@@ -60,6 +60,7 @@ const KIND: Record<Posting["kind"], string> = {
   marketer: "Marketer",
   retail: "Retail shop",
   distributor: "Distributor",
+  chairmans_gift: "Chairman's gift",
 };
 
 const statusVariant = (s: string): "default" | "secondary" | "outline" | "destructive" => {
@@ -72,6 +73,7 @@ const statusVariant = (s: string): "default" | "secondary" | "outline" | "destru
 // distributor -- lands here for Accounting to assess and enter payment
 // against (accounting_postings). A marketer's or the shop's payment is a
 // remittance to their account; a distributor's is a receipt on the invoice.
+// A chairman's gift is assessed for the record only: there is no payment.
 export function PostingsTab({ factoryId, currency }: { factoryId: string; currency: string }) {
   const qc = useQueryClient();
   const perms = usePermissions();
@@ -87,7 +89,7 @@ export function PostingsTab({ factoryId, currency }: { factoryId: string; curren
   const [paying, setPaying] = useState<Posting | null>(null);
 
   useRealtimeInvalidate(
-    ["stock_dispatches", "sales", "payments_received", "rep_remittances"],
+    ["stock_dispatches", "sales", "payments_received", "rep_remittances", "chairmans_gifts"],
     [["acct-postings"]],
   );
 
@@ -135,10 +137,13 @@ export function PostingsTab({ factoryId, currency }: { factoryId: string; curren
   }, [all, kind, state, q]);
 
   const payable = (p: Posting) =>
-    p.posting_kind === "sale"
-      ? canPayInvoice && p.status === "posted" && Number(p.balance ?? 0) > 0
-      : canRemit && p.status === "posted";
+    p.posting_kind === "gift"
+      ? false
+      : p.posting_kind === "sale"
+        ? canPayInvoice && p.status === "posted" && Number(p.balance ?? 0) > 0
+        : canRemit && p.status === "posted";
   const payHint = (p: Posting) => {
+    if (p.posting_kind === "gift") return "Chairman's gift — nothing to pay, record only";
     if (p.posting_kind === "sale" && p.status !== "posted") return "Awaiting sale approval";
     if (p.posting_kind === "sale" && Number(p.balance ?? 0) <= 0) return "Fully paid";
     if (p.status === "reversed") return "Dispatch reversed";
@@ -173,7 +178,7 @@ export function PostingsTab({ factoryId, currency }: { factoryId: string; curren
             <CardTitle>Postings from the Warehouse</CardTitle>
             <p className="text-sm text-muted-foreground">
               Goods posted to marketers, the Company Retail Shop and distributors. Assess each one,
-              then enter the payment against it.
+              then enter the payment against it. Chairman's gifts are assessed for the record only.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -196,6 +201,7 @@ export function PostingsTab({ factoryId, currency }: { factoryId: string; curren
                 <SelectItem value="marketer">Marketers</SelectItem>
                 <SelectItem value="retail">Retail shop</SelectItem>
                 <SelectItem value="distributor">Distributors</SelectItem>
+                <SelectItem value="chairmans_gift">Chairman's gifts</SelectItem>
               </SelectContent>
             </Select>
             <div className="relative w-full sm:w-56">
@@ -418,7 +424,7 @@ function AssessDialog({
       </div>
       <DialogFooter className="gap-2">
         <Button variant="outline" disabled={assess.isPending} onClick={() => assess.mutate(false)}>
-          Mark assessed
+          {p.posting_kind === "gift" ? "Review & record" : "Mark assessed"}
         </Button>
         {canPay && (
           <Button disabled={assess.isPending} onClick={() => assess.mutate(true)}>

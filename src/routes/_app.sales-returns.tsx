@@ -40,6 +40,7 @@ import { num } from "@/lib/format";
 import { toast } from "sonner";
 import { logAudit } from "@/lib/audit";
 import { QuickAddProductDialog, ADD_NEW_ITEM } from "@/components/shared/quick-add-item";
+import { ReturnsTab, type Rep } from "@/routes/_app.distribution";
 import {
   startOfDay,
   endOfDay,
@@ -65,7 +66,6 @@ export const Route = createFileRoute("/_app/sales-returns")({
 });
 
 type Product = { id: string; name: string; unit: string };
-type Customer = { id: string; name: string };
 type Sale = { id: string; invoice_number: string; customer_name: string | null };
 type ReturnRow = {
   id: string;
@@ -140,8 +140,12 @@ function rangeBounds(key: RangeKey, from: string, to: string): { start: string; 
 
 function SalesReturnsPage() {
   const { data: factoryId } = useFactoryId();
-  const { canSubmit, canConfirm, canCancel } = usePermissions();
-  const submitPerm = canSubmit("sales-returns");
+  const perms = usePermissions();
+  const { canSubmit, canConfirm, canCancel } = perms;
+  // A marketer's return is a rep return (distribution:submit); any other
+  // return is a sales return (sales-returns:submit).
+  const canLogMarketerReturn = canSubmit("distribution");
+  const submitPerm = canSubmit("sales-returns") || canLogMarketerReturn;
   const inspectPerm = canConfirm("sales-returns");
   const cancelPerm = canCancel("sales-returns");
   const qc = useQueryClient();
@@ -178,19 +182,43 @@ function SalesReturnsPage() {
     },
   });
 
-  const customers = useQuery({
-    queryKey: ["customers-for-returns", factoryId],
+  // Marketers (and the retail outlet) for the Log Return form's Marketer box
+  // and the Marketer returns list. Same query keys and shapes as the
+  // Distribution page, so the caches are shared.
+  const reps = useQuery({
+    queryKey: ["dist-reps", factoryId],
     enabled: !!factoryId,
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("customers")
-        .select("id,name")
+        .from("sales_reps")
+        .select("id,code,full_name,phone,status,employee_id,remarks,kind")
         .eq("factory_id", factoryId!)
-        .order("name");
+        .order("full_name");
       if (error) throw error;
-      return (data ?? []) as Customer[];
+      return (data ?? []) as Rep[];
     },
   });
+  const distProducts = useQuery({
+    queryKey: ["dist-products", factoryId],
+    enabled: !!factoryId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("products")
+        .select("id,name,unit,unit_price,current_stock")
+        .eq("factory_id", factoryId!)
+        .eq("active", true)
+        .order("name");
+      if (error) throw error;
+      return (data ?? []) as {
+        id: string;
+        name: string;
+        unit: string;
+        unit_price: number;
+        current_stock: number;
+      }[];
+    },
+  });
+  const marketers = (reps.data ?? []).filter((r) => r.kind === "rep" && r.status === "active");
 
   const sales = useQuery({
     queryKey: ["sales-for-returns", factoryId],
@@ -243,6 +271,14 @@ function SalesReturnsPage() {
     qc.invalidateQueries({ queryKey: ["finished-goods"] });
     qc.invalidateQueries({ queryKey: ["products-for-returns"] });
     qc.invalidateQueries({ queryKey: ["stock-movement-summary"] });
+    for (const key of [
+      "dist-returns",
+      "dist-rep-stock",
+      "dist-products",
+      "dist-account",
+      "inventory-overview-products",
+    ])
+      qc.invalidateQueries({ queryKey: [key] });
   };
 
   return (
@@ -344,6 +380,18 @@ function SalesReturnsPage() {
           </Table>
         </CardContent>
       </Card>
+
+      {factoryId && perms.canView("distribution") && (
+        <ReturnsTab
+          factoryId={factoryId}
+          reps={reps.data ?? []}
+          products={distProducts.data ?? []}
+          perms={perms}
+          currentUserId={currentUser.data ?? null}
+          title="Marketer returns"
+          hideLog
+        />
+      )}
 
       <Card className="rounded-2xl">
         <CardHeader>
@@ -448,7 +496,9 @@ function SalesReturnsPage() {
           <CreateReturnDialog
             factoryId={factoryId}
             products={products.data ?? []}
-            customers={customers.data ?? []}
+            marketers={marketers}
+            canLogMarketerReturn={canLogMarketerReturn}
+            canLogSalesReturn={canSubmit("sales-returns")}
             sales={sales.data ?? []}
             onDone={() => {
               setFormOpen(false);
@@ -492,18 +542,40 @@ const emptyLine = (): ReturnLine => ({ product_id: "", quantity: 0 });
 function CreateReturnDialog({
   factoryId,
   products,
-  customers,
+  marketers,
+  canLogMarketerReturn,
+  canLogSalesReturn,
   sales,
   onDone,
 }: {
   factoryId: string;
   products: Product[];
-  customers: Customer[];
+  marketers: Rep[];
+  canLogMarketerReturn: boolean;
+  canLogSalesReturn: boolean;
   sales: Sale[];
   onDone: () => void;
 }) {
   const [saleId, setSaleId] = useState("none");
-  const [customerId, setCustomerId] = useState("none");
+  // The marketer whose returns the Warehouse is collecting. Picked: the
+  // goods come off that marketer's van stock (create_rep_return). None: an
+  // ordinary sales return, optionally against an invoice.
+  const [repId, setRepId] = useState(canLogSalesReturn ? "none" : "");
+  const isMarketerReturn = repId !== "none" && repId !== "";
+  const repStock = useQuery({
+    queryKey: ["dist-rep-stock", repId],
+    enabled: isMarketerReturn,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("rep_stock")
+        .select("product_id,quantity")
+        .eq("sales_rep_id", repId);
+      if (error) throw error;
+      return (data ?? []) as { product_id: string; quantity: number }[];
+    },
+  });
+  const heldBy = (pid: string) =>
+    Number(repStock.data?.find((r) => r.product_id === pid)?.quantity ?? 0);
   // One line per returned product, so a customer bringing back several
   // different items in one visit can be logged in a single go instead of
   // reopening this dialog once per product.
@@ -525,6 +597,24 @@ function CreateReturnDialog({
     mutationFn: async () => {
       if (validLines.length === 0) throw new Error("Add at least one returned product");
       if (!linesReady) throw new Error("Every product line needs a product and a quantity > 0");
+      if (!canLogSalesReturn && !isMarketerReturn) throw new Error("Select the marketer");
+      if (isMarketerReturn) {
+        const { data, error } = await supabase.rpc("create_rep_return", {
+          payload: {
+            factory_id: factoryId,
+            sales_rep_id: repId,
+            notes: reason || undefined,
+            items: validLines.map((l) => ({
+              product_id: l.product_id,
+              quantity_returned: l.quantity,
+            })),
+          } as never,
+        });
+        if (error) throw error;
+        const r = data as { id: string; return_number: string };
+        logAudit({ action: "create", entity: "rep_returns", entityId: r.id, factoryId });
+        return [r];
+      }
       // Sequential, not Promise.all: each call inserts its own sales_returns
       // row and there's no need to race them against each other.
       const results: { id: string; return_number: string }[] = [];
@@ -533,7 +623,6 @@ function CreateReturnDialog({
           payload: {
             factory_id: factoryId,
             sale_id: saleId === "none" ? undefined : saleId,
-            customer_id: customerId === "none" ? undefined : customerId,
             product_id: line.product_id,
             quantity_returned: line.quantity,
             reason: reason || undefined,
@@ -546,13 +635,16 @@ function CreateReturnDialog({
     },
     onSuccess: (results) => {
       toast.success(
-        results.length === 1
-          ? `Return ${results[0].return_number} logged — awaiting inspection`
-          : `${results.length} returns logged (${results.map((r) => r.return_number).join(", ")}) — awaiting inspection`,
+        isMarketerReturn
+          ? `Return ${results[0].return_number} received — back in the Warehouse and credited to the marketer`
+          : results.length === 1
+            ? `Return ${results[0].return_number} logged — awaiting inspection`
+            : `${results.length} returns logged (${results.map((r) => r.return_number).join(", ")}) — awaiting inspection`,
       );
-      results.forEach((r) =>
-        logAudit({ action: "create", entity: "sales_returns", entityId: r.id, factoryId }),
-      );
+      if (!isMarketerReturn)
+        results.forEach((r) =>
+          logAudit({ action: "create", entity: "sales_returns", entityId: r.id, factoryId }),
+        );
       onDone();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -564,38 +656,48 @@ function CreateReturnDialog({
         <DialogTitle>Log a Sales Return</DialogTitle>
       </DialogHeader>
       <div className="grid gap-3">
-        <div>
-          <Label>Invoice (optional)</Label>
-          <Select value={saleId} onValueChange={setSaleId}>
-            <SelectTrigger>
-              <SelectValue placeholder="None" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">— None —</SelectItem>
-              {sales.map((s) => (
-                <SelectItem key={s.id} value={s.id}>
-                  {s.invoice_number} · {s.customer_name ?? "Walk-in"}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div>
-          <Label>Customer (optional)</Label>
-          <Select value={customerId} onValueChange={setCustomerId}>
-            <SelectTrigger>
-              <SelectValue placeholder="None" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">— None —</SelectItem>
-              {customers.map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {canLogMarketerReturn && (
+          <div>
+            <Label>Marketer{canLogSalesReturn ? " (optional)" : ""}</Label>
+            <Select value={repId} onValueChange={setRepId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select the marketer…" />
+              </SelectTrigger>
+              <SelectContent>
+                {canLogSalesReturn && <SelectItem value="none">— None —</SelectItem>}
+                {marketers.map((m) => (
+                  <SelectItem key={m.id} value={m.id}>
+                    {m.full_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {isMarketerReturn && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Collected from this marketer (what they hold is in brackets). The products go
+                straight back into the Warehouse and are credited to the marketer's account.
+              </p>
+            )}
+          </div>
+        )}
+        {!isMarketerReturn && canLogSalesReturn && (
+          <div>
+            <Label>Invoice (optional)</Label>
+            <Select value={saleId} onValueChange={setSaleId}>
+              <SelectTrigger>
+                <SelectValue placeholder="None" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">— None —</SelectItem>
+                {sales.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>
+                    {s.invoice_number} · {s.customer_name ?? "Walk-in"}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
         <div>
           <Label>Products returned</Label>
           <div className="space-y-2">
@@ -614,11 +716,14 @@ function CreateReturnDialog({
                     {products.map((p) => (
                       <SelectItem key={p.id} value={p.id}>
                         {p.name}
+                        {isMarketerReturn && ` (${num(heldBy(p.id))})`}
                       </SelectItem>
                     ))}
-                    <SelectItem value={ADD_NEW_ITEM} className="font-medium text-primary">
-                      + Add new product…
-                    </SelectItem>
+                    {!isMarketerReturn && (
+                      <SelectItem value={ADD_NEW_ITEM} className="font-medium text-primary">
+                        + Add new product…
+                      </SelectItem>
+                    )}
                   </SelectContent>
                 </Select>
                 <MoneyInput
@@ -669,10 +774,12 @@ function CreateReturnDialog({
             placeholder="e.g. Customer says it leaked"
           />
         </div>
-        <p className="text-xs text-muted-foreground">
-          This only records that the return was received — nothing is added back to stock until
-          someone else inspects it.
-        </p>
+        {!isMarketerReturn && (
+          <p className="text-xs text-muted-foreground">
+            This only records that the return was received — nothing is added back to stock until
+            someone else inspects it.
+          </p>
+        )}
       </div>
       <DialogFooter>
         <Button

@@ -298,5 +298,10 @@ export function usePermissions() {
     // edit here at all" — maps to CREATE, the closest fine-grained equivalent
     // of the old blanket 'write' tier for plain CRUD modules.
     canWrite: (m: ModuleKey) => can(m, "create"),
+    // Money side of a page -- payments received, balances owed, customer
+    // advances and account statements. That is Accounting/Finance's, so it
+    // shows only to someone granted Finance, Payments or Debts. Granting
+    // Warehouse pages (sales, customers, distribution...) never includes it.
+    canSeeMoney: can("finance", "view") || can("payments", "view") || can("debts", "view"),
   };
 }

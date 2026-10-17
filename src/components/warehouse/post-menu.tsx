@@ -9,20 +9,24 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ChevronDown, Send, Store, UserRound, Users } from "lucide-react";
+import { ChevronDown, Gift, Send, Store, UserRound, Users } from "lucide-react";
 import { PosDialog } from "@/routes/_app.sales";
 import { MarketerPostDialog, PostToHolderDialog } from "@/routes/_app.distribution";
 import { DistributorPicker } from "./distributor-picker";
+import { ChairmansGiftDialog } from "./chairmans-gift-dialog";
 
-type Target = "marketer" | "distributor" | "outlet";
+type Target = "marketer" | "distributor" | "outlet" | "chairmans-gift";
 
 // The Warehouse's "Post" menu: where finished products leave the Warehouse.
 //   Marketers            dispatch to the marketer's van stock; the dialog shows
 //                        the marketer's account and customers too
 //   Distributors         a sale to a registered customer (normal sale approval)
 //   Company Retail Shop  dispatch to the retail outlet's stock
+//   Gift                 products given out on the chairman's request: stock
+//                        out at cost, sent to Accounting to record; no sale,
+//                        nothing billed, not revenue
 // Each option shows only for whoever holds its right: distribution:create for
-// dispatches, sales create for distributor sales.
+// dispatches and gifts, sales create for distributor sales.
 export function WarehousePostMenu({ factoryId }: { factoryId: string }) {
   const qc = useQueryClient();
   const { canCreate, canWrite } = usePermissions();
@@ -51,6 +55,9 @@ export function WarehousePostMenu({ factoryId }: { factoryId: string }) {
       "customers",
       "warehouse-activity",
       "pending-production-batches",
+      "chairmans-gifts",
+      "chairmans-gift-products",
+      "acct-postings",
     ])
       qc.invalidateQueries({ queryKey: [key] });
   };
@@ -79,6 +86,11 @@ export function WarehousePostMenu({ factoryId }: { factoryId: string }) {
               <Store className="mr-2 h-4 w-4" /> Company Retail Shop
             </DropdownMenuItem>
           )}
+          {canDispatch && (
+            <DropdownMenuItem onSelect={() => setTarget("chairmans-gift")}>
+              <Gift className="mr-2 h-4 w-4" /> Gift
+            </DropdownMenuItem>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
       <Dialog
@@ -101,6 +113,9 @@ export function WarehousePostMenu({ factoryId }: { factoryId: string }) {
             defaultDiscountType="per_pack"
             onDone={done}
           />
+        )}
+        {target === "chairmans-gift" && (
+          <ChairmansGiftDialog factoryId={factoryId} onDone={done} />
         )}
         {target === "outlet" && (
           <PostToHolderDialog factoryId={factoryId} kind="outlet" onDone={done} />

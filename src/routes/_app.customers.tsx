@@ -54,7 +54,9 @@ import { KPI } from "@/lib/dashboard-kit";
 import { AccountAdjustmentsCard } from "@/components/customers/account-adjustments";
 
 export const Route = createFileRoute("/_app/customers")({
-  head: () => ({ meta: [{ title: "Customers — Elim Table Water" }, { name: "robots", content: "noindex" }] }),
+  head: () => ({
+    meta: [{ title: "Customers — Elim Table Water" }, { name: "robots", content: "noindex" }],
+  }),
   component: () => (
     <>
       <SectionTabs section="Customers" />
@@ -83,11 +85,11 @@ export type Customer = {
 function CustomersPage() {
   const { data: factoryId } = useFactoryId();
   const qc = useQueryClient();
-  const { canWrite, canApprove } = usePermissions();
+  const { canWrite, canApprove, canSeeMoney } = usePermissions();
   const write = canWrite("customers");
   // Credit limits and payment terms are set via set_customer_credit_terms(),
   // which needs customers:approve -- not the ordinary edit permission.
-  const setTerms = canApprove("customers");
+  const setTerms = canApprove("customers") && canSeeMoney;
   const [termsFor, setTermsFor] = useState<Customer | null>(null);
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
@@ -174,7 +176,9 @@ function CustomersPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Customers</h1>
           <p className="text-sm text-muted-foreground">
-            Manage customer profiles and outstanding balances.
+            {canSeeMoney
+              ? "Manage customer profiles and outstanding balances."
+              : "Manage customer profiles."}
           </p>
         </div>
         {write && (
@@ -208,26 +212,32 @@ function CustomersPage() {
           label="Total Goods Value"
           value={money((list.data ?? []).reduce((s, c) => s + Number(c.total_purchases), 0))}
         />
-        <KPI
-          icon={HandCoins}
-          label="Total Amount Paid"
-          value={money(
-            (list.data ?? []).reduce(
-              (s, c) => s + (Number(c.total_purchases) - Number(c.outstanding_balance)),
-              0,
-            ),
-          )}
-          tone="success"
-        />
-        <KPI
-          icon={AlertTriangle}
-          label="Total Balance Due"
-          value={money((list.data ?? []).reduce((s, c) => s + Number(c.outstanding_balance), 0))}
-          tone="destructive"
-        />
+        {canSeeMoney && (
+          <>
+            <KPI
+              icon={HandCoins}
+              label="Total Amount Paid"
+              value={money(
+                (list.data ?? []).reduce(
+                  (s, c) => s + (Number(c.total_purchases) - Number(c.outstanding_balance)),
+                  0,
+                ),
+              )}
+              tone="success"
+            />
+            <KPI
+              icon={AlertTriangle}
+              label="Total Balance Due"
+              value={money(
+                (list.data ?? []).reduce((s, c) => s + Number(c.outstanding_balance), 0),
+              )}
+              tone="destructive"
+            />
+          </>
+        )}
       </div>
 
-      {factoryId && <AccountAdjustmentsCard factoryId={factoryId} />}
+      {factoryId && canSeeMoney && <AccountAdjustmentsCard factoryId={factoryId} />}
 
       <Card className="rounded-2xl">
         <CardHeader className="flex-row items-center justify-between gap-3">
@@ -251,10 +261,14 @@ function CustomersPage() {
                 {repList.length > 0 && <TableHead>Marketer</TableHead>}
                 <TableHead>Transactions</TableHead>
                 <TableHead className="text-right">Total Goods</TableHead>
-                <TableHead className="text-right">Paid</TableHead>
-                <TableHead className="text-right">Balance</TableHead>
-                <TableHead className="text-right">Credit limit</TableHead>
-                <TableHead>Terms</TableHead>
+                {canSeeMoney && (
+                  <>
+                    <TableHead className="text-right">Paid</TableHead>
+                    <TableHead className="text-right">Balance</TableHead>
+                    <TableHead className="text-right">Credit limit</TableHead>
+                    <TableHead>Terms</TableHead>
+                  </>
+                )}
                 <TableHead className="w-24"></TableHead>
               </TableRow>
             </TableHeader>
@@ -274,35 +288,39 @@ function CustomersPage() {
                       </div>
                     </TableCell>
                     <TableCell>{c.phone ?? "—"}</TableCell>
-                    {repList.length > 0 && (
-                      <TableCell>{repName(c.sales_rep_id) ?? "—"}</TableCell>
-                    )}
+                    {repList.length > 0 && <TableCell>{repName(c.sales_rep_id) ?? "—"}</TableCell>}
                     <TableCell>
                       <Badge variant="secondary">
                         {c.total_transactions} sale{c.total_transactions === 1 ? "" : "s"}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">{money(Number(c.total_purchases))}</TableCell>
-                    <TableCell className="text-right text-success">{money(paid)}</TableCell>
-                    <TableCell className="text-right">
-                      <span
-                        className={
-                          Number(c.outstanding_balance) > 0 ? "text-destructive font-medium" : ""
-                        }
-                      >
-                        {Number(c.outstanding_balance) > 0
-                          ? money(Number(c.outstanding_balance))
-                          : "—"}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {c.credit_limit == null ? (
-                        <span className="text-muted-foreground">No limit</span>
-                      ) : (
-                        money(Number(c.credit_limit))
-                      )}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap">{c.credit_days} days</TableCell>
+                    {canSeeMoney && (
+                      <>
+                        <TableCell className="text-right text-success">{money(paid)}</TableCell>
+                        <TableCell className="text-right">
+                          <span
+                            className={
+                              Number(c.outstanding_balance) > 0
+                                ? "text-destructive font-medium"
+                                : ""
+                            }
+                          >
+                            {Number(c.outstanding_balance) > 0
+                              ? money(Number(c.outstanding_balance))
+                              : "—"}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {c.credit_limit == null ? (
+                            <span className="text-muted-foreground">No limit</span>
+                          ) : (
+                            money(Number(c.credit_limit))
+                          )}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">{c.credit_days} days</TableCell>
+                      </>
+                    )}
                     <TableCell>
                       <div className="flex justify-end gap-1">
                         {!c.registered && (
@@ -401,6 +419,7 @@ export type Payment = {
 };
 
 export function CustomerProfileDialog({ customer }: { customer: Customer }) {
+  const { canSeeMoney } = usePermissions();
   const invoices = useQuery({
     queryKey: ["customer-invoices", customer.id],
     queryFn: async () => {
@@ -416,6 +435,7 @@ export function CustomerProfileDialog({ customer }: { customer: Customer }) {
 
   const payments = useQuery({
     queryKey: ["customer-payments", customer.id],
+    enabled: canSeeMoney,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("payments_received")
@@ -452,22 +472,24 @@ export function CustomerProfileDialog({ customer }: { customer: Customer }) {
             <span className="text-muted-foreground">Total purchases:</span>{" "}
             {money(Number(customer.total_purchases))}
           </div>
-          <div>
-            <span className="text-muted-foreground">Outstanding debt:</span>{" "}
-            <span
-              className={
-                Number(customer.outstanding_balance) > 0 ? "text-destructive font-medium" : ""
-              }
-            >
-              {money(Number(customer.outstanding_balance))}
-            </span>
-          </div>
+          {canSeeMoney && (
+            <div>
+              <span className="text-muted-foreground">Outstanding debt:</span>{" "}
+              <span
+                className={
+                  Number(customer.outstanding_balance) > 0 ? "text-destructive font-medium" : ""
+                }
+              >
+                {money(Number(customer.outstanding_balance))}
+              </span>
+            </div>
+          )}
         </div>
 
         <Tabs defaultValue="invoices">
           <TabsList>
             <TabsTrigger value="invoices">Purchase History / Invoices</TabsTrigger>
-            <TabsTrigger value="payments">Payment History</TabsTrigger>
+            {canSeeMoney && <TabsTrigger value="payments">Payment History</TabsTrigger>}
           </TabsList>
           <TabsContent value="invoices">
             <Table>
@@ -476,7 +498,7 @@ export function CustomerProfileDialog({ customer }: { customer: Customer }) {
                   <TableHead>Invoice</TableHead>
                   <TableHead>Date</TableHead>
                   <TableHead className="text-right">Total</TableHead>
-                  <TableHead className="text-right">Balance</TableHead>
+                  {canSeeMoney && <TableHead className="text-right">Balance</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -485,13 +507,15 @@ export function CustomerProfileDialog({ customer }: { customer: Customer }) {
                     <TableCell className="font-mono text-xs">{inv.invoice_number}</TableCell>
                     <TableCell>{inv.sale_date}</TableCell>
                     <TableCell className="text-right">{money(Number(inv.grand_total))}</TableCell>
-                    <TableCell className="text-right">
-                      {Number(inv.balance) > 0 ? (
-                        <Badge variant="destructive">{money(Number(inv.balance))}</Badge>
-                      ) : (
-                        <Badge variant="secondary">Paid</Badge>
-                      )}
-                    </TableCell>
+                    {canSeeMoney && (
+                      <TableCell className="text-right">
+                        {Number(inv.balance) > 0 ? (
+                          <Badge variant="destructive">{money(Number(inv.balance))}</Badge>
+                        ) : (
+                          <Badge variant="secondary">Paid</Badge>
+                        )}
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
                 {(invoices.data ?? []).length === 0 && (

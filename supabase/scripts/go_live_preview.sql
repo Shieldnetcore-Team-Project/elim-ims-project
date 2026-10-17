@@ -23,7 +23,7 @@
 WITH plan(table_name, action) AS (
   SELECT t, 'CLEAR' FROM unnest(ARRAY[
     -- records
-    'audit_logs','cash_transactions','container_movements','costing_price_options','costing_sheet_items',
+    'audit_logs','cash_transactions','chairmans_gift_items','chairmans_gifts','container_movements','costing_price_options','costing_sheet_items',
     'costing_sheets','customers','customer_account_adjustments','customer_account_transactions',
     'damage_records','debt_payments','debts','delete_requests','deliveries','expenses','goods_receipts',
     'inventory_movements','notifications','payments_received','payroll','posting_assessments','product_price_history',

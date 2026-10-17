@@ -162,7 +162,7 @@ function DistributionPage() {
   // Cash remitted, credit and account balances are Accounting's: only people
   // with a finance-side right see Remittances (not the Warehouse). Marketer &
   // retail accounts live on the Accountant page.
-  const canMoney = perms.canView("finance") || perms.canView("payments") || perms.canView("debts");
+  const canMoney = perms.canSeeMoney;
   const { tab: urlTab } = Route.useSearch();
   const tab = !canMoney && urlTab === "remittances" ? undefined : urlTab;
   const navigate = useNavigate({ from: Route.fullPath });
@@ -1528,18 +1528,24 @@ function ReverseDialog({ row, onDone }: { row: DispatchRow; onDone: () => void }
 
 /* ---------------------------------------------------------------- Returns --- */
 
-function ReturnsTab({
+export function ReturnsTab({
   factoryId,
   reps,
   products,
   perms,
   currentUserId,
+  title = "Rep Returns",
+  hideLog,
 }: {
   factoryId: string;
   reps: Rep[];
   products: Product[];
   perms: Perms;
   currentUserId: string | null;
+  title?: string;
+  // Warehouse → Returns logs marketer returns from its own "Log Return" form
+  // and shows this list for inspecting them, without a second button.
+  hideLog?: boolean;
 }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -1577,8 +1583,8 @@ function ReturnsTab({
   return (
     <Card className="rounded-2xl">
       <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle>Rep Returns</CardTitle>
-        {canSubmit && (
+        <CardTitle>{title}</CardTitle>
+        {canSubmit && !hideLog && (
           <Button size="sm" className="gap-2" onClick={() => setOpen(true)}>
             <Plus className="h-4 w-4" /> Log Return
           </Button>
@@ -1738,7 +1744,7 @@ function LogReturnDialog({
       return data as { return_number?: string; id?: string };
     },
     onSuccess: (data) => {
-      toast.success(`Return ${data?.return_number ?? ""} logged — awaiting inspection`);
+      toast.success(`Return ${data?.return_number ?? ""} received — back in the Warehouse`);
       logAudit({ action: "create", entity: "rep_returns", entityId: data?.id, factoryId });
       onDone();
     },

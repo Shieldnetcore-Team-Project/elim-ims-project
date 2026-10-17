@@ -165,7 +165,8 @@ function SalesPage() {
     ["customer_account_transactions", "sales", "payments_received"],
     [["sales-list"], ["customer-account"], ["customer-sales-full"], ["customer-payments-full"]],
   );
-  const { canWrite, canApprove, canReject, canCancel, canDelete, canEdit } = usePermissions();
+  const { canWrite, canApprove, canReject, canCancel, canDelete, canEdit, canSeeMoney } =
+    usePermissions();
   const write = canWrite("sales");
   const approve = canApprove("sales");
   const reject = canReject("sales");
@@ -415,7 +416,7 @@ function SalesPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {write && (
+          {write && canSeeMoney && (
             <Button variant="outline" className="gap-2" onClick={() => setAdvanceOpen(true)}>
               <PiggyBank className="h-4 w-4" /> Record Advance Payment
             </Button>
@@ -480,9 +481,13 @@ function SalesPage() {
                 <TableHead>Date &amp; Time</TableHead>
                 <TableHead>Customer</TableHead>
                 <TableHead className="text-right">Total</TableHead>
-                <TableHead className="text-right">Paid</TableHead>
-                <TableHead className="text-right">Balance</TableHead>
-                <TableHead>Payment Status</TableHead>
+                {canSeeMoney && (
+                  <>
+                    <TableHead className="text-right">Paid</TableHead>
+                    <TableHead className="text-right">Balance</TableHead>
+                    <TableHead>Payment Status</TableHead>
+                  </>
+                )}
                 <TableHead>Approval</TableHead>
                 <TableHead></TableHead>
               </TableRow>
@@ -515,7 +520,7 @@ function SalesPage() {
                       )}
                     </TableCell>
                     <TableCell>
-                      {s.customer_id ? (
+                      {s.customer_id && canSeeMoney ? (
                         <button
                           type="button"
                           className="text-left font-medium text-primary hover:underline"
@@ -534,20 +539,26 @@ function SalesPage() {
                       )}
                     </TableCell>
                     <TableCell className="text-right">{money(Number(s.grand_total))}</TableCell>
-                    <TableCell className="text-right">{money(Number(s.amount_paid))}</TableCell>
-                    <TableCell className="text-right">
-                      <span className={Number(s.balance) > 0 ? "text-destructive font-medium" : ""}>
-                        {money(Number(s.balance))}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={status.variant}
-                        className={s.is_pr ? "text-warning" : "capitalize"}
-                      >
-                        {status.label}
-                      </Badge>
-                    </TableCell>
+                    {canSeeMoney && (
+                      <>
+                        <TableCell className="text-right">{money(Number(s.amount_paid))}</TableCell>
+                        <TableCell className="text-right">
+                          <span
+                            className={Number(s.balance) > 0 ? "text-destructive font-medium" : ""}
+                          >
+                            {money(Number(s.balance))}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={status.variant}
+                            className={s.is_pr ? "text-warning" : "capitalize"}
+                          >
+                            {status.label}
+                          </Badge>
+                        </TableCell>
+                      </>
+                    )}
                     <TableCell>
                       <Badge variant={saleStatusBadge(s.status)} className="capitalize">
                         {s.status.replace(/_/g, " ")}
@@ -593,7 +604,7 @@ function SalesPage() {
                             <Ban className="h-4 w-4 text-muted-foreground" />
                           </Button>
                         )}
-                        {s.status === "posted" && Number(s.balance) > 0 && (
+                        {canSeeMoney && s.status === "posted" && Number(s.balance) > 0 && (
                           <Button
                             variant="outline"
                             size="sm"
@@ -616,7 +627,7 @@ function SalesPage() {
                             <ShoppingCart className="h-4 w-4" />
                           </Button>
                         )}
-                        {s.customer_id && (
+                        {canSeeMoney && s.customer_id && (
                           <Button
                             variant="ghost"
                             size="sm"
@@ -1398,7 +1409,16 @@ export function PosDialog({
   const [discountType, setDiscountType] = useState<"amount" | "percent" | "per_pack">(
     defaultDiscountType ?? "amount",
   );
-  const [applyVat, setApplyVat] = useState(editingSale ? editingSale.vat > 0 : true);
+  // Opened from the Retail Outlet page: the shop sells only what was posted to
+  // it, with no VAT and no PR, so those controls and "Sell from" are hidden.
+  const retailMode = !!presetSalesRepId && !editingSale;
+  // Payments, advances and balances are Accounting's: shown only to whoever
+  // holds Finance/Payments/Debts, or at the retail shop, which takes the cash
+  // itself. A Warehouse-only user records the goods; Accounting enters the
+  // payment against the posting (Accountant → Postings).
+  const { canSeeMoney } = usePermissions();
+  const moneyMode = canSeeMoney || retailMode;
+  const [applyVat, setApplyVat] = useState(editingSale ? editingSale.vat > 0 : !presetSalesRepId);
   const [isPr, setIsPr] = useState(editingSale?.is_pr ?? false);
   const [payments, setPayments] = useState<PaymentLine[]>(() => {
     if (editingSale?.pending_payments?.length) return editingSale.pending_payments;
@@ -1580,13 +1600,15 @@ export function PosDialog({
       const existing = prev.find((c) => c.product_id === id);
       if (existing) {
         if (existing.quantity + 1 > avail) {
-          toast.error(`Only ${avail} ${p.unit} ${repMode ? "on the van" : "in stock"}`);
+          toast.error(
+            `Only ${avail} ${p.unit} ${retailMode ? "in the shop" : repMode ? "on the van" : "in stock"}`,
+          );
           return prev;
         }
         return prev.map((c) => (c.product_id === id ? { ...c, quantity: c.quantity + 1 } : c));
       }
       if (avail < 1) {
-        toast.error(repMode ? "Not on the van" : "Out of stock");
+        toast.error(retailMode ? "Not in the shop" : repMode ? "Not on the van" : "Out of stock");
         return prev;
       }
       return [
@@ -1642,7 +1664,7 @@ export function PosDialog({
         customer_address: customerAddress || null,
         discount: totals.discount,
         vat: totals.vat,
-        payments: isPr ? [] : payments.filter((p) => p.amount > 0),
+        payments: isPr || !moneyMode ? [] : payments.filter((p) => p.amount > 0),
         sales_person: salesPerson || null,
         sales_rep_id: repMode ? salesRepId : null,
         is_pr: isPr,
@@ -1749,8 +1771,8 @@ export function PosDialog({
                 <SelectContent>
                   {visibleProducts.map((p) => (
                     <SelectItem key={p.id} value={p.id} disabled={effStock(p) <= 0}>
-                      {p.name} · {money(Number(p.unit_price))} · {repMode ? "van" : "stock"}{" "}
-                      {num(effStock(p))} {p.unit}
+                      {p.name} · {money(Number(p.unit_price))} ·{" "}
+                      {retailMode ? "shop" : repMode ? "van" : "stock"} {num(effStock(p))} {p.unit}
                     </SelectItem>
                   ))}
                   {visibleProducts.length === 0 && (
@@ -1888,12 +1910,14 @@ export function PosDialog({
               </Select>
             </div>
           </div>
-          <CustomerAccountPanel
-            customerId={customerId}
-            customerName={
-              (customers.data ?? []).find((c) => c.id === customerId)?.name ?? "This customer"
-            }
-          />
+          {moneyMode && (
+            <CustomerAccountPanel
+              customerId={customerId}
+              customerName={
+                (customers.data ?? []).find((c) => c.id === customerId)?.name ?? "This customer"
+              }
+            />
+          )}
           {customerId === "walkin" && (
             <>
               <div className="grid grid-cols-2 gap-2">
@@ -1950,19 +1974,23 @@ export function PosDialog({
               </p>
             )}
           </div>
-          <label className="flex items-center gap-2 text-sm">
-            <Checkbox
-              checked={applyVat}
-              disabled={isPr}
-              onCheckedChange={(v) => setApplyVat(!!v)}
-            />
-            VAT
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <Checkbox checked={isPr} onCheckedChange={(v) => setIsPr(!!v)} />
-            PR
-          </label>
-          {!isPr && (
+          {!retailMode && (
+            <>
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox
+                  checked={applyVat}
+                  disabled={isPr}
+                  onCheckedChange={(v) => setApplyVat(!!v)}
+                />
+                VAT
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox checked={isPr} onCheckedChange={(v) => setIsPr(!!v)} />
+                PR
+              </label>
+            </>
+          )}
+          {!isPr && moneyMode && (
             <div>
               <Label className="text-xs">
                 Paid — {payments.length > 1 ? "payments" : "payment"}
@@ -1974,40 +2002,42 @@ export function PosDialog({
               />
             </div>
           )}
-          <div>
-            <Label className="text-xs">Sell from</Label>
-            <Select
-              value={salesRepId}
-              onValueChange={(v) => {
-                setSalesRepId(v);
-                if (cart.length > 0) {
-                  setCart([]);
-                  toast.info("Cart cleared — stock source changed");
-                }
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">Warehouse (direct sale)</SelectItem>
-                {(reps.data ?? [])
-                  .filter((r) => r.kind === "outlet")
-                  .map((r) => (
-                    <SelectItem key={r.id} value={r.id}>
-                      {r.full_name} — outlet stock
-                    </SelectItem>
-                  ))}
-                {(reps.data ?? [])
-                  .filter((r) => r.kind !== "outlet")
-                  .map((r) => (
-                    <SelectItem key={r.id} value={r.id}>
-                      {r.full_name} — rep van stock
-                    </SelectItem>
-                  ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {!retailMode && (
+            <div>
+              <Label className="text-xs">Sell from</Label>
+              <Select
+                value={salesRepId}
+                onValueChange={(v) => {
+                  setSalesRepId(v);
+                  if (cart.length > 0) {
+                    setCart([]);
+                    toast.info("Cart cleared — stock source changed");
+                  }
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Warehouse (direct sale)</SelectItem>
+                  {(reps.data ?? [])
+                    .filter((r) => r.kind === "outlet")
+                    .map((r) => (
+                      <SelectItem key={r.id} value={r.id}>
+                        {r.full_name} — outlet stock
+                      </SelectItem>
+                    ))}
+                  {(reps.data ?? [])
+                    .filter((r) => r.kind !== "outlet")
+                    .map((r) => (
+                      <SelectItem key={r.id} value={r.id}>
+                        {r.full_name} — rep van stock
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-2">
             <div>
               <Label className="text-xs">Sales person</Label>
@@ -2052,11 +2082,13 @@ export function PosDialog({
               <span>Total</span>
               <span>{money(totals.grand)}</span>
             </div>
-            <div className="flex justify-between">
-              <span>Paid</span>
-              <span>{money(amountPaid)}</span>
-            </div>
-            {registeredCustomer && !isPr ? (
+            {moneyMode && (
+              <div className="flex justify-between">
+                <span>Paid</span>
+                <span>{money(amountPaid)}</span>
+              </div>
+            )}
+            {!moneyMode ? null : registeredCustomer && !isPr ? (
               <div className="mt-1 space-y-1 border-t pt-2">
                 <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                   Current sale vs customer advance
