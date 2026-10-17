@@ -194,30 +194,30 @@ export const nav: { section: string; items: NavItem[] }[] = [
       {
         // Money owed by and collected from marketers, the retail outlet and
         // distributors (credit customers): Accounting's, not the Warehouse's.
-        // Tabs are gated on finance/debts so stock-only roles don't get them.
+        // Tabs are gated on finance/debts so stock-only roles don't get them;
+        // the two account pages have their own modules so they can be
+        // granted alone (e.g. to the warehouse manager).
         title: "Marketer & Retail Accounts",
-        url: "/credit-sales",
+        url: "/marketer-accounts",
         icon: HandCoins,
-        modules: ["finance", "debts"],
+        modules: ["marketer-accounts", "distributor-accounts", "finance", "debts"],
         tabs: [
+          {
+            label: "Marketer & retail accounts",
+            module: "marketer-accounts",
+            url: "/marketer-accounts",
+          },
+          {
+            label: "Distributor accounts",
+            module: "distributor-accounts",
+            url: "/distributor-accounts",
+          },
           { label: "Credit sales (distributors)", module: "debts", url: "/credit-sales" },
           {
             label: "Postings to assess",
             module: "finance",
             url: "/accountant",
             search: { tab: "postings" },
-          },
-          {
-            label: "Marketer & retail accounts",
-            module: "finance",
-            url: "/accountant",
-            search: { tab: "accounts" },
-          },
-          {
-            label: "Distributor accounts",
-            module: "finance",
-            url: "/accountant",
-            search: { tab: "distributors" },
           },
           {
             label: "Cash remitted",
@@ -317,4 +317,14 @@ export function activeNavTitle(pathname: string, fromSection?: string): string |
 
 export function navItemByTitle(title: string): NavItem | undefined {
   return navItems.find((i) => i.title === title);
+}
+
+// Where an entry's sidebar link goes for this user: its own url when they can
+// open it, otherwise the first of its tab pages they can (Marketer & Retail
+// Accounts opens on Credit sales for someone with only Debts).
+export function entryUrlFor(item: NavItem, can: (m: ModuleKey) => boolean): string {
+  const tabs = (item.tabs ?? []).filter((t) => t.url && !t.search);
+  const own = tabs.find((t) => t.url === item.url);
+  if (!own || can(own.module)) return item.url;
+  return tabs.find((t) => can(t.module))?.url ?? item.url;
 }

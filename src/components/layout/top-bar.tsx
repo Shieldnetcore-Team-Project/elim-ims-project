@@ -19,8 +19,8 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { FactorySwitcher } from "./factory-switcher";
 import { useTheme } from "@/lib/theme";
-import { Moon, Sun, LogOut, User as UserIcon, Search, Bell } from "lucide-react";
-import { Input } from "@/components/ui/input";
+import { Moon, Sun, LogOut, User as UserIcon, Bell } from "lucide-react";
+import { GlobalSearch } from "./global-search";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 
@@ -146,16 +146,10 @@ export function TopBar() {
 
   return (
     <header className="sticky top-0 z-40 flex h-14 items-center gap-3 border-b bg-background/80 px-3 backdrop-blur">
-      <SidebarTrigger
-        className="h-9 w-9 shrink-0 border"
-        title="Collapse / expand menu (Ctrl+B)"
-      />
+      <SidebarTrigger className="h-9 w-9 shrink-0 border" title="Collapse / expand menu (Ctrl+B)" />
       <FactorySwitcher />
       <div className="ml-2 hidden md:flex items-center gap-2 max-w-sm w-full">
-        <div className="relative w-full">
-          <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Search…" className="pl-8 h-9" />
-        </div>
+        <GlobalSearch />
       </div>
       <div className="ml-auto flex items-center gap-2">
         <Button variant="ghost" size="icon" onClick={toggle} aria-label="Toggle theme">

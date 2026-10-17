@@ -128,9 +128,12 @@ type ReturnRow = {
   status: string;
   received_by: string;
   notes: string | null;
-  sales_reps: { full_name: string } | null;
+  sales_rep_id: string;
+  sales_reps: { full_name: string; kind?: string } | null;
+  carried: { dispatch_number: string; status: string } | null;
   rep_return_items: {
     id: string;
+    product_id: string;
     quantity_returned: number;
     unit_price: number;
     accepted_quantity: number | null;
@@ -312,6 +315,7 @@ function RepsTab({ factoryId, reps, perms }: { factoryId: string; reps: Rep[]; p
   const [editing, setEditing] = useState<Rep | null>(null);
   const [open, setOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Rep | null>(null);
+  const [viewing, setViewing] = useState<Rep | null>(null);
   const canCreate = perms.canCreate("distribution");
   const canEdit = perms.canEdit("distribution");
   const canDelete = perms.canDelete("distribution");
@@ -361,9 +365,14 @@ function RepsTab({ factoryId, reps, perms }: { factoryId: string; reps: Rep[]; p
           </TableHeader>
           <TableBody>
             {reps.map((r) => (
-              <TableRow key={r.id}>
+              <TableRow
+                key={r.id}
+                className="cursor-pointer"
+                title="Click to see this account and all its activity"
+                onClick={() => setViewing(r)}
+              >
                 <TableCell className="font-mono text-xs">{r.code ?? "—"}</TableCell>
-                <TableCell className="font-medium">{r.full_name}</TableCell>
+                <TableCell className="font-medium text-primary">{r.full_name}</TableCell>
                 <TableCell>
                   <Badge variant="outline">
                     {r.kind === "outlet" ? "Retail outlet" : "Sales rep"}
@@ -375,7 +384,7 @@ function RepsTab({ factoryId, reps, perms }: { factoryId: string; reps: Rep[]; p
                     {r.status}
                   </Badge>
                 </TableCell>
-                <TableCell>
+                <TableCell onClick={(e) => e.stopPropagation()}>
                   <div className="flex justify-end gap-1">
                     {canEdit && (
                       <Button
@@ -414,6 +423,10 @@ function RepsTab({ factoryId, reps, perms }: { factoryId: string; reps: Rep[]; p
           </TableBody>
         </Table>
       </CardContent>
+
+      <Dialog open={!!viewing} onOpenChange={(v) => !v && setViewing(null)}>
+        {viewing && <RepDetailsDialog factoryId={factoryId} rep={viewing} />}
+      </Dialog>
 
       <Dialog open={open} onOpenChange={setOpen}>
         {open && (
@@ -834,6 +847,7 @@ function NewDispatchDialog({
   kind,
   fixedRepId,
   embedded,
+  carryReturn,
 }: {
   factoryId: string;
   reps: Rep[];
@@ -842,6 +856,9 @@ function NewDispatchDialog({
   drivers: NamedRow[];
   routes: NamedRow[];
   onDone: () => void;
+  // Marketer returns → "Add products": the returned products are still on
+  // the van, so the dispatch starts with them and is linked to the return.
+  carryReturn?: { id: string; return_number: string; lines: Line[] };
   // Set when opened for one kind of holder (Warehouse "Post" menu): the
   // picker only offers that kind, and a lone holder is preselected.
   kind?: Rep["kind"];
@@ -858,8 +875,12 @@ function NewDispatchDialog({
   const [vehicleId, setVehicleId] = useState("none");
   const [driverId, setDriverId] = useState("none");
   const [routeId, setRouteId] = useState("none");
-  const [notes, setNotes] = useState("");
-  const [lines, setLines] = useState<Line[]>([{ product_id: "", quantity: 0 }]);
+  const [notes, setNotes] = useState(
+    carryReturn ? `Carried over from return ${carryReturn.return_number}` : "",
+  );
+  const [lines, setLines] = useState<Line[]>(
+    carryReturn?.lines.length ? carryReturn.lines : [{ product_id: "", quantity: 0 }],
+  );
 
   const total = useMemo(
     () =>
@@ -884,6 +905,7 @@ function NewDispatchDialog({
           driver_id: driverId === "none" ? undefined : driverId,
           route_id: routeId === "none" ? undefined : routeId,
           notes: notes || undefined,
+          carry_return_id: carryReturn?.id,
           items: clean.map((l) => ({ product_id: l.product_id, quantity: l.quantity })),
         } as never,
       });
@@ -1551,7 +1573,12 @@ export function ReturnsTab({
   const [open, setOpen] = useState(false);
   const [inspectTarget, setInspectTarget] = useState<ReturnRow | null>(null);
   const [cancelTarget, setCancelTarget] = useState<ReturnRow | null>(null);
+  const [carryTarget, setCarryTarget] = useState<ReturnRow | null>(null);
   const canSubmit = perms.canSubmit("distribution");
+  // "Add products": send a marketer's returned (still on the van) products
+  // back out to them in a new dispatch. Marketers only, not the retail shop.
+  const canCarry = perms.canCreate("distribution");
+  const carriedOver = (r: ReturnRow) => !!r.carried && r.carried.status !== "reversed";
   const canConfirm = perms.canConfirm("distribution");
   const canCancel = perms.canCancel("distribution");
 
@@ -1562,7 +1589,7 @@ export function ReturnsTab({
       const { data, error } = await supabase
         .from("rep_returns")
         .select(
-          "id,return_number,return_date,status,received_by,notes,sales_reps(full_name),rep_return_items(id,quantity_returned,unit_price,accepted_quantity,damaged_quantity,rejected_quantity,charge_rep,products(name,unit))",
+          "id,return_number,return_date,status,received_by,notes,sales_rep_id,sales_reps(full_name,kind),carried:stock_dispatches!rep_returns_carried_dispatch_id_fkey(dispatch_number,status),rep_return_items(id,product_id,quantity_returned,unit_price,accepted_quantity,damaged_quantity,rejected_quantity,charge_rep,products(name,unit))",
         )
         .eq("factory_id", factoryId!)
         .order("received_at", { ascending: false })
@@ -1615,9 +1642,28 @@ export function ReturnsTab({
                   <Badge variant={statusBadge(r.status)} className="capitalize">
                     {r.status}
                   </Badge>
+                  {carriedOver(r) && (
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      Added to {r.carried!.dispatch_number}
+                    </div>
+                  )}
                 </TableCell>
                 <TableCell>
                   <div className="flex justify-end gap-1">
+                    {r.status === "completed" &&
+                      canCarry &&
+                      r.sales_reps?.kind !== "outlet" &&
+                      !carriedOver(r) && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="gap-1"
+                          title="The returned products are still on the van: add them, plus anything extra, to the marketer's next dispatch"
+                          onClick={() => setCarryTarget(r)}
+                        >
+                          <Plus className="h-4 w-4" /> Add products
+                        </Button>
+                      )}
                     {r.status === "received" && canConfirm && r.received_by !== currentUserId && (
                       <Button
                         variant="ghost"
@@ -1677,6 +1723,20 @@ export function ReturnsTab({
           />
         )}
       </Dialog>
+      <Dialog open={!!carryTarget} onOpenChange={(v) => !v && setCarryTarget(null)}>
+        {carryTarget && (
+          <CarryOverDialog
+            factoryId={factoryId}
+            row={carryTarget}
+            onDone={() => {
+              setCarryTarget(null);
+              refresh();
+              qc.invalidateQueries({ queryKey: ["dist-dispatches"] });
+              qc.invalidateQueries({ queryKey: ["inventory-overview-products"] });
+            }}
+          />
+        )}
+      </Dialog>
       <Dialog open={!!cancelTarget} onOpenChange={(v) => !v && setCancelTarget(null)}>
         {cancelTarget && (
           <CancelReturnDialog
@@ -1689,6 +1749,61 @@ export function ReturnsTab({
         )}
       </Dialog>
     </Card>
+  );
+}
+
+// Marketer returns → "Add products": a dispatch to the same marketer that
+// starts with what they returned (accepted quantities), for the products that
+// never left the van. More lines can be added for what else they carry.
+function CarryOverDialog({
+  factoryId,
+  row,
+  onDone,
+}: {
+  factoryId: string;
+  row: ReturnRow;
+  onDone: () => void;
+}) {
+  const p = useDispatchPickers(factoryId);
+  const title = `Add products — ${row.sales_reps?.full_name ?? "marketer"}`;
+  if (p.loading) return <LoadingDialog title={title} />;
+  const lines = row.rep_return_items
+    .map((it) => ({
+      product_id: it.product_id,
+      quantity: Number(it.accepted_quantity ?? it.quantity_returned),
+    }))
+    .filter((l) => l.quantity > 0);
+  const rep = p.holders("rep").find((r) => r.id === row.sales_rep_id);
+  return (
+    <DialogContent className="max-w-2xl">
+      <DialogHeader>
+        <DialogTitle>{title}</DialogTitle>
+      </DialogHeader>
+      <p className="text-sm text-muted-foreground">
+        What was recorded as returned on {row.return_number} is filled in below, since it is still
+        on the van. Add any extra products they are carrying, then post. The total goes back on the
+        marketer&apos;s stock and account, and comes off the Warehouse count.
+      </p>
+      {rep ? (
+        <NewDispatchDialog
+          factoryId={factoryId}
+          kind="rep"
+          fixedRepId={row.sales_rep_id}
+          reps={[rep]}
+          products={p.products}
+          vehicles={p.vehicles}
+          drivers={p.drivers}
+          routes={p.routes}
+          carryReturn={{ id: row.id, return_number: row.return_number, lines }}
+          embedded
+          onDone={onDone}
+        />
+      ) : (
+        <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+          This marketer is no longer active, so nothing can be dispatched to them.
+        </p>
+      )}
+    </DialogContent>
   );
 }
 
@@ -2237,6 +2352,192 @@ export function AccountsTab({
         />
       )}
     </div>
+  );
+}
+
+// Everything that happened on one marketer's (or the shop's) account, newest
+// first: dispatches to them, their returns, their sales and the cash they
+// remitted. Values show only to whoever may see that account.
+type RepActivity = {
+  key: string;
+  date: string;
+  kind: "Dispatch" | "Return" | "Sale" | "Cash remitted";
+  reference: string;
+  status: string;
+  value: number;
+};
+
+function RepActivityCard({ repId, showValues }: { repId: string; showValues: boolean }) {
+  const activity = useQuery({
+    queryKey: ["dist-rep-activity", repId],
+    queryFn: async () => {
+      const [dispatches, returns, sales, remits] = await Promise.all([
+        supabase
+          .from("stock_dispatches")
+          .select("id,dispatch_number,dispatch_date,created_at,status,total_value")
+          .eq("sales_rep_id", repId)
+          .order("created_at", { ascending: false })
+          .limit(100),
+        supabase
+          .from("rep_returns")
+          .select(
+            "id,return_number,return_date,received_at,status,rep_return_items(quantity_returned,unit_price)",
+          )
+          .eq("sales_rep_id", repId)
+          .order("received_at", { ascending: false })
+          .limit(100),
+        supabase
+          .from("sales")
+          .select("id,invoice_number,sale_date,created_at,status,grand_total,is_pr")
+          .eq("sales_rep_id", repId)
+          .is("deleted_at", null)
+          .order("created_at", { ascending: false })
+          .limit(100),
+        supabase
+          .from("rep_remittances")
+          .select("id,remittance_number,remittance_date,created_at,amount")
+          .eq("sales_rep_id", repId)
+          .order("created_at", { ascending: false })
+          .limit(100),
+      ]);
+      for (const r of [dispatches, returns, sales, remits]) if (r.error) throw r.error;
+      const rows: RepActivity[] = [
+        ...(dispatches.data ?? []).map((d) => ({
+          key: `d-${d.id}`,
+          date: d.created_at ?? d.dispatch_date,
+          kind: "Dispatch" as const,
+          reference: d.dispatch_number,
+          status: d.status,
+          value: Number(d.total_value ?? 0),
+        })),
+        ...(
+          (returns.data ?? []) as unknown as {
+            id: string;
+            return_number: string;
+            return_date: string;
+            received_at: string | null;
+            status: string;
+            rep_return_items: { quantity_returned: number; unit_price: number }[];
+          }[]
+        ).map((r) => ({
+          key: `r-${r.id}`,
+          date: r.received_at ?? r.return_date,
+          kind: "Return" as const,
+          reference: r.return_number,
+          status: r.status,
+          value: r.rep_return_items.reduce(
+            (t, i) => t + Number(i.quantity_returned) * Number(i.unit_price),
+            0,
+          ),
+        })),
+        ...(sales.data ?? []).map((s) => ({
+          key: `s-${s.id}`,
+          date: s.created_at ?? s.sale_date,
+          kind: "Sale" as const,
+          reference: s.invoice_number,
+          status: s.is_pr ? "PR" : String(s.status),
+          value: Number(s.grand_total ?? 0),
+        })),
+        ...(remits.data ?? []).map((m) => ({
+          key: `m-${m.id}`,
+          date: m.created_at ?? m.remittance_date,
+          kind: "Cash remitted" as const,
+          reference: m.remittance_number,
+          status: "received",
+          value: Number(m.amount ?? 0),
+        })),
+      ];
+      return rows.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+    },
+  });
+  const rows = (activity.data ?? []).filter((r) => showValues || r.kind !== "Cash remitted");
+
+  return (
+    <Card className="rounded-2xl">
+      <CardHeader>
+        <CardTitle>All activity</CardTitle>
+      </CardHeader>
+      <CardContent className="max-h-96 overflow-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Date</TableHead>
+              <TableHead>Activity</TableHead>
+              <TableHead>Reference</TableHead>
+              <TableHead>Status</TableHead>
+              {showValues && <TableHead className="text-right">Value</TableHead>}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((r) => (
+              <TableRow key={r.key}>
+                <TableCell className="whitespace-nowrap text-xs">
+                  {new Date(r.date).toLocaleString()}
+                </TableCell>
+                <TableCell>
+                  <Badge variant="outline">{r.kind}</Badge>
+                </TableCell>
+                <TableCell className="font-mono text-xs">{r.reference}</TableCell>
+                <TableCell className="text-xs capitalize">{r.status.replace(/_/g, " ")}</TableCell>
+                {showValues && <TableCell className="text-right">{money(r.value)}</TableCell>}
+              </TableRow>
+            ))}
+            {rows.length === 0 && (
+              <TableRow>
+                <TableCell
+                  colSpan={showValues ? 5 : 4}
+                  className="py-6 text-center text-muted-foreground"
+                >
+                  {activity.isLoading
+                    ? "Loading…"
+                    : activity.isError
+                      ? "Couldn't load the activity."
+                      : "No activity yet."}
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
+
+// A marketer's (or the shop's) full details, opened by clicking their row on
+// Reps & Outlets or picking them from the top search. Whoever may see the
+// account (Finance/Payments/Debts, or Marketer & Retail Accounts) gets the
+// account and its values; anyone else gets stock and activity only.
+export function RepDetailsDialog({ factoryId, rep }: { factoryId: string; rep: Rep }) {
+  const perms = usePermissions();
+  const canAccount = perms.canSeeMoney || perms.can("marketer-accounts");
+  return (
+    <DialogContent className="max-h-[92vh] w-[95vw] max-w-5xl overflow-y-auto">
+      <DialogHeader>
+        <DialogTitle className="flex flex-wrap items-center gap-2">
+          {rep.full_name}
+          <Badge variant="outline" className="font-normal">
+            {rep.kind === "outlet" ? "Retail outlet" : "Marketer"}
+          </Badge>
+          {rep.code && <span className="font-mono text-xs text-muted-foreground">{rep.code}</span>}
+          {rep.phone && (
+            <span className="text-sm font-normal text-muted-foreground">{rep.phone}</span>
+          )}
+        </DialogTitle>
+      </DialogHeader>
+      <div className="space-y-4">
+        {canAccount ? (
+          <RepAccountView
+            factoryId={factoryId}
+            repId={rep.id}
+            repName={rep.full_name}
+            perms={perms}
+          />
+        ) : (
+          <RepStockView repId={rep.id} />
+        )}
+        <RepActivityCard repId={rep.id} showValues={canAccount} />
+      </div>
+    </DialogContent>
   );
 }
 

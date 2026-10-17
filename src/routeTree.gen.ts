@@ -25,12 +25,14 @@ import { Route as AppCreditSalesRouteImport } from './routes/_app.credit-sales'
 import { Route as AppCustomersRouteImport } from './routes/_app.customers'
 import { Route as AppDashboardRouteImport } from './routes/_app.dashboard'
 import { Route as AppDistributionRouteImport } from './routes/_app.distribution'
+import { Route as AppDistributorAccountsRouteImport } from './routes/_app.distributor-accounts'
 import { Route as AppEmployeesRouteImport } from './routes/_app.employees'
 import { Route as AppExpensesRouteImport } from './routes/_app.expenses'
 import { Route as AppFinanceRouteImport } from './routes/_app.finance'
 import { Route as AppFinishedGoodsRouteImport } from './routes/_app.finished-goods'
 import { Route as AppInventoryRouteImport } from './routes/_app.inventory'
 import { Route as AppLogisticsRouteImport } from './routes/_app.logistics'
+import { Route as AppMarketerAccountsRouteImport } from './routes/_app.marketer-accounts'
 import { Route as AppMarketerPerformanceRouteImport } from './routes/_app.marketer-performance'
 import { Route as AppPayrollRouteImport } from './routes/_app.payroll'
 import { Route as AppPermissionsRouteImport } from './routes/_app.permissions'
@@ -132,6 +134,11 @@ const AppDistributionRoute = AppDistributionRouteImport.update({
   path: '/distribution',
   getParentRoute: () => AppRoute,
 } as any)
+const AppDistributorAccountsRoute = AppDistributorAccountsRouteImport.update({
+  id: '/distributor-accounts',
+  path: '/distributor-accounts',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppEmployeesRoute = AppEmployeesRouteImport.update({
   id: '/employees',
   path: '/employees',
@@ -160,6 +167,11 @@ const AppInventoryRoute = AppInventoryRouteImport.update({
 const AppLogisticsRoute = AppLogisticsRouteImport.update({
   id: '/logistics',
   path: '/logistics',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppMarketerAccountsRoute = AppMarketerAccountsRouteImport.update({
+  id: '/marketer-accounts',
+  path: '/marketer-accounts',
   getParentRoute: () => AppRoute,
 } as any)
 const AppMarketerPerformanceRoute = AppMarketerPerformanceRouteImport.update({
@@ -284,12 +296,14 @@ export interface FileRoutesByFullPath {
   '/customers': typeof AppCustomersRoute
   '/dashboard': typeof AppDashboardRoute
   '/distribution': typeof AppDistributionRoute
+  '/distributor-accounts': typeof AppDistributorAccountsRoute
   '/employees': typeof AppEmployeesRoute
   '/expenses': typeof AppExpensesRoute
   '/finance': typeof AppFinanceRoute
   '/finished-goods': typeof AppFinishedGoodsRoute
   '/inventory': typeof AppInventoryRoute
   '/logistics': typeof AppLogisticsRoute
+  '/marketer-accounts': typeof AppMarketerAccountsRoute
   '/marketer-performance': typeof AppMarketerPerformanceRoute
   '/payroll': typeof AppPayrollRoute
   '/permissions': typeof AppPermissionsRoute
@@ -327,12 +341,14 @@ export interface FileRoutesByTo {
   '/customers': typeof AppCustomersRoute
   '/dashboard': typeof AppDashboardRoute
   '/distribution': typeof AppDistributionRoute
+  '/distributor-accounts': typeof AppDistributorAccountsRoute
   '/employees': typeof AppEmployeesRoute
   '/expenses': typeof AppExpensesRoute
   '/finance': typeof AppFinanceRoute
   '/finished-goods': typeof AppFinishedGoodsRoute
   '/inventory': typeof AppInventoryRoute
   '/logistics': typeof AppLogisticsRoute
+  '/marketer-accounts': typeof AppMarketerAccountsRoute
   '/marketer-performance': typeof AppMarketerPerformanceRoute
   '/payroll': typeof AppPayrollRoute
   '/permissions': typeof AppPermissionsRoute
@@ -373,12 +389,14 @@ export interface FileRoutesById {
   '/_app/customers': typeof AppCustomersRoute
   '/_app/dashboard': typeof AppDashboardRoute
   '/_app/distribution': typeof AppDistributionRoute
+  '/_app/distributor-accounts': typeof AppDistributorAccountsRoute
   '/_app/employees': typeof AppEmployeesRoute
   '/_app/expenses': typeof AppExpensesRoute
   '/_app/finance': typeof AppFinanceRoute
   '/_app/finished-goods': typeof AppFinishedGoodsRoute
   '/_app/inventory': typeof AppInventoryRoute
   '/_app/logistics': typeof AppLogisticsRoute
+  '/_app/marketer-accounts': typeof AppMarketerAccountsRoute
   '/_app/marketer-performance': typeof AppMarketerPerformanceRoute
   '/_app/payroll': typeof AppPayrollRoute
   '/_app/permissions': typeof AppPermissionsRoute
@@ -419,12 +437,14 @@ export interface FileRouteTypes {
     | '/customers'
     | '/dashboard'
     | '/distribution'
+    | '/distributor-accounts'
     | '/employees'
     | '/expenses'
     | '/finance'
     | '/finished-goods'
     | '/inventory'
     | '/logistics'
+    | '/marketer-accounts'
     | '/marketer-performance'
     | '/payroll'
     | '/permissions'
@@ -462,12 +482,14 @@ export interface FileRouteTypes {
     | '/customers'
     | '/dashboard'
     | '/distribution'
+    | '/distributor-accounts'
     | '/employees'
     | '/expenses'
     | '/finance'
     | '/finished-goods'
     | '/inventory'
     | '/logistics'
+    | '/marketer-accounts'
     | '/marketer-performance'
     | '/payroll'
     | '/permissions'
@@ -507,12 +529,14 @@ export interface FileRouteTypes {
     | '/_app/customers'
     | '/_app/dashboard'
     | '/_app/distribution'
+    | '/_app/distributor-accounts'
     | '/_app/employees'
     | '/_app/expenses'
     | '/_app/finance'
     | '/_app/finished-goods'
     | '/_app/inventory'
     | '/_app/logistics'
+    | '/_app/marketer-accounts'
     | '/_app/marketer-performance'
     | '/_app/payroll'
     | '/_app/permissions'
@@ -656,6 +680,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppDistributionRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/distributor-accounts': {
+      id: '/_app/distributor-accounts'
+      path: '/distributor-accounts'
+      fullPath: '/distributor-accounts'
+      preLoaderRoute: typeof AppDistributorAccountsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/employees': {
       id: '/_app/employees'
       path: '/employees'
@@ -696,6 +727,13 @@ declare module '@tanstack/react-router' {
       path: '/logistics'
       fullPath: '/logistics'
       preLoaderRoute: typeof AppLogisticsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/marketer-accounts': {
+      id: '/_app/marketer-accounts'
+      path: '/marketer-accounts'
+      fullPath: '/marketer-accounts'
+      preLoaderRoute: typeof AppMarketerAccountsRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/marketer-performance': {
@@ -878,12 +916,14 @@ interface AppRouteChildren {
   AppCustomersRoute: typeof AppCustomersRoute
   AppDashboardRoute: typeof AppDashboardRoute
   AppDistributionRoute: typeof AppDistributionRoute
+  AppDistributorAccountsRoute: typeof AppDistributorAccountsRoute
   AppEmployeesRoute: typeof AppEmployeesRoute
   AppExpensesRoute: typeof AppExpensesRoute
   AppFinanceRoute: typeof AppFinanceRoute
   AppFinishedGoodsRoute: typeof AppFinishedGoodsRoute
   AppInventoryRoute: typeof AppInventoryRoute
   AppLogisticsRoute: typeof AppLogisticsRoute
+  AppMarketerAccountsRoute: typeof AppMarketerAccountsRoute
   AppMarketerPerformanceRoute: typeof AppMarketerPerformanceRoute
   AppPayrollRoute: typeof AppPayrollRoute
   AppPermissionsRoute: typeof AppPermissionsRoute
@@ -918,12 +958,14 @@ const AppRouteChildren: AppRouteChildren = {
   AppCustomersRoute: AppCustomersRoute,
   AppDashboardRoute: AppDashboardRoute,
   AppDistributionRoute: AppDistributionRoute,
+  AppDistributorAccountsRoute: AppDistributorAccountsRoute,
   AppEmployeesRoute: AppEmployeesRoute,
   AppExpensesRoute: AppExpensesRoute,
   AppFinanceRoute: AppFinanceRoute,
   AppFinishedGoodsRoute: AppFinishedGoodsRoute,
   AppInventoryRoute: AppInventoryRoute,
   AppLogisticsRoute: AppLogisticsRoute,
+  AppMarketerAccountsRoute: AppMarketerAccountsRoute,
   AppMarketerPerformanceRoute: AppMarketerPerformanceRoute,
   AppPayrollRoute: AppPayrollRoute,
   AppPermissionsRoute: AppPermissionsRoute,

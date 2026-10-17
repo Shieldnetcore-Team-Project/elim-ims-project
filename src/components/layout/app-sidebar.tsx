@@ -13,7 +13,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { usePermissions } from "@/lib/permissions";
-import { activeNavTitle, itemUrls, nav } from "@/lib/nav";
+import { activeNavTitle, entryUrlFor, itemUrls, nav } from "@/lib/nav";
 import { usePendingAttention } from "@/lib/pending-attention";
 import { Badge } from "@/components/ui/badge";
 
@@ -73,7 +73,7 @@ export function AppSidebar() {
                       <SidebarMenuItem key={item.title}>
                         <SidebarMenuButton asChild isActive={active}>
                           <Link
-                            to={item.url}
+                            to={entryUrlFor(item, can)}
                             state={{ section: item.title }}
                             // On mobile the sidebar is a sheet; close it so the page shows.
                             onClick={() => setOpenMobile(false)}
