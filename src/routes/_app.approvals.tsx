@@ -164,21 +164,6 @@ function ApprovalsPage() {
     },
   });
 
-  const payments = useQuery({
-    queryKey: ["approvals-payments"],
-    enabled: canApprove("payments"),
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("payments_received")
-        .select("id,receipt_number,amount,payment_date,received_by,customers(name)")
-        .eq("review_status", "pending")
-        .order("payment_date", { ascending: false })
-        .limit(50);
-      if (error) throw error;
-      return (data ?? []).filter((p: any) => p.received_by !== uid) as any[];
-    },
-  });
-
   const payroll = useQuery({
     queryKey: ["approvals-payroll"],
     enabled: canApprove("payroll"),
@@ -349,7 +334,6 @@ function ApprovalsPage() {
     !canApprove("sales") &&
     !canApprove("expenses") &&
     !canApprove("debts") &&
-    !canApprove("payments") &&
     !canApprove("payroll") &&
     !canApprove("raw-materials") &&
     !canApprove("finished-goods") &&
@@ -418,18 +402,6 @@ function ApprovalsPage() {
                   money(Number(d.outstanding)),
                   d.writeoff_reason ?? "—",
                 ],
-              }))}
-            />
-          )}
-          {canApprove("payments") && (
-            <QueueCard
-              icon={HandCoins}
-              title="Payment Confirmations"
-              to="/cash-ledger/ledger"
-              empty="No payments awaiting confirmation."
-              rows={(payments.data ?? []).map((p: any) => ({
-                key: p.id,
-                cells: [p.receipt_number, p.customers?.name ?? "—", money(Number(p.amount))],
               }))}
             />
           )}

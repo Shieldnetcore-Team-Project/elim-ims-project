@@ -2,13 +2,22 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
-const Table = React.forwardRef<HTMLTableElement, React.HTMLAttributes<HTMLTableElement>>(
-  ({ className, ...props }, ref) => (
-    <div className="relative w-full overflow-auto">
-      <table ref={ref} className={cn("w-full caption-bottom text-sm", className)} {...props} />
-    </div>
-  ),
-);
+// The table scrolls inside its own box, no taller than the screen, so the
+// column titles (TableHead is sticky) stay in view while the rows scroll.
+// `containerClassName` sets a different height cap, e.g. "max-h-96".
+const Table = React.forwardRef<
+  HTMLTableElement,
+  React.HTMLAttributes<HTMLTableElement> & { containerClassName?: string }
+>(({ className, containerClassName, ...props }, ref) => (
+  <div
+    className={cn(
+      "relative w-full overflow-auto max-h-[calc(100dvh-8rem)] print:max-h-none print:overflow-visible",
+      containerClassName,
+    )}
+  >
+    <table ref={ref} className={cn("w-full caption-bottom text-sm", className)} {...props} />
+  </div>
+));
 Table.displayName = "Table";
 
 const TableHeader = React.forwardRef<
@@ -60,7 +69,9 @@ const TableHead = React.forwardRef<
   <th
     ref={ref}
     className={cn(
-      "h-10 px-2 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
+      // Sticky with a solid background and its own bottom line (the row's
+      // border scrolls away with the rows).
+      "sticky top-0 z-10 h-10 bg-card px-2 text-left align-middle font-medium text-muted-foreground shadow-[inset_0_-1px_0_var(--color-border)] print:static [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
       className,
     )}
     {...props}

@@ -116,6 +116,7 @@ export function AdjustmentRequestDialog({
         .from("customers")
         .select("id,name")
         .eq("factory_id", factoryId)
+        .is("removed_at", null)
         .order("name");
       if (error) throw error;
       return data ?? [];

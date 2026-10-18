@@ -4,7 +4,9 @@ import { SectionTabs } from "@/components/layout/section-tabs";
 import { Fragment, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useFactoryId } from "@/lib/use-factory";
+import { useFactoryId, useFactorySettings } from "@/lib/use-factory";
+import { printSaleInvoice } from "@/lib/invoice";
+import { generateReceiptPdf } from "@/lib/pdf";
 import { usePermissions } from "@/lib/permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -49,6 +51,8 @@ import {
   FileDown,
   ChevronDown,
   ChevronRight,
+  HandCoins,
+  Printer,
 } from "lucide-react";
 import { money, num } from "@/lib/format";
 import { exportCsv } from "@/lib/export";
@@ -2348,14 +2352,22 @@ export function AccountsTab({
       {!repId && <p className="text-sm text-muted-foreground">Pick a rep to see their account.</p>}
 
       {repId && (
-        <RepAccountView
-          factoryId={factoryId}
-          repId={repId}
-          repName={reps.find((r) => r.id === repId)?.full_name ?? "rep"}
-          perms={perms}
-          from={from}
-          to={to}
-        />
+        <>
+          <RepAccountView
+            factoryId={factoryId}
+            repId={repId}
+            repName={reps.find((r) => r.id === repId)?.full_name ?? "rep"}
+            perms={perms}
+            from={from}
+            to={to}
+          />
+          <RepActivityCard
+            factoryId={factoryId}
+            repId={repId}
+            repName={reps.find((r) => r.id === repId)?.full_name ?? "rep"}
+            showValues
+          />
+        </>
       )}
     </div>
   );
@@ -2371,9 +2383,50 @@ type RepActivity = {
   reference: string;
   status: string;
   value: number;
+  // What a voucher needs: the sale to print, or the remittance's details.
+  saleId?: string;
+  method?: string;
+  remarks?: string | null;
 };
 
-function RepActivityCard({ repId, showValues }: { repId: string; showValues: boolean }) {
+export function RepActivityCard({
+  factoryId,
+  repId,
+  repName,
+  showValues,
+}: {
+  factoryId: string;
+  repId: string;
+  repName: string;
+  showValues: boolean;
+}) {
+  const settings = useFactorySettings(factoryId);
+  // Print a voucher for one transaction, to hand over there and then: the
+  // invoice for a sale, a receipt for cash the marketer remitted.
+  const printVoucher = (r: RepActivity) => {
+    if (r.kind === "Sale" && r.saleId) {
+      printSaleInvoice(r.saleId, settings.data, "print");
+      return;
+    }
+    generateReceiptPdf(
+      {
+        company: {
+          name: settings.data?.company_name ?? "Elim Table Water",
+          address: settings.data?.address,
+          phone: settings.data?.phone,
+          logo_url: settings.data?.logo_url,
+        },
+        receipt_number: r.reference,
+        payment_date: r.date,
+        customer_name: repName,
+        amount: r.value,
+        payment_method: r.method ?? "cash",
+        remarks: r.remarks,
+        currency: settings.data?.currency ?? "NGN",
+      },
+      "print",
+    );
+  };
   const activity = useQuery({
     queryKey: ["dist-rep-activity", repId],
     queryFn: async () => {
@@ -2401,7 +2454,7 @@ function RepActivityCard({ repId, showValues }: { repId: string; showValues: boo
           .limit(100),
         supabase
           .from("rep_remittances")
-          .select("id,remittance_number,remittance_date,created_at,amount")
+          .select("id,remittance_number,remittance_date,created_at,amount,payment_method,remarks")
           .eq("sales_rep_id", repId)
           .order("created_at", { ascending: false })
           .limit(100),
@@ -2443,6 +2496,7 @@ function RepActivityCard({ repId, showValues }: { repId: string; showValues: boo
           reference: s.invoice_number,
           status: s.is_pr ? "PR" : String(s.status),
           value: Number(s.grand_total ?? 0),
+          saleId: s.id,
         })),
         ...(remits.data ?? []).map((m) => ({
           key: `m-${m.id}`,
@@ -2451,6 +2505,8 @@ function RepActivityCard({ repId, showValues }: { repId: string; showValues: boo
           reference: m.remittance_number,
           status: "received",
           value: Number(m.amount ?? 0),
+          method: m.payment_method ?? undefined,
+          remarks: m.remarks,
         })),
       ];
       return rows.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
@@ -2463,8 +2519,8 @@ function RepActivityCard({ repId, showValues }: { repId: string; showValues: boo
       <CardHeader>
         <CardTitle>All activity</CardTitle>
       </CardHeader>
-      <CardContent className="max-h-96 overflow-auto">
-        <Table>
+      <CardContent>
+        <Table containerClassName="max-h-96">
           <TableHeader>
             <TableRow>
               <TableHead>Date</TableHead>
@@ -2472,6 +2528,7 @@ function RepActivityCard({ repId, showValues }: { repId: string; showValues: boo
               <TableHead>Reference</TableHead>
               <TableHead>Status</TableHead>
               {showValues && <TableHead className="text-right">Value</TableHead>}
+              {showValues && <TableHead></TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -2486,12 +2543,27 @@ function RepActivityCard({ repId, showValues }: { repId: string; showValues: boo
                 <TableCell className="font-mono text-xs">{r.reference}</TableCell>
                 <TableCell className="text-xs capitalize">{r.status.replace(/_/g, " ")}</TableCell>
                 {showValues && <TableCell className="text-right">{money(r.value)}</TableCell>}
+                {showValues && (
+                  <TableCell>
+                    {(r.kind === "Sale" || r.kind === "Cash remitted") && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="gap-1"
+                        title={r.kind === "Sale" ? "Print this invoice" : "Print this receipt"}
+                        onClick={() => printVoucher(r)}
+                      >
+                        <Printer className="h-4 w-4" /> Print
+                      </Button>
+                    )}
+                  </TableCell>
+                )}
               </TableRow>
             ))}
             {rows.length === 0 && (
               <TableRow>
                 <TableCell
-                  colSpan={showValues ? 5 : 4}
+                  colSpan={showValues ? 6 : 4}
                   className="py-6 text-center text-muted-foreground"
                 >
                   {activity.isLoading
@@ -2541,7 +2613,12 @@ export function RepDetailsDialog({ factoryId, rep }: { factoryId: string; rep: R
         ) : (
           <RepStockView repId={rep.id} />
         )}
-        <RepActivityCard repId={rep.id} showValues={canAccount} />
+        <RepActivityCard
+          factoryId={factoryId}
+          repId={rep.id}
+          repName={rep.full_name}
+          showValues={canAccount}
+        />
       </div>
     </DialogContent>
   );
@@ -2551,7 +2628,7 @@ export function RepDetailsDialog({ factoryId, rep }: { factoryId: string; rep: R
 // offices under them (RepCustomersCard: what each owes, invoices, collecting
 // payments), and van stock. Used by Distribution → Accounts and by the
 // Warehouse "Post → Marketers" dialog.
-function RepAccountView({
+export function RepAccountView({
   factoryId,
   repId,
   repName,
@@ -2566,6 +2643,11 @@ function RepAccountView({
   from?: string;
   to?: string;
 }) {
+  const qc = useQueryClient();
+  // Cash the marketer brings in for goods taken earlier (a remittance),
+  // recorded straight from their account.
+  const canRecordPayment = perms.canPost("distribution");
+  const [paying, setPaying] = useState(false);
   const summary = useQuery({
     queryKey: ["dist-account", repId, from, to],
     enabled: !!repId,
@@ -2638,23 +2720,30 @@ function RepAccountView({
           <Card className="rounded-2xl">
             <CardHeader className="flex flex-row items-center justify-between gap-2">
               <CardTitle>Account reconciliation</CardTitle>
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                onClick={() =>
-                  exportCsv(
-                    `rep-account-${repName}`,
-                    [
-                      { key: "label", label: "Line" },
-                      { key: "value", label: "Amount" },
-                    ],
-                    rows.map((r) => ({ label: r.label, value: r.value })),
-                  )
-                }
-              >
-                <FileDown className="h-4 w-4" /> CSV
-              </Button>
+              <div className="flex gap-2">
+                {canRecordPayment && (
+                  <Button size="sm" className="gap-1" onClick={() => setPaying(true)}>
+                    <HandCoins className="h-4 w-4" /> Record payment
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  onClick={() =>
+                    exportCsv(
+                      `rep-account-${repName}`,
+                      [
+                        { key: "label", label: "Line" },
+                        { key: "value", label: "Amount" },
+                      ],
+                      rows.map((r) => ({ label: r.label, value: r.value })),
+                    )
+                  }
+                >
+                  <FileDown className="h-4 w-4" /> CSV
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
               <Table>
@@ -2680,6 +2769,27 @@ function RepAccountView({
               </p>
             </CardContent>
           </Card>
+
+          <Dialog open={paying} onOpenChange={setPaying}>
+            {paying && (
+              <RemittanceDialog
+                factoryId={factoryId}
+                reps={[{ id: repId, full_name: repName, status: "active" } as Rep]}
+                presetRepId={repId}
+                presetRemarks={`Payment from ${repName}`}
+                onDone={() => {
+                  setPaying(false);
+                  for (const key of [
+                    "dist-account",
+                    "dist-remittances",
+                    "dist-rep-activity",
+                    "acct-postings",
+                  ])
+                    qc.invalidateQueries({ queryKey: [key] });
+                }}
+              />
+            )}
+          </Dialog>
 
           <RepPerformanceCard factoryId={factoryId} repId={repId} from={from} to={to} />
 

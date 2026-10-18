@@ -163,6 +163,7 @@ function BottleTrackingPage() {
         .from("customers")
         .select("id,name")
         .eq("factory_id", factoryId!)
+        .is("removed_at", null)
         .order("name");
       return (data ?? []) as Named[];
     },

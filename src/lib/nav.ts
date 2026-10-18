@@ -188,7 +188,7 @@ export const nav: { section: string; items: NavItem[] }[] = [
           { label: "Overview", module: "cash-flow" },
           { label: "Ledger", module: "receipts-payments" },
           { label: "Debts", module: "debts" },
-          { label: "Record & Approve Payments", module: "payments" },
+          { label: "Record Payments", module: "payments" },
         ],
       },
       {

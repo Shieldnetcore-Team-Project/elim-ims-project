@@ -104,19 +104,3 @@ export function usePendingApprovalsCount(factoryId: string | undefined) {
     },
   });
 }
-
-export function usePendingConfirmationsCount(factoryId: string | undefined) {
-  return useQuery({
-    queryKey: ["pending-confirmations-count", factoryId],
-    enabled: !!factoryId,
-    queryFn: async () => {
-      const { count, error } = await supabase
-        .from("payments_received")
-        .select("id", { count: "exact", head: true })
-        .eq("factory_id", factoryId!)
-        .eq("status", "pending_confirmation");
-      if (error) throw error;
-      return count ?? 0;
-    },
-  });
-}

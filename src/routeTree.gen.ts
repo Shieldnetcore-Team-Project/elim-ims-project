@@ -54,6 +54,8 @@ import { Route as AppUsersRouteImport } from './routes/_app.users'
 import { Route as AppCashLedgerIndexRouteImport } from './routes/_app.cash-ledger.index'
 import { Route as AppCashLedgerDebtsRouteImport } from './routes/_app.cash-ledger.debts'
 import { Route as AppCashLedgerLedgerRouteImport } from './routes/_app.cash-ledger.ledger'
+import { Route as AppMarketerAccountsRepIdRouteImport } from './routes/_app.marketer-accounts_.$repId'
+import { Route as AppMarketerAccountsRepIdCustomersCustomerIdRouteImport } from './routes/_app.marketer-accounts_.$repId_.customers.$customerId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -279,6 +281,18 @@ const AppCashLedgerLedgerRoute = AppCashLedgerLedgerRouteImport.update({
   path: '/ledger',
   getParentRoute: () => AppCashLedgerRoute,
 } as any)
+const AppMarketerAccountsRepIdRoute =
+  AppMarketerAccountsRepIdRouteImport.update({
+    id: '/marketer-accounts_/$repId',
+    path: '/marketer-accounts/$repId',
+    getParentRoute: () => AppRoute,
+  } as any)
+const AppMarketerAccountsRepIdCustomersCustomerIdRoute =
+  AppMarketerAccountsRepIdCustomersCustomerIdRouteImport.update({
+    id: '/marketer-accounts_/$repId_/customers/$customerId',
+    path: '/marketer-accounts/$repId/customers/$customerId',
+    getParentRoute: () => AppRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -324,7 +338,9 @@ export interface FileRoutesByFullPath {
   '/users': typeof AppUsersRoute
   '/cash-ledger/debts': typeof AppCashLedgerDebtsRoute
   '/cash-ledger/ledger': typeof AppCashLedgerLedgerRoute
+  '/marketer-accounts/$repId': typeof AppMarketerAccountsRepIdRoute
   '/cash-ledger/': typeof AppCashLedgerIndexRoute
+  '/marketer-accounts/$repId/customers/$customerId': typeof AppMarketerAccountsRepIdCustomersCustomerIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -369,7 +385,9 @@ export interface FileRoutesByTo {
   '/users': typeof AppUsersRoute
   '/cash-ledger/debts': typeof AppCashLedgerDebtsRoute
   '/cash-ledger/ledger': typeof AppCashLedgerLedgerRoute
+  '/marketer-accounts/$repId': typeof AppMarketerAccountsRepIdRoute
   '/cash-ledger': typeof AppCashLedgerIndexRoute
+  '/marketer-accounts/$repId/customers/$customerId': typeof AppMarketerAccountsRepIdCustomersCustomerIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -417,7 +435,9 @@ export interface FileRoutesById {
   '/_app/users': typeof AppUsersRoute
   '/_app/cash-ledger/debts': typeof AppCashLedgerDebtsRoute
   '/_app/cash-ledger/ledger': typeof AppCashLedgerLedgerRoute
+  '/_app/marketer-accounts_/$repId': typeof AppMarketerAccountsRepIdRoute
   '/_app/cash-ledger/': typeof AppCashLedgerIndexRoute
+  '/_app/marketer-accounts_/$repId_/customers/$customerId': typeof AppMarketerAccountsRepIdCustomersCustomerIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -465,7 +485,9 @@ export interface FileRouteTypes {
     | '/users'
     | '/cash-ledger/debts'
     | '/cash-ledger/ledger'
+    | '/marketer-accounts/$repId'
     | '/cash-ledger/'
+    | '/marketer-accounts/$repId/customers/$customerId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -510,7 +532,9 @@ export interface FileRouteTypes {
     | '/users'
     | '/cash-ledger/debts'
     | '/cash-ledger/ledger'
+    | '/marketer-accounts/$repId'
     | '/cash-ledger'
+    | '/marketer-accounts/$repId/customers/$customerId'
   id:
     | '__root__'
     | '/'
@@ -557,7 +581,9 @@ export interface FileRouteTypes {
     | '/_app/users'
     | '/_app/cash-ledger/debts'
     | '/_app/cash-ledger/ledger'
+    | '/_app/marketer-accounts_/$repId'
     | '/_app/cash-ledger/'
+    | '/_app/marketer-accounts_/$repId_/customers/$customerId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -883,6 +909,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppCashLedgerLedgerRouteImport
       parentRoute: typeof AppCashLedgerRoute
     }
+    '/_app/marketer-accounts_/$repId': {
+      id: '/_app/marketer-accounts_/$repId'
+      path: '/marketer-accounts/$repId'
+      fullPath: '/marketer-accounts/$repId'
+      preLoaderRoute: typeof AppMarketerAccountsRepIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/marketer-accounts_/$repId_/customers/$customerId': {
+      id: '/_app/marketer-accounts_/$repId_/customers/$customerId'
+      path: '/marketer-accounts/$repId/customers/$customerId'
+      fullPath: '/marketer-accounts/$repId/customers/$customerId'
+      preLoaderRoute: typeof AppMarketerAccountsRepIdCustomersCustomerIdRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
@@ -942,6 +982,8 @@ interface AppRouteChildren {
   AppSettingsRoute: typeof AppSettingsRoute
   AppSuppliersRoute: typeof AppSuppliersRoute
   AppUsersRoute: typeof AppUsersRoute
+  AppMarketerAccountsRepIdRoute: typeof AppMarketerAccountsRepIdRoute
+  AppMarketerAccountsRepIdCustomersCustomerIdRoute: typeof AppMarketerAccountsRepIdCustomersCustomerIdRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
@@ -984,6 +1026,9 @@ const AppRouteChildren: AppRouteChildren = {
   AppSettingsRoute: AppSettingsRoute,
   AppSuppliersRoute: AppSuppliersRoute,
   AppUsersRoute: AppUsersRoute,
+  AppMarketerAccountsRepIdRoute: AppMarketerAccountsRepIdRoute,
+  AppMarketerAccountsRepIdCustomersCustomerIdRoute:
+    AppMarketerAccountsRepIdCustomersCustomerIdRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)

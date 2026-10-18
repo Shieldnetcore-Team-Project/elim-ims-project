@@ -43,8 +43,6 @@ import {
   TrendingDown,
   Wallet,
   HandCoins,
-  Check,
-  X,
   Undo2,
 } from "lucide-react";
 import { money } from "@/lib/format";
@@ -108,11 +106,9 @@ function LedgerPage() {
   const settings = useFactorySettings(factoryId);
   const currency = settings.data?.currency ?? "NGN";
   const qc = useQueryClient();
-  const { canWrite, canConfirm, canReject, canReverse } = usePermissions();
+  const { canWrite, canReverse } = usePermissions();
   const writeLedger = canWrite("receipts-payments");
   const writePayments = canWrite("payments");
-  const confirmPayments = canConfirm("payments");
-  const rejectPayments = canReject("payments");
   const reversePayments = canReverse("payments");
   const [formOpen, setFormOpen] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
@@ -149,6 +145,7 @@ function LedgerPage() {
         .from("customers")
         .select("id,name,sales_rep_id")
         .eq("factory_id", factoryId!)
+        .is("removed_at", null)
         .order("name");
       if (error) throw error;
       return (data ?? []) as Customer[];
@@ -388,29 +385,6 @@ function LedgerPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const review = useMutation({
-    mutationFn: async ({
-      id,
-      doApprove,
-      reason,
-    }: {
-      id: string;
-      doApprove: boolean;
-      reason?: string;
-    }) => {
-      const { error } = await supabase.rpc(
-        doApprove ? "confirm_payment" : "reject_payment",
-        doApprove ? { p_id: id } : { p_id: id, p_reason: reason ?? "Rejected" },
-      );
-      if (error) throw error;
-    },
-    onSuccess: (_r, vars) => {
-      toast.success(vars.doApprove ? "Payment confirmed" : "Payment rejected");
-      invalidateAll();
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
   const reverse = useMutation({
     mutationFn: async ({ id, reason }: { id: string; reason: string }) => {
       const { error } = await supabase.rpc("reverse_payment", { p_id: id, p_reason: reason });
@@ -605,34 +579,6 @@ function LedgerPage() {
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center justify-end gap-1">
-                      {r.paymentId &&
-                        r.reviewStatus === "pending_confirmation" &&
-                        r.receivedBy !== currentUser.data && (
-                          <>
-                            {confirmPayments && (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                title="Confirm"
-                                onClick={() => review.mutate({ id: r.paymentId!, doApprove: true })}
-                              >
-                                <Check className="h-4 w-4 text-success" />
-                              </Button>
-                            )}
-                            {rejectPayments && (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                title="Reject"
-                                onClick={() =>
-                                  review.mutate({ id: r.paymentId!, doApprove: false })
-                                }
-                              >
-                                <X className="h-4 w-4 text-destructive" />
-                              </Button>
-                            )}
-                          </>
-                        )}
                       {r.paymentId &&
                         r.reviewStatus === "confirmed" &&
                         reversePayments &&

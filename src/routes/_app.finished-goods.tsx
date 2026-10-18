@@ -47,7 +47,6 @@ import {
   PackageCheck,
   PackagePlus,
   PackageMinus,
-  ArrowLeftRight,
   History,
   Printer,
   Boxes,
@@ -100,7 +99,6 @@ type Product = {
   product_type: string;
   product_categories: { name: string } | null;
 };
-type Factory = { id: string; code: string; name: string };
 type Category = { id: string; name: string };
 type Movement = {
   id: string;
@@ -199,7 +197,6 @@ function FinishedGoodsPage() {
     product: Product;
     type: "adjusted" | "damaged";
   } | null>(null);
-  const [transferTarget, setTransferTarget] = useState<Product | null>(null);
   const [historyTarget, setHistoryTarget] = useState<Product | null>(null);
   const [packagingTarget, setPackagingTarget] = useState<Product | null>(null);
 
@@ -231,15 +228,6 @@ function FinishedGoodsPage() {
         .order("name");
       if (error) throw error;
       return (data ?? []) as Category[];
-    },
-  });
-
-  const factories = useQuery({
-    queryKey: ["factories-all"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("factories").select("id,code,name").order("name");
-      if (error) throw error;
-      return (data ?? []) as Factory[];
     },
   });
 
@@ -601,16 +589,6 @@ function FinishedGoodsPage() {
                             <PackageX className="h-4 w-4 text-destructive" />
                           </Button>
                         )}
-                        {write && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            title="Transfer"
-                            onClick={() => setTransferTarget(p)}
-                          >
-                            <ArrowLeftRight className="h-4 w-4" />
-                          </Button>
-                        )}
                         <Button
                           variant="ghost"
                           size="icon"
@@ -811,18 +789,6 @@ function FinishedGoodsPage() {
             type={adjustTarget.type}
             onDone={() => {
               setAdjustTarget(null);
-              invalidateAll();
-            }}
-          />
-        )}
-      </Dialog>
-      <Dialog open={!!transferTarget} onOpenChange={(v) => !v && setTransferTarget(null)}>
-        {transferTarget && (
-          <TransferDialog
-            product={transferTarget}
-            factories={(factories.data ?? []).filter((f) => f.id !== factoryId)}
-            onDone={() => {
-              setTransferTarget(null);
               invalidateAll();
             }}
           />
@@ -1179,91 +1145,6 @@ function AdjustDialog({
           onClick={() => submit.mutate()}
         >
           {submit.isPending ? "Submitting…" : "Submit for approval"}
-        </Button>
-      </DialogFooter>
-    </DialogContent>
-  );
-}
-
-function TransferDialog({
-  product,
-  factories,
-  onDone,
-}: {
-  product: Product;
-  factories: Factory[];
-  onDone: () => void;
-}) {
-  const [toFactory, setToFactory] = useState(factories[0]?.id ?? "");
-  const [quantity, setQuantity] = useState(0);
-  const [reason, setReason] = useState("");
-
-  const submit = useMutation({
-    mutationFn: async () => {
-      if (!toFactory) throw new Error("Select a destination factory");
-      if (quantity <= 0) throw new Error("Quantity must be > 0");
-      const { error } = await supabase.rpc("transfer_finished_stock", {
-        payload: {
-          product_id: product.id,
-          to_factory_id: toFactory,
-          quantity,
-          reason: reason || null,
-        } as any,
-      });
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      toast.success("Stock transferred");
-      onDone();
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
-  return (
-    <DialogContent>
-      <DialogHeader>
-        <DialogTitle>Transfer — {product.name}</DialogTitle>
-      </DialogHeader>
-      <div className="grid gap-3">
-        <p className="text-sm text-muted-foreground">
-          Available: {num(Number(product.current_stock))} {product.unit}
-        </p>
-        <div>
-          <Label>Destination factory</Label>
-          <Select value={toFactory} onValueChange={setToFactory}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {factories.map((f) => (
-                <SelectItem key={f.id} value={f.id}>
-                  {f.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div>
-          <Label>Quantity</Label>
-          <MoneyInput
-            min={0.001}
-            max={Number(product.current_stock)}
-            step="0.001"
-            value={quantity}
-            onChange={setQuantity}
-          />
-        </div>
-        <div>
-          <Label>Reason</Label>
-          <Textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} />
-        </div>
-      </div>
-      <DialogFooter>
-        <Button
-          disabled={submit.isPending || quantity <= 0 || !toFactory}
-          onClick={() => submit.mutate()}
-        >
-          {submit.isPending ? "Transferring…" : "Transfer stock"}
         </Button>
       </DialogFooter>
     </DialogContent>

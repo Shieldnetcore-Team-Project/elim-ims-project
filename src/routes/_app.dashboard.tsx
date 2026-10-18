@@ -5,7 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useFactoryId } from "@/lib/use-factory";
 import { useMyRoles, type Role } from "@/lib/permissions";
 import { useRealtimeInvalidate } from "@/lib/realtime";
-import { KPI, PageHeader, usePendingConfirmationsCount } from "@/lib/dashboard-kit";
+import { KPI, PageHeader } from "@/lib/dashboard-kit";
 import { usePendingAttention } from "@/lib/pending-attention";
 import {
   COUNTED_STATUSES,
@@ -44,7 +44,6 @@ import {
   Trophy,
   Activity,
   CheckSquare,
-  Inbox,
   ClipboardList,
   Truck,
   PackageMinus,
@@ -248,7 +247,6 @@ function AdminDashboard({ factoryId }: { factoryId: string }) {
   // Same count as the Approval Center / notification bell: what is waiting on
   // this user, excluding their own submissions.
   const pendingApprovals = { data: usePendingAttention().total };
-  const pendingConfirmations = usePendingConfirmationsCount(factoryId);
 
   const salesTrend = useQuery({
     queryKey: ["sales-trend", factoryId],
@@ -386,13 +384,6 @@ function AdminDashboard({ factoryId }: { factoryId: string }) {
           value={String(pendingApprovals.data ?? 0)}
           tone={(pendingApprovals.data ?? 0) > 0 ? "warning" : "success"}
           hint="Waiting on you — see Approval Center"
-        />
-        <KPI
-          icon={Inbox}
-          label="Pending Confirmations"
-          value={String(pendingConfirmations.data ?? 0)}
-          tone={(pendingConfirmations.data ?? 0) > 0 ? "warning" : "success"}
-          hint="Payments awaiting review"
         />
         <KPI
           icon={HandCoins}

@@ -71,13 +71,6 @@ export function usePendingAttention() {
       .eq("writeoff_status", "requested")
       .neq("writeoff_requested_by", uid ?? ""),
   );
-  const payments = useCount("payments", canApprove("payments"), uid, () =>
-    supabase
-      .from("payments_received")
-      .select("id", { count: "exact", head: true })
-      .eq("review_status", "pending")
-      .neq("received_by", uid ?? ""),
-  );
   const payroll = useCount("payroll", canApprove("payroll"), uid, () =>
     supabase
       .from("payroll")
@@ -207,12 +200,6 @@ export function usePendingAttention() {
     { key: "sales", label: "Sales awaiting approval", to: "/sales", query: sales },
     { key: "expenses", label: "Expenses awaiting approval", to: "/expenses", query: expenses },
     { key: "debts", label: "Debt write-offs pending", to: "/cash-ledger", query: debts },
-    {
-      key: "payments",
-      label: "Payments awaiting confirmation",
-      to: "/cash-ledger",
-      query: payments,
-    },
     { key: "payroll", label: "Payroll runs awaiting approval", to: "/payroll", query: payroll },
     {
       key: "stock-raw",

@@ -1048,6 +1048,7 @@ function AdvancePaymentDialog({ factoryId, onDone }: { factoryId: string; onDone
         .from("customers")
         .select("id,name,phone,address")
         .eq("factory_id", factoryId)
+        .is("removed_at", null)
         .order("name");
       if (error) throw error;
       return (data ?? []) as Customer[];
@@ -1374,6 +1375,7 @@ export function PosDialog({
         .from("customers")
         .select("id,name,phone,address,credit_limit")
         .eq("factory_id", factoryId)
+        .is("removed_at", null)
         .order("name");
       if (error) throw error;
       return (data ?? []) as Customer[];
@@ -1810,8 +1812,8 @@ export function PosDialog({
             </div>
           </div>
 
-          <div className="max-h-[40vh] overflow-auto rounded-lg border">
-            <Table>
+          <div className="rounded-lg border">
+            <Table containerClassName="max-h-[40vh]">
               <TableHeader>
                 <TableRow>
                   <TableHead className="min-w-[220px]">Item</TableHead>

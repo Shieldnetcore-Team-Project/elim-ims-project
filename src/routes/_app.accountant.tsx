@@ -251,9 +251,6 @@ function AccountantPage() {
   const receivedMonth = livePayments
     .filter((p) => p.payment_date.slice(0, 10) >= monthStart)
     .reduce((t, p) => t + Number(p.amount), 0);
-  const pendingPayments = (payments.data ?? []).filter((p) =>
-    p.status.startsWith("pending"),
-  ).length;
   const outstanding = (sales.data ?? [])
     .filter((s) => s.status === "posted" && !s.is_pr)
     .reduce((t, s) => t + Math.max(0, Number(s.balance)), 0);
@@ -381,12 +378,6 @@ function AccountantPage() {
           value={money(outstanding, currency)}
           hint="Unpaid balance on posted invoices"
           tone={outstanding > 0 ? "warning" : "success"}
-        />
-        <KPI
-          icon={CheckSquare}
-          label="Payments to Confirm"
-          value={String(pendingPayments)}
-          tone={pendingPayments > 0 ? "warning" : "success"}
         />
       </div>
 

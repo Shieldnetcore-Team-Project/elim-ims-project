@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { useFactoryId } from "@/lib/use-factory";
 import { usePermissions } from "@/lib/permissions";
@@ -29,7 +30,11 @@ const MIN_CHARS = 2;
 // profile. Each group shows only to whoever can open that page.
 export function GlobalSearch() {
   const { data: factoryId } = useFactoryId();
-  const { can } = usePermissions();
+  const { can, canSeeMoney } = usePermissions();
+  const navigate = useNavigate();
+  // Whoever may see marketer accounts goes to the marketer's profile page;
+  // stock-only users (Warehouse) get the stock and activity dialog.
+  const canAccounts = can("marketer-accounts") || canSeeMoney;
   const canReps = can("distribution");
   const canCustomers = can("customers");
   const [q, setQ] = useState("");
@@ -80,6 +85,7 @@ export function GlobalSearch() {
               .from("customers")
               .select("id,name,phone,email,address,registered,total_purchases,outstanding_balance")
               .eq("factory_id", factoryId!)
+              .is("removed_at", null)
               .or(`name.ilike.${like},phone.ilike.${like}`)
               .order("name")
               .limit(8)
@@ -102,7 +108,9 @@ export function GlobalSearch() {
   const pick = (i: number) => {
     const h = hits[i];
     if (!h) return;
-    if (h.type === "rep") setRep(h.rep);
+    if (h.type === "rep" && canAccounts)
+      navigate({ to: "/marketer-accounts/$repId", params: { repId: h.rep.id } });
+    else if (h.type === "rep") setRep(h.rep);
     else setCustomer(h.customer);
     setOpen(false);
     setQ("");

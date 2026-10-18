@@ -44,7 +44,7 @@ const FALLBACK_LOGO_URL = "/assets/elim-logo.png";
 // jsPDF's built-in fonts have no glyph for the Naira sign (₦) -- it prints as
 // a broken box on thermal/receipt output. Use a plain currency-code prefix
 // for PDFs instead of the on-screen Intl currency symbol from format.ts.
-const pdfMoney = (n: number, currency: string) => {
+export const pdfMoney = (n: number, currency: string) => {
   const v = typeof n === "number" ? n : 0;
   const formatted = new Intl.NumberFormat("en-US", {
     minimumFractionDigits: 2,
@@ -102,7 +102,7 @@ async function resolveLogo(
 // and returns the y-coordinate the rest of the header should start from --
 // `baseTop` unchanged when there's no logo, pushed down by the logo's height
 // (capped to maxW x maxH) plus a gap when there is one.
-async function drawLogoHeader(
+export async function drawLogoHeader(
   doc: jsPDF,
   logoUrl: string | null | undefined,
   baseTop: number,

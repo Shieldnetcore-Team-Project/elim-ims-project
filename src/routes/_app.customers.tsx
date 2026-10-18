@@ -47,6 +47,8 @@ import {
   HandCoins,
   AlertTriangle,
   CreditCard,
+  Trash2,
+  RotateCcw,
 } from "lucide-react";
 import { money } from "@/lib/format";
 import { toast } from "sonner";
@@ -80,12 +82,18 @@ export type Customer = {
   credit_limit: number | null;
   credit_days: number;
   sales_rep_id: string | null;
+  // Set when the customer was removed (stopped buying) but has history to keep.
+  removed_at?: string | null;
+  removed_reason?: string | null;
 };
 
 function CustomersPage() {
   const { data: factoryId } = useFactoryId();
   const qc = useQueryClient();
-  const { canWrite, canApprove, canSeeMoney } = usePermissions();
+  const { can, canWrite, canApprove, canSeeMoney } = usePermissions();
+  const canRemove = can("customers", "delete");
+  const [showRemoved, setShowRemoved] = useState(false);
+  const [removing, setRemoving] = useState<Customer | null>(null);
   const write = canWrite("customers");
   // Credit limits and payment terms are set via set_customer_credit_terms(),
   // which needs customers:approve -- not the ordinary edit permission.
@@ -97,11 +105,15 @@ function CustomersPage() {
   const [viewing, setViewing] = useState<Customer | null>(null);
 
   const list = useQuery({
-    queryKey: ["customers", factoryId, q],
+    queryKey: ["customers", factoryId, q, showRemoved],
     enabled: !!factoryId,
     queryFn: async () => {
+      // Removed customers (stopped buying) are kept for their history and
+      // listed only on request.
       let query = supabase.from("customers").select("*").eq("factory_id", factoryId!).order("name");
-      if (q.trim()) query = query.ilike("name", `%${q.trim()}%`);
+      query = showRemoved ? query.not("removed_at", "is", null) : query.is("removed_at", null);
+      const term = q.trim().replace(/[,()]/g, " ");
+      if (term) query = query.or(`name.ilike.%${term}%,phone.ilike.%${term}%`);
       const { data, error } = await query;
       if (error) throw error;
       return (data ?? []) as Customer[];
@@ -241,15 +253,25 @@ function CustomersPage() {
 
       <Card className="rounded-2xl">
         <CardHeader className="flex-row items-center justify-between gap-3">
-          <CardTitle>All Customers</CardTitle>
-          <div className="relative w-full max-w-xs">
-            <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Search…"
-              className="pl-8 h-9"
-            />
+          <CardTitle>{showRemoved ? "Removed customers" : "All Customers"}</CardTitle>
+          <div className="flex w-full max-w-md items-center gap-2">
+            <Button
+              size="sm"
+              variant={showRemoved ? "default" : "outline"}
+              className="shrink-0"
+              onClick={() => setShowRemoved((v) => !v)}
+            >
+              {showRemoved ? "Back to customers" : "Show removed"}
+            </Button>
+            <div className="relative w-full">
+              <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Search name or phone…"
+                className="pl-8 h-9"
+              />
+            </div>
           </div>
         </CardHeader>
         <CardContent className="overflow-x-auto">
@@ -280,10 +302,20 @@ function CustomersPage() {
                     <TableCell className="font-medium">
                       <div className="flex items-center gap-2">
                         {c.name}
-                        {!c.registered && (
-                          <Badge variant="outline" className="text-muted-foreground">
-                            unregistered
+                        {c.removed_at ? (
+                          <Badge
+                            variant="outline"
+                            className="text-muted-foreground"
+                            title={c.removed_reason ?? undefined}
+                          >
+                            removed {new Date(c.removed_at).toLocaleDateString()}
                           </Badge>
+                        ) : (
+                          !c.registered && (
+                            <Badge variant="outline" className="text-muted-foreground">
+                              unregistered
+                            </Badge>
+                          )
                         )}
                       </div>
                     </TableCell>
@@ -323,7 +355,7 @@ function CustomersPage() {
                     )}
                     <TableCell>
                       <div className="flex justify-end gap-1">
-                        {!c.registered && (
+                        {!c.registered && !c.removed_at && (
                           <Button
                             variant="ghost"
                             size="icon"
@@ -365,6 +397,17 @@ function CustomersPage() {
                         >
                           <Pencil className="h-4 w-4" />
                         </Button>
+                        {canRemove && !c.removed_at && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Remove customer"
+                            onClick={() => setRemoving(c)}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        )}
+                        {(canRemove || write) && c.removed_at && <RestoreButton customer={c} />}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -373,7 +416,11 @@ function CustomersPage() {
               {(list.data ?? []).length === 0 && (
                 <TableRow>
                   <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
-                    No customers yet.
+                    {showRemoved
+                      ? "No removed customers."
+                      : q
+                        ? "No customers match."
+                        : "No customers yet."}
                   </TableCell>
                 </TableRow>
               )}
@@ -393,6 +440,10 @@ function CustomersPage() {
             }}
           />
         )}
+      </Dialog>
+
+      <Dialog open={!!removing} onOpenChange={(v) => !v && setRemoving(null)}>
+        {removing && <RemoveCustomerDialog customer={removing} onDone={() => setRemoving(null)} />}
       </Dialog>
 
       <Dialog open={!!viewing} onOpenChange={(v) => !v && setViewing(null)}>
@@ -733,5 +784,104 @@ function CreditTermsDialog({ customer, onDone }: { customer: Customer; onDone: (
         </Button>
       </DialogFooter>
     </DialogContent>
+  );
+}
+
+// remove_customer / restore_customer are newer than the generated types.
+const rpc = supabase.rpc as unknown as (
+  fn: string,
+  args: Record<string, unknown>,
+) => Promise<{ data: unknown; error: Error | null }>;
+
+// Remove a customer who no longer buys. One with no history is deleted; one
+// with invoices or payments is taken off the lists and pickers but kept, so
+// their statements still work. Refused while they owe money, hold an advance
+// or containers, or have a sale waiting for approval.
+function RemoveCustomerDialog({ customer, onDone }: { customer: Customer; onDone: () => void }) {
+  const qc = useQueryClient();
+  const [reason, setReason] = useState("");
+  const remove = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await rpc.call(supabase, "remove_customer", {
+        p_customer: customer.id,
+        p_reason: reason.trim(),
+      });
+      if (error) throw error;
+      return data as { result: "deleted" | "removed" };
+    },
+    onSuccess: (res) => {
+      toast.success(
+        res.result === "deleted"
+          ? `${customer.name} deleted`
+          : `${customer.name} removed. Their invoices and payments are kept under "Show removed".`,
+      );
+      qc.invalidateQueries({ queryKey: ["customers"] });
+      qc.invalidateQueries({ queryKey: ["acct-distributors"] });
+      onDone();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  return (
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle>Remove {customer.name}?</DialogTitle>
+      </DialogHeader>
+      <div className="space-y-3 text-sm">
+        <p className="text-muted-foreground">
+          If {customer.name} has never bought or paid anything, they are deleted. Otherwise they
+          come off the customer and distributor lists, but their invoices, payments and statements
+          are kept, and they can be restored later.
+        </p>
+        <p className="text-muted-foreground">
+          A customer who still owes money, has an advance, holds containers or has a sale waiting
+          for approval can&apos;t be removed until that is settled.
+        </p>
+        <div>
+          <Label>Reason *</Label>
+          <Textarea
+            rows={2}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="e.g. No longer buys from us"
+          />
+        </div>
+      </div>
+      <DialogFooter>
+        <Button
+          variant="destructive"
+          disabled={reason.trim().length < 3 || remove.isPending}
+          onClick={() => remove.mutate()}
+        >
+          Remove customer
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  );
+}
+
+function RestoreButton({ customer }: { customer: Customer }) {
+  const qc = useQueryClient();
+  const restore = useMutation({
+    mutationFn: async () => {
+      const { error } = await rpc.call(supabase, "restore_customer", { p_customer: customer.id });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success(`${customer.name} restored`);
+      qc.invalidateQueries({ queryKey: ["customers"] });
+      qc.invalidateQueries({ queryKey: ["acct-distributors"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      title="Restore customer"
+      disabled={restore.isPending}
+      onClick={() => restore.mutate()}
+    >
+      <RotateCcw className="h-4 w-4" />
+    </Button>
   );
 }
