@@ -335,6 +335,7 @@ function PersonalSettingsCard() {
   const [username, setUsername] = useState("");
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [savingProfile, setSavingProfile] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [savingPassword, setSavingPassword] = useState(false);
@@ -403,10 +404,31 @@ function PersonalSettingsCard() {
       toast.error("Passwords don't match");
       return;
     }
+    if (!currentPassword) {
+      toast.error("Enter your current password");
+      return;
+    }
     setSavingPassword(true);
+    // Confirm it's really the account holder -- otherwise anyone at a signed-in
+    // computer could change the password and lock the owner out.
+    const { data: userData } = await supabase.auth.getUser();
+    const email = userData.user?.email;
+    if (!email) {
+      setSavingPassword(false);
+      return toast.error("Could not verify your account. Sign in again and retry.");
+    }
+    const { error: verifyError } = await supabase.auth.signInWithPassword({
+      email,
+      password: currentPassword,
+    });
+    if (verifyError) {
+      setSavingPassword(false);
+      return toast.error("Current password is incorrect");
+    }
     const { error } = await supabase.auth.updateUser({ password: newPassword });
     setSavingPassword(false);
     if (error) return toast.error(error.message);
+    setCurrentPassword("");
     setNewPassword("");
     setConfirmPassword("");
     toast.success("Password updated");
@@ -468,6 +490,15 @@ function PersonalSettingsCard() {
         </CardHeader>
         <CardContent>
           <form onSubmit={savePassword} className="space-y-4 max-w-xs">
+            <div className="space-y-2">
+              <Label>Current password</Label>
+              <Input
+                type="password"
+                autoComplete="current-password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+              />
+            </div>
             <div className="space-y-2">
               <Label>New password</Label>
               <Input

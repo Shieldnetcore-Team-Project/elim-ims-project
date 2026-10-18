@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { getRequest } from "@tanstack/react-start/server";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
@@ -192,6 +193,20 @@ export const adminUpdateUser = createServerFn({ method: "POST" })
     const newPassword = data.password?.trim() || undefined;
 
     if (newEmail || newPassword) {
+      // The Admin API below bypasses every database guard, so check here that
+      // the caller may change this login: only an Admin/Chairman can reset an
+      // Admin's or the Chairman's email or password (20261018110000).
+      const { data: canManage, error: manageError } = await supabase.rpc("can_manage_account", {
+        target_id: data.target_id,
+      });
+      if (manageError) return { ok: false, error: manageError.message };
+      if (!canManage) {
+        return {
+          ok: false,
+          error: "Only an Admin or the Chairman can change an Admin or Chairman login",
+        };
+      }
+
       let admin: ReturnType<typeof createAdminClient>;
       try {
         admin = createAdminClient();
@@ -247,6 +262,9 @@ export const adminDeleteUser = createServerFn({ method: "POST" })
         (g.action === "create" || g.action === "edit" || g.action === "delete"),
     );
     if (!allowed) return { ok: false, error: "You don't have permission to delete user accounts" };
+    if (data.target_id === context.userId) {
+      return { ok: false, error: "You cannot delete your own account" };
+    }
 
     // Cleans profiles/user_roles and writes the audit row as the calling
     // admin. Safe to call even if the profile is already gone (an orphaned
@@ -353,9 +371,38 @@ const signUpInput = z.object({
 
 export type PublicSignUpResult = { ok: true } | { ok: false; error: string };
 
+// This endpoint is open to the internet and creates confirmed accounts with
+// the secret key, so cap how fast one address can call it. In-memory is
+// enough for the single Render instance; a restart just resets the counts.
+const SIGNUP_WINDOW_MS = 15 * 60 * 1000;
+const SIGNUP_MAX_PER_WINDOW = 5;
+const signUpAttempts = new Map<string, number[]>();
+
+function signUpRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const recent = (signUpAttempts.get(ip) ?? []).filter((t) => now - t < SIGNUP_WINDOW_MS);
+  recent.push(now);
+  signUpAttempts.set(ip, recent);
+  if (signUpAttempts.size > 10_000) {
+    for (const [key, times] of signUpAttempts) {
+      if (times.every((t) => now - t >= SIGNUP_WINDOW_MS)) signUpAttempts.delete(key);
+    }
+  }
+  return recent.length > SIGNUP_MAX_PER_WINDOW;
+}
+
 export const publicSignUp = createServerFn({ method: "POST" })
   .validator((data: unknown) => signUpInput.parse(data))
   .handler(async ({ data }): Promise<PublicSignUpResult> => {
+    const headers = getRequest()?.headers;
+    const ip =
+      headers?.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+      headers?.get("x-real-ip") ||
+      "unknown";
+    if (signUpRateLimited(ip)) {
+      return { ok: false, error: "Too many sign-up attempts. Please try again in a few minutes." };
+    }
+
     let admin: ReturnType<typeof createAdminClient>;
     try {
       admin = createAdminClient();
@@ -364,13 +411,14 @@ export const publicSignUp = createServerFn({ method: "POST" })
     }
 
     // The requested role is only a note for the approving admin, but keep it to
-    // real, non-owner roles so the Pending list never shows nonsense.
+    // real, non-owner roles so the Pending list never shows nonsense (and the
+    // Approve dialog, which pre-fills it, never offers Admin or Chairman).
     const { data: role } = await admin
       .from("roles")
       .select("slug")
       .eq("slug", data.role_requested)
       .maybeSingle();
-    if (!role || data.role_requested === "super_admin") {
+    if (!role || data.role_requested === "super_admin" || data.role_requested === "chairman") {
       return { ok: false, error: "Select a valid role" };
     }
 

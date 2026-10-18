@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createFileRoute, Outlet, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/layout/app-sidebar";
@@ -24,11 +25,28 @@ function AppLayout() {
     let active = true;
     const goToLogin = () => navigate({ to: "/", replace: true });
 
+    // The sign-in form refuses pending/suspended/deactivated accounts, but a
+    // session that was already open when an admin suspended someone kept
+    // working until it expired. Check on every load and sign such a session
+    // out. Only a definite answer counts -- a network error leaves the user be
+    // (the database refuses a suspended account's requests regardless).
+    const signOutIfInactive = async (uid: string) => {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("status")
+        .eq("id", uid)
+        .maybeSingle();
+      if (!active || error || data?.status === "active") return;
+      toast.error("Your account is not active. Contact an administrator.");
+      await supabase.auth.signOut();
+    };
+
     supabase.auth.getSession().then(({ data }) => {
       if (!active) return;
       if (!data.session) return goToLogin();
       userId.current = data.session.user.id;
       setReady(true);
+      void signOutIfInactive(data.session.user.id);
     });
 
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
@@ -46,6 +64,7 @@ function AppLayout() {
       if (userId.current !== session.user.id) {
         userId.current = session.user.id;
         qc.clear();
+        void signOutIfInactive(session.user.id);
       }
       setReady(true);
     });

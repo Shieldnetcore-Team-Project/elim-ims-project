@@ -4273,6 +4273,10 @@ export type Database = {
         Args: { v_fallback: number; v_stock: number; v_value: number }
         Returns: number
       }
+      can_manage_account: {
+        Args: { target_id: string }
+        Returns: boolean
+      }
       cancel_costing_sheet: {
         Args: { p_id: string; p_reason?: string }
         Returns: Json
