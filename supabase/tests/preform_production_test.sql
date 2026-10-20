@@ -524,3 +524,63 @@ BEGIN
   PERFORM pg_temp.check(EXISTS (SELECT 1 FROM audit_logs WHERE action = 'set_material_pieces_per_bag'
                                   AND entity_id = 'd1000000-0000-0000-0000-000000000002'), 'audited');
 END $$;
+
+-- @@ Test 18: Store / QC add a supplier from the form (20261020150000)
+DO $$
+DECLARE e text; v jsonb; v2 jsonb;
+BEGIN
+  PERFORM pg_temp.as_user('8');
+  e := pg_temp.err($q$SELECT public.quick_add_supplier('f1000000-0000-0000-0000-000000000001', 'Nobody Ltd')$q$);
+  PERFORM pg_temp.check(e LIKE '%Insufficient permissions%', 'no material rights, no supplier');
+  PERFORM pg_temp.as_user('5'); -- QC: goods-receiving submit, no suppliers:write
+  v := public.quick_add_supplier('f1000000-0000-0000-0000-000000000001', '  Sunrise   Preforms Ltd ');
+  PERFORM pg_temp.check(NOT (v->>'existing')::boolean AND v->>'name' = 'Sunrise Preforms Ltd', 'QC added a supplier (name tidied)');
+  v2 := public.quick_add_supplier('f1000000-0000-0000-0000-000000000001', 'sunrise preforms LTD');
+  PERFORM pg_temp.check((v2->>'existing')::boolean AND v2->>'id' = v->>'id', 'same name reused, no duplicate');
+  PERFORM pg_temp.check((SELECT COUNT(*) FROM suppliers WHERE factory_id = 'f1000000-0000-0000-0000-000000000001') = 1, 'one supplier row');
+  e := pg_temp.err($q$SELECT public.quick_add_supplier('f1000000-0000-0000-0000-000000000001', ' ')$q$);
+  PERFORM pg_temp.check(e LIKE '%Enter the supplier name%', 'blank name refused');
+END $$;
+
+-- @@ Test 19: Store issues to the production manager or QC (20261020160000)
+DO $$
+DECLARE e text; n int; r record;
+BEGIN
+  -- Approved staff accounts (the list leaves out pending / deactivated ones).
+  PERFORM pg_temp.as_user('1');
+  UPDATE profiles SET status = 'active' WHERE id::text LIKE 'a1000000-%';
+  SELECT COUNT(*) INTO n FROM public.issue_recipients('f1000000-0000-0000-0000-000000000001')
+   WHERE (department = 'quality_control' AND id = 'a1000000-0000-0000-0000-000000000005')
+      OR (department = 'production' AND id = 'a1000000-0000-0000-0000-000000000003');
+  PERFORM pg_temp.check(n = 2, 'QC officer listed under QC, operator under Production');
+  -- QC person must be in QC.
+  e := pg_temp.err($q$SELECT public.issue_raw_material('{"material_id":"d1000000-0000-0000-0000-000000000002","quantity":10,"purpose":"general","issued_to_department":"quality_control","issued_to_user":"a1000000-0000-0000-0000-000000000003"}')$q$);
+  PERFORM pg_temp.check(e LIKE '%not in Quality Control%', 'cannot issue to QC in the name of a non-QC user');
+  PERFORM public.issue_raw_material('{"material_id":"d1000000-0000-0000-0000-000000000002","quantity":10,"purpose":"general","issued_to_department":"quality_control","issued_to_user":"a1000000-0000-0000-0000-000000000005","reason":"Burst test"}');
+  SELECT * INTO r FROM raw_material_movements WHERE material_id = 'd1000000-0000-0000-0000-000000000002' ORDER BY created_at DESC LIMIT 1;
+  PERFORM pg_temp.check(r.issued_to_department = 'quality_control' AND r.issued_to_user = 'a1000000-0000-0000-0000-000000000005'
+                        AND r.reason = 'Issued to Quality Control — qc: Burst test' AND r.movement_type = 'issued', 'recipient recorded: ' || r.reason);
+  PERFORM public.issue_raw_material('{"material_id":"d1000000-0000-0000-0000-000000000002","quantity":5,"issued_to_department":"production"}');
+  SELECT * INTO r FROM raw_material_movements WHERE material_id = 'd1000000-0000-0000-0000-000000000002' ORDER BY created_at DESC, quantity LIMIT 1;
+  PERFORM pg_temp.check(r.issued_to_department = 'production' AND r.reason = 'Issued to Production Manager', 'department-only issue: ' || r.reason);
+  PERFORM pg_temp.check((SELECT current_stock FROM raw_materials WHERE id = 'd1000000-0000-0000-0000-000000000002') = 4985, 'stock down 15');
+END $$;
+
+-- @@ Test 20: QC may set a preform's first bag size at receiving, not change it (20261020170000)
+DO $$
+DECLARE e text;
+BEGIN
+  PERFORM pg_temp.as_user('1');
+  INSERT INTO raw_materials(id, factory_id, name, unit, current_stock, current_value, unit_cost)
+  VALUES ('d1000000-0000-0000-0000-000000000003', 'f1000000-0000-0000-0000-000000000001', 'Test Preform (35cl)', 'Piece', 0, 0, 0);
+  PERFORM pg_temp.as_user('5'); -- QC: goods-receiving submit only
+  PERFORM public.set_material_pieces_per_bag('d1000000-0000-0000-0000-000000000003', 1500);
+  PERFORM pg_temp.check((SELECT pieces_per_bag FROM raw_materials WHERE id = 'd1000000-0000-0000-0000-000000000003') = 1500,
+                        'QC set the first bag size');
+  e := pg_temp.err($q$SELECT public.set_material_pieces_per_bag('d1000000-0000-0000-0000-000000000003', 1600, 'recount')$q$);
+  PERFORM pg_temp.check(e LIKE '%Insufficient permissions%', 'QC cannot change an existing bag size');
+  PERFORM pg_temp.as_user('7');
+  PERFORM public.set_material_pieces_per_bag('d1000000-0000-0000-0000-000000000003', 1600, 'Supplier confirmed 1,600 per bag');
+  PERFORM pg_temp.check((SELECT pieces_per_bag FROM raw_materials WHERE id = 'd1000000-0000-0000-0000-000000000003') = 1600,
+                        'a manager can change it with a reason');
+END $$;

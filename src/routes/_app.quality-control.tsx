@@ -3,6 +3,14 @@ import { RequireAccess } from "@/components/layout/require-access";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { SupplierPicker } from "@/components/shared/supplier-picker";
+import {
+  BagQty,
+  BagQuantityInput,
+  BagSizeSetup,
+  CostPerBagInput,
+  isPreform,
+} from "@/components/shared/bag-quantity";
 import { useFactoryId } from "@/lib/use-factory";
 import { usePermissions } from "@/lib/permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -66,6 +74,7 @@ type Material = {
   unit: string;
   unit_cost: number;
   supplier_id: string | null;
+  pieces_per_bag?: number | null;
 };
 type Supplier = { id: string; name: string };
 type OpenOrder = {
@@ -93,7 +102,10 @@ type Inspection = {
   suppliers: { name: string } | null;
 };
 
-const STATUS_LABELS: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
+const STATUS_LABELS: Record<
+  string,
+  { label: string; variant: "default" | "secondary" | "destructive" | "outline" }
+> = {
   pending_confirmation: { label: "Awaiting store", variant: "secondary" },
   confirmed: { label: "Confirmed", variant: "default" },
   posted: { label: "In store", variant: "default" },
@@ -275,7 +287,10 @@ function QualityControlPage() {
                 </TableRow>
               )}
               {rows.map((r) => {
-                const s = STATUS_LABELS[r.status] ?? { label: r.status, variant: "outline" as const };
+                const s = STATUS_LABELS[r.status] ?? {
+                  label: r.status,
+                  variant: "outline" as const,
+                };
                 return (
                   <TableRow key={r.id}>
                     <TableCell className="font-mono text-xs">
@@ -333,6 +348,7 @@ function QualityControlPage() {
 
 function InspectionDialog({ factoryId, onDone }: { factoryId: string; onDone: () => void }) {
   const { canSubmit } = usePermissions();
+  const qc = useQueryClient();
   // Whoever can record an inspection can also add a material that isn't in
   // the list yet; it's saved to the raw materials list for every later entry.
   const canAddMaterial = canSubmit("goods-receiving");
@@ -344,7 +360,7 @@ function InspectionDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
     queryFn: async () => {
       const { data, error } = await supabase
         .from("raw_materials")
-        .select("id,name,unit,unit_cost,supplier_id,active")
+        .select("id,name,unit,unit_cost,supplier_id,active,pieces_per_bag")
         .eq("factory_id", factoryId)
         .order("name");
       if (error) throw error;
@@ -407,7 +423,14 @@ function InspectionDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
 
   const order = (orders.data ?? []).find((o) => o.id === orderId);
   const material = allMaterials.find((m) => m.id === materialId);
-  const outstanding = order ? Number(order.quantity_ordered) - Number(order.quantity_received) : null;
+  // Preforms are received in bags (stock is kept in pieces). A preform with
+  // no bag size gets it set here before the delivery is entered.
+  const [savedPerBag, setSavedPerBag] = useState<Record<string, number>>({});
+  const perBag = material ? (savedPerBag[material.id] ?? material.pieces_per_bag ?? null) : null;
+  const needsBagSize = !!material && isPreform(material.name) && !perBag;
+  const outstanding = order
+    ? Number(order.quantity_ordered) - Number(order.quantity_received)
+    : null;
   const passed = Math.max(quantity - failedQuantity, 0);
 
   const pickOrder = (id: string) => {
@@ -503,46 +526,53 @@ function InspectionDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
         </div>
         <div>
           <Label>Supplier</Label>
-          <Select value={supplierId} onValueChange={setSupplierId}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">— None —</SelectItem>
-              {(suppliers.data ?? []).map((s) => (
-                <SelectItem key={s.id} value={s.id}>
-                  {s.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <SupplierPicker
+            factoryId={factoryId}
+            suppliers={suppliers.data ?? []}
+            value={supplierId}
+            onChange={setSupplierId}
+          />
         </div>
+        {needsBagSize && material && (
+          <BagSizeSetup
+            materialId={material.id}
+            materialName={material.name}
+            onSaved={(n) => {
+              setSavedPerBag((prev) => ({ ...prev, [material.id]: n }));
+              qc.invalidateQueries({ queryKey: ["qc-materials"] });
+            }}
+          />
+        )}
         <div className="grid grid-cols-2 gap-3">
-          <div>
-            <Label>Quantity delivered</Label>
-            <MoneyInput min={0.001} step="0.001" value={quantity} onChange={setQuantity} />
-          </div>
-          <div>
-            <Label>Quantity failed</Label>
-            <MoneyInput
-              min={0}
-              max={quantity}
-              step="0.001"
-              value={failedQuantity}
-              onChange={setFailedQuantity}
-            />
-          </div>
+          <BagQuantityInput
+            label={perBag ? "Bags delivered" : "Quantity delivered"}
+            value={quantity}
+            onChange={setQuantity}
+            perBag={perBag}
+            unit={material?.unit}
+            disabled={needsBagSize}
+          />
+          <BagQuantityInput
+            label={perBag ? "Failed (bags)" : "Quantity failed"}
+            value={failedQuantity}
+            onChange={setFailedQuantity}
+            perBag={perBag}
+            unit={material?.unit}
+            disabled={needsBagSize}
+          />
         </div>
         <p className="text-xs text-muted-foreground">
-          Passed: {num(passed)} {material?.unit ?? ""} — only this goes into the Store. Failed
-          quantity is written off to the damage ledger.
+          Passed: <BagQty value={passed} unit={material?.unit} perBag={perBag} bagsFirst /> Only
+          this goes into the Store. Failed quantity is written off to the damage ledger.
           {outstanding != null && ` ${num(outstanding)} outstanding on this PO.`}
         </p>
         <div className="grid grid-cols-2 gap-3">
-          <div>
-            <Label>Unit cost</Label>
-            <MoneyInput value={unitCost} onChange={setUnitCost} />
-          </div>
+          <CostPerBagInput
+            unitCost={unitCost}
+            onChange={setUnitCost}
+            perBag={perBag}
+            unit={material?.unit}
+          />
           <div>
             <Label>Delivery reference</Label>
             <Input
@@ -572,7 +602,13 @@ function InspectionDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
       </div>
       <DialogFooter>
         <Button
-          disabled={save.isPending || !materialId || quantity <= 0 || failedQuantity > quantity}
+          disabled={
+            save.isPending ||
+            !materialId ||
+            needsBagSize ||
+            quantity <= 0 ||
+            failedQuantity > quantity
+          }
           onClick={() => save.mutate()}
         >
           {save.isPending ? "Submitting…" : "Send to Store"}

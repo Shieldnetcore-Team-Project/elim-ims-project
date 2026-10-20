@@ -31,6 +31,8 @@ import {
 import {
   Select,
   SelectContent,
+  SelectGroup,
+  SelectLabel,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -67,7 +69,15 @@ import {
 import { useRealtimeInvalidate } from "@/lib/realtime";
 import { ADJUSTMENT_REASONS } from "@/lib/adjustment-reasons";
 import { MaterialCombobox } from "@/components/shared/material-picker";
-import { BagQty, BagQuantityInput } from "@/components/shared/bag-quantity";
+import {
+  BagQty,
+  BagQuantityInput,
+  BagSizeSetup,
+  CostPerBagInput,
+  PiecesInput,
+  isPreform,
+} from "@/components/shared/bag-quantity";
+import { SupplierPicker } from "@/components/shared/supplier-picker";
 
 export const Route = createFileRoute("/_app/raw-materials")({
   head: () => ({
@@ -679,6 +689,7 @@ function RawMaterialsPage() {
                         value={Number(m.current_stock)}
                         unit={m.unit}
                         perBag={m.pieces_per_bag}
+                        bagsFirst
                         className={low ? "text-destructive font-medium" : ""}
                       />
                       {low && (
@@ -1301,30 +1312,6 @@ function MaterialForm({
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const [newSupplier, setNewSupplier] = useState("");
-  const addSupplier = useMutation({
-    mutationFn: async () => {
-      if (!newSupplier.trim()) throw new Error("Enter a supplier name");
-      const { data, error } = await supabase
-        .from("suppliers")
-        .insert({ factory_id: factoryId, name: newSupplier.trim() })
-        .select("id")
-        .single();
-      if (error) throw error;
-      return data.id as string;
-    },
-    onSuccess: (id) => {
-      setSupplierId(id);
-      setNewSupplier("");
-      // Registers the supplier for real, on the same `suppliers` table the
-      // Suppliers page reads — it shows up there and in every other
-      // supplier dropdown without being re-entered.
-      qc.invalidateQueries({ queryKey: ["suppliers-brief"] });
-      qc.invalidateQueries({ queryKey: ["suppliers"] });
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
   const save = useMutation({
     mutationFn: async () => {
       if (!name.trim()) throw new Error("Material name is required");
@@ -1497,36 +1484,15 @@ function MaterialForm({
         </div>
         <div>
           <Label>Supplier</Label>
-          <Select value={supplierId} onValueChange={setSupplierId}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">— None —</SelectItem>
-              {suppliers.map((s) => (
-                <SelectItem key={s.id} value={s.id}>
-                  {s.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <div className="flex gap-2 mt-2">
-            <Input
-              value={newSupplier}
-              onChange={(e) => setNewSupplier(e.target.value)}
-              placeholder="New supplier name…"
-              className="h-8"
-            />
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={!newSupplier.trim() || addSupplier.isPending}
-              onClick={() => addSupplier.mutate()}
-            >
-              Add
-            </Button>
-          </div>
+          <SupplierPicker
+            factoryId={factoryId}
+            suppliers={suppliers}
+            value={supplierId}
+            onChange={setSupplierId}
+          />
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Not on the list? Type the name and choose &ldquo;Add as a new supplier&rdquo;.
+          </p>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -1563,6 +1529,11 @@ function ReceiveDialog({
   onBack?: () => void;
   onDone: () => void;
 }) {
+  const { data: factoryId } = useFactoryId();
+  const qc = useQueryClient();
+  // Preforms are received in bags; one with no bag size sets it here first.
+  const [perBag, setPerBag] = useState<number | null>(material.pieces_per_bag);
+  const needsBagSize = isPreform(material.name) && !perBag;
   const [quantity, setQuantity] = useState(0);
   const [damagedQuantity, setDamagedQuantity] = useState(0);
   const [unitCost, setUnitCost] = useState(Number(material.unit_cost));
@@ -1608,35 +1579,50 @@ function ReceiveDialog({
           <BagQty
             value={Number(material.current_stock)}
             unit={material.unit}
-            perBag={material.pieces_per_bag}
+            perBag={perBag}
+            bagsFirst
           />
           Dual control: this only posts to stock once someone else confirms it.
         </p>
+        {needsBagSize && (
+          <BagSizeSetup
+            materialId={material.id}
+            materialName={material.name}
+            onSaved={(n) => {
+              setPerBag(n);
+              qc.invalidateQueries({ queryKey: ["raw-materials-list"] });
+            }}
+          />
+        )}
         <div className="grid grid-cols-2 gap-3">
           <BagQuantityInput
-            label="Quantity received"
+            label={perBag ? "Bags received" : "Quantity received"}
             value={quantity}
             onChange={setQuantity}
-            perBag={material.pieces_per_bag}
+            perBag={perBag}
             unit={material.unit}
+            disabled={needsBagSize}
           />
           <BagQuantityInput
-            label="Damaged quantity"
+            label={perBag ? "Damaged (bags)" : "Damaged quantity"}
             value={damagedQuantity}
             onChange={setDamagedQuantity}
-            perBag={material.pieces_per_bag}
+            perBag={perBag}
             unit={material.unit}
+            disabled={needsBagSize}
           />
         </div>
         <p className="text-xs text-muted-foreground">
           Accepted quantity:{" "}
-          <BagQty value={accepted} unit={material.unit} perBag={material.pieces_per_bag} /> Only
-          this posts to stock; damaged goes to the damage ledger.
+          <BagQty value={accepted} unit={material.unit} perBag={perBag} bagsFirst /> Only this posts
+          to stock; damaged goes to the damage ledger.
         </p>
-        <div>
-          <Label>Unit cost</Label>
-          <MoneyInput value={unitCost} onChange={setUnitCost} />
-        </div>
+        <CostPerBagInput
+          unitCost={unitCost}
+          onChange={setUnitCost}
+          perBag={perBag}
+          unit={material.unit}
+        />
         <div>
           <Label>Delivery reference</Label>
           <Input
@@ -1647,19 +1633,12 @@ function ReceiveDialog({
         </div>
         <div>
           <Label>Supplier</Label>
-          <Select value={supplierId} onValueChange={setSupplierId}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">— None —</SelectItem>
-              {suppliers.map((s) => (
-                <SelectItem key={s.id} value={s.id}>
-                  {s.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <SupplierPicker
+            factoryId={factoryId}
+            suppliers={suppliers}
+            value={supplierId}
+            onChange={setSupplierId}
+          />
         </div>
         <div>
           <Label>Remarks</Label>
@@ -1668,7 +1647,7 @@ function ReceiveDialog({
       </div>
       <DialogFooter>
         <Button
-          disabled={submit.isPending || quantity <= 0 || damagedQuantity > quantity}
+          disabled={submit.isPending || needsBagSize || quantity <= 0 || damagedQuantity > quantity}
           onClick={() => submit.mutate()}
         >
           {submit.isPending ? "Submitting…" : "Submit for Confirmation"}
@@ -1750,20 +1729,52 @@ function RequestPurchaseDialog({ material, onDone }: { material: Material; onDon
   );
 }
 
+type IssueDepartment = "production" | "quality_control";
+const ISSUE_DEPARTMENT_LABEL: Record<IssueDepartment, string> = {
+  production: "Production Manager",
+  quality_control: "Quality Control",
+};
+
 function IssueDialog({ material, onDone }: { material: Material; onDone: () => void }) {
+  const { data: factoryId } = useFactoryId();
+  // People the Store can issue to (issue_recipients, 20261020160000):
+  // production managers / production staff and QC officers.
+  const recipients = useQuery({
+    queryKey: ["issue-recipients", factoryId],
+    enabled: !!factoryId,
+    queryFn: async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- RPC newer than the generated types
+      const { data, error } = await (supabase as any).rpc("issue_recipients", {
+        p_factory: factoryId,
+      });
+      if (error) throw error;
+      return (data ?? []) as { id: string; full_name: string; department: IssueDepartment }[];
+    },
+  });
+  // "<department>:<user id>", or "<department>:" for the department only.
+  const [issueTo, setIssueTo] = useState("");
+  const [toDept, toUser] = issueTo.split(":") as [IssueDepartment | "", string | undefined];
   const [quantity, setQuantity] = useState(0);
   const [purpose, setPurpose] = useState<"production" | "general">("production");
+  const pickIssueTo = (v: string) => {
+    setIssueTo(v);
+    // QC takes stock for testing, not for production use.
+    setPurpose(v.startsWith("quality_control") ? "general" : "production");
+  };
   const [reason, setReason] = useState("");
   const [reference, setReference] = useState("");
 
   const submit = useMutation({
     mutationFn: async () => {
       if (quantity <= 0) throw new Error("Quantity must be > 0");
+      if (!toDept) throw new Error("Pick who the stock is issued to");
       const { error } = await supabase.rpc("issue_raw_material", {
         payload: {
           material_id: material.id,
           quantity,
           purpose,
+          issued_to_department: toDept,
+          issued_to_user: toUser || null,
           reason: reason || null,
           reference: reference || null,
         } as any,
@@ -1771,7 +1782,7 @@ function IssueDialog({ material, onDone }: { material: Material; onDone: () => v
       if (error) throw error;
     },
     onSuccess: () => {
-      toast.success(purpose === "production" ? "Used for production" : "Stock issued");
+      toast.success(`Issued to ${toDept ? ISSUE_DEPARTMENT_LABEL[toDept] : "—"}`);
       onDone();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -1792,6 +1803,32 @@ function IssueDialog({ material, onDone }: { material: Material; onDone: () => v
           />
         </p>
         <div>
+          <Label>Issue to</Label>
+          <Select value={issueTo} onValueChange={pickIssueTo}>
+            <SelectTrigger>
+              <SelectValue placeholder="Who receives the stock?" />
+            </SelectTrigger>
+            <SelectContent>
+              {(["production", "quality_control"] as IssueDepartment[]).map((d) => {
+                const people = (recipients.data ?? []).filter((r) => r.department === d);
+                return (
+                  <SelectGroup key={d}>
+                    <SelectLabel>{ISSUE_DEPARTMENT_LABEL[d]}</SelectLabel>
+                    {people.map((p) => (
+                      <SelectItem key={p.id} value={`${d}:${p.id}`}>
+                        {p.full_name}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value={`${d}:`}>
+                      {ISSUE_DEPARTMENT_LABEL[d]} (department)
+                    </SelectItem>
+                  </SelectGroup>
+                );
+              })}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
           <Label>Purpose</Label>
           <Select value={purpose} onValueChange={(v) => setPurpose(v as typeof purpose)}>
             <SelectTrigger>
@@ -1803,7 +1840,7 @@ function IssueDialog({ material, onDone }: { material: Material; onDone: () => v
             </SelectContent>
           </Select>
         </div>
-        <BagQuantityInput
+        <PiecesInput
           label="Quantity issued"
           value={quantity}
           onChange={setQuantity}
@@ -1825,13 +1862,18 @@ function IssueDialog({ material, onDone }: { material: Material; onDone: () => v
       </div>
       <DialogFooter>
         <Button
-          disabled={submit.isPending || quantity <= 0 || quantity > Number(material.current_stock)}
+          disabled={
+            submit.isPending ||
+            !toDept ||
+            quantity <= 0 ||
+            quantity > Number(material.current_stock)
+          }
           onClick={() => submit.mutate()}
         >
           {submit.isPending
             ? "Saving…"
-            : purpose === "production"
-              ? "Use for Production"
+            : toDept
+              ? `Issue to ${ISSUE_DEPARTMENT_LABEL[toDept]}`
               : "Issue Stock"}
         </Button>
       </DialogFooter>
