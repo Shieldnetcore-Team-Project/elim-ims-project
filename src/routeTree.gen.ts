@@ -31,11 +31,13 @@ import { Route as AppExpensesRouteImport } from './routes/_app.expenses'
 import { Route as AppFinanceRouteImport } from './routes/_app.finance'
 import { Route as AppFinishedGoodsRouteImport } from './routes/_app.finished-goods'
 import { Route as AppInventoryRouteImport } from './routes/_app.inventory'
+import { Route as AppJugAccountabilityRouteImport } from './routes/_app.jug-accountability'
 import { Route as AppLogisticsRouteImport } from './routes/_app.logistics'
 import { Route as AppMarketerAccountsRouteImport } from './routes/_app.marketer-accounts'
 import { Route as AppMarketerPerformanceRouteImport } from './routes/_app.marketer-performance'
 import { Route as AppPayrollRouteImport } from './routes/_app.payroll'
 import { Route as AppPermissionsRouteImport } from './routes/_app.permissions'
+import { Route as AppPreformInventoryRouteImport } from './routes/_app.preform-inventory'
 import { Route as AppPreformProductionRouteImport } from './routes/_app.preform-production'
 import { Route as AppProcurementRouteImport } from './routes/_app.procurement'
 import { Route as AppProductionRouteImport } from './routes/_app.production'
@@ -56,6 +58,7 @@ import { Route as AppCashLedgerIndexRouteImport } from './routes/_app.cash-ledge
 import { Route as AppCashLedgerDebtsRouteImport } from './routes/_app.cash-ledger.debts'
 import { Route as AppCashLedgerLedgerRouteImport } from './routes/_app.cash-ledger.ledger'
 import { Route as AppMarketerAccountsRepIdRouteImport } from './routes/_app.marketer-accounts_.$repId'
+import { Route as AppPreformInventoryMaterialIdRouteImport } from './routes/_app.preform-inventory_.$materialId'
 import { Route as AppMarketerAccountsRepIdCustomersCustomerIdRouteImport } from './routes/_app.marketer-accounts_.$repId_.customers.$customerId'
 
 const IndexRoute = IndexRouteImport.update({
@@ -167,6 +170,11 @@ const AppInventoryRoute = AppInventoryRouteImport.update({
   path: '/inventory',
   getParentRoute: () => AppRoute,
 } as any)
+const AppJugAccountabilityRoute = AppJugAccountabilityRouteImport.update({
+  id: '/jug-accountability',
+  path: '/jug-accountability',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppLogisticsRoute = AppLogisticsRouteImport.update({
   id: '/logistics',
   path: '/logistics',
@@ -190,6 +198,11 @@ const AppPayrollRoute = AppPayrollRouteImport.update({
 const AppPermissionsRoute = AppPermissionsRouteImport.update({
   id: '/permissions',
   path: '/permissions',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppPreformInventoryRoute = AppPreformInventoryRouteImport.update({
+  id: '/preform-inventory',
+  path: '/preform-inventory',
   getParentRoute: () => AppRoute,
 } as any)
 const AppPreformProductionRoute = AppPreformProductionRouteImport.update({
@@ -293,6 +306,12 @@ const AppMarketerAccountsRepIdRoute =
     path: '/marketer-accounts/$repId',
     getParentRoute: () => AppRoute,
   } as any)
+const AppPreformInventoryMaterialIdRoute =
+  AppPreformInventoryMaterialIdRouteImport.update({
+    id: '/preform-inventory_/$materialId',
+    path: '/preform-inventory/$materialId',
+    getParentRoute: () => AppRoute,
+  } as any)
 const AppMarketerAccountsRepIdCustomersCustomerIdRoute =
   AppMarketerAccountsRepIdCustomersCustomerIdRouteImport.update({
     id: '/marketer-accounts_/$repId_/customers/$customerId',
@@ -322,11 +341,13 @@ export interface FileRoutesByFullPath {
   '/finance': typeof AppFinanceRoute
   '/finished-goods': typeof AppFinishedGoodsRoute
   '/inventory': typeof AppInventoryRoute
+  '/jug-accountability': typeof AppJugAccountabilityRoute
   '/logistics': typeof AppLogisticsRoute
   '/marketer-accounts': typeof AppMarketerAccountsRoute
   '/marketer-performance': typeof AppMarketerPerformanceRoute
   '/payroll': typeof AppPayrollRoute
   '/permissions': typeof AppPermissionsRoute
+  '/preform-inventory': typeof AppPreformInventoryRoute
   '/preform-production': typeof AppPreformProductionRoute
   '/procurement': typeof AppProcurementRoute
   '/production': typeof AppProductionRoute
@@ -346,6 +367,7 @@ export interface FileRoutesByFullPath {
   '/cash-ledger/debts': typeof AppCashLedgerDebtsRoute
   '/cash-ledger/ledger': typeof AppCashLedgerLedgerRoute
   '/marketer-accounts/$repId': typeof AppMarketerAccountsRepIdRoute
+  '/preform-inventory/$materialId': typeof AppPreformInventoryMaterialIdRoute
   '/cash-ledger/': typeof AppCashLedgerIndexRoute
   '/marketer-accounts/$repId/customers/$customerId': typeof AppMarketerAccountsRepIdCustomersCustomerIdRoute
 }
@@ -370,11 +392,13 @@ export interface FileRoutesByTo {
   '/finance': typeof AppFinanceRoute
   '/finished-goods': typeof AppFinishedGoodsRoute
   '/inventory': typeof AppInventoryRoute
+  '/jug-accountability': typeof AppJugAccountabilityRoute
   '/logistics': typeof AppLogisticsRoute
   '/marketer-accounts': typeof AppMarketerAccountsRoute
   '/marketer-performance': typeof AppMarketerPerformanceRoute
   '/payroll': typeof AppPayrollRoute
   '/permissions': typeof AppPermissionsRoute
+  '/preform-inventory': typeof AppPreformInventoryRoute
   '/preform-production': typeof AppPreformProductionRoute
   '/procurement': typeof AppProcurementRoute
   '/production': typeof AppProductionRoute
@@ -394,6 +418,7 @@ export interface FileRoutesByTo {
   '/cash-ledger/debts': typeof AppCashLedgerDebtsRoute
   '/cash-ledger/ledger': typeof AppCashLedgerLedgerRoute
   '/marketer-accounts/$repId': typeof AppMarketerAccountsRepIdRoute
+  '/preform-inventory/$materialId': typeof AppPreformInventoryMaterialIdRoute
   '/cash-ledger': typeof AppCashLedgerIndexRoute
   '/marketer-accounts/$repId/customers/$customerId': typeof AppMarketerAccountsRepIdCustomersCustomerIdRoute
 }
@@ -421,11 +446,13 @@ export interface FileRoutesById {
   '/_app/finance': typeof AppFinanceRoute
   '/_app/finished-goods': typeof AppFinishedGoodsRoute
   '/_app/inventory': typeof AppInventoryRoute
+  '/_app/jug-accountability': typeof AppJugAccountabilityRoute
   '/_app/logistics': typeof AppLogisticsRoute
   '/_app/marketer-accounts': typeof AppMarketerAccountsRoute
   '/_app/marketer-performance': typeof AppMarketerPerformanceRoute
   '/_app/payroll': typeof AppPayrollRoute
   '/_app/permissions': typeof AppPermissionsRoute
+  '/_app/preform-inventory': typeof AppPreformInventoryRoute
   '/_app/preform-production': typeof AppPreformProductionRoute
   '/_app/procurement': typeof AppProcurementRoute
   '/_app/production': typeof AppProductionRoute
@@ -445,6 +472,7 @@ export interface FileRoutesById {
   '/_app/cash-ledger/debts': typeof AppCashLedgerDebtsRoute
   '/_app/cash-ledger/ledger': typeof AppCashLedgerLedgerRoute
   '/_app/marketer-accounts_/$repId': typeof AppMarketerAccountsRepIdRoute
+  '/_app/preform-inventory_/$materialId': typeof AppPreformInventoryMaterialIdRoute
   '/_app/cash-ledger/': typeof AppCashLedgerIndexRoute
   '/_app/marketer-accounts_/$repId_/customers/$customerId': typeof AppMarketerAccountsRepIdCustomersCustomerIdRoute
 }
@@ -472,11 +500,13 @@ export interface FileRouteTypes {
     | '/finance'
     | '/finished-goods'
     | '/inventory'
+    | '/jug-accountability'
     | '/logistics'
     | '/marketer-accounts'
     | '/marketer-performance'
     | '/payroll'
     | '/permissions'
+    | '/preform-inventory'
     | '/preform-production'
     | '/procurement'
     | '/production'
@@ -496,6 +526,7 @@ export interface FileRouteTypes {
     | '/cash-ledger/debts'
     | '/cash-ledger/ledger'
     | '/marketer-accounts/$repId'
+    | '/preform-inventory/$materialId'
     | '/cash-ledger/'
     | '/marketer-accounts/$repId/customers/$customerId'
   fileRoutesByTo: FileRoutesByTo
@@ -520,11 +551,13 @@ export interface FileRouteTypes {
     | '/finance'
     | '/finished-goods'
     | '/inventory'
+    | '/jug-accountability'
     | '/logistics'
     | '/marketer-accounts'
     | '/marketer-performance'
     | '/payroll'
     | '/permissions'
+    | '/preform-inventory'
     | '/preform-production'
     | '/procurement'
     | '/production'
@@ -544,6 +577,7 @@ export interface FileRouteTypes {
     | '/cash-ledger/debts'
     | '/cash-ledger/ledger'
     | '/marketer-accounts/$repId'
+    | '/preform-inventory/$materialId'
     | '/cash-ledger'
     | '/marketer-accounts/$repId/customers/$customerId'
   id:
@@ -570,11 +604,13 @@ export interface FileRouteTypes {
     | '/_app/finance'
     | '/_app/finished-goods'
     | '/_app/inventory'
+    | '/_app/jug-accountability'
     | '/_app/logistics'
     | '/_app/marketer-accounts'
     | '/_app/marketer-performance'
     | '/_app/payroll'
     | '/_app/permissions'
+    | '/_app/preform-inventory'
     | '/_app/preform-production'
     | '/_app/procurement'
     | '/_app/production'
@@ -594,6 +630,7 @@ export interface FileRouteTypes {
     | '/_app/cash-ledger/debts'
     | '/_app/cash-ledger/ledger'
     | '/_app/marketer-accounts_/$repId'
+    | '/_app/preform-inventory_/$materialId'
     | '/_app/cash-ledger/'
     | '/_app/marketer-accounts_/$repId_/customers/$customerId'
   fileRoutesById: FileRoutesById
@@ -760,6 +797,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppInventoryRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/jug-accountability': {
+      id: '/_app/jug-accountability'
+      path: '/jug-accountability'
+      fullPath: '/jug-accountability'
+      preLoaderRoute: typeof AppJugAccountabilityRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/logistics': {
       id: '/_app/logistics'
       path: '/logistics'
@@ -793,6 +837,13 @@ declare module '@tanstack/react-router' {
       path: '/permissions'
       fullPath: '/permissions'
       preLoaderRoute: typeof AppPermissionsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/preform-inventory': {
+      id: '/_app/preform-inventory'
+      path: '/preform-inventory'
+      fullPath: '/preform-inventory'
+      preLoaderRoute: typeof AppPreformInventoryRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/preform-production': {
@@ -935,6 +986,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppMarketerAccountsRepIdRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/preform-inventory_/$materialId': {
+      id: '/_app/preform-inventory_/$materialId'
+      path: '/preform-inventory/$materialId'
+      fullPath: '/preform-inventory/$materialId'
+      preLoaderRoute: typeof AppPreformInventoryMaterialIdRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/marketer-accounts_/$repId_/customers/$customerId': {
       id: '/_app/marketer-accounts_/$repId_/customers/$customerId'
       path: '/marketer-accounts/$repId/customers/$customerId'
@@ -981,11 +1039,13 @@ interface AppRouteChildren {
   AppFinanceRoute: typeof AppFinanceRoute
   AppFinishedGoodsRoute: typeof AppFinishedGoodsRoute
   AppInventoryRoute: typeof AppInventoryRoute
+  AppJugAccountabilityRoute: typeof AppJugAccountabilityRoute
   AppLogisticsRoute: typeof AppLogisticsRoute
   AppMarketerAccountsRoute: typeof AppMarketerAccountsRoute
   AppMarketerPerformanceRoute: typeof AppMarketerPerformanceRoute
   AppPayrollRoute: typeof AppPayrollRoute
   AppPermissionsRoute: typeof AppPermissionsRoute
+  AppPreformInventoryRoute: typeof AppPreformInventoryRoute
   AppPreformProductionRoute: typeof AppPreformProductionRoute
   AppProcurementRoute: typeof AppProcurementRoute
   AppProductionRoute: typeof AppProductionRoute
@@ -1003,6 +1063,7 @@ interface AppRouteChildren {
   AppSuppliersRoute: typeof AppSuppliersRoute
   AppUsersRoute: typeof AppUsersRoute
   AppMarketerAccountsRepIdRoute: typeof AppMarketerAccountsRepIdRoute
+  AppPreformInventoryMaterialIdRoute: typeof AppPreformInventoryMaterialIdRoute
   AppMarketerAccountsRepIdCustomersCustomerIdRoute: typeof AppMarketerAccountsRepIdCustomersCustomerIdRoute
 }
 
@@ -1026,11 +1087,13 @@ const AppRouteChildren: AppRouteChildren = {
   AppFinanceRoute: AppFinanceRoute,
   AppFinishedGoodsRoute: AppFinishedGoodsRoute,
   AppInventoryRoute: AppInventoryRoute,
+  AppJugAccountabilityRoute: AppJugAccountabilityRoute,
   AppLogisticsRoute: AppLogisticsRoute,
   AppMarketerAccountsRoute: AppMarketerAccountsRoute,
   AppMarketerPerformanceRoute: AppMarketerPerformanceRoute,
   AppPayrollRoute: AppPayrollRoute,
   AppPermissionsRoute: AppPermissionsRoute,
+  AppPreformInventoryRoute: AppPreformInventoryRoute,
   AppPreformProductionRoute: AppPreformProductionRoute,
   AppProcurementRoute: AppProcurementRoute,
   AppProductionRoute: AppProductionRoute,
@@ -1048,6 +1111,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppSuppliersRoute: AppSuppliersRoute,
   AppUsersRoute: AppUsersRoute,
   AppMarketerAccountsRepIdRoute: AppMarketerAccountsRepIdRoute,
+  AppPreformInventoryMaterialIdRoute: AppPreformInventoryMaterialIdRoute,
   AppMarketerAccountsRepIdCustomersCustomerIdRoute:
     AppMarketerAccountsRepIdCustomersCustomerIdRoute,
 }

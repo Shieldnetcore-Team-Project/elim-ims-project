@@ -571,6 +571,7 @@ export function usePfAction<A>(
       toast.success(typeof success === "function" ? success(r) : success);
       qc.invalidateQueries({ queryKey: ["pf"] });
       // Store / Warehouse stock shown elsewhere in the app.
+      qc.invalidateQueries({ queryKey: ["pinv"] });
       qc.invalidateQueries({ queryKey: ["raw-materials-list"] });
       qc.invalidateQueries({ queryKey: ["finished-goods"] });
     },

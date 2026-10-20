@@ -241,17 +241,22 @@ export function IssuesTab({ factoryId }: { factoryId: string }) {
   );
 }
 
-function IssueDialog({
+// Also opened from Store → Preform Inventory, with the preform preselected.
+export function IssueDialog({
   materials,
   operators,
+  initialMaterialId,
   onClose,
 }: {
   materials: PreformMaterial[];
   operators: { id: string; full_name: string }[];
+  initialMaterialId?: string;
   onClose: () => void;
 }) {
   const ready = materials.filter((m) => m.pieces_per_bag);
-  const [materialId, setMaterialId] = useState(ready[0]?.id ?? "");
+  const [materialId, setMaterialId] = useState(
+    ready.some((m) => m.id === initialMaterialId) ? initialMaterialId! : (ready[0]?.id ?? ""),
+  );
   const [operatorId, setOperatorId] = useState(operators.length === 1 ? operators[0].id : "");
   const [bags, setBags] = useState<number | null>(null);
   const [loose, setLoose] = useState<number | null>(null);

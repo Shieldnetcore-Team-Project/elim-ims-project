@@ -126,6 +126,7 @@ export const nav: { section: string; items: NavItem[] }[] = [
         modules: ["raw-materials", "production-requests"],
         tabs: [
           { label: "Raw Materials", module: "raw-materials", url: "/raw-materials" },
+          { label: "Preform Inventory", module: "raw-materials", url: "/preform-inventory" },
           { label: "Requests", module: "production-requests", url: "/production-requests" },
           {
             label: "Issue preforms",
@@ -158,6 +159,7 @@ export const nav: { section: string; items: NavItem[] }[] = [
           { label: "Orders", module: "sales", url: "/sales" },
           { label: "Returns", module: "sales-returns", url: "/sales-returns" },
           { label: "Reps & outlet stock", module: "distribution", url: "/distribution" },
+          { label: "Dispenser & jugs", module: "distribution", url: "/jug-accountability" },
           { label: "Bottle tracking", module: "distribution", url: "/bottle-tracking" },
           { label: "Customers", module: "customers", url: "/customers" },
           {

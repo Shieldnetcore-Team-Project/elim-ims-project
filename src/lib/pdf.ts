@@ -1081,6 +1081,8 @@ export async function generateReportPdf(
   rows: Record<string, unknown>[],
   action: PdfAction = "download",
   company?: { name?: string | null; logo_url?: string | null } | null,
+  // Extra lines under the title (reporting period, printed by...).
+  subtitle?: string[],
 ) {
   const doc = new jsPDF({
     unit: "pt",
@@ -1098,6 +1100,10 @@ export async function generateReportPdf(
   doc.text(title, 40, y);
   y += 16;
   doc.setFontSize(9);
+  for (const line of subtitle ?? []) {
+    doc.text(line, 40, y);
+    y += 12;
+  }
   doc.text(`Generated ${new Date().toLocaleString()}`, 40, y);
   y += 16;
 
