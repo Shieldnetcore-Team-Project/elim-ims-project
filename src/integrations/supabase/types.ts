@@ -2597,6 +2597,8 @@ export type Database = {
           minimum_stock: number | null
           name: string
           opening_stock: number
+          output_product_id: string | null
+          pieces_per_bag: number | null
           remarks: string | null
           reorder_level: number | null
           supplier_id: string | null
@@ -2618,6 +2620,8 @@ export type Database = {
           minimum_stock?: number | null
           name: string
           opening_stock?: number
+          output_product_id?: string | null
+          pieces_per_bag?: number | null
           remarks?: string | null
           reorder_level?: number | null
           supplier_id?: string | null
@@ -2639,6 +2643,8 @@ export type Database = {
           minimum_stock?: number | null
           name?: string
           opening_stock?: number
+          output_product_id?: string | null
+          pieces_per_bag?: number | null
           remarks?: string | null
           reorder_level?: number | null
           supplier_id?: string | null

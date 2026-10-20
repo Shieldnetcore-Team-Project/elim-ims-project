@@ -66,6 +66,8 @@ import {
 } from "@/lib/units";
 import { useRealtimeInvalidate } from "@/lib/realtime";
 import { ADJUSTMENT_REASONS } from "@/lib/adjustment-reasons";
+import { MaterialCombobox } from "@/components/shared/material-picker";
+import { BagQty, BagQuantityInput } from "@/components/shared/bag-quantity";
 
 export const Route = createFileRoute("/_app/raw-materials")({
   head: () => ({
@@ -99,6 +101,7 @@ type Material = {
   supplier_id: string | null;
   suppliers: { name: string } | null;
   material_categories: { name: string } | null;
+  pieces_per_bag: number | null;
 };
 type CostHistoryRow = {
   id: string;
@@ -127,7 +130,7 @@ type PendingAdjustment = {
   submitted_by: string;
   submitted_at: string;
   status: string;
-  raw_materials: { name: string; unit: string } | null;
+  raw_materials: { name: string; unit: string; pieces_per_bag: number | null } | null;
 };
 type PendingReceipt = {
   id: string;
@@ -139,7 +142,7 @@ type PendingReceipt = {
   status: string;
   submitted_by: string;
   submitted_at: string;
-  raw_materials: { name: string; unit: string } | null;
+  raw_materials: { name: string; unit: string; pieces_per_bag: number | null } | null;
 };
 
 function SummaryCard({
@@ -241,7 +244,7 @@ function RawMaterialsPage() {
       const { data, error } = await supabase
         .from("raw_materials")
         .select(
-          "id,name,category,category_id,unit,opening_stock,current_stock,unit_cost,current_value,reorder_level,minimum_stock,active,approval_status,created_by,remarks,supplier_id,suppliers(name),material_categories(name)",
+          "id,name,category,category_id,unit,opening_stock,current_stock,unit_cost,current_value,reorder_level,minimum_stock,active,approval_status,created_by,remarks,supplier_id,pieces_per_bag,suppliers(name),material_categories(name)",
         )
         .eq("factory_id", factoryId!)
         .order("name");
@@ -271,7 +274,7 @@ function RawMaterialsPage() {
       const { data, error } = await supabase
         .from("stock_adjustment_requests")
         .select(
-          "id,reference_number,material_id,quantity_delta,reason,submitted_by,submitted_at,status,raw_materials(name,unit)",
+          "id,reference_number,material_id,quantity_delta,reason,submitted_by,submitted_at,status,raw_materials(name,unit,pieces_per_bag)",
         )
         .eq("factory_id", factoryId!)
         .eq("entity_type", "raw_material")
@@ -572,7 +575,20 @@ function RawMaterialsPage() {
                 <Plus className="h-4 w-4" /> Add Material
               </Button>
             </DialogTrigger>
-            {formOpen && factoryId && (
+            {formOpen && factoryId && !editing && (
+              <AddOrReceiveMaterial
+                factoryId={factoryId}
+                materials={(list.data ?? []).filter((m) => m.active)}
+                suppliers={suppliers.data ?? []}
+                categories={materialCategories.data ?? []}
+                onDone={() => {
+                  setFormOpen(false);
+                  invalidateAll();
+                  qc.invalidateQueries({ queryKey: ["material-categories"] });
+                }}
+              />
+            )}
+            {formOpen && factoryId && editing && (
               <MaterialForm
                 factoryId={factoryId}
                 suppliers={suppliers.data ?? []}
@@ -659,9 +675,12 @@ function RawMaterialsPage() {
                     <TableCell>{m.material_categories?.name ?? m.category ?? "—"}</TableCell>
                     <TableCell>{m.suppliers?.name ?? "—"}</TableCell>
                     <TableCell className="text-right">
-                      <span className={low ? "text-destructive font-medium" : ""}>
-                        {num(Number(m.current_stock))} {m.unit}
-                      </span>
+                      <BagQty
+                        value={Number(m.current_stock)}
+                        unit={m.unit}
+                        perBag={m.pieces_per_bag}
+                        className={low ? "text-destructive font-medium" : ""}
+                      />
                       {low && (
                         <Badge variant="destructive" className="ml-2">
                           Low
@@ -672,7 +691,11 @@ function RawMaterialsPage() {
                       {money(Number(m.current_value))}
                     </TableCell>
                     <TableCell>
-                      {num(Number(m.reorder_level ?? 0))} {m.unit}
+                      <BagQty
+                        value={Number(m.reorder_level ?? 0)}
+                        unit={m.unit}
+                        perBag={m.pieces_per_bag}
+                      />
                     </TableCell>
                     <TableCell>
                       <div className="flex justify-end gap-1">
@@ -830,15 +853,29 @@ function RawMaterialsPage() {
                       <TableCell className="font-medium">{r.receipt_number}</TableCell>
                       <TableCell>{r.raw_materials?.name ?? "—"}</TableCell>
                       <TableCell className="text-right">
-                        {num(Number(r.quantity))} {r.raw_materials?.unit ?? ""}
+                        <BagQty
+                          value={Number(r.quantity)}
+                          unit={r.raw_materials?.unit}
+                          perBag={r.raw_materials?.pieces_per_bag}
+                        />
                       </TableCell>
                       <TableCell className="text-right text-destructive">
-                        {Number(r.damaged_quantity) > 0
-                          ? `${num(Number(r.damaged_quantity))} ${r.raw_materials?.unit ?? ""}`
-                          : "—"}
+                        {Number(r.damaged_quantity) > 0 ? (
+                          <BagQty
+                            value={Number(r.damaged_quantity)}
+                            unit={r.raw_materials?.unit}
+                            perBag={r.raw_materials?.pieces_per_bag}
+                          />
+                        ) : (
+                          "—"
+                        )}
                       </TableCell>
                       <TableCell className="text-right">
-                        {num(Number(r.accepted_quantity))} {r.raw_materials?.unit ?? ""}
+                        <BagQty
+                          value={Number(r.accepted_quantity)}
+                          unit={r.raw_materials?.unit}
+                          perBag={r.raw_materials?.pieces_per_bag}
+                        />
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline" className="capitalize">
@@ -920,7 +957,11 @@ function RawMaterialsPage() {
                       <TableCell className="font-mono text-xs">{a.reference_number}</TableCell>
                       <TableCell className="font-medium">{a.raw_materials?.name ?? "—"}</TableCell>
                       <TableCell className="text-right text-destructive">
-                        {num(Number(a.quantity_delta))} {a.raw_materials?.unit ?? ""}
+                        <BagQty
+                          value={Number(a.quantity_delta)}
+                          unit={a.raw_materials?.unit}
+                          perBag={a.raw_materials?.pieces_per_bag}
+                        />
                       </TableCell>
                       <TableCell className="text-muted-foreground">{a.reason ?? "—"}</TableCell>
                       <TableCell>
@@ -1093,23 +1134,114 @@ function RawMaterialsPage() {
   );
 }
 
+// "Add Material": first pick the material from everything the store holds.
+// An existing one opens the goods receipt for the supplier delivery (so the
+// same material is never entered twice); a name that isn’t in the list
+// opens the new-material form with that name filled in.
+function AddOrReceiveMaterial({
+  factoryId,
+  materials,
+  suppliers,
+  categories,
+  onDone,
+}: {
+  factoryId: string;
+  materials: Material[];
+  suppliers: Supplier[];
+  categories: MaterialCategory[];
+  onDone: () => void;
+}) {
+  const [pickedId, setPickedId] = useState("");
+  const [newName, setNewName] = useState<string | null>(null);
+  const picked = materials.find((m) => m.id === pickedId);
+  const back = () => {
+    setPickedId("");
+    setNewName(null);
+  };
+
+  if (newName !== null) {
+    return (
+      <MaterialForm
+        factoryId={factoryId}
+        suppliers={suppliers}
+        categories={categories}
+        editing={null}
+        initialName={newName}
+        onBack={back}
+        onDone={onDone}
+      />
+    );
+  }
+  if (picked) {
+    return <ReceiveDialog material={picked} suppliers={suppliers} onBack={back} onDone={onDone} />;
+  }
+  return (
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle>Add Material</DialogTitle>
+      </DialogHeader>
+      <div className="grid gap-3">
+        <div className="space-y-1.5">
+          <Label>Raw material</Label>
+          <MaterialCombobox
+            value={pickedId}
+            materials={materials.map((m) => ({
+              id: m.id,
+              name: m.name,
+              unit: m.unit,
+              current_stock: Number(m.current_stock),
+            }))}
+            onChange={setPickedId}
+            onAddNew={(q) => setNewName(q)}
+          />
+          <p className="text-xs text-muted-foreground">
+            Pick the material the supplier delivered to record the quantity received. Not in the
+            list? Type its name and choose &ldquo;Add as a new material&rdquo;.
+          </p>
+        </div>
+      </div>
+      <DialogFooter>
+        <Button variant="outline" onClick={() => setNewName("")}>
+          <Plus className="mr-1 h-4 w-4" /> New material instead
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  );
+}
+
+function BackToPicker({ onBack }: { onBack: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onBack}
+      className="w-fit text-xs text-muted-foreground underline-offset-2 hover:underline"
+    >
+      &larr; Choose a different material
+    </button>
+  );
+}
+
 function MaterialForm({
   factoryId,
   suppliers,
   categories,
   editing,
+  initialName = "",
+  onBack,
   onDone,
 }: {
   factoryId: string;
   suppliers: Supplier[];
   categories: MaterialCategory[];
   editing: Material | null;
+  initialName?: string;
+  onBack?: () => void;
   onDone: () => void;
 }) {
   const qc = useQueryClient();
   const unitsOfMeasure = useUnitsOfMeasure();
   const allUnitOptions = unitsOfMeasure.data ?? UNIT_OPTIONS_FALLBACK;
-  const [name, setName] = useState(editing?.name ?? "");
+  const [name, setName] = useState(editing?.name ?? initialName);
   const [categoryId, setCategoryId] = useState(editing?.category_id ?? "none");
   const selectedCategoryName = categories.find((c) => c.id === categoryId)?.name;
   const unitOptions = getUnitOptionsForCategory(selectedCategoryName, allUnitOptions);
@@ -1142,6 +1274,13 @@ function MaterialForm({
     editing ? Number(editing.minimum_stock ?? 0) : 0,
   );
   const [remarks, setRemarks] = useState(editing?.remarks ?? "");
+  // Bag size for materials delivered in bags but counted in pieces (PET
+  // preforms of every size). Stock stays in pieces; this only converts.
+  const [perBag, setPerBag] = useState<number>(Number(editing?.pieces_per_bag ?? 0));
+  const [perBagReason, setPerBagReason] = useState("");
+  const showPerBag = /preform/i.test(name) || !!editing?.pieces_per_bag || perBag > 0;
+  const perBagChanged =
+    !!editing?.pieces_per_bag && perBag > 0 && perBag !== Number(editing.pieces_per_bag);
 
   const addCategory = useMutation({
     mutationFn: async () => {
@@ -1200,6 +1339,11 @@ function MaterialForm({
         minimum_stock: minimumStock,
         remarks: remarks || null,
       };
+      if (perBag && (perBag < 0 || perBag !== Math.floor(perBag)))
+        throw new Error("Pieces per bag must be a whole number");
+      if (perBagChanged && !perBagReason.trim())
+        throw new Error("Give a reason for changing pieces per bag");
+      let materialId = editing?.id ?? null;
       if (editing) {
         const { error } = await supabase.from("raw_materials").update(payload).eq("id", editing.id);
         if (error) throw error;
@@ -1208,8 +1352,18 @@ function MaterialForm({
         // the only thing with INSERT privilege on raw_materials — direct
         // client inserts are revoked), but it now creates the material live
         // (approved/active) instead of parking it in pending_approval.
-        const { error } = await supabase.rpc("request_new_material", {
+        const { data, error } = await supabase.rpc("request_new_material", {
           payload: { ...payload, factory_id: factoryId, opening_stock: openingStock } as any,
+        });
+        if (error) throw error;
+        materialId = (data as { id?: string } | null)?.id ?? null;
+      }
+      if (materialId && perBag > 0 && perBag !== Number(editing?.pieces_per_bag ?? 0)) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- RPC newer than the generated types
+        const { error } = await (supabase as any).rpc("set_material_pieces_per_bag", {
+          p_material: materialId,
+          p_pieces_per_bag: perBag,
+          p_reason: perBagReason.trim() || null,
         });
         if (error) throw error;
       }
@@ -1227,6 +1381,7 @@ function MaterialForm({
         <DialogTitle>{editing ? "Edit Material" : "Add New Material"}</DialogTitle>
       </DialogHeader>
       <div className="grid gap-3 max-h-[75vh] overflow-y-auto pr-1">
+        {onBack && <BackToPicker onBack={onBack} />}
         <div>
           <Label>Raw material name</Label>
           <Input value={name} onChange={(e) => setName(e.target.value)} />
@@ -1282,6 +1437,38 @@ function MaterialForm({
             Add
           </Button>
         </div>
+        {showPerBag && (
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Pieces per bag</Label>
+              <Input
+                type="number"
+                inputMode="numeric"
+                min={0}
+                step={1}
+                value={perBag || ""}
+                placeholder="e.g. 1152"
+                onChange={(e) =>
+                  setPerBag(e.target.value === "" ? 0 : Math.floor(Number(e.target.value)))
+                }
+              />
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Stock is kept in pieces and also shown in bags; deliveries and issues can be entered
+                as bags + loose pieces.
+              </p>
+            </div>
+            {perBagChanged && (
+              <div>
+                <Label>Why is the bag size changing?</Label>
+                <Input
+                  value={perBagReason}
+                  onChange={(e) => setPerBagReason(e.target.value)}
+                  placeholder="e.g. new supplier bag size"
+                />
+              </div>
+            )}
+          </div>
+        )}
         {unitChoice === "__custom__" && (
           <div>
             <Label>Custom unit</Label>
@@ -1368,10 +1555,12 @@ function MaterialForm({
 function ReceiveDialog({
   material,
   suppliers,
+  onBack,
   onDone,
 }: {
   material: Material;
   suppliers: Supplier[];
+  onBack?: () => void;
   onDone: () => void;
 }) {
   const [quantity, setQuantity] = useState(0);
@@ -1413,28 +1602,36 @@ function ReceiveDialog({
         <DialogTitle>Submit Goods Receipt — {material.name}</DialogTitle>
       </DialogHeader>
       <div className="grid gap-3">
+        {onBack && <BackToPicker onBack={onBack} />}
         <p className="text-xs text-muted-foreground">
+          In store now:{" "}
+          <BagQty
+            value={Number(material.current_stock)}
+            unit={material.unit}
+            perBag={material.pieces_per_bag}
+          />
           Dual control: this only posts to stock once someone else confirms it.
         </p>
         <div className="grid grid-cols-2 gap-3">
-          <div>
-            <Label>Quantity received</Label>
-            <MoneyInput min={0.001} step="0.001" value={quantity} onChange={setQuantity} />
-          </div>
-          <div>
-            <Label>Damaged quantity</Label>
-            <MoneyInput
-              min={0}
-              max={quantity}
-              step="0.001"
-              value={damagedQuantity}
-              onChange={setDamagedQuantity}
-            />
-          </div>
+          <BagQuantityInput
+            label="Quantity received"
+            value={quantity}
+            onChange={setQuantity}
+            perBag={material.pieces_per_bag}
+            unit={material.unit}
+          />
+          <BagQuantityInput
+            label="Damaged quantity"
+            value={damagedQuantity}
+            onChange={setDamagedQuantity}
+            perBag={material.pieces_per_bag}
+            unit={material.unit}
+          />
         </div>
         <p className="text-xs text-muted-foreground">
-          Accepted quantity: {num(accepted)} {material.unit} — only this posts to stock; damaged
-          goes to the damage ledger.
+          Accepted quantity:{" "}
+          <BagQty value={accepted} unit={material.unit} perBag={material.pieces_per_bag} /> Only
+          this posts to stock; damaged goes to the damage ledger.
         </p>
         <div>
           <Label>Unit cost</Label>
@@ -1532,10 +1729,13 @@ function RequestPurchaseDialog({ material, onDone }: { material: Material; onDon
           <Label>Your name</Label>
           <Input value={requestedByName} onChange={(e) => setRequestedByName(e.target.value)} />
         </div>
-        <div>
-          <Label>Quantity to request</Label>
-          <MoneyInput min={0.001} step="0.001" value={quantity} onChange={setQuantity} />
-        </div>
+        <BagQuantityInput
+          label="Quantity to request"
+          value={quantity}
+          onChange={setQuantity}
+          perBag={material.pieces_per_bag}
+          unit={material.unit}
+        />
         <div>
           <Label>Remarks</Label>
           <Textarea rows={2} value={remarks} onChange={(e) => setRemarks(e.target.value)} />
@@ -1584,7 +1784,12 @@ function IssueDialog({ material, onDone }: { material: Material; onDone: () => v
       </DialogHeader>
       <div className="grid gap-3">
         <p className="text-sm text-muted-foreground">
-          Available: {num(Number(material.current_stock))} {material.unit}
+          Available:{" "}
+          <BagQty
+            value={Number(material.current_stock)}
+            unit={material.unit}
+            perBag={material.pieces_per_bag}
+          />
         </p>
         <div>
           <Label>Purpose</Label>
@@ -1598,16 +1803,13 @@ function IssueDialog({ material, onDone }: { material: Material; onDone: () => v
             </SelectContent>
           </Select>
         </div>
-        <div>
-          <Label>Quantity issued</Label>
-          <MoneyInput
-            min={0.001}
-            max={Number(material.current_stock)}
-            step="0.001"
-            value={quantity}
-            onChange={setQuantity}
-          />
-        </div>
+        <BagQuantityInput
+          label="Quantity issued"
+          value={quantity}
+          onChange={setQuantity}
+          perBag={material.pieces_per_bag}
+          unit={material.unit}
+        />
         <div>
           <Label>{purpose === "production" ? "Production reference" : "Reference"}</Label>
           <Input
@@ -1677,11 +1879,15 @@ function AdjustDialog({ material, onDone }: { material: Material; onDone: () => 
           <div>
             <Label>Old quantity</Label>
             <Input type="number" value={oldQuantity} disabled />
+            <BagQty value={oldQuantity} perBag={material.pieces_per_bag} className="text-xs" />
           </div>
-          <div>
-            <Label>New quantity</Label>
-            <MoneyInput step="0.001" value={newQuantity} onChange={setNewQuantity} />
-          </div>
+          <BagQuantityInput
+            label="New quantity"
+            value={newQuantity}
+            onChange={setNewQuantity}
+            perBag={material.pieces_per_bag}
+            unit={material.unit}
+          />
           <div>
             <Label>Difference</Label>
             <Input
@@ -1807,7 +2013,11 @@ function HistoryDialog({ material }: { material: Material }) {
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right">
-                    {num(Number(m.quantity))} {material.unit}
+                    <BagQty
+                      value={Number(m.quantity)}
+                      unit={material.unit}
+                      perBag={material.pieces_per_bag}
+                    />
                   </TableCell>
                   <TableCell className="text-right text-muted-foreground text-xs">
                     {m.quantity_before === null

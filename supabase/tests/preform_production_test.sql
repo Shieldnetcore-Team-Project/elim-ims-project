@@ -502,3 +502,25 @@ BEGIN
   PERFORM public.accept_preform_stocking((v->>'id')::uuid, 100);
   PERFORM pg_temp.check((SELECT status FROM preform_shift_records WHERE id = v_rec) = 'completed', 'completed once all 1000 are stocked');
 END $$;
+
+-- @@ Test 17: the Store sets pieces per bag from the material form (20261020140000)
+DO $$
+DECLARE e text; v jsonb;
+BEGIN
+  PERFORM pg_temp.as_user('8');
+  e := pg_temp.err($q$SELECT public.set_material_pieces_per_bag('d1000000-0000-0000-0000-000000000002', 1152)$q$);
+  PERFORM pg_temp.check(e LIKE '%Insufficient permissions%', 'no rights, no change');
+  PERFORM pg_temp.as_user('7');
+  v := public.set_material_pieces_per_bag('d1000000-0000-0000-0000-000000000002', 1152);
+  PERFORM pg_temp.check((v->>'changed')::boolean AND (SELECT pieces_per_bag FROM raw_materials WHERE id = 'd1000000-0000-0000-0000-000000000002') = 1152,
+                        'first bag size set without a reason');
+  e := pg_temp.err($q$SELECT public.set_material_pieces_per_bag('d1000000-0000-0000-0000-000000000002', 1200)$q$);
+  PERFORM pg_temp.check(e LIKE '%reason%', 'changing it needs a reason');
+  e := pg_temp.err($q$SELECT public.set_material_pieces_per_bag('d1000000-0000-0000-0000-000000000002', 10.5, 'x')$q$);
+  PERFORM pg_temp.check(e LIKE '%whole number%', 'whole bags only');
+  PERFORM public.set_material_pieces_per_bag('d1000000-0000-0000-0000-000000000002', 1200, 'Supplier changed bag size');
+  PERFORM pg_temp.check((SELECT current_stock FROM raw_materials WHERE id = 'd1000000-0000-0000-0000-000000000002') = 5000,
+                        'stock (pieces) unchanged by a new bag size');
+  PERFORM pg_temp.check(EXISTS (SELECT 1 FROM audit_logs WHERE action = 'set_material_pieces_per_bag'
+                                  AND entity_id = 'd1000000-0000-0000-0000-000000000002'), 'audited');
+END $$;
