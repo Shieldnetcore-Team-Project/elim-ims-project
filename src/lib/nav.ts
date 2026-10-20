@@ -101,9 +101,10 @@ export const nav: { section: string; items: NavItem[] }[] = [
         title: "Production",
         url: "/production",
         icon: FactoryIcon,
-        modules: ["production", "production-requests"],
+        modules: ["production", "production-requests", "preform-production"],
         tabs: [
           { label: "Production", module: "production", url: "/production" },
+          { label: "Preform Blowing", module: "preform-production", url: "/preform-production" },
           {
             label: "Store Requests",
             module: "production-requests",
@@ -126,6 +127,12 @@ export const nav: { section: string; items: NavItem[] }[] = [
         tabs: [
           { label: "Raw Materials", module: "raw-materials", url: "/raw-materials" },
           { label: "Requests", module: "production-requests", url: "/production-requests" },
+          {
+            label: "Issue preforms",
+            module: "preform-production",
+            url: "/preform-production",
+            search: { tab: "issues" },
+          },
         ],
       },
       {
@@ -142,6 +149,12 @@ export const nav: { section: string; items: NavItem[] }[] = [
         tabs: [
           { label: "Stock", module: "finished-goods", url: "/inventory" },
           { label: "Store requests", module: "production-requests", url: "/production-requests" },
+          {
+            label: "Good bottles",
+            module: "preform-production",
+            url: "/preform-production",
+            search: { tab: "stocking" },
+          },
           { label: "Orders", module: "sales", url: "/sales" },
           { label: "Returns", module: "sales-returns", url: "/sales-returns" },
           { label: "Reps & outlet stock", module: "distribution", url: "/distribution" },
@@ -218,6 +231,12 @@ export const nav: { section: string; items: NavItem[] }[] = [
             module: "finance",
             url: "/accountant",
             search: { tab: "postings" },
+          },
+          {
+            label: "Retail cash-up",
+            module: "finance",
+            url: "/accountant",
+            search: { tab: "retail-cashup" },
           },
           {
             label: "Cash remitted",

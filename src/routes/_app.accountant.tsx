@@ -13,6 +13,7 @@ import { generateReceiptPdf } from "@/lib/pdf";
 import { AccountsTab, type Rep } from "@/routes/_app.distribution";
 import { PostingsTab } from "@/components/accounting/postings-tab";
 import { DistributorsTab } from "@/components/accounting/distributors-tab";
+import { RetailCashUpTab } from "@/components/retail/outlet-day-close";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -386,6 +387,7 @@ function AccountantPage() {
           <TabsList className="flex-wrap">
             <TabsTrigger value="activity">All activity</TabsTrigger>
             <TabsTrigger value="postings">Postings to assess</TabsTrigger>
+            <TabsTrigger value="retail-cashup">Retail cash-up</TabsTrigger>
             <TabsTrigger value="invoices">Invoices</TabsTrigger>
             <TabsTrigger value="payments">Payments received</TabsTrigger>
             {canRepAccounts && (
@@ -470,6 +472,10 @@ function AccountantPage() {
             <AccountsTab factoryId={factoryId} reps={reps.data ?? []} perms={perms} />
           </TabsContent>
         )}
+
+        <TabsContent value="retail-cashup">
+          <RetailCashUpTab factoryId={factoryId} currency={currency} />
+        </TabsContent>
 
         <TabsContent value="distributors">
           <DistributorsTab factoryId={factoryId} currency={currency} />

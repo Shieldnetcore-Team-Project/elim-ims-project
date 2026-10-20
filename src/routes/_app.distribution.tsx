@@ -3468,12 +3468,9 @@ function CollectPaymentDialog({
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label>Amount</Label>
-            <Input
-              type="number"
-              min={0}
-              step="0.01"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
+            <MoneyInput
+              value={Number(amount) || 0}
+              onChange={(v) => setAmount(v ? String(v) : "")}
             />
           </div>
           <div>

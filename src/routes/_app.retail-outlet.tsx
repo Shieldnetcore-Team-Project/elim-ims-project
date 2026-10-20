@@ -4,12 +4,13 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { RequireAccess } from "@/components/layout/require-access";
 import { SectionTabs } from "@/components/layout/section-tabs";
 import { supabase } from "@/integrations/supabase/client";
-import { useFactoryId } from "@/lib/use-factory";
+import { useFactoryId, useFactorySettings } from "@/lib/use-factory";
 import { usePermissions } from "@/lib/permissions";
 import { useRealtimeInvalidate } from "@/lib/realtime";
 import { KPI } from "@/lib/dashboard-kit";
 import { money, num } from "@/lib/format";
 import { PosDialog } from "./_app.sales";
+import { RetailDayClose } from "@/components/retail/outlet-day-close";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogTrigger } from "@/components/ui/dialog";
@@ -107,6 +108,7 @@ const MOVEMENT_LABEL: Record<string, string> = {
 
 function RetailOutletPage() {
   const { data: factoryId } = useFactoryId();
+  const settings = useFactorySettings(factoryId);
   const qc = useQueryClient();
   const { can } = usePermissions();
   const canSell = can("sales", "create");
@@ -351,7 +353,7 @@ function RetailOutletPage() {
           icon={TrendingUp}
           label="Sales Value"
           value={money(salesValue)}
-          hint={`Approved sales, ${periodLabel}`}
+          hint={`Outlet sales, ${periodLabel}`}
           tone="success"
         />
       </div>
@@ -402,6 +404,10 @@ function RetailOutletPage() {
           </Table>
         </CardContent>
       </Card>
+
+      {outletId && (
+        <RetailDayClose outletId={outletId} currency={settings.data?.currency ?? undefined} />
+      )}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="rounded-2xl">

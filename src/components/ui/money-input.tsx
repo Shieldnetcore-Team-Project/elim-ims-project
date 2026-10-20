@@ -32,76 +32,92 @@ function formatWithCommas(raw: string): string {
 export const MoneyInput = React.forwardRef<
   HTMLInputElement,
   Omit<React.ComponentPropsWithoutRef<typeof Input>, "value" | "onChange" | "type"> & {
-    value: number;
+    value: number | null;
     onChange: (value: number) => void;
+    // Give this when an empty field means something different from 0 (e.g.
+    // "no credit limit"): clearing the field calls it instead of onChange(0),
+    // a null value shows empty, and 0 then shows as "0".
+    onEmpty?: () => void;
     // Thousands commas make sense for money and quantities, but not for
     // fields like a calendar year where "2,026" would look wrong.
     groupThousands?: boolean;
   }
->(({ value, onChange, onFocus, onBlur, groupThousands = true, ...props }, forwardedRef) => {
-  const innerRef = React.useRef<HTMLInputElement | null>(null);
-  const format = groupThousands ? formatWithCommas : (s: string) => s;
-  const [display, setDisplay] = React.useState(() => (value ? format(String(value)) : ""));
-  const [focused, setFocused] = React.useState(false);
-  const pendingCaret = React.useRef<number | null>(null);
+>(
+  (
+    { value, onChange, onEmpty, onFocus, onBlur, groupThousands = true, ...props },
+    forwardedRef,
+  ) => {
+    const innerRef = React.useRef<HTMLInputElement | null>(null);
+    const format = groupThousands ? formatWithCommas : (s: string) => s;
+    const shown = (v: number | null) =>
+      v == null || (v === 0 && !onEmpty) ? "" : format(String(v));
+    const [display, setDisplay] = React.useState(() => shown(value));
+    const [focused, setFocused] = React.useState(false);
+    const pendingCaret = React.useRef<number | null>(null);
 
-  // Only resync from the external value while the user isn't actively
-  // typing -- otherwise a parent re-render (e.g. from a totals recompute)
-  // would stomp on an in-progress edit.
-  React.useEffect(() => {
-    if (focused) return;
-    setDisplay(value ? format(String(value)) : "");
-  }, [value, focused]);
+    // Only resync from the external value while the user isn't actively
+    // typing -- otherwise a parent re-render (e.g. from a totals recompute)
+    // would stomp on an in-progress edit.
+    React.useEffect(() => {
+      if (focused) return;
+      setDisplay(shown(value));
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [value, focused]);
 
-  React.useLayoutEffect(() => {
-    if (pendingCaret.current === null || !innerRef.current) return;
-    innerRef.current.setSelectionRange(pendingCaret.current, pendingCaret.current);
-    pendingCaret.current = null;
-  }, [display]);
+    React.useLayoutEffect(() => {
+      if (pendingCaret.current === null || !innerRef.current) return;
+      innerRef.current.setSelectionRange(pendingCaret.current, pendingCaret.current);
+      pendingCaret.current = null;
+    }, [display]);
 
-  return (
-    <Input
-      ref={(node) => {
-        innerRef.current = node;
-        if (typeof forwardedRef === "function") forwardedRef(node);
-        else if (forwardedRef) forwardedRef.current = node;
-      }}
-      type="text"
-      inputMode="decimal"
-      value={display}
-      onFocus={(e) => {
-        setFocused(true);
-        onFocus?.(e);
-      }}
-      onBlur={(e) => {
-        setFocused(false);
-        setDisplay(value ? format(String(value)) : "");
-        onBlur?.(e);
-      }}
-      onChange={(e) => {
-        const input = e.target;
-        const caret = input.selectionStart ?? input.value.length;
-        const digitsBeforeCaret = sanitize(input.value.slice(0, caret)).length;
-        const raw = sanitize(input.value);
-        const formatted = format(raw);
+    return (
+      <Input
+        ref={(node) => {
+          innerRef.current = node;
+          if (typeof forwardedRef === "function") forwardedRef(node);
+          else if (forwardedRef) forwardedRef.current = node;
+        }}
+        type="text"
+        inputMode="decimal"
+        value={display}
+        onFocus={(e) => {
+          setFocused(true);
+          onFocus?.(e);
+        }}
+        onBlur={(e) => {
+          setFocused(false);
+          setDisplay(shown(value));
+          onBlur?.(e);
+        }}
+        onChange={(e) => {
+          const input = e.target;
+          const caret = input.selectionStart ?? input.value.length;
+          const digitsBeforeCaret = sanitize(input.value.slice(0, caret)).length;
+          const raw = sanitize(input.value);
+          const formatted = format(raw);
 
-        // Re-find the caret by counting the same number of digits back in,
-        // skipping over commas -- keeps the cursor sitting where the user
-        // was typing instead of jumping to the end when a comma is inserted.
-        let remaining = digitsBeforeCaret;
-        let pos = 0;
-        while (remaining > 0 && pos < formatted.length) {
-          if (formatted[pos] !== ",") remaining--;
-          pos++;
-        }
-        pendingCaret.current = pos;
+          // Re-find the caret by counting the same number of digits back in,
+          // skipping over commas -- keeps the cursor sitting where the user
+          // was typing instead of jumping to the end when a comma is inserted.
+          let remaining = digitsBeforeCaret;
+          let pos = 0;
+          while (remaining > 0 && pos < formatted.length) {
+            if (formatted[pos] !== ",") remaining--;
+            pos++;
+          }
+          pendingCaret.current = pos;
 
-        setDisplay(formatted);
-        const num = raw === "" || raw === "." ? 0 : parseFloat(raw);
-        onChange(Number.isNaN(num) ? 0 : num);
-      }}
-      {...props}
-    />
-  );
-});
+          setDisplay(formatted);
+          if (raw === "" && onEmpty) {
+            onEmpty();
+            return;
+          }
+          const num = raw === "" || raw === "." ? 0 : parseFloat(raw);
+          onChange(Number.isNaN(num) ? 0 : num);
+        }}
+        {...props}
+      />
+    );
+  },
+);
 MoneyInput.displayName = "MoneyInput";

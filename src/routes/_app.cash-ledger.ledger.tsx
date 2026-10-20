@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useAutofillUserName } from "@/lib/use-current-user";
 import { RequireAccess } from "@/components/layout/require-access";
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -51,7 +52,9 @@ import { generateReceiptPdf } from "@/lib/pdf";
 import { logAudit } from "@/lib/audit";
 
 export const Route = createFileRoute("/_app/cash-ledger/ledger")({
-  head: () => ({ meta: [{ title: "Cash Ledger — Elim Table Water" }, { name: "robots", content: "noindex" }] }),
+  head: () => ({
+    meta: [{ title: "Cash Ledger — Elim Table Water" }, { name: "robots", content: "noindex" }],
+  }),
   component: () => (
     <RequireAccess module="receipts-payments">
       <LedgerPage />
@@ -907,6 +910,7 @@ function CashOutDialog({ factoryId, onDone }: { factoryId: string; onDone: () =>
   const [receivedFrom, setReceivedFrom] = useState("");
   const [notes, setNotes] = useState("");
   const [recordedBy, setRecordedBy] = useState("");
+  useAutofillUserName(recordedBy, setRecordedBy);
 
   const submit = useMutation({
     mutationFn: async () => {
@@ -1005,6 +1009,7 @@ function TransactionForm({ factoryId, onDone }: { factoryId: string; onDone: () 
   const [payerPayee, setPayerPayee] = useState("");
   const [reference, setReference] = useState("");
   const [recordedBy, setRecordedBy] = useState("");
+  useAutofillUserName(recordedBy, setRecordedBy);
 
   const categoryOptions =
     type === "receipt"

@@ -9,6 +9,7 @@ import { usePermissions } from "@/lib/permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { MoneyInput } from "@/components/ui/money-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -748,12 +749,10 @@ function CreditTermsDialog({ customer, onDone }: { customer: Customer; onDone: (
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label>Credit limit</Label>
-            <Input
-              type="number"
-              min={0}
-              step="0.01"
-              value={limit}
-              onChange={(e) => setLimit(e.target.value)}
+            <MoneyInput
+              value={limit.trim() === "" ? null : Number(limit)}
+              onChange={(v) => setLimit(String(v))}
+              onEmpty={() => setLimit("")}
               placeholder="No limit"
             />
           </div>

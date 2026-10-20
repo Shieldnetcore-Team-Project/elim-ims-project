@@ -1693,7 +1693,9 @@ export function PosDialog({
       toast.success(
         editingSale
           ? `${res.invoice_number} updated — awaiting manager approval`
-          : `${res.invoice_number} submitted — awaiting manager approval`,
+          : res.status === "posted"
+            ? `${res.invoice_number} recorded`
+            : `${res.invoice_number} submitted — awaiting manager approval`,
       );
       logAudit({
         action: editingSale ? "edit" : "sale",

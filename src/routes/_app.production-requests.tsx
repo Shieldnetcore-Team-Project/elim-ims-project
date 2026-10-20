@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useAutofillUserDepartment, useAutofillUserName } from "@/lib/use-current-user";
 import { RequireAccess } from "@/components/layout/require-access";
 import { SectionTabs } from "@/components/layout/section-tabs";
 import { useState } from "react";
@@ -49,7 +50,10 @@ import { AddMaterialDialog, MaterialCombobox } from "@/components/shared/materia
 
 export const Route = createFileRoute("/_app/production-requests")({
   head: () => ({
-    meta: [{ title: "Production Requests — Elim Table Water" }, { name: "robots", content: "noindex" }],
+    meta: [
+      { title: "Production Requests — Elim Table Water" },
+      { name: "robots", content: "noindex" },
+    ],
   }),
   component: () => (
     <>
@@ -331,16 +335,18 @@ function ProductionRequestsPage() {
                             <X className="h-4 w-4 text-destructive" />
                           </Button>
                         )}
-                      {row.approval_status === "approved" && !row.materials_issued && confirmPerm && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          title="Confirm & issue materials"
-                          onClick={() => setIssueTarget(row)}
-                        >
-                          <PackageMinus className="h-4 w-4 text-warning" />
-                        </Button>
-                      )}
+                      {row.approval_status === "approved" &&
+                        !row.materials_issued &&
+                        confirmPerm && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Confirm & issue materials"
+                            onClick={() => setIssueTarget(row)}
+                          >
+                            <PackageMinus className="h-4 w-4 text-warning" />
+                          </Button>
+                        )}
                       <Button
                         variant="ghost"
                         size="icon"
@@ -429,7 +435,9 @@ function RequestForm({
   const canSetStock = canSubmit("raw-materials");
   const canAddMaterial = canSetStock || canSubmit("production-requests");
   const [requestedBy, setRequestedBy] = useState("");
+  useAutofillUserName(requestedBy, setRequestedBy);
   const [department, setDepartment] = useState("");
+  useAutofillUserDepartment(department, setDepartment);
   const [remarks, setRemarks] = useState("");
   const [items, setItems] = useState<{ materialId: string; quantity: number }[]>([
     { materialId: "", quantity: 0 },
@@ -604,6 +612,7 @@ function RequestForm({
 
 function ApproveDialog({ row, onDone }: { row: RequestRow; onDone: () => void }) {
   const [name, setName] = useState("");
+  useAutofillUserName(name, setName);
 
   const submit = useMutation({
     mutationFn: async () => {
@@ -656,6 +665,7 @@ function ApproveDialog({ row, onDone }: { row: RequestRow; onDone: () => void })
 
 function RejectDialog({ row, onDone }: { row: RequestRow; onDone: () => void }) {
   const [name, setName] = useState("");
+  useAutofillUserName(name, setName);
   const [reason, setReason] = useState("");
 
   const submit = useMutation({
@@ -719,6 +729,7 @@ function IssueDialog({
   onDone: () => void;
 }) {
   const [name, setName] = useState("");
+  useAutofillUserName(name, setName);
 
   const items = useQuery({
     queryKey: ["production-request-items", row.id],

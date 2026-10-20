@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { MoneyInput } from "@/components/ui/money-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -362,12 +363,9 @@ export function InvoicePaymentDialog({
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label>Amount</Label>
-            <Input
-              type="number"
-              min={0}
-              step="0.01"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
+            <MoneyInput
+              value={Number(amount) || 0}
+              onChange={(v) => setAmount(v ? String(v) : "")}
             />
           </div>
           <div>

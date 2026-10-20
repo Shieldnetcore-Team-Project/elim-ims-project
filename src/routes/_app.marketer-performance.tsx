@@ -9,6 +9,7 @@ import { usePermissions } from "@/lib/permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { MoneyInput } from "@/components/ui/money-input";
 import { Label } from "@/components/ui/label";
 import {
   Table,
@@ -369,13 +370,7 @@ function RateDialog({ product, onDone }: { product: RateRow; onDone: () => void 
       <div className="grid gap-3">
         <div>
           <Label>Amount per {product.unit ?? "unit"}</Label>
-          <Input
-            type="number"
-            min={0}
-            step="0.01"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-          />
+          <MoneyInput value={Number(amount) || 0} onChange={(v) => setAmount(v ? String(v) : "")} />
         </div>
         <div>
           <Label>Reason (optional)</Label>

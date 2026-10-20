@@ -3389,6 +3389,7 @@ export type Database = {
           receipt_prefix: string | null
           updated_at: string
           vat_rate: number | null
+          website: string | null
         }
         Insert: {
           address?: string | null
@@ -3406,6 +3407,7 @@ export type Database = {
           receipt_prefix?: string | null
           updated_at?: string
           vat_rate?: number | null
+          website?: string | null
         }
         Update: {
           address?: string | null
@@ -3423,6 +3425,7 @@ export type Database = {
           receipt_prefix?: string | null
           updated_at?: string
           vat_rate?: number | null
+          website?: string | null
         }
         Relationships: [
           {

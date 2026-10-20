@@ -43,7 +43,9 @@ import {
 import { Badge } from "@/components/ui/badge";
 
 export const Route = createFileRoute("/_app/settings")({
-  head: () => ({ meta: [{ title: "Settings — Elim Table Water" }, { name: "robots", content: "noindex" }] }),
+  head: () => ({
+    meta: [{ title: "Settings — Elim Table Water" }, { name: "robots", content: "noindex" }],
+  }),
   component: SettingsPage,
 });
 
@@ -74,6 +76,7 @@ export function SettingsPage() {
     address: "",
     phone: "",
     email: "",
+    website: "",
     vat_rate: "7.5",
     currency: "NGN",
     invoice_prefix: "INV",
@@ -112,6 +115,7 @@ export function SettingsPage() {
           address: data.address ?? "",
           phone: data.phone ?? "",
           email: data.email ?? "",
+          website: data.website ?? "",
           vat_rate: String(data.vat_rate ?? "7.5"),
           currency: data.currency ?? "NGN",
           invoice_prefix: data.invoice_prefix ?? "INV",
@@ -157,6 +161,7 @@ export function SettingsPage() {
         production_prefix: form.production_prefix,
         employee_prefix: form.employee_prefix,
         logo_url: finalLogoUrl,
+        website: form.website.trim() || null,
       })
       .eq("factory_id", factoryId);
     setSaving(false);
@@ -251,6 +256,10 @@ export function SettingsPage() {
                   <div className="space-y-2">
                     <Label>Email</Label>
                     <Input type="email" {...field("email")} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Website</Label>
+                    <Input placeholder="www.example.com" {...field("website")} />
                   </div>
                   <div className="space-y-2">
                     <Label>Currency</Label>

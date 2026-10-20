@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useAutofillUserDepartment, useAutofillUserName } from "@/lib/use-current-user";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -499,9 +500,11 @@ function RequestForm({
   onDone: () => void;
 }) {
   const [requestedBy, setRequestedBy] = useState("");
+  useAutofillUserName(requestedBy, setRequestedBy);
   // Row index that asked for "+ Add new material…" (null = dialog closed).
   const [addingMaterialFor, setAddingMaterialFor] = useState<number | null>(null);
   const [department, setDepartment] = useState("");
+  useAutofillUserDepartment(department, setDepartment);
   const [remarks, setRemarks] = useState("");
   const [items, setItems] = useState<
     { materialId: string; quantity: number; supplierId: string }[]
@@ -678,6 +681,7 @@ function ApproveDialog({
   onDone: () => void;
 }) {
   const [name, setName] = useState("");
+  useAutofillUserName(name, setName);
 
   const submit = useMutation({
     mutationFn: async () => {
@@ -727,6 +731,7 @@ function ApproveDialog({
 
 function RejectDialog({ row, onDone }: { row: RequestRow; onDone: () => void }) {
   const [name, setName] = useState("");
+  useAutofillUserName(name, setName);
   const [reason, setReason] = useState("");
 
   const submit = useMutation({
@@ -1082,6 +1087,7 @@ function CreatePoDialog({
 }) {
   const [requestId, setRequestId] = useState("");
   const [issuedByName, setIssuedByName] = useState("");
+  useAutofillUserName(issuedByName, setIssuedByName);
   const [quantity, setQuantity] = useState<number | "">("");
   const [unitCost, setUnitCost] = useState<number | "">("");
   const [expectedDate, setExpectedDate] = useState("");

@@ -36,6 +36,7 @@ import { Route as AppMarketerAccountsRouteImport } from './routes/_app.marketer-
 import { Route as AppMarketerPerformanceRouteImport } from './routes/_app.marketer-performance'
 import { Route as AppPayrollRouteImport } from './routes/_app.payroll'
 import { Route as AppPermissionsRouteImport } from './routes/_app.permissions'
+import { Route as AppPreformProductionRouteImport } from './routes/_app.preform-production'
 import { Route as AppProcurementRouteImport } from './routes/_app.procurement'
 import { Route as AppProductionRouteImport } from './routes/_app.production'
 import { Route as AppProductionReportRouteImport } from './routes/_app.production-report'
@@ -191,6 +192,11 @@ const AppPermissionsRoute = AppPermissionsRouteImport.update({
   path: '/permissions',
   getParentRoute: () => AppRoute,
 } as any)
+const AppPreformProductionRoute = AppPreformProductionRouteImport.update({
+  id: '/preform-production',
+  path: '/preform-production',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppProcurementRoute = AppProcurementRouteImport.update({
   id: '/procurement',
   path: '/procurement',
@@ -321,6 +327,7 @@ export interface FileRoutesByFullPath {
   '/marketer-performance': typeof AppMarketerPerformanceRoute
   '/payroll': typeof AppPayrollRoute
   '/permissions': typeof AppPermissionsRoute
+  '/preform-production': typeof AppPreformProductionRoute
   '/procurement': typeof AppProcurementRoute
   '/production': typeof AppProductionRoute
   '/production-report': typeof AppProductionReportRoute
@@ -368,6 +375,7 @@ export interface FileRoutesByTo {
   '/marketer-performance': typeof AppMarketerPerformanceRoute
   '/payroll': typeof AppPayrollRoute
   '/permissions': typeof AppPermissionsRoute
+  '/preform-production': typeof AppPreformProductionRoute
   '/procurement': typeof AppProcurementRoute
   '/production': typeof AppProductionRoute
   '/production-report': typeof AppProductionReportRoute
@@ -418,6 +426,7 @@ export interface FileRoutesById {
   '/_app/marketer-performance': typeof AppMarketerPerformanceRoute
   '/_app/payroll': typeof AppPayrollRoute
   '/_app/permissions': typeof AppPermissionsRoute
+  '/_app/preform-production': typeof AppPreformProductionRoute
   '/_app/procurement': typeof AppProcurementRoute
   '/_app/production': typeof AppProductionRoute
   '/_app/production-report': typeof AppProductionReportRoute
@@ -468,6 +477,7 @@ export interface FileRouteTypes {
     | '/marketer-performance'
     | '/payroll'
     | '/permissions'
+    | '/preform-production'
     | '/procurement'
     | '/production'
     | '/production-report'
@@ -515,6 +525,7 @@ export interface FileRouteTypes {
     | '/marketer-performance'
     | '/payroll'
     | '/permissions'
+    | '/preform-production'
     | '/procurement'
     | '/production'
     | '/production-report'
@@ -564,6 +575,7 @@ export interface FileRouteTypes {
     | '/_app/marketer-performance'
     | '/_app/payroll'
     | '/_app/permissions'
+    | '/_app/preform-production'
     | '/_app/procurement'
     | '/_app/production'
     | '/_app/production-report'
@@ -783,6 +795,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppPermissionsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/preform-production': {
+      id: '/_app/preform-production'
+      path: '/preform-production'
+      fullPath: '/preform-production'
+      preLoaderRoute: typeof AppPreformProductionRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/procurement': {
       id: '/_app/procurement'
       path: '/procurement'
@@ -967,6 +986,7 @@ interface AppRouteChildren {
   AppMarketerPerformanceRoute: typeof AppMarketerPerformanceRoute
   AppPayrollRoute: typeof AppPayrollRoute
   AppPermissionsRoute: typeof AppPermissionsRoute
+  AppPreformProductionRoute: typeof AppPreformProductionRoute
   AppProcurementRoute: typeof AppProcurementRoute
   AppProductionRoute: typeof AppProductionRoute
   AppProductionReportRoute: typeof AppProductionReportRoute
@@ -1011,6 +1031,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppMarketerPerformanceRoute: AppMarketerPerformanceRoute,
   AppPayrollRoute: AppPayrollRoute,
   AppPermissionsRoute: AppPermissionsRoute,
+  AppPreformProductionRoute: AppPreformProductionRoute,
   AppProcurementRoute: AppProcurementRoute,
   AppProductionRoute: AppProductionRoute,
   AppProductionReportRoute: AppProductionReportRoute,

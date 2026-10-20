@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useAutofillUserName } from "@/lib/use-current-user";
 import { RequireAccess } from "@/components/layout/require-access";
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -1486,6 +1487,7 @@ function RequestPurchaseDialog({ material, onDone }: { material: Material; onDon
     Math.max(Number(material.reorder_level ?? 0) * 2 - Number(material.current_stock), 0),
   );
   const [requestedByName, setRequestedByName] = useState("");
+  useAutofillUserName(requestedByName, setRequestedByName);
   const [remarks, setRemarks] = useState("");
 
   const submit = useMutation({

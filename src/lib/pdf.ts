@@ -88,7 +88,7 @@ async function loadLogo(
 // when there's no custom one (or it fails to load). Returns null only if even
 // the fallback can't be decoded, so a genuinely broken logo never blocks a
 // print.
-async function resolveLogo(
+export async function resolveLogo(
   url: string | null | undefined,
 ): Promise<{ dataUrl: string; width: number; height: number } | null> {
   if (url) {
@@ -144,10 +144,14 @@ export async function generateInvoicePdf(data: InvoiceData, action: PdfAction = 
       y += h + 6;
     }
 
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(12);
-    doc.text(data.company.name || "Company", center, y, { align: "center" });
-    y += 14;
+    // The logo already names the company; the name line is only a fallback
+    // for when there is no logo to show.
+    if (!logo) {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(12);
+      doc.text(data.company.name || "Company", center, y, { align: "center" });
+      y += 14;
+    }
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
     if (data.company.address) {

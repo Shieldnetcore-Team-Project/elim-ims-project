@@ -86,7 +86,8 @@ export type ModuleKey =
   | "permissions"
   | "auth-users"
   | "marketer-accounts"
-  | "distributor-accounts";
+  | "distributor-accounts"
+  | "preform-production";
 
 export const ALL_MODULES: ModuleKey[] = [
   "dashboard",
@@ -123,6 +124,7 @@ export const ALL_MODULES: ModuleKey[] = [
   "auth-users",
   "marketer-accounts",
   "distributor-accounts",
+  "preform-production",
 ];
 
 export const MODULE_LABELS: Record<ModuleKey, string> = {
@@ -160,6 +162,7 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   "auth-users": "Admin: Auth Users",
   "marketer-accounts": "Marketer & Retail Accounts",
   "distributor-accounts": "Distributor Accounts",
+  "preform-production": "Preform Production (Blowing)",
 };
 
 // Level 2 of the dual-operation model: independent, non-hierarchical action

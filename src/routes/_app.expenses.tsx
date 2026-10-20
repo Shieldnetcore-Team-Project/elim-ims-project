@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useAutofillUserName } from "@/lib/use-current-user";
 import { RequireAccess } from "@/components/layout/require-access";
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -66,7 +67,9 @@ import { ApprovalHistory } from "@/components/workflow/approval-history";
 import { startOfDay, startOfWeek, startOfMonth, startOfYear, format } from "date-fns";
 
 export const Route = createFileRoute("/_app/expenses")({
-  head: () => ({ meta: [{ title: "Expenses — Elim Table Water" }, { name: "robots", content: "noindex" }] }),
+  head: () => ({
+    meta: [{ title: "Expenses — Elim Table Water" }, { name: "robots", content: "noindex" }],
+  }),
   component: () => (
     <RequireAccess module="expenses">
       <ExpensesPage />
@@ -600,10 +603,7 @@ function ExpensesPage() {
                 onChange={(e) => setQ(e.target.value)}
               />
             </div>
-            <Select
-              value={typeFilter}
-              onValueChange={(v) => setTypeFilter(v as LedgerTypeFilter)}
-            >
+            <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as LedgerTypeFilter)}>
               <SelectTrigger className="h-9 w-[190px]">
                 <SelectValue />
               </SelectTrigger>
@@ -1186,11 +1186,13 @@ function EntryForm({
         : 0,
   );
   const [requestedBy, setRequestedBy] = useState(editingExpense?.requested_by_name ?? "");
+  useAutofillUserName(requestedBy, setRequestedBy);
   const [remarks, setRemarks] = useState(editingExpense?.remarks ?? "");
 
   // Cash-in fields
   const [payerPayee, setPayerPayee] = useState(editingCashIn?.payer_payee ?? "");
   const [recordedBy, setRecordedBy] = useState(editingCashIn?.recorded_by_name ?? currentUserName);
+  useAutofillUserName(recordedBy, setRecordedBy);
 
   const save = useMutation({
     mutationFn: async () => {
