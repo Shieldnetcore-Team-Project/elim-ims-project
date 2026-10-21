@@ -26,6 +26,7 @@ import { Badge } from "@/components/ui/badge";
 import { money } from "@/lib/format";
 import { useRealtimeInvalidate } from "@/lib/realtime";
 import { AlarmClock, CircleDollarSign, Clock, Search, Wallet } from "lucide-react";
+import { ReportActions } from "@/components/shared/report-actions";
 
 // Credit sales: every approved sale that wasn't fully paid becomes a debt
 // (approve_sale). This lists them with their terms -- due date from the
@@ -184,6 +185,41 @@ function CreditSalesPage() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <ReportActions
+              size="sm"
+              title="Credit sales"
+              fileName={`credit-sales-${statusFilter}`}
+              columns={[
+                { key: "invoice", label: "Invoice" },
+                { key: "customer", label: "Customer" },
+                { key: "marketer", label: "Marketer" },
+                { key: "amount", label: "Amount" },
+                { key: "credit", label: "Credit date" },
+                { key: "due", label: "Due date" },
+                { key: "limit", label: "Credit limit" },
+                { key: "paid", label: "Paid" },
+                { key: "outstanding", label: "Outstanding" },
+                { key: "recovered", label: "Recovery date" },
+                { key: "status", label: "Status" },
+              ]}
+              rows={filtered.map((r) => ({
+                invoice: r.sales?.invoice_number ?? "Adjustment",
+                customer: r.customers?.name ?? "Walk-in",
+                marketer: r.sales_reps?.full_name ?? "",
+                amount: money(Number(r.total_amount)),
+                credit: fmtDate(r.sales?.sale_date ?? r.created_at),
+                due: fmtDate(r.due_date),
+                limit:
+                  r.customers?.credit_limit == null
+                    ? "No limit"
+                    : money(Number(r.customers.credit_limit)),
+                paid: money(Number(r.amount_paid)),
+                outstanding: money(Number(r.outstanding)),
+                recovered: fmtDate(r.paid_at),
+                status: STATUS[statusOf(r)].label,
+              }))}
+              subtitle={[`Status: ${statusFilter}`, ...(q.trim() ? [`Search: ${q.trim()}`] : [])]}
+            />
             <div className="relative">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input

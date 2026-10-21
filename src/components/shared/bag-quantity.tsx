@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { MoneyInput } from "@/components/ui/money-input";
 import { money, num } from "@/lib/format";
-import { formatBags, splitBags } from "@/lib/preform-units";
+import { formatBags, formatGrams, formatWeight, splitBags } from "@/lib/preform-units";
 
 // Materials delivered in bags but counted in pieces (PET preforms of every
 // size) have raw_materials.pieces_per_bag set. The Store receives them in
@@ -268,6 +268,91 @@ export function BagSizeSetup({
           value={value ?? ""}
           onChange={(e) =>
             setValue(e.target.value === "" ? null : Math.max(0, Math.floor(Number(e.target.value))))
+          }
+        />
+        <Button type="button" disabled={!value || save.isPending} onClick={() => save.mutate()}>
+          {save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          Save
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// A preform's weight (raw_materials.grams_per_piece), shown wherever the
+// preform is picked, with the total weight of the pieces being entered. When
+// no weight is set yet and the user may set it (canSet), it is entered here
+// once; later changes are made on the preform's setup with a reason.
+export function PreformGrams({
+  materialId,
+  materialName,
+  grams,
+  pieces,
+  canSet,
+  onSaved,
+}: {
+  materialId: string;
+  materialName: string;
+  grams: number | null | undefined;
+  pieces?: number;
+  canSet?: boolean;
+  onSaved?: (grams: number) => void;
+}) {
+  const [value, setValue] = useState<number | null>(null);
+  const save = useMutation({
+    mutationFn: async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- RPC newer than the generated types
+      const { error } = await (supabase as any).rpc("set_material_grams", {
+        p_material: materialId,
+        p_grams: value,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success(`${materialName}: ${formatGrams(value)} per preform`);
+      onSaved?.(value ?? 0);
+    },
+    onError: (e: Error) =>
+      toast.error(
+        e.message.includes("Insufficient")
+          ? "Ask the Store to set the grams for this preform"
+          : e.message,
+      ),
+  });
+
+  if (grams && grams > 0) {
+    const total = pieces && pieces > 0 ? formatWeight(pieces, grams) : null;
+    return (
+      <p className="text-xs text-muted-foreground">
+        Weight: <span className="font-medium text-foreground">{formatGrams(grams)}</span> per
+        preform
+        {total && (
+          <>
+            {" "}
+            · {num(pieces ?? 0)} pcs ≈ <span className="font-medium text-foreground">{total}</span>
+          </>
+        )}
+      </p>
+    );
+  }
+  if (!canSet)
+    return <p className="text-xs text-muted-foreground">No weight (grams) set for this preform.</p>;
+  return (
+    <div className="rounded-lg border p-3">
+      <p className="text-sm font-medium">How many grams is one {materialName}?</p>
+      <p className="text-xs text-muted-foreground">
+        Set once; it comes along wherever this preform is picked. Stock stays in pieces.
+      </p>
+      <div className="mt-2 flex gap-2">
+        <Input
+          type="number"
+          inputMode="decimal"
+          min={0}
+          step="0.1"
+          placeholder="e.g. 18"
+          value={value ?? ""}
+          onChange={(e) =>
+            setValue(e.target.value === "" ? null : Math.max(0, Number(e.target.value)))
           }
         />
         <Button type="button" disabled={!value || save.isPending} onClick={() => save.mutate()}>

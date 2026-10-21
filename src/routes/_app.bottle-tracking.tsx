@@ -38,6 +38,7 @@ import { num } from "@/lib/format";
 import { useRealtimeInvalidate } from "@/lib/realtime";
 import { toast } from "sonner";
 import { ArrowLeftRight, Plus, Search } from "lucide-react";
+import { ReportActions } from "@/components/shared/report-actions";
 
 // Returnable containers (bottles, crates, dispensers): where every one is.
 // Sales, dispatches to marketers and returns move them automatically; this
@@ -403,8 +404,31 @@ function BottleTrackingPage() {
 
       {typeList.length > 0 && (
         <Card className="rounded-2xl">
-          <CardHeader>
+          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
             <CardTitle>Recent movements</CardTitle>
+            <ReportActions
+              size="sm"
+              title="Container movements"
+              fileName="container-movements"
+              columns={[
+                { key: "date", label: "Date" },
+                { key: "what", label: "What" },
+                { key: "container", label: "Container" },
+                { key: "from", label: "From" },
+                { key: "to", label: "To" },
+                { key: "qty", label: "Qty" },
+                { key: "ref", label: "Ref / notes" },
+              ]}
+              rows={(movements.data ?? []).map((m) => ({
+                date: new Date(m.created_at).toLocaleString(),
+                what: SOURCE_LABELS[m.source] ?? m.source,
+                container: typeName(m.container_type_id),
+                from: holderName(m.from_type, m.from_id),
+                to: holderName(m.to_type, m.to_id),
+                qty: num(Number(m.quantity)),
+                ref: [m.reference, m.notes].filter(Boolean).join(" — "),
+              }))}
+            />
           </CardHeader>
           <CardContent className="overflow-x-auto">
             <Table>

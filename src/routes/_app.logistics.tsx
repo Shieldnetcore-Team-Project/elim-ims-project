@@ -39,9 +39,12 @@ import { toast } from "sonner";
 import { Truck, Plus, UserRound, PackageCheck, Pencil, Trash2 } from "lucide-react";
 import { requestDelete } from "@/lib/request-delete";
 import { RequestDeleteDialog } from "@/components/shared/request-delete-dialog";
+import { ReportActions } from "@/components/shared/report-actions";
 
 export const Route = createFileRoute("/_app/logistics")({
-  head: () => ({ meta: [{ title: "Logistics — Elim Table Water" }, { name: "robots", content: "noindex" }] }),
+  head: () => ({
+    meta: [{ title: "Logistics — Elim Table Water" }, { name: "robots", content: "noindex" }],
+  }),
   component: () => (
     <RequireAccess module="logistics">
       <LogisticsPage />
@@ -360,13 +363,35 @@ function LogisticsPage() {
         </TabsList>
 
         <TabsContent value="deliveries" className="space-y-4 pt-4">
-          {write && (
-            <div className="flex justify-end">
+          <div className="flex flex-wrap justify-end gap-2">
+            <ReportActions
+              title="Deliveries"
+              fileName="deliveries"
+              columns={[
+                { key: "number", label: "Delivery #" },
+                { key: "destination", label: "Destination" },
+                { key: "vehicle", label: "Vehicle" },
+                { key: "driver", label: "Driver" },
+                { key: "route", label: "Route" },
+                { key: "scheduled", label: "Scheduled" },
+                { key: "status", label: "Status" },
+              ]}
+              rows={(deliveries.data ?? []).map((d) => ({
+                number: d.delivery_number,
+                destination: d.destination ?? "",
+                vehicle: d.vehicles?.plate_number ?? "",
+                driver: d.drivers?.full_name ?? "",
+                route: d.delivery_routes?.name ?? "",
+                scheduled: new Date(d.scheduled_date).toLocaleDateString(),
+                status: d.status.replace("_", " "),
+              }))}
+            />
+            {write && (
               <Button onClick={() => setDeliveryOpen(true)}>
                 <Plus className="mr-2 h-4 w-4" /> Schedule Delivery
               </Button>
-            </div>
-          )}
+            )}
+          </div>
           <Card className="rounded-2xl">
             <CardContent className="overflow-x-auto pt-6">
               <Table>

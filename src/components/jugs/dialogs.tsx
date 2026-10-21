@@ -29,9 +29,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { useQuery } from "@tanstack/react-query";
 import { CountInput, fmtDateTime } from "@/components/preform/shared";
-import { rpc, useUserNames } from "@/components/preform/api";
+import { db, rpc, useUserNames } from "@/components/preform/api";
 import { formatDay } from "@/lib/jug-accountability";
+import { localDay } from "@/lib/production-shift";
 import { money, num } from "@/lib/format";
 import {
   ROLE_LABEL,
@@ -158,6 +160,169 @@ export function RecordReturnDialog({
           >
             {save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Record return
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ------------------------------------------------- receive unsold dispensers
+// Filled dispenser jugs a marketer brings back unsold. Posted through the
+// existing marketer return (create_rep_return): off the marketer's stock,
+// back into Warehouse finished goods, the marketer credited, and the jugs
+// moved marketer -> Warehouse on the container ledger (counted as Received).
+export function ReceiveUnsoldDialog({
+  factoryId,
+  marketers,
+  onClose,
+}: {
+  factoryId: string;
+  marketers: Named[];
+  onClose: () => void;
+}) {
+  const [repId, setRepId] = useState("");
+  const [qty, setQty] = useState<Record<string, number | null>>({});
+  const [notes, setNotes] = useState("");
+  const links = useProductLinks(factoryId);
+  // Filled dispenser products only; an "Empty jug" product is not a dispenser.
+  const dispenserIds = useMemo(
+    () =>
+      new Set(
+        (links.data?.links ?? []).filter((l) => l.jug_role !== "empty").map((l) => l.product_id),
+      ),
+    [links.data],
+  );
+  const productName = useMemo(
+    () => Object.fromEntries((links.data?.products ?? []).map((p) => [p.id, p.name])),
+    [links.data],
+  );
+  const stock = useQuery({
+    queryKey: ["jug", "rep-stock", repId],
+    enabled: !!repId,
+    queryFn: async () => {
+      const { data, error } = await db
+        .from("rep_stock")
+        .select("product_id,quantity")
+        .eq("sales_rep_id", repId)
+        .gt("quantity", 0);
+      if (error) throw error;
+      return ((data ?? []) as { product_id: string; quantity: number }[]).map((r) => ({
+        product_id: r.product_id,
+        quantity: Number(r.quantity),
+      }));
+    },
+  });
+  const held = (stock.data ?? []).filter((s) => dispenserIds.has(s.product_id));
+  const items = held
+    .map((s) => ({ product_id: s.product_id, quantity_returned: qty[s.product_id] ?? 0 }))
+    .filter((i) => i.quantity_returned > 0);
+  const over = held.some((s) => (qty[s.product_id] ?? 0) > s.quantity);
+  const total = items.reduce((s, i) => s + i.quantity_returned, 0);
+
+  const save = useJugAction(
+    () =>
+      rpc<{ return_number: string }>("create_rep_return", {
+        payload: {
+          factory_id: factoryId,
+          sales_rep_id: repId,
+          return_date: localDay(),
+          notes: notes || undefined,
+          items,
+        },
+      }),
+    (r) =>
+      `${(r as { return_number: string }).return_number}: ${num(total)} unsold dispenser(s) received into the Warehouse`,
+  );
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Receive unsold dispensers</DialogTitle>
+          <DialogDescription>
+            Filled dispenser jugs a marketer brings back unsold. They come off the marketer&apos;s
+            stock, go back into Warehouse finished goods, and the jugs count as Received.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3">
+          <Field label="Marketer / outlet">
+            <Select
+              value={repId}
+              onValueChange={(v) => {
+                setRepId(v);
+                setQty({});
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Choose" />
+              </SelectTrigger>
+              <SelectContent>
+                {marketers.map((m) => (
+                  <SelectItem key={m.id} value={m.id}>
+                    {m.code ? `${m.code} · ` : ""}
+                    {m.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+          {repId && (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Product</TableHead>
+                  <TableHead className="text-right">Holding</TableHead>
+                  <TableHead className="w-28 text-right">Returned</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {held.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={3} className="py-6 text-center text-muted-foreground">
+                      {stock.isLoading || links.isLoading
+                        ? "Loading…"
+                        : "This marketer holds no dispenser stock."}
+                    </TableCell>
+                  </TableRow>
+                )}
+                {held.map((s) => {
+                  const v = qty[s.product_id] ?? null;
+                  return (
+                    <TableRow key={s.product_id}>
+                      <TableCell>{productName[s.product_id] ?? "—"}</TableCell>
+                      <TableCell className="text-right">{num(s.quantity)}</TableCell>
+                      <TableCell className="text-right">
+                        <CountInput
+                          className="ml-auto w-24 text-right"
+                          value={v}
+                          onChange={(x) => setQty((q) => ({ ...q, [s.product_id]: x }))}
+                          placeholder="0"
+                        />
+                        {(v ?? 0) > s.quantity && (
+                          <div className="text-[11px] text-destructive">More than held</div>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+          <Field label="Notes (optional)">
+            <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
+          </Field>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            disabled={!repId || items.length === 0 || over || save.isPending}
+            onClick={() => save.mutate(undefined, { onSuccess: onClose })}
+          >
+            {save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Receive {total > 0 ? num(total) : ""}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -19,6 +19,8 @@ export type LinkedSupplier = {
   active: boolean;
   // This supplier's own bag size for the preform; null = the specification's.
   pieces_per_bag: number | null;
+  // This supplier's grams per preform; null = the preform's.
+  grams_per_piece: number | null;
 };
 
 export type PreformRow = {
@@ -28,6 +30,8 @@ export type PreformRow = {
   specification: string | null;
   unit: string;
   pieces_per_bag: number | null;
+  // Weight of one preform (20261021090000_preform_grams.sql); null = not set.
+  grams_per_piece: number | null;
   current_stock: number;
   current_value: number;
   avg_unit_cost: number;
@@ -189,13 +193,49 @@ export function usePreformOverview(factoryId: string | undefined, since?: string
     queryKey: ["pinv", "overview", factoryId, since ?? null],
     enabled: !!factoryId,
     queryFn: async () => {
-      const rows = await rpc<PreformRow[]>("preform_inventory_overview", {
-        p_factory: factoryId,
-        p_since: since ?? null,
-      });
+      // The overview predates grams per preform; read them (the preform's and
+      // each supplier's) alongside it.
+      const [rows, grams, supplierGrams] = await Promise.all([
+        rpc<PreformRow[]>("preform_inventory_overview", {
+          p_factory: factoryId,
+          p_since: since ?? null,
+        }),
+        db
+          .from("raw_materials")
+          .select("id,grams_per_piece")
+          .eq("factory_id", factoryId)
+          .eq("is_preform", true)
+          .then(({ data, error }: { data: unknown; error: Error | null }) => {
+            if (error) throw error;
+            return Object.fromEntries(
+              ((data ?? []) as { id: string; grams_per_piece: unknown }[]).map((g) => [
+                g.id,
+                nn(g.grams_per_piece),
+              ]),
+            ) as Record<string, number | null>;
+          }),
+        db
+          .from("material_suppliers")
+          .select("material_id,supplier_id,grams_per_piece")
+          .eq("factory_id", factoryId)
+          .not("grams_per_piece", "is", null)
+          .then(({ data, error }: { data: unknown; error: Error | null }) => {
+            if (error) throw error;
+            return Object.fromEntries(
+              (
+                (data ?? []) as {
+                  material_id: string;
+                  supplier_id: string;
+                  grams_per_piece: unknown;
+                }[]
+              ).map((g) => [`${g.material_id}:${g.supplier_id}`, nn(g.grams_per_piece)]),
+            ) as Record<string, number | null>;
+          }),
+      ]);
       return (rows ?? []).map((r) => ({
         ...r,
         pieces_per_bag: nn(r.pieces_per_bag),
+        grams_per_piece: grams[r.id] ?? null,
         current_stock: n(r.current_stock),
         current_value: n(r.current_value),
         avg_unit_cost: n(r.avg_unit_cost),
@@ -206,7 +246,10 @@ export function usePreformOverview(factoryId: string | undefined, since?: string
         awaiting_ack_qty: n(r.awaiting_ack_qty),
         production_held_qty: n(r.production_held_qty),
         issued_since_qty: n(r.issued_since_qty),
-        suppliers: r.suppliers ?? [],
+        suppliers: (r.suppliers ?? []).map((s) => ({
+          ...s,
+          grams_per_piece: supplierGrams[`${r.id}:${s.id}`] ?? null,
+        })),
       }));
     },
   });

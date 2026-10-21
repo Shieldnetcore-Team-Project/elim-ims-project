@@ -40,9 +40,12 @@ import { money, num } from "@/lib/format";
 import { toast } from "sonner";
 import { requestDelete } from "@/lib/request-delete";
 import { RequestDeleteDialog } from "@/components/shared/request-delete-dialog";
+import { ReportActions } from "@/components/shared/report-actions";
 
 export const Route = createFileRoute("/_app/suppliers")({
-  head: () => ({ meta: [{ title: "Suppliers — Elim Table Water" }, { name: "robots", content: "noindex" }] }),
+  head: () => ({
+    meta: [{ title: "Suppliers — Elim Table Water" }, { name: "robots", content: "noindex" }],
+  }),
   component: () => (
     <RequireAccess module="suppliers">
       <SuppliersPage />
@@ -191,6 +194,30 @@ function SuppliersPage() {
       <Card className="rounded-2xl">
         <CardHeader className="flex-row items-center justify-between gap-3">
           <CardTitle>All Suppliers</CardTitle>
+          <ReportActions
+            size="sm"
+            title="Suppliers"
+            fileName="suppliers"
+            columns={[
+              { key: "name", label: "Name" },
+              { key: "category", label: "Category" },
+              { key: "contact", label: "Contact Person" },
+              { key: "phone", label: "Phone" },
+              { key: "materials", label: "Materials Supplied" },
+              { key: "status", label: "Status" },
+              { key: "balance", label: "Outstanding Balance" },
+            ]}
+            rows={(list.data ?? []).map((s) => ({
+              name: s.name,
+              category: s.category ?? "",
+              contact: s.contact_person ?? "",
+              phone: s.phone ?? "",
+              materials: s.materials_supplied ?? "",
+              status: s.status,
+              balance: money(Number(s.outstanding_balance)),
+            }))}
+            subtitle={q.trim() ? [`Search: ${q.trim()}`] : []}
+          />
           <div className="relative w-full max-w-xs">
             <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input

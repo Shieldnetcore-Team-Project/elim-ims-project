@@ -15,7 +15,10 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { money } from "@/lib/format";
+import { generateReportPdf } from "@/lib/pdf";
+import { useFactoryId, useFactorySettings } from "@/lib/use-factory";
 import {
+  Printer,
   Receipt,
   HandCoins,
   Wallet,
@@ -30,7 +33,9 @@ import {
 } from "lucide-react";
 
 export const Route = createFileRoute("/_app/approvals")({
-  head: () => ({ meta: [{ title: "Approvals — Elim Table Water" }, { name: "robots", content: "noindex" }] }),
+  head: () => ({
+    meta: [{ title: "Approvals — Elim Table Water" }, { name: "robots", content: "noindex" }],
+  }),
   component: () => (
     <RequireAccess module="approvals">
       <ApprovalsPage />
@@ -59,17 +64,52 @@ function QueueCard({
   rows: { key: string; cells: React.ReactNode[] }[];
   empty: string;
 }) {
+  const settings = useFactorySettings(useFactoryId().data);
+  // Every pending item in the queue (not just the 6 shown); cells that are
+  // not plain text (badges etc.) print as blank.
+  const width = Math.max(1, ...rows.map((r) => r.cells.length));
+  const printQueue = () =>
+    generateReportPdf(
+      `Pending approval — ${title}`,
+      [
+        { key: "sn", label: "S/N" },
+        ...Array.from({ length: width }, (_, i) => ({ key: `c${i}`, label: `Detail ${i + 1}` })),
+      ],
+      rows.map((r, n) => ({
+        sn: n + 1,
+        ...Object.fromEntries(
+          r.cells.map((c, i) => [
+            `c${i}`,
+            typeof c === "string" || typeof c === "number" ? String(c) : "",
+          ]),
+        ),
+      })),
+      "print",
+      { name: settings.data?.company_name, logo_url: settings.data?.logo_url },
+      [`${rows.length} item(s) awaiting approval`],
+    );
   return (
     <Card className="rounded-2xl">
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle className="flex items-center gap-2">
           <Icon className="h-4 w-4" /> {title} <Badge variant="secondary">{rows.length}</Badge>
         </CardTitle>
-        <Button asChild variant="ghost" size="sm" className="gap-1">
-          <Link to={to}>
-            Review <ArrowRight className="h-3.5 w-3.5" />
-          </Link>
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            title={`Print ${title} queue`}
+            disabled={rows.length === 0}
+            onClick={printQueue}
+          >
+            <Printer className="h-4 w-4" />
+          </Button>
+          <Button asChild variant="ghost" size="sm" className="gap-1">
+            <Link to={to}>
+              Review <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </Button>
+        </div>
       </CardHeader>
       <CardContent>
         {rows.length === 0 ? (
@@ -561,11 +601,7 @@ function ApprovalsPage() {
               empty="No production releases awaiting the Warehouse."
               rows={(productionBatches.data ?? []).map((r: any) => ({
                 key: r.id,
-                cells: [
-                  r.release_number,
-                  r.products?.name ?? "—",
-                  `${r.quantity} ${r.unit ?? ""}`,
-                ],
+                cells: [r.release_number, r.products?.name ?? "—", `${r.quantity} ${r.unit ?? ""}`],
               }))}
             />
           )}

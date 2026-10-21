@@ -41,7 +41,7 @@ import { useFactoryId } from "@/lib/use-factory";
 import { usePermissions } from "@/lib/permissions";
 import { addDays, localDay } from "@/lib/production-shift";
 import { money, num } from "@/lib/format";
-import { splitBags } from "@/lib/preform-units";
+import { formatGrams, splitBags } from "@/lib/preform-units";
 import { exportCsv } from "@/lib/export";
 import { fmtDateTime } from "@/components/preform/shared";
 import { IssueDialog } from "@/components/preform/issues";
@@ -215,6 +215,7 @@ function PreformInventoryPage() {
         { key: "code", label: "Material code" },
         { key: "name", label: "Preform" },
         { key: "spec", label: "Specification" },
+        { key: "grams", label: "Grams per preform" },
         { key: "suppliers", label: "Suppliers" },
         { key: "pieces", label: "Stock (pieces)" },
         { key: "per_bag", label: "Pieces per bag" },
@@ -231,6 +232,7 @@ function PreformInventoryPage() {
           code: r.material_code,
           name: r.name,
           spec: r.specification,
+          grams: r.grams_per_piece ?? "n/a",
           suppliers: r.suppliers.map((x) => x.name).join("; "),
           pieces: r.current_stock,
           per_bag: r.pieces_per_bag ?? "n/a",
@@ -466,6 +468,11 @@ function PreformInventoryPage() {
                           >
                             {r.name}
                           </Link>
+                          {r.grams_per_piece && (
+                            <Badge variant="secondary" className="ml-1.5 px-1.5 text-[10px]">
+                              {formatGrams(r.grams_per_piece)}
+                            </Badge>
+                          )}
                           {r.specification && (
                             <div className="text-[11px] text-muted-foreground">
                               {r.specification}

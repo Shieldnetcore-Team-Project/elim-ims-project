@@ -51,6 +51,7 @@ import { money } from "@/lib/format";
 import { requestDelete } from "@/lib/request-delete";
 import { RequestDeleteDialog } from "@/components/shared/request-delete-dialog";
 import { toast } from "sonner";
+import { ReportActions } from "@/components/shared/report-actions";
 import {
   Plus,
   Search,
@@ -336,6 +337,28 @@ function EmployeesPage() {
       <Card className="rounded-2xl">
         <CardHeader className="flex-row items-center justify-between gap-3">
           <CardTitle>All Employees</CardTitle>
+          <ReportActions
+            size="sm"
+            title="Employees"
+            fileName="employees"
+            columns={[
+              { key: "code", label: "Code" },
+              { key: "name", label: "Name" },
+              { key: "department", label: "Department" },
+              { key: "position", label: "Position" },
+              { key: "gross", label: "Gross Salary" },
+              { key: "status", label: "Status" },
+            ]}
+            rows={(list.data ?? []).map((e) => ({
+              code: e.employee_code ?? "",
+              name: e.full_name,
+              department: e.department ?? "",
+              position: e.position ?? "",
+              gross: money(grossSalary(e)),
+              status: e.status ?? "active",
+            }))}
+            subtitle={q.trim() ? [`Search: ${q.trim()}`] : []}
+          />
           <div className="relative w-full max-w-xs">
             <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input

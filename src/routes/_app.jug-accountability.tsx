@@ -67,9 +67,11 @@ import {
 import {
   AdjustDialog,
   JugSetupPanel,
+  ReceiveUnsoldDialog,
   RecordReturnDialog,
   RowDetailDialog,
 } from "@/components/jugs/dialogs";
+import { WarehouseJugsToQc } from "@/components/qc/jug-handover";
 
 const TABS = ["report", "jugs", "returns", "setup"] as const;
 type Tab = (typeof TABS)[number];
@@ -204,10 +206,13 @@ function JugAccountabilityPage() {
   const canAdjust = can("distribution", "create");
   const canWriteOff = can("distribution", "approve");
   const canSetup = can("distribution", "approve");
+  // Same permission create_rep_return checks on the server.
+  const canReceiveUnsold = can("distribution", "submit");
 
   const [dialog, setDialog] = useState<
     | { kind: "return"; repId?: string; typeId?: string }
     | { kind: "adjust" }
+    | { kind: "unsold" }
     | { kind: "row"; row: ReportRow }
     | null
   >(null);
@@ -604,6 +609,9 @@ function JugAccountabilityPage() {
             marketers={marketers.data ?? []}
             productNames={productNames}
             typeNames={Object.fromEntries((types.data ?? []).map((t) => [t.id, t.name]))}
+            onReceiveUnsold={
+              canReceiveUnsold && !noJugs ? () => setDialog({ kind: "unsold" }) : undefined
+            }
           />
         </TabsContent>
 
@@ -644,6 +652,13 @@ function JugAccountabilityPage() {
           onClose={() => setDialog(null)}
         />
       )}
+      {dialog?.kind === "unsold" && (
+        <ReceiveUnsoldDialog
+          factoryId={factoryId}
+          marketers={(marketers.data ?? []).filter((m) => m.active)}
+          onClose={() => setDialog(null)}
+        />
+      )}
       {dialog?.kind === "row" && (
         <RowDetailDialog
           factoryId={factoryId}
@@ -665,6 +680,7 @@ function JugsPanel({
   marketers,
   productNames,
   typeNames,
+  onReceiveUnsold,
 }: {
   factoryId: string;
   from: string;
@@ -674,6 +690,7 @@ function JugsPanel({
   marketers: { id: string; name: string; code?: string | null }[];
   productNames: Record<string, string>;
   typeNames: Record<string, string>;
+  onReceiveUnsold?: () => void;
 }) {
   const movements = useJugMovements(factoryId, from, to);
   const [q, setQ] = useState("");
@@ -707,6 +724,14 @@ function JugsPanel({
 
   return (
     <div className="space-y-4">
+      {onReceiveUnsold && (
+        <div className="flex justify-end">
+          <Button className="gap-2" onClick={onReceiveUnsold}>
+            <Undo2 className="h-4 w-4" /> Receive unsold dispensers
+          </Button>
+        </div>
+      )}
+      <WarehouseJugsToQc factoryId={factoryId} />
       {overview.length === 0 && (
         <Card className="rounded-2xl">
           <CardContent className="py-8 text-center text-sm text-muted-foreground">

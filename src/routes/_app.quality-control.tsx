@@ -49,6 +49,8 @@ import { ClipboardCheck, Search } from "lucide-react";
 import { useRealtimeInvalidate } from "@/lib/realtime";
 import { useCurrentUserName } from "@/lib/use-current-user";
 import { AddMaterialDialog, MaterialCombobox } from "@/components/shared/material-picker";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { QcJugRegister } from "@/components/qc/jug-register";
 
 // Quality Control: supplier deliveries are inspected here before they can
 // reach the Store. Each inspection is a goods receipt (the existing
@@ -207,141 +209,152 @@ function QualityControlPage() {
         )}
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Card className="rounded-2xl">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Awaiting store
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="text-2xl font-semibold">{awaiting.length}</CardContent>
-        </Card>
-        <Card className="rounded-2xl">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Passed &amp; in store
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="text-2xl font-semibold">{num(passedTotal)}</CardContent>
-        </Card>
-        <Card className="rounded-2xl">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Failed inspection
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="text-2xl font-semibold">{num(failedTotal)}</CardContent>
-        </Card>
-      </div>
-
-      <Card className="rounded-2xl">
-        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
-          <CardTitle>Inspections</CardTitle>
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                className="w-56 pl-8"
-                placeholder="Search material, supplier, ref…"
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-              />
-            </div>
-            <Select value={status} onValueChange={setStatus}>
-              <SelectTrigger className="w-48">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All statuses</SelectItem>
-                {Object.entries(STATUS_LABELS).map(([k, v]) => (
-                  <SelectItem key={k} value={k}>
-                    {v.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+      <Tabs defaultValue="inspections">
+        <TabsList>
+          <TabsTrigger value="inspections">Inspections</TabsTrigger>
+          <TabsTrigger value="jugs">Old &amp; New Jugs</TabsTrigger>
+        </TabsList>
+        <TabsContent value="jugs">
+          {factoryId && <QcJugRegister factoryId={factoryId} />}
+        </TabsContent>
+        <TabsContent value="inspections" className="space-y-6">
+          <div className="grid gap-4 sm:grid-cols-3">
+            <Card className="rounded-2xl">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                  Awaiting store
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="text-2xl font-semibold">{awaiting.length}</CardContent>
+            </Card>
+            <Card className="rounded-2xl">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                  Passed &amp; in store
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="text-2xl font-semibold">{num(passedTotal)}</CardContent>
+            </Card>
+            <Card className="rounded-2xl">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                  Failed inspection
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="text-2xl font-semibold">{num(failedTotal)}</CardContent>
+            </Card>
           </div>
-        </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Ref</TableHead>
-                <TableHead>Date</TableHead>
-                <TableHead>Material</TableHead>
-                <TableHead>Supplier</TableHead>
-                <TableHead className="text-right">Delivered</TableHead>
-                <TableHead className="text-right">Passed</TableHead>
-                <TableHead className="text-right">Failed</TableHead>
-                <TableHead>Notes</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={10} className="py-8 text-center text-muted-foreground">
-                    {inspections.isLoading ? "Loading…" : "No inspections yet."}
-                  </TableCell>
-                </TableRow>
-              )}
-              {rows.map((r) => {
-                const s = STATUS_LABELS[r.status] ?? {
-                  label: r.status,
-                  variant: "outline" as const,
-                };
-                return (
-                  <TableRow key={r.id}>
-                    <TableCell className="font-mono text-xs">
-                      {r.receipt_number}
-                      {r.delivery_reference && (
-                        <div className="text-muted-foreground">{r.delivery_reference}</div>
-                      )}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap">
-                      {new Date(r.submitted_at).toLocaleDateString()}
-                    </TableCell>
-                    <TableCell>{r.raw_materials?.name ?? "—"}</TableCell>
-                    <TableCell>{r.suppliers?.name ?? "—"}</TableCell>
-                    <TableCell className="text-right">
-                      {num(r.quantity)} {r.unit}
-                    </TableCell>
-                    <TableCell className="text-right">{num(r.accepted_quantity)}</TableCell>
-                    <TableCell className="text-right">
-                      {Number(r.damaged_quantity) > 0 ? (
-                        <span className="text-destructive">{num(r.damaged_quantity)}</span>
-                      ) : (
-                        "0"
-                      )}
-                    </TableCell>
-                    <TableCell className="max-w-xs text-xs text-muted-foreground">
-                      {r.status === "rejected" && r.reject_reason
-                        ? `Store: ${r.reject_reason}`
-                        : (r.remarks ?? "")}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={s.variant}>{s.label}</Badge>
-                    </TableCell>
-                    <TableCell>
-                      {cancel && r.status === "pending_confirmation" && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          disabled={cancelInspection.isPending}
-                          onClick={() => cancelInspection.mutate(r.id)}
-                        >
-                          Cancel
-                        </Button>
-                      )}
-                    </TableCell>
+
+          <Card className="rounded-2xl">
+            <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
+              <CardTitle>Inspections</CardTitle>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    className="w-56 pl-8"
+                    placeholder="Search material, supplier, ref…"
+                    value={q}
+                    onChange={(e) => setQ(e.target.value)}
+                  />
+                </div>
+                <Select value={status} onValueChange={setStatus}>
+                  <SelectTrigger className="w-48">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All statuses</SelectItem>
+                    {Object.entries(STATUS_LABELS).map(([k, v]) => (
+                      <SelectItem key={k} value={k}>
+                        {v.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </CardHeader>
+            <CardContent className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Ref</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Material</TableHead>
+                    <TableHead>Supplier</TableHead>
+                    <TableHead className="text-right">Delivered</TableHead>
+                    <TableHead className="text-right">Passed</TableHead>
+                    <TableHead className="text-right">Failed</TableHead>
+                    <TableHead>Notes</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead />
                   </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+                </TableHeader>
+                <TableBody>
+                  {rows.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={10} className="py-8 text-center text-muted-foreground">
+                        {inspections.isLoading ? "Loading…" : "No inspections yet."}
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {rows.map((r) => {
+                    const s = STATUS_LABELS[r.status] ?? {
+                      label: r.status,
+                      variant: "outline" as const,
+                    };
+                    return (
+                      <TableRow key={r.id}>
+                        <TableCell className="font-mono text-xs">
+                          {r.receipt_number}
+                          {r.delivery_reference && (
+                            <div className="text-muted-foreground">{r.delivery_reference}</div>
+                          )}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">
+                          {new Date(r.submitted_at).toLocaleDateString()}
+                        </TableCell>
+                        <TableCell>{r.raw_materials?.name ?? "—"}</TableCell>
+                        <TableCell>{r.suppliers?.name ?? "—"}</TableCell>
+                        <TableCell className="text-right">
+                          {num(r.quantity)} {r.unit}
+                        </TableCell>
+                        <TableCell className="text-right">{num(r.accepted_quantity)}</TableCell>
+                        <TableCell className="text-right">
+                          {Number(r.damaged_quantity) > 0 ? (
+                            <span className="text-destructive">{num(r.damaged_quantity)}</span>
+                          ) : (
+                            "0"
+                          )}
+                        </TableCell>
+                        <TableCell className="max-w-xs text-xs text-muted-foreground">
+                          {r.status === "rejected" && r.reject_reason
+                            ? `Store: ${r.reject_reason}`
+                            : (r.remarks ?? "")}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={s.variant}>{s.label}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          {cancel && r.status === "pending_confirmation" && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              disabled={cancelInspection.isPending}
+                              onClick={() => cancelInspection.mutate(r.id)}
+                            >
+                              Cancel
+                            </Button>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

@@ -41,9 +41,12 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { Plus, Trash2, Ban, Check, X, Pencil, Droplet } from "lucide-react";
+import { ReportActions } from "@/components/shared/report-actions";
 
 export const Route = createFileRoute("/_app/costing")({
-  head: () => ({ meta: [{ title: "Costing — Elim Table Water" }, { name: "robots", content: "noindex" }] }),
+  head: () => ({
+    meta: [{ title: "Costing — Elim Table Water" }, { name: "robots", content: "noindex" }],
+  }),
   component: () => (
     <RequireAccess module="costing">
       <CostingPage />
@@ -303,8 +306,35 @@ function CostingPage() {
       </div>
 
       <Card className="rounded-2xl">
-        <CardHeader>
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
           <CardTitle>Costing history</CardTitle>
+          <ReportActions
+            size="sm"
+            title="Costing history"
+            fileName="costing-history"
+            columns={[
+              { key: "sheet", label: "Sheet #" },
+              { key: "product", label: "Product" },
+              { key: "yield", label: "Yield" },
+              { key: "material", label: "Material" },
+              { key: "unit", label: "Unit Cost" },
+              { key: "pack", label: "Cost/Pack" },
+              { key: "applied", label: "Applied" },
+              { key: "status", label: "Status" },
+              { key: "date", label: "Date" },
+            ]}
+            rows={(sheets.data ?? []).map((s) => ({
+              sheet: s.sheet_number,
+              product: s.products?.name ?? "",
+              yield: `${num(s.yield_quantity)} ${s.products?.unit ?? ""}`,
+              material: money(s.material_cost),
+              unit: money(s.unit_cost),
+              pack: money(s.cost_per_pack),
+              applied: s.is_applied ? "Yes" : "No",
+              status: WORKFLOW_STATUS_LABELS[s.status],
+              date: new Date(s.created_at).toLocaleDateString(),
+            }))}
+          />
         </CardHeader>
         <CardContent className="overflow-x-auto">
           <Table>

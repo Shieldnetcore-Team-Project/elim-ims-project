@@ -11,14 +11,17 @@
 --     the customer account ledger, production and production corrections,
 --     store requests, stock movements, goods receipts, purchase orders,
 --     expenses, payroll and staff loans, deliveries, bottle movements, damage
---     and return records, approvals, notifications and the audit history.
+--     and return records, jug returns and QC jug batches, preform records,
+--     marketer day-closes and follow-ups, approvals, notifications and the
+--     audit history.
 --
 --   * DELETES every set-up list: products (and their packaging units,
---     containers and commission rates), raw materials, suppliers, employees
+--     containers and commission rates), raw materials, employees
 --     (and their documents), marketers, vehicles, drivers, delivery routes and
 --     container types.
 --
---   * KEEPS user accounts and their roles, roles and permissions, approval
+--   * KEEPS the suppliers (with the details and balances as entered), user
+--     accounts and their roles, roles and permissions, approval
 --     workflow set-up, company settings, factories, units of measure,
 --     production types, and the product / material / expense category lists
 --     (the app has no screen to re-create product categories, and Costing
@@ -47,24 +50,26 @@ DECLARE
   cleared text[] := ARRAY[
     -- records
     'audit_logs','cash_transactions','chairmans_gift_items','chairmans_gifts','container_movements','costing_price_options','costing_sheet_items',
-    'costing_sheets','customers','customer_account_adjustments','customer_account_transactions',
+    'costing_sheets','customers','customer_followups','customer_marketer_history','customer_account_adjustments','customer_account_transactions',
     'damage_records','debt_payments','debts','delete_requests','deliveries','expenses','goods_receipts',
-    'inventory_movements','notifications','outlet_day_reconciliations','payments_received',
+    'inventory_movements','jug_returns','marketer_day_closes','notifications','outlet_day_reconciliations','payments_received',
     'bottle_transfers','department_stock','department_stock_movements','preform_exceptions','preform_holdings',
-    'preform_issues','preform_movements','preform_qc_inspections','preform_shift_records','preform_stockings','payroll','posting_assessments','product_price_history',
+    'preform_issues','preform_movements','preform_qc_inspections','preform_shift_records','preform_stockings','payroll','posting_assessments','qc_jug_batches','product_price_history',
     'production','production_corrections','production_releases','production_request_items','production_requests','purchase_orders',
     'raw_material_cost_history','raw_material_movements','rep_remittances','rep_return_items',
     'rep_returns','rep_stock','rep_stock_movements','role_grant_requests','sale_items','sales',
     'sales_returns','staff_deductions','staff_loan_repayments','staff_loans',
     'stock_adjustment_requests','stock_dispatch_items','stock_dispatches','workflow_approval_history',
     -- set-up lists
-    'container_types','delivery_routes','drivers','employee_documents','employees',
+    'container_types','delivery_routes','drivers','employee_documents','employees','material_suppliers',
     'product_commission_rates','product_containers','product_units','products','raw_materials',
-    'sales_reps','suppliers','vehicles'];
+    'sales_reps','vehicles'];
   kept text[] := ARRAY[
     'factories','settings','profiles','user_roles','roles','role_permissions','permission_overrides',
     'workflow_configs','workflow_transitions','units_of_measure','production_types',
-    'product_categories','material_categories','expense_categories'];
+    'product_categories','material_categories','expense_categories',
+    -- kept at go-live by the factory's decision (2026-10-21)
+    'suppliers'];
   t text;
   n bigint;
   bad text;
@@ -145,6 +150,7 @@ $seed$;
 -- What is left: users, settings and categories, plus the standard raw
 -- materials (zero stock), retail outlet, marketers and distributors.
 SELECT 'RESET COMPLETE' AS result,
+       (SELECT COUNT(*) FROM public.suppliers)          AS suppliers_kept,
        (SELECT COUNT(*) FROM public.profiles)           AS user_accounts_kept,
        (SELECT COUNT(*) FROM public.roles)              AS roles_kept,
        (SELECT COUNT(*) FROM public.product_categories) AS product_categories_kept,

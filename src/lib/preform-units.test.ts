@@ -1,7 +1,15 @@
 // Run: npx tsx --test src/lib/preform-units.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { formatBags, formatPieces, splitBags, toPieces } from "./preform-units";
+import {
+  formatBags,
+  formatGrams,
+  formatPieces,
+  formatWeight,
+  piecesFromWeight,
+  splitBags,
+  toPieces,
+} from "./preform-units";
 
 test("40 bags of 1,152 = 46,080 pieces, and back", () => {
   assert.equal(toPieces(40, 0, 1152), 46080);
@@ -27,4 +35,20 @@ test("singular and plural", () => {
 
 test("negative balances (variances) split symmetrically", () => {
   assert.deepEqual(splitBags(-1153, 1152), { bags: -1, pieces: -1 });
+});
+
+test("grams per preform and total weight", () => {
+  assert.equal(formatGrams(18), "18 g");
+  assert.equal(formatGrams(18.5), "18.5 g");
+  assert.equal(formatGrams(null), null);
+  assert.equal(formatWeight(1152, 18), "20.74 kg");
+  assert.equal(formatWeight(10, 18), "180 g");
+  assert.equal(formatWeight(100, null), null);
+});
+
+test("pieces from a delivery weight", () => {
+  assert.equal(piecesFromWeight(1_800_000, 18), 100000);
+  assert.equal(piecesFromWeight(20_740, 18), 1152);
+  assert.equal(piecesFromWeight(1000, null), 0);
+  assert.equal(piecesFromWeight(null, 18), 0);
 });

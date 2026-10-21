@@ -89,8 +89,34 @@ export function MaterialCombobox({
         <Command shouldFilter={false}>
           <CommandInput placeholder="Search material…" value={search} onValueChange={setSearch} />
           <CommandList>
+            {/* Always on top, so a material that isn't listed can be added
+                without having to type its name first. Hidden only when the
+                typed name is already on the list (select that instead). */}
+            {onAddNew && !exactMatch && (
+              <>
+                <CommandGroup>
+                  <CommandItem
+                    value="__add_new__"
+                    onSelect={() => {
+                      onAddNew(search.trim());
+                      setSearch("");
+                      setOpen(false);
+                    }}
+                    className="font-medium text-primary"
+                  >
+                    <Plus className="h-4 w-4" />
+                    <span>
+                      {search.trim()
+                        ? `Add "${search.trim()}" as a new material`
+                        : "Add new material…"}
+                    </span>
+                  </CommandItem>
+                </CommandGroup>
+                <CommandSeparator />
+              </>
+            )}
             {filtered.length === 0 && <CommandEmpty>No material found.</CommandEmpty>}
-            <CommandGroup>
+            <CommandGroup heading={`All materials (${filtered.length})`}>
               {filtered.map((m) => (
                 <CommandItem
                   key={m.id}
@@ -106,23 +132,6 @@ export function MaterialCombobox({
                 </CommandItem>
               ))}
             </CommandGroup>
-            {onAddNew && search.trim() && !exactMatch && (
-              <>
-                <CommandSeparator />
-                <CommandGroup>
-                  <CommandItem
-                    value={`__add__${search}`}
-                    onSelect={() => {
-                      onAddNew(search.trim());
-                      setOpen(false);
-                    }}
-                  >
-                    <Plus className="h-4 w-4" />
-                    <span>Add "{search.trim()}" as a new material</span>
-                  </CommandItem>
-                </CommandGroup>
-              </>
-            )}
           </CommandList>
         </Command>
       </PopoverContent>

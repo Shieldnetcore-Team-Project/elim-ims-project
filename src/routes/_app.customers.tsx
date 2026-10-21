@@ -55,6 +55,7 @@ import { money } from "@/lib/format";
 import { toast } from "sonner";
 import { KPI } from "@/lib/dashboard-kit";
 import { AccountAdjustmentsCard } from "@/components/customers/account-adjustments";
+import { ReportActions } from "@/components/shared/report-actions";
 
 export const Route = createFileRoute("/_app/customers")({
   head: () => ({
@@ -255,6 +256,38 @@ function CustomersPage() {
       <Card className="rounded-2xl">
         <CardHeader className="flex-row items-center justify-between gap-3">
           <CardTitle>{showRemoved ? "Removed customers" : "All Customers"}</CardTitle>
+          <ReportActions
+            size="sm"
+            title={showRemoved ? "Removed customers" : "Customers"}
+            fileName={showRemoved ? "customers-removed" : "customers"}
+            columns={[
+              { key: "name", label: "Name" },
+              { key: "phone", label: "Phone" },
+              ...(repList.length > 0 ? [{ key: "marketer", label: "Marketer" }] : []),
+              { key: "sales", label: "Transactions" },
+              { key: "goods", label: "Total Goods" },
+              ...(canSeeMoney
+                ? [
+                    { key: "paid", label: "Paid" },
+                    { key: "balance", label: "Balance" },
+                    { key: "limit", label: "Credit limit" },
+                    { key: "terms", label: "Terms" },
+                  ]
+                : []),
+            ]}
+            rows={(list.data ?? []).map((c) => ({
+              name: c.name,
+              phone: c.phone ?? "",
+              marketer: repName(c.sales_rep_id) ?? "",
+              sales: c.total_transactions,
+              goods: money(Number(c.total_purchases)),
+              paid: money(Number(c.total_purchases) - Number(c.outstanding_balance)),
+              balance: money(Number(c.outstanding_balance)),
+              limit: c.credit_limit == null ? "No limit" : money(Number(c.credit_limit)),
+              terms: `${c.credit_days} days`,
+            }))}
+            subtitle={q.trim() ? [`Search: ${q.trim()}`] : []}
+          />
           <div className="flex w-full max-w-md items-center gap-2">
             <Button
               size="sm"

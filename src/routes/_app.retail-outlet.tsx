@@ -31,6 +31,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Boxes, PackageOpen, ShoppingCart, Store, TrendingUp } from "lucide-react";
+import { ReportActions } from "@/components/shared/report-actions";
 
 export const Route = createFileRoute("/_app/retail-outlet")({
   head: () => ({
@@ -359,8 +360,30 @@ function RetailOutletPage() {
       </div>
 
       <Card className="rounded-2xl">
-        <CardHeader>
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
           <CardTitle>Stock by product</CardTitle>
+          <ReportActions
+            size="sm"
+            title="Retail outlet — stock by product"
+            fileName="retail-outlet-stock"
+            columns={[
+              { key: "product", label: "Product" },
+              { key: "received", label: "Received" },
+              { key: "sold", label: "Sold" },
+              { key: "returned", label: "Returned / damaged" },
+              { key: "remaining", label: "Remaining now" },
+              { key: "value", label: "Value" },
+            ]}
+            rows={byProduct.map((r) => ({
+              product: r.name,
+              received: num(r.received),
+              sold: num(r.sold),
+              returned: num(r.returned),
+              remaining: `${num(r.remaining)} ${r.unit}`,
+              value: money(r.remaining * r.price),
+            }))}
+            subtitle={[`Period: ${periodLabel}`]}
+          />
         </CardHeader>
         <CardContent className="overflow-x-auto">
           <Table>
@@ -473,8 +496,28 @@ function RetailOutletPage() {
         </Card>
 
         <Card className="rounded-2xl">
-          <CardHeader>
+          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
             <CardTitle>Outlet sales</CardTitle>
+            <ReportActions
+              size="sm"
+              title="Retail outlet — sales"
+              fileName="retail-outlet-sales"
+              columns={[
+                { key: "invoice", label: "Invoice" },
+                { key: "date", label: "Date" },
+                { key: "customer", label: "Customer" },
+                { key: "total", label: "Total" },
+                { key: "status", label: "Status" },
+              ]}
+              rows={(sales.data ?? []).map((s) => ({
+                invoice: s.invoice_number,
+                date: new Date(s.sale_date).toLocaleDateString(),
+                customer: s.customer_name ?? "Walk-in",
+                total: money(s.grand_total),
+                status: s.status.replace(/_/g, " "),
+              }))}
+              subtitle={[`Period: ${periodLabel}`]}
+            />
           </CardHeader>
           <CardContent className="overflow-x-auto">
             <Table>

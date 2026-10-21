@@ -28,7 +28,7 @@ import { db, rpc } from "@/components/preform/api";
 import { useCurrentUserName } from "@/lib/use-current-user";
 import { localDay } from "@/lib/production-shift";
 import { money, num } from "@/lib/format";
-import { formatPieces } from "@/lib/preform-units";
+import { formatGrams, formatPieces, formatWeight, piecesFromWeight } from "@/lib/preform-units";
 import { ADJUSTMENT_REASONS } from "@/lib/adjustment-reasons";
 import {
   DISPOSITION_LABEL,
@@ -89,10 +89,15 @@ export function PreformFormDialog({
   const [remarks, setRemarks] = useState(editing?.remarks ?? "");
   const perBagChanged =
     !!editing?.pieces_per_bag && perBag != null && perBag !== editing.pieces_per_bag;
+  // Weight of one preform; it comes along wherever this preform is picked.
+  const [grams, setGrams] = useState<number | null>(editing?.grams_per_piece ?? null);
+  const [gramsReason, setGramsReason] = useState("");
+  const gramsChanged =
+    !!editing?.grams_per_piece && grams != null && grams !== editing.grams_per_piece;
 
   const save = usePinvAction(
-    () =>
-      rpc<{ material_code: string }>("save_preform_material", {
+    async () => {
+      const r = await rpc<{ id: string; material_code: string }>("save_preform_material", {
         payload: {
           id: editing?.id ?? null,
           factory_id: factoryId,
@@ -109,7 +114,15 @@ export function PreformFormDialog({
           active,
           remarks,
         },
-      }),
+      });
+      if (grams != null && grams > 0 && grams !== (editing?.grams_per_piece ?? null))
+        await rpc("set_material_grams", {
+          p_material: r.id,
+          p_grams: grams,
+          p_reason: gramsReason.trim() || null,
+        });
+      return r;
+    },
     (r) =>
       editing
         ? "Preform updated"
@@ -193,6 +206,31 @@ export function PreformFormDialog({
               <Input value={perBagReason} onChange={(e) => setPerBagReason(e.target.value)} />
             </Field>
           )}
+          <Field
+            label="Weight per preform (grams)"
+            hint={
+              grams && perBag
+                ? `1 bag of ${num(perBag)} ≈ ${formatWeight(perBag, grams)}. Shown wherever this preform is picked.`
+                : "Shown wherever this preform is picked; stock stays in pieces."
+            }
+          >
+            <Input
+              type="number"
+              inputMode="decimal"
+              min={0}
+              step="0.1"
+              value={grams ?? ""}
+              placeholder="e.g. 18"
+              onChange={(e) =>
+                setGrams(e.target.value === "" ? null : Math.max(0, Number(e.target.value)))
+              }
+            />
+          </Field>
+          {gramsChanged && (
+            <Field label="Reason for changing the grams">
+              <Input value={gramsReason} onChange={(e) => setGramsReason(e.target.value)} />
+            </Field>
+          )}
           <Field label="Storage location">
             <Input
               value={location}
@@ -232,7 +270,10 @@ export function PreformFormDialog({
           </Button>
           <Button
             disabled={
-              !name.trim() || save.isPending || (perBagChanged && perBagReason.trim().length < 5)
+              !name.trim() ||
+              save.isPending ||
+              (perBagChanged && perBagReason.trim().length < 5) ||
+              (gramsChanged && gramsReason.trim().length < 5)
             }
             onClick={() => save.mutate(undefined, { onSuccess: onClose })}
           >
@@ -250,6 +291,88 @@ export function PreformFormDialog({
 // (submit_goods_receipt): QC / receiving records what came and what was
 // rejected; a different person in the Store confirms it, and only then do
 // the accepted pieces go into stock.
+// Grams per preform for the supplier picked. Comes along when set; when this
+// supplier has none yet it is entered here (pre-filled with the preform's
+// usual weight) and saved for every later delivery from them. A change to a
+// saved weight is made on the preform's setup, with a reason.
+function SupplierGramsField({
+  materialId,
+  materialName,
+  supplierId,
+  supplierName,
+  supplierGrams,
+  defaultGrams,
+  onSaved,
+}: {
+  materialId: string;
+  materialName: string;
+  supplierId: string | null;
+  supplierName: string | null;
+  supplierGrams: number | null;
+  defaultGrams: number | null;
+  onSaved: (grams: number) => void;
+}) {
+  const [value, setValue] = useState<number | null>(defaultGrams);
+  const save = usePinvAction(
+    () =>
+      supplierId
+        ? rpc("set_preform_supplier_grams", {
+            p_material: materialId,
+            p_supplier: supplierId,
+            p_grams: value,
+          })
+        : rpc("set_material_grams", { p_material: materialId, p_grams: value }),
+    `${materialName}: ${formatGrams(value) ?? ""} per preform${supplierName ? ` from ${supplierName}` : ""}`,
+  );
+  const saved = supplierId ? supplierGrams : defaultGrams;
+
+  if (saved)
+    return (
+      <Field label="Grams per preform" className="sm:col-span-2">
+        <div className="rounded-xl border bg-muted/30 px-3 py-2 text-sm">
+          <span className="font-semibold">{formatGrams(saved)}</span>{" "}
+          <span className="text-muted-foreground">
+            per preform
+            {supplierId ? ` from ${supplierName ?? "this supplier"}` : ""}
+            {supplierId && defaultGrams && defaultGrams !== saved
+              ? ` (usual: ${formatGrams(defaultGrams)})`
+              : ""}
+          </span>
+        </div>
+      </Field>
+    );
+  return (
+    <Field
+      label={`Grams per preform${supplierName ? ` from ${supplierName}` : ""}`}
+      hint="Set once; it comes along with this preform and supplier from now on. A delivery can then be entered by weight."
+      className="sm:col-span-2"
+    >
+      <div className="flex gap-2">
+        <Input
+          type="number"
+          inputMode="decimal"
+          min={0}
+          step="0.1"
+          placeholder="e.g. 18"
+          value={value ?? ""}
+          onChange={(e) =>
+            setValue(e.target.value === "" ? null : Math.max(0, Number(e.target.value)))
+          }
+        />
+        <Button
+          type="button"
+          variant="outline"
+          disabled={!value || save.isPending}
+          onClick={() => save.mutate(undefined, { onSuccess: () => onSaved(value ?? 0) })}
+        >
+          {save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          Save grams
+        </Button>
+      </div>
+    </Field>
+  );
+}
+
 type OpenOrder = {
   id: string;
   po_number: string;
@@ -286,11 +409,21 @@ export function ReceiveDialog({
   const supplierPerBag =
     m?.suppliers.find((s) => s.id === supplierId && s.active)?.pieces_per_bag ?? null;
   const perBag = supplierPerBag ?? specPerBag;
+  // Grams per preform come along with the preform and supplier picked: the
+  // supplier's own weight, else the preform's.
+  const [savedGrams, setSavedGrams] = useState<Record<string, number>>({});
+  const gramsKey = `${materialId}:${supplierId}`;
+  const supplierGrams =
+    savedGrams[gramsKey] ?? m?.suppliers.find((s) => s.id === supplierId)?.grams_per_piece ?? null;
+  const grams = supplierGrams ?? savedGrams[`${materialId}:none`] ?? m?.grams_per_piece ?? null;
   const [orderId, setOrderId] = useState("none");
-  const [mode, setMode] = useState<"bags" | "pieces">(perBag ? "bags" : "pieces");
+  const [mode, setMode] = useState<"bags" | "pieces" | "weight">(perBag ? "bags" : "pieces");
   const [bags, setBags] = useState<number | null>(null);
   const [loose, setLoose] = useState<number | null>(null);
   const [pieces, setPieces] = useState<number | null>(null);
+  const [weight, setWeight] = useState<number | null>(null);
+  const [weightUnit, setWeightUnit] = useState<"kg" | "g">("kg");
+  const weightGrams = (weight ?? 0) * (weightUnit === "kg" ? 1000 : 1);
   const [rejected, setRejected] = useState<number | null>(null);
   const [rejectReason, setRejectReason] = useState("");
   const [disposition, setDisposition] = useState("return_to_supplier");
@@ -326,7 +459,10 @@ export function ReceiveDialog({
     ? Number(order.quantity_ordered) - Number(order.quantity_received)
     : null;
 
-  const total = receiptPieces(mode, bags, loose, pieces, perBag);
+  const total =
+    mode === "weight"
+      ? piecesFromWeight(weightGrams, grams)
+      : receiptPieces(mode, bags, loose, pieces, perBag);
   const accepted = Math.max(total - (rejected ?? 0), 0);
   const inspectorName = inspector || me.data || "";
   const needsBagSize = !!m && !perBag && mode === "bags";
@@ -351,17 +487,19 @@ export function ReceiveDialog({
     ? "Pick the preform delivered"
     : needsBagSize
       ? "Set the bag size first"
-      : total <= 0
-        ? "Enter what was delivered"
-        : (rejected ?? 0) > total
-          ? "Rejected cannot exceed delivered"
-          : (rejected ?? 0) > 0 && !rejectReason.trim()
-            ? "Give the reason for the rejection"
-            : outstanding != null && total > outstanding
-              ? `Only ${num(outstanding)} pieces are outstanding on this order`
-              : !inspectorName.trim()
-                ? "Enter who inspected the delivery"
-                : null;
+      : mode === "weight" && !grams
+        ? "Set the grams per preform first"
+        : total <= 0
+          ? "Enter what was delivered"
+          : (rejected ?? 0) > total
+            ? "Rejected cannot exceed delivered"
+            : (rejected ?? 0) > 0 && !rejectReason.trim()
+              ? "Give the reason for the rejection"
+              : outstanding != null && total > outstanding
+                ? `Only ${num(outstanding)} pieces are outstanding on this order`
+                : !inspectorName.trim()
+                  ? "Enter who inspected the delivery"
+                  : null;
 
   const submit = usePinvAction(
     () =>
@@ -373,7 +511,7 @@ export function ReceiveDialog({
           supplier_id: supplierId === "none" ? null : supplierId,
           ...(mode === "bags"
             ? { bags: bags ?? 0, loose_pieces: loose ?? 0, pieces_per_bag: perBag }
-            : { quantity: pieces ?? 0 }),
+            : { quantity: mode === "weight" ? total : (pieces ?? 0) }),
           damaged_quantity: rejected ?? 0,
           rejection_reason: rejectReason || null,
           rejected_disposition: (rejected ?? 0) > 0 ? disposition : null,
@@ -383,7 +521,13 @@ export function ReceiveDialog({
           batch_number: batch,
           delivery_date: deliveryDate,
           storage_location: location,
-          remarks: [`QC inspected by ${inspectorName.trim()}`, notes.trim()]
+          remarks: [
+            `QC inspected by ${inspectorName.trim()}`,
+            mode === "weight"
+              ? `Received by weight: ${num(weight ?? 0)} ${weightUnit} at ${formatGrams(grams)} per preform`
+              : "",
+            notes.trim(),
+          ]
             .filter(Boolean)
             .join(" — "),
         },
@@ -413,6 +557,7 @@ export function ReceiveDialog({
                   <SelectItem key={p.id} value={p.id}>
                     {p.material_code ? `${p.material_code} · ` : ""}
                     {p.name}
+                    {p.grams_per_piece ? ` · ${formatGrams(p.grams_per_piece)}` : ""}
                     {p.pieces_per_bag ? ` (${num(p.pieces_per_bag)}/bag)` : ""}
                   </SelectItem>
                 ))}
@@ -434,6 +579,18 @@ export function ReceiveDialog({
               onChange={setSupplierId}
             />
           </Field>
+          {m && (
+            <SupplierGramsField
+              key={gramsKey}
+              materialId={m.id}
+              materialName={m.name}
+              supplierId={supplierId === "none" ? null : supplierId}
+              supplierName={suppliers.data?.find((s) => s.id === supplierId)?.name ?? null}
+              supplierGrams={supplierGrams}
+              defaultGrams={m.grams_per_piece}
+              onSaved={(g) => setSavedGrams((s) => ({ ...s, [gramsKey]: g }))}
+            />
+          )}
           <Field label="Purchase order">
             <Select value={orderId} onValueChange={pickOrder}>
               <SelectTrigger>
@@ -474,7 +631,7 @@ export function ReceiveDialog({
           )}
 
           <Field label="Delivered in" className="sm:col-span-2">
-            <Select value={mode} onValueChange={(v) => setMode(v as "bags" | "pieces")}>
+            <Select value={mode} onValueChange={(v) => setMode(v as typeof mode)}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -483,10 +640,43 @@ export function ReceiveDialog({
                   Bags {perBag ? `(${num(perBag)} pieces each)` : "(set the bag size first)"}
                 </SelectItem>
                 <SelectItem value="pieces">Pieces (counted individually)</SelectItem>
+                <SelectItem value="weight" disabled={!grams}>
+                  Weight{" "}
+                  {grams
+                    ? `(pieces worked out at ${formatGrams(grams)} each)`
+                    : "(set the grams first)"}
+                </SelectItem>
               </SelectContent>
             </Select>
           </Field>
-          {mode === "bags" ? (
+          {mode === "weight" ? (
+            <>
+              <Field label="Total weight received">
+                <Input
+                  type="number"
+                  inputMode="decimal"
+                  min={0}
+                  step="0.001"
+                  value={weight ?? ""}
+                  placeholder="0"
+                  onChange={(e) =>
+                    setWeight(e.target.value === "" ? null : Math.max(0, Number(e.target.value)))
+                  }
+                />
+              </Field>
+              <Field label="Weighed in">
+                <Select value={weightUnit} onValueChange={(v) => setWeightUnit(v as "kg" | "g")}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="kg">Kilograms (kg)</SelectItem>
+                    <SelectItem value="g">Grams (g)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+            </>
+          ) : mode === "bags" ? (
             <>
               <Field label="Full bags received">
                 <CountInput value={bags} onChange={setBags} placeholder="0" />
@@ -506,6 +696,17 @@ export function ReceiveDialog({
             {mode === "bags" && perBag && (
               <div className="text-[11px] text-muted-foreground">
                 {num(bags ?? 0)} × {num(perBag)} + {num(loose ?? 0)} loose
+              </div>
+            )}
+            {mode === "weight" && grams && weightGrams > 0 && (
+              <div className="text-[11px] text-muted-foreground">
+                {formatWeight(weightGrams, 1)} ÷ {formatGrams(grams)} = {num(total)} pieces (to the
+                nearest piece)
+              </div>
+            )}
+            {mode !== "weight" && grams && total > 0 && (
+              <div className="text-[11px] text-muted-foreground">
+                {num(total)} × {formatGrams(grams)} = {formatWeight(total, grams)}
               </div>
             )}
           </div>
@@ -719,6 +920,7 @@ export function CountDialog({
                   <SelectItem key={p.id} value={p.id}>
                     {p.material_code ? `${p.material_code} · ` : ""}
                     {p.name}
+                    {p.grams_per_piece ? ` · ${formatGrams(p.grams_per_piece)}` : ""}
                   </SelectItem>
                 ))}
               </SelectContent>

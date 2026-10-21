@@ -75,6 +75,7 @@ import {
   BagSizeSetup,
   CostPerBagInput,
   PiecesInput,
+  PreformGrams,
   isPreform,
 } from "@/components/shared/bag-quantity";
 import { SupplierPicker } from "@/components/shared/supplier-picker";
@@ -112,6 +113,7 @@ type Material = {
   suppliers: { name: string } | null;
   material_categories: { name: string } | null;
   pieces_per_bag: number | null;
+  grams_per_piece: number | null;
 };
 type CostHistoryRow = {
   id: string;
@@ -254,7 +256,7 @@ function RawMaterialsPage() {
       const { data, error } = await supabase
         .from("raw_materials")
         .select(
-          "id,name,category,category_id,unit,opening_stock,current_stock,unit_cost,current_value,reorder_level,minimum_stock,active,approval_status,created_by,remarks,supplier_id,pieces_per_bag,suppliers(name),material_categories(name)",
+          "id,name,category,category_id,unit,opening_stock,current_stock,unit_cost,current_value,reorder_level,minimum_stock,active,approval_status,created_by,remarks,supplier_id,pieces_per_bag,grams_per_piece,suppliers(name),material_categories(name)",
         )
         .eq("factory_id", factoryId!)
         .order("name");
@@ -1206,8 +1208,9 @@ function AddOrReceiveMaterial({
             onAddNew={(q) => setNewName(q)}
           />
           <p className="text-xs text-muted-foreground">
-            Pick the material the supplier delivered to record the quantity received. Not in the
-            list? Type its name and choose &ldquo;Add as a new material&rdquo;.
+            Open the list and pick the material the supplier delivered to record the quantity
+            received. Not on the list? Choose &ldquo;Add new material&rdquo; at the top of the list
+            (or type its name first).
           </p>
         </div>
       </div>
@@ -1292,6 +1295,11 @@ function MaterialForm({
   const showPerBag = /preform/i.test(name) || !!editing?.pieces_per_bag || perBag > 0;
   const perBagChanged =
     !!editing?.pieces_per_bag && perBag > 0 && perBag !== Number(editing.pieces_per_bag);
+  // Weight of one preform in grams; shown wherever the preform is picked.
+  const [grams, setGrams] = useState<number>(Number(editing?.grams_per_piece ?? 0));
+  const [gramsReason, setGramsReason] = useState("");
+  const gramsChanged =
+    !!editing?.grams_per_piece && grams > 0 && grams !== Number(editing.grams_per_piece);
 
   const addCategory = useMutation({
     mutationFn: async () => {
@@ -1330,6 +1338,8 @@ function MaterialForm({
         throw new Error("Pieces per bag must be a whole number");
       if (perBagChanged && !perBagReason.trim())
         throw new Error("Give a reason for changing pieces per bag");
+      if (gramsChanged && !gramsReason.trim())
+        throw new Error("Give a reason for changing the grams per preform");
       let materialId = editing?.id ?? null;
       if (editing) {
         const { error } = await supabase.from("raw_materials").update(payload).eq("id", editing.id);
@@ -1351,6 +1361,15 @@ function MaterialForm({
           p_material: materialId,
           p_pieces_per_bag: perBag,
           p_reason: perBagReason.trim() || null,
+        });
+        if (error) throw error;
+      }
+      if (materialId && grams > 0 && grams !== Number(editing?.grams_per_piece ?? 0)) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- RPC newer than the generated types
+        const { error } = await (supabase as any).rpc("set_material_grams", {
+          p_material: materialId,
+          p_grams: grams,
+          p_reason: gramsReason.trim() || null,
         });
         if (error) throw error;
       }
@@ -1454,6 +1473,33 @@ function MaterialForm({
                 />
               </div>
             )}
+            <div>
+              <Label>Weight per preform (grams)</Label>
+              <Input
+                type="number"
+                inputMode="decimal"
+                min={0}
+                step="0.1"
+                value={grams || ""}
+                placeholder="e.g. 18"
+                onChange={(e) =>
+                  setGrams(e.target.value === "" ? 0 : Math.max(0, Number(e.target.value)))
+                }
+              />
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Comes along wherever this preform is picked.
+              </p>
+            </div>
+            {gramsChanged && (
+              <div>
+                <Label>Why are the grams changing?</Label>
+                <Input
+                  value={gramsReason}
+                  onChange={(e) => setGramsReason(e.target.value)}
+                  placeholder="e.g. new mould"
+                />
+              </div>
+            )}
           </div>
         )}
         {unitChoice === "__custom__" && (
@@ -1534,6 +1580,7 @@ function ReceiveDialog({
   // Preforms are received in bags; one with no bag size sets it here first.
   const [perBag, setPerBag] = useState<number | null>(material.pieces_per_bag);
   const needsBagSize = isPreform(material.name) && !perBag;
+  const [grams, setGrams] = useState<number | null>(material.grams_per_piece);
   const [quantity, setQuantity] = useState(0);
   const [damagedQuantity, setDamagedQuantity] = useState(0);
   const [unitCost, setUnitCost] = useState(Number(material.unit_cost));
@@ -1617,6 +1664,19 @@ function ReceiveDialog({
           <BagQty value={accepted} unit={material.unit} perBag={perBag} bagsFirst /> Only this posts
           to stock; damaged goes to the damage ledger.
         </p>
+        {(isPreform(material.name) || grams) && (
+          <PreformGrams
+            materialId={material.id}
+            materialName={material.name}
+            grams={grams}
+            pieces={accepted}
+            canSet
+            onSaved={(g) => {
+              setGrams(g);
+              qc.invalidateQueries({ queryKey: ["raw-materials-list"] });
+            }}
+          />
+        )}
         <CostPerBagInput
           unitCost={unitCost}
           onChange={setUnitCost}

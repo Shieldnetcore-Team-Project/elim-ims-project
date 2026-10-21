@@ -8,11 +8,12 @@
 --             - all records: customers, sales, payments, debts, ledger,
 --               production, requests, stock movements, goods receipts,
 --               purchase orders, expenses, payroll, deliveries, bottle
---               movements, approvals, notifications, audit history
---             - all set-up lists: products, raw materials, suppliers,
+--               movements, jug returns, QC jug batches, preform records,
+--               approvals, notifications, audit history
+--             - all set-up lists: products, raw materials,
 --               employees, marketers, vehicles, drivers, routes, containers,
---               commission rates
---   KEEP    left exactly as it is: user accounts and their roles, roles and
+--               commission rates, preform–supplier links
+--   KEEP    left exactly as it is: suppliers, user accounts and their roles, roles and
 --           permissions, approval workflow set-up, company settings,
 --           factories, units of measure, production types, and the product /
 --           material / expense category lists
@@ -24,24 +25,28 @@ WITH plan(table_name, action) AS (
   SELECT t, 'CLEAR' FROM unnest(ARRAY[
     -- records
     'audit_logs','cash_transactions','chairmans_gift_items','chairmans_gifts','container_movements','costing_price_options','costing_sheet_items',
-    'costing_sheets','customers','customer_account_adjustments','customer_account_transactions',
+    'costing_sheets','customers','customer_followups','customer_marketer_history','customer_account_adjustments','customer_account_transactions',
     'damage_records','debt_payments','debts','delete_requests','deliveries','expenses','goods_receipts',
-    'inventory_movements','notifications','payments_received','payroll','posting_assessments','product_price_history',
+    'inventory_movements','jug_returns','marketer_day_closes','notifications','outlet_day_reconciliations','payments_received',
+    'bottle_transfers','department_stock','department_stock_movements','preform_exceptions','preform_holdings',
+    'preform_issues','preform_movements','preform_qc_inspections','preform_shift_records','preform_stockings','payroll','posting_assessments','qc_jug_batches','product_price_history',
     'production','production_corrections','production_releases','production_request_items','production_requests','purchase_orders',
     'raw_material_cost_history','raw_material_movements','rep_remittances','rep_return_items',
     'rep_returns','rep_stock','rep_stock_movements','role_grant_requests','sale_items','sales',
     'sales_returns','staff_deductions','staff_loan_repayments','staff_loans',
     'stock_adjustment_requests','stock_dispatch_items','stock_dispatches','workflow_approval_history',
     -- set-up lists
-    'container_types','delivery_routes','drivers','employee_documents','employees',
+    'container_types','delivery_routes','drivers','employee_documents','employees','material_suppliers',
     'product_commission_rates','product_containers','product_units','products','raw_materials',
-    'sales_reps','suppliers','vehicles'
+    'sales_reps','vehicles'
   ]) AS t
   UNION ALL
   SELECT t, 'KEEP' FROM unnest(ARRAY[
     'factories','settings','profiles','user_roles','roles','role_permissions','permission_overrides',
     'workflow_configs','workflow_transitions','units_of_measure','production_types',
-    'product_categories','material_categories','expense_categories'
+    'product_categories','material_categories','expense_categories',
+    -- kept at go-live by the factory's decision (2026-10-21)
+    'suppliers'
   ]) AS t
 )
 SELECT

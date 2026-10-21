@@ -24,6 +24,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Search, Eye, ScrollText } from "lucide-react";
+import { ReportActions } from "@/components/shared/report-actions";
 
 // Everything that touches a customer's advance / debt account. The quick
 // filter below narrows the trail to exactly these, server-side, so it isn't
@@ -64,7 +65,9 @@ const ACTION_LABEL: Record<string, string> = {
 const actionLabel = (a: string) => ACTION_LABEL[a] ?? a.replace(/_/g, " ");
 
 export const Route = createFileRoute("/_app/audit-logs")({
-  head: () => ({ meta: [{ title: "Audit Logs — Elim Table Water" }, { name: "robots", content: "noindex" }] }),
+  head: () => ({
+    meta: [{ title: "Audit Logs — Elim Table Water" }, { name: "robots", content: "noindex" }],
+  }),
   component: () => (
     <RequireAccess module="audit-logs">
       <AuditLogsPage />
@@ -204,6 +207,31 @@ export function AuditLogsPage() {
             <ScrollText className="h-4 w-4" /> Activity ({filtered.length})
           </CardTitle>
           <div className="flex flex-wrap items-center gap-2">
+            <ReportActions
+              size="sm"
+              title="Audit log"
+              fileName={`audit-log${from ? `-${from}` : ""}${to ? `-to-${to}` : ""}`}
+              columns={[
+                { key: "time", label: "Time" },
+                { key: "user", label: "User" },
+                { key: "action", label: "Action" },
+                { key: "entity", label: "Entity" },
+                { key: "factory", label: "Factory" },
+                { key: "ip", label: "IP" },
+              ]}
+              rows={filtered.map((l) => ({
+                time: new Date(l.created_at).toLocaleString(),
+                user: l.user_id ? (profiles.data?.[l.user_id] ?? "") : "Anonymous",
+                action: actionLabel(l.action),
+                entity: `${l.entity ?? ""}${l.entity_id ? ` · ${customerNames.data?.[l.entity_id] ?? l.entity_id.slice(0, 8)}` : ""}`,
+                factory: l.factory_id ? (factories.data?.[l.factory_id] ?? "") : "",
+                ip: l.ip_address ?? "",
+              }))}
+              subtitle={[
+                `Period: ${from || "start"} – ${to || "today"}`,
+                ...(actionFilter !== "all" ? [`Action: ${actionLabel(actionFilter)}`] : []),
+              ]}
+            />
             <Select value={scope} onValueChange={(v) => setScope(v as "all" | "customers")}>
               <SelectTrigger className="h-9 w-[190px]">
                 <SelectValue />

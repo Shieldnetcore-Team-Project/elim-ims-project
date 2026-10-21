@@ -31,10 +31,14 @@ import { money } from "@/lib/format";
 import { COUNTED_STATUSES, fetchAll } from "@/lib/metrics";
 import { TrendingDown, Banknote, CreditCard, Landmark, Coins } from "lucide-react";
 import { startOfWeek, startOfMonth, startOfYear, format } from "date-fns";
+import { ReportActions } from "@/components/shared/report-actions";
 
 export const Route = createFileRoute("/_app/cash-ledger/")({
   head: () => ({
-    meta: [{ title: "Cash Flow Overview — Elim Table Water" }, { name: "robots", content: "noindex" }],
+    meta: [
+      { title: "Cash Flow Overview — Elim Table Water" },
+      { name: "robots", content: "noindex" },
+    ],
   }),
   component: () => (
     <RequireAccess module="cash-flow">
@@ -431,8 +435,32 @@ function CashFlowOverview() {
       </Card>
 
       <Card className="rounded-2xl">
-        <CardHeader>
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
           <CardTitle>Breakdown</CardTitle>
+          <ReportActions
+            size="sm"
+            title="Cash ledger — breakdown"
+            fileName={`cash-ledger-${from}-to-${to}`}
+            columns={[
+              { key: "category", label: "Category" },
+              { key: "direction", label: "Direction" },
+              { key: "amount", label: "Amount" },
+              { key: "pct", label: "% of total" },
+            ]}
+            rows={categories.map((c) => {
+              const base = c.direction === "in" ? totalIn : totalOut;
+              return {
+                category: c.label,
+                direction: c.direction === "in" ? "Inflow" : "Outflow",
+                amount: money(c.amount, currency),
+                pct: `${(base > 0 ? (c.amount / base) * 100 : 0).toFixed(1)}%`,
+              };
+            })}
+            subtitle={[
+              `Period: ${from} – ${to}`,
+              `Total in: ${money(totalIn, currency)} · Total out: ${money(totalOut, currency)}`,
+            ]}
+          />
         </CardHeader>
         <CardContent className="overflow-x-auto">
           <Table>
