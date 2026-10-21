@@ -29,7 +29,7 @@ import {
   MARKETER_SHEET_COLUMNS,
   fetchMarketerSheets,
   marketerSheetRows,
-  sheetPeriodLabel,
+  sheetMonth,
   type MarketerSheet,
 } from "@/lib/marketer-sales-sheet";
 import { useMarketerDirectory } from "@/lib/marketer-accounts";
@@ -53,7 +53,6 @@ import {
   startOfDay,
   endOfDay,
   subDays,
-  differenceInCalendarDays,
   subWeeks,
   subMonths,
   startOfWeek,
@@ -136,6 +135,21 @@ const RANGES: { key: RangeKey; label: string }[] = [
   { key: "last_month", label: "Last Month" },
   { key: "yearly", label: "This Year" },
   { key: "custom", label: "Custom Date" },
+];
+
+const MONTHS = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
 ];
 
 function rangeBounds(
@@ -647,6 +661,12 @@ function ReportsPage() {
   const [prodProduct, setProdProduct] = useState("all");
   const [prodBatch, setProdBatch] = useState("");
   const [marketerId, setMarketerId] = useState("all");
+  // Marketer sheet: a whole month, last month by default (the one to print).
+  const [sheetYm, setSheetYm] = useState(() => {
+    const m = subMonths(new Date(), 1);
+    return { year: m.getFullYear(), month: m.getMonth() };
+  });
+  const sheetDays = useMemo(() => sheetMonth(sheetYm.year, sheetYm.month), [sheetYm]);
   const directory = useMarketerDirectory(reportKey === "marketer_sheet" ? factoryId : undefined);
   const marketers = useMemo(
     () => (directory.data ?? []).filter((m) => m.kind === "rep"),
@@ -657,14 +677,6 @@ function ReportsPage() {
     () => rangeBounds(range, customFrom, customTo),
     [range, customFrom, customTo],
   );
-  const sheetDays = useMemo(() => {
-    if (!bounds.start) return null;
-    const from = format(new Date(bounds.start), "yyyy-MM-dd");
-    const to = format(bounds.end ? new Date(bounds.end) : new Date(), "yyyy-MM-dd");
-    return from <= to && differenceInCalendarDays(new Date(to), new Date(from)) <= 366
-      ? { from, to }
-      : null;
-  }, [bounds.start, bounds.end]);
   const productionFilters: ProductionReportFilters = useMemo(
     () => ({
       productionTypeId: prodType === "all" ? undefined : prodType,
@@ -712,13 +724,11 @@ function ReportsPage() {
       bounds.start,
       bounds.end,
       reportKey === "production" ? productionFilters : null,
-      reportKey === "marketer_sheet" ? [marketerId, marketers.length] : null,
+      reportKey === "marketer_sheet" ? [marketerId, marketers.length, sheetDays] : null,
     ],
     enabled: !!factoryId && (reportKey !== "marketer_sheet" || directory.isSuccess),
     queryFn: async () => {
       if (reportKey === "marketer_sheet") {
-        // The sheet is day by day, so it needs a start; the RPC allows a year at most.
-        if (!sheetDays) throw new Error("Pick a period (up to a year) for the marketer sheet.");
         const reps =
           marketerId === "all" ? marketers : marketers.filter((m) => m.id === marketerId);
         const sheets = await fetchMarketerSheets(
@@ -756,12 +766,12 @@ function ReportsPage() {
     const name = `${reportLabel}-${format(new Date(), "yyyy-MM-dd")}`;
     const itemsSold = report.data?.itemsSold;
     const sheets = report.data?.sheets;
-    if (sheets && sheetDays && (type === "pdf" || type === "print"))
+    if (sheets && (type === "pdf" || type === "print"))
       generateMarketerSheetPdf(
         {
           company: { name: settings.data?.company_name, logo_url: settings.data?.logo_url },
           sheets,
-          periodLabel: sheetPeriodLabel(sheetDays.from, sheetDays.to),
+          periodLabel: sheetDays.label,
           printedBy: me.data,
         },
         type === "pdf" ? "download" : "print",
@@ -822,7 +832,7 @@ function ReportsPage() {
               </SelectContent>
             </Select>
           </div>
-          {isSnapshot ? (
+          {reportKey === "marketer_sheet" ? null : isSnapshot ? (
             <p className="max-w-[240px] pb-2 text-xs text-muted-foreground">
               Current balances as of now — a date range doesn't apply.
             </p>
@@ -862,7 +872,62 @@ function ReportsPage() {
               </Select>
             </div>
           )}
-          {!isSnapshot && range === "custom" && (
+          {reportKey === "marketer_sheet" && (
+            <>
+              <div>
+                <Label className="mb-1 block text-xs">Month</Label>
+                <Select
+                  value={String(sheetYm.month)}
+                  onValueChange={(v) => setSheetYm((s) => ({ ...s, month: Number(v) }))}
+                >
+                  <SelectTrigger className="w-[140px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MONTHS.map((label, i) => (
+                      <SelectItem
+                        key={label}
+                        value={String(i)}
+                        disabled={
+                          sheetYm.year === new Date().getFullYear() && i > new Date().getMonth()
+                        }
+                      >
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="mb-1 block text-xs">Year</Label>
+                <Select
+                  value={String(sheetYm.year)}
+                  onValueChange={(v) => {
+                    const year = Number(v);
+                    const now = new Date();
+                    // Coming back to this year from an earlier one: don't land on a future month.
+                    const month =
+                      year === now.getFullYear()
+                        ? Math.min(sheetYm.month, now.getMonth())
+                        : sheetYm.month;
+                    setSheetYm({ year, month });
+                  }}
+                >
+                  <SelectTrigger className="w-[100px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map((y) => (
+                      <SelectItem key={y} value={String(y)}>
+                        {y}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </>
+          )}
+          {reportKey !== "marketer_sheet" && !isSnapshot && range === "custom" && (
             <>
               <div>
                 <Label className="mb-1 block text-xs">From</Label>

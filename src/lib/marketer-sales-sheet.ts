@@ -61,18 +61,17 @@ export function sheetTotals(rows: SheetRow[]): Omit<SheetRow, "day"> {
 
 export const sheetDayLabel = (day: string) => format(parseISO(day), "EEEE, MMMM dd, yyyy");
 
-// "SEP, 2026" for a single calendar month, else "1 Sep 2026 – 15 Oct 2026".
-export function sheetPeriodLabel(from: string, to: string) {
-  const f = parseISO(from),
-    t = parseISO(to);
-  const wholeMonth =
-    format(f, "yyyy-MM") === format(t, "yyyy-MM") &&
-    f.getDate() === 1 &&
-    format(t, "yyyy-MM-dd") ===
-      format(new Date(t.getFullYear(), t.getMonth() + 1, 0), "yyyy-MM-dd");
-  return wholeMonth
-    ? format(f, "MMM, yyyy").toUpperCase()
-    : `${format(f, "d MMM yyyy")} – ${format(t, "d MMM yyyy")}`;
+// The sheet covers one calendar month: "SEP, 2026" in the heading, and its days
+// run to the month end — or to today, for the month still in progress.
+export function sheetMonth(year: number, month: number, today = new Date()) {
+  const first = new Date(year, month, 1);
+  const last = new Date(year, month + 1, 0);
+  const to = last > today ? today : last;
+  return {
+    from: format(first, "yyyy-MM-dd"),
+    to: format(to < first ? first : to, "yyyy-MM-dd"),
+    label: format(first, "MMM, yyyy").toUpperCase(),
+  };
 }
 
 export const MARKETER_SHEET_COLUMNS: ReportColumn[] = [

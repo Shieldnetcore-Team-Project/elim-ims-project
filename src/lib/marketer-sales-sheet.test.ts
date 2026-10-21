@@ -5,7 +5,7 @@ import {
   buildSheetRows,
   marketerSheetRows,
   sheetDayLabel,
-  sheetPeriodLabel,
+  sheetMonth,
   sheetTotals,
 } from "./marketer-sales-sheet";
 
@@ -58,8 +58,18 @@ test("null money figures (no finance rights) read as zero", () => {
 
 test("labels match the sheet", () => {
   assert.equal(sheetDayLabel("2026-09-01"), "Tuesday, September 01, 2026");
-  assert.equal(sheetPeriodLabel("2026-09-01", "2026-09-30"), "SEP, 2026");
-  assert.equal(sheetPeriodLabel("2026-09-01", "2026-09-19"), "1 Sep 2026 – 19 Sep 2026");
+  const today = new Date(2026, 9, 22);
+  assert.deepEqual(sheetMonth(2026, 8, today), {
+    from: "2026-09-01",
+    to: "2026-09-30",
+    label: "SEP, 2026",
+  });
+  // The month in progress runs to today.
+  assert.deepEqual(sheetMonth(2026, 9, today), {
+    from: "2026-10-01",
+    to: "2026-10-22",
+    label: "OCT, 2026",
+  });
 });
 
 test("flat rows: days then a TOTAL line per marketer", () => {
