@@ -56,6 +56,7 @@ import { toast } from "sonner";
 import { generateProductionRequestPdf, generatePurchaseOrderPdf } from "@/lib/pdf";
 import { logAudit } from "@/lib/audit";
 import { usePendingAttention } from "@/lib/pending-attention";
+import { PAGES, usePageAccess } from "@/lib/page-access";
 import { QuickAddMaterialDialog, ADD_NEW_ITEM } from "@/components/shared/quick-add-item";
 
 export const Route = createFileRoute("/_app/procurement")({
@@ -135,8 +136,16 @@ const poStatusBadge = (s: string): "default" | "secondary" | "outline" | "destru
 function ProcurementPage() {
   const { data: factoryId } = useFactoryId();
   const { canView, canSubmit, canApprove, canReject, canCreate, canCancel } = usePermissions();
-  const viewRequests = canView("production-requests");
-  const viewOrders = canView("purchase-orders");
+  // Each tab is a page of its own (Admin Panel → Users → Page access).
+  const { canPage } = usePageAccess();
+  const tabPage = (module: "production-requests" | "purchase-orders") =>
+    PAGES.find((pg) => pg.entry === "Procurement" && pg.module === module);
+  const viewRequests =
+    canView("production-requests") &&
+    canPage(tabPage("production-requests") ?? { id: "", module: "production-requests" });
+  const viewOrders =
+    canView("purchase-orders") &&
+    canPage(tabPage("purchase-orders") ?? { id: "", module: "purchase-orders" });
   const pendingPurchaseRequests =
     usePendingAttention().items.find((i) => i.key === "purchase-requests")?.count ?? 0;
 

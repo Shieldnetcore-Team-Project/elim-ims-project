@@ -12,6 +12,7 @@ import { DeleteRequestsTab } from "@/components/admin/delete-requests-tab";
 import { DeletedSalesTab } from "@/components/admin/deleted-sales-tab";
 import { AuditLogsPage } from "./_app.audit-logs";
 import { usePermissions, type ModuleKey } from "@/lib/permissions";
+import { PAGES, usePageAccess } from "@/lib/page-access";
 
 export const Route = createFileRoute("/_app/admin")({
   head: () => ({
@@ -57,8 +58,19 @@ const TABS: { value: string; label: string; module: ModuleKey; render: () => Rea
 ];
 
 function AdminPanelPage() {
-  const { can, loading } = usePermissions();
-  const visible = TABS.filter((t) => can(t.module));
+  const { loading: permsLoading } = usePermissions();
+  const { canPage, loading: pagesLoading } = usePageAccess();
+  const loading = permsLoading || pagesLoading;
+  // Each Admin Panel tab is a page of its own (Users → Page access); the
+  // menu lists them by module.
+  const visible = TABS.filter((t) =>
+    canPage(
+      PAGES.find((p) => p.entry === "Admin Panel" && p.module === t.module) ?? {
+        id: `Admin Panel › ${t.module}`,
+        module: t.module,
+      },
+    ),
+  );
   const [tab, setTab] = useState<string | null>(null);
   const current = visible.find((t) => t.value === tab)?.value ?? visible[0]?.value;
 

@@ -66,7 +66,7 @@ DECLARE
     'sales_reps','vehicles'];
   kept text[] := ARRAY[
     'factories','settings','profiles','user_roles','roles','role_permissions','permission_overrides',
-    'workflow_configs','workflow_transitions','units_of_measure','production_types',
+    'workflow_configs','workflow_transitions','units_of_measure','production_types','user_page_access',
     'product_categories','material_categories','expense_categories',
     -- kept at go-live by the factory's decision (2026-10-21)
     'suppliers'];

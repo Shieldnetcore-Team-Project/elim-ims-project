@@ -12,8 +12,8 @@ import {
   SidebarFooter,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { usePermissions } from "@/lib/permissions";
-import { activeNavTitle, entryUrlFor, itemUrls, nav } from "@/lib/nav";
+import { activeNavTitle, itemUrls, nav } from "@/lib/nav";
+import { entryUrl, usePageAccess } from "@/lib/page-access";
 import { usePendingAttention } from "@/lib/pending-attention";
 import { Badge } from "@/components/ui/badge";
 
@@ -23,7 +23,9 @@ export function AppSidebar() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const fromSection = useRouterState({ select: (s) => s.location.state?.section });
   const activeTitle = activeNavTitle(pathname, fromSection);
-  const { can } = usePermissions();
+  // Each page is allowed on its own (Admin Panel → Users → Page access);
+  // an entry shows when any of its pages is allowed.
+  const { canPage, canEntry } = usePageAccess();
   const { byUrl } = usePendingAttention();
 
   return (
@@ -53,9 +55,7 @@ export function AppSidebar() {
       </SidebarHeader>
       <SidebarContent>
         {nav.map((group) => {
-          const items = group.items.filter((item) =>
-            item.modules ? item.modules.some((m) => can(m)) : can(item.module),
-          );
+          const items = group.items.filter((item) => canEntry(item.title));
           if (items.length === 0) return null;
           return (
             <SidebarGroup key={group.section}>
@@ -73,7 +73,7 @@ export function AppSidebar() {
                       <SidebarMenuItem key={item.title}>
                         <SidebarMenuButton asChild isActive={active}>
                           <Link
-                            to={entryUrlFor(item, can)}
+                            to={entryUrl(item, canPage)}
                             state={{ section: item.title }}
                             // On mobile the sidebar is a sheet; close it so the page shows.
                             onClick={() => setOpenMobile(false)}

@@ -1,78 +1,49 @@
 import { useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { nav } from "@/lib/nav";
-import { ALL_MODULES, MODULE_LABELS, type ModuleKey } from "@/lib/permissions";
+import { MODULE_LABELS, type ModuleKey } from "@/lib/permissions";
+import { PAGES, pageAllowed, type Page } from "@/lib/page-access";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { RotateCcw, ShieldCheck } from "lucide-react";
 
-// A page is visible when the user holds `view` on the module behind it — the
-// sidebar gates every entry on can(module) (i.e. can(module, 'view')). This
-// mirrors the sidebar one-to-one: one row per actual nav page, in the same
-// section order. A page with real internal tabs (Sales, Production, Warehouse,
-// Payments, Procurement — see NavItem.tabs in src/lib/nav.ts) nests one checkbox
-// per tab underneath it, so an admin can grant the whole page but still deny
-// one tab inside it. A plain single-module page renders as one checkbox, same
-// as always. Modules with no sidebar entry of their own — the pages reached
-// from inside the Admin Panel — fall into OTHER_SECTION, one per module.
-const OTHER_SECTION = "Admin & other";
+// One tick box per page, each on its own. A page is a sidebar entry, or one
+// tab of an entry that has tabs (src/lib/page-access.ts). The admin's decision
+// is kept per user and page in user_page_access
+// (supabase/migrations/20261021140000_user_page_access.sql):
+//   tick     the page shows. If its module's view isn't allowed yet it is
+//            granted (so the page can load its data), and the module's other
+//            pages that weren't showing are kept hidden -- ticking Production
+//            gives Production, not Products Report too.
+//   untick   the page is hidden, and nothing else changes. The module's rights
+//            stay: other pages and forms may still need to read its data.
+//   reset    back to what the role gives.
+// "Can work" is the module's create / edit / submit, so it is shared by the
+// pages on that module; the row says which.
 
-// "Can see" is the module's `view`. "Can work" adds the everyday working
-// rights on that page -- create, edit, submit (e.g. record production and
-// release it to the Warehouse, raise a request, record an inspection).
-// Approving, confirming, posting and deleting stay with roles and the detailed
-// per-action editor, since those are checker rights.
 const WORK_ACTIONS = ["create", "edit", "submit"] as const;
 const PAGE_ACTIONS = ["view", ...WORK_ACTIONS];
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- user_page_access is newer than the generated types
+const db = supabase as any;
 
-type PageEntry = { title: string; items: { module: ModuleKey; label: string }[] };
+type Entry = { title: string; pages: Page[] };
 
-function buildSections(): { section: string; pages: PageEntry[] }[] {
-  const grouped = new Map<string, PageEntry[]>();
-  const seen = new Set<ModuleKey>();
-
-  const push = (section: string, page: PageEntry) => {
-    const list = grouped.get(section) ?? [];
-    list.push(page);
-    grouped.set(section, list);
-    for (const it of page.items) seen.add(it.module);
-  };
-
-  for (const group of nav) {
-    for (const item of group.items) {
-      // Tabs gated on the same module (Warehouse's Overview and Raw
-      // Materials) share one checkbox, labelled with both names.
-      const items = item.tabs
-        ? item.tabs.reduce<{ module: ModuleKey; label: string }[]>((acc, t) => {
-            const existing = acc.find((a) => a.module === t.module);
-            if (existing) existing.label += ` / ${t.label}`;
-            else acc.push({ module: t.module, label: t.label });
-            return acc;
-          }, [])
-        : item.modules
-          ? item.modules.map((m) => ({ module: m, label: MODULE_LABELS[m] }))
-          : [{ module: item.module, label: item.title }];
-      push(group.section, { title: item.title, items });
-    }
+function buildSections(): { section: string; entries: Entry[] }[] {
+  const out: { section: string; entries: Entry[] }[] = [];
+  for (const p of PAGES) {
+    let s = out.find((x) => x.section === p.section);
+    if (!s) out.push((s = { section: p.section, entries: [] }));
+    let e = s.entries.find((x) => x.title === p.entry);
+    if (!e) s.entries.push((e = { title: p.entry, pages: [] }));
+    e.pages.push(p);
   }
-
-  for (const m of ALL_MODULES) {
-    if (!seen.has(m)) {
-      push(OTHER_SECTION, {
-        title: MODULE_LABELS[m],
-        items: [{ module: m, label: MODULE_LABELS[m] }],
-      });
-    }
-  }
-
-  const order = [...new Set(nav.map((g) => g.section)), OTHER_SECTION];
-  return order
-    .filter((s) => grouped.has(s))
-    .map((section) => ({ section, pages: grouped.get(section)! }));
+  return out;
 }
+
+const pageLabel = (p: Page) =>
+  MODULE_LABELS[p.label as ModuleKey] && p.label === p.module ? MODULE_LABELS[p.module] : p.label;
 
 export function UserPageAccess({ userId, canEdit }: { userId: string; canEdit: boolean }) {
   const qc = useQueryClient();
@@ -90,7 +61,7 @@ export function UserPageAccess({ userId, canEdit }: { userId: string; canEdit: b
     },
   });
 
-  const roleViewGrants = useQuery({
+  const roleGrants = useQuery({
     queryKey: ["role-page-grants"],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -111,36 +82,77 @@ export function UserPageAccess({ userId, canEdit }: { userId: string; canEdit: b
         .eq("user_id", userId)
         .in("action", PAGE_ACTIONS);
       if (error) throw error;
-      // keyed "module:action"
       return new Map((data ?? []).map((o) => [`${o.module}:${o.action}`, o.granted as boolean]));
+    },
+  });
+
+  const decisions = useQuery({
+    queryKey: ["page-access-decisions", userId],
+    queryFn: async () => {
+      const { data, error } = await db
+        .from("user_page_access")
+        .select("page_id,granted")
+        .eq("user_id", userId);
+      if (error) throw error;
+      return new Map(
+        ((data ?? []) as { page_id: string; granted: boolean }[]).map((r) => [
+          r.page_id,
+          r.granted,
+        ]),
+      );
     },
   });
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["page-access-overrides", userId] });
+    qc.invalidateQueries({ queryKey: ["page-access-decisions", userId] });
     qc.invalidateQueries({ queryKey: ["permission-overrides-for-user", userId] });
     qc.invalidateQueries({ queryKey: ["permission-overrides-list"] });
-    // The edited user's own session re-reads this; refreshing here keeps the
+    // The edited user's own session re-reads these; refreshing here keeps the
     // admin's view honest if they edited themselves.
     qc.invalidateQueries({ queryKey: ["my-permissions"] });
+    qc.invalidateQueries({ queryKey: ["my-page-access"] });
   };
 
-  // An explicit override either way, rather than deleting the row when
-  // unchecking: deleting would fall back to the role's grant, which is often
-  // exactly the access the admin just tried to remove.
-  const setAccess = useMutation({
-    mutationFn: async ({ module, granted }: { module: ModuleKey; granted: boolean }) => {
-      const { error } = await supabase
-        .from("permission_overrides")
-        .upsert({ user_id: userId, module, action: "view", granted });
+  const roleAllows = (module: ModuleKey, action: string) =>
+    (userRoles.data ?? []).some((r) => roleGrants.data?.has(`${r}:${module}:${action}`));
+  const allowed = (module: ModuleKey, action: string) =>
+    overrides.data?.get(`${module}:${action}`) ?? roleAllows(module, action);
+  const shows = (p: Page) => pageAllowed(decisions.data, p, (m) => allowed(m, "view"));
+
+  const setPage = useMutation({
+    mutationFn: async ({ page, granted }: { page: Page; granted: boolean }) => {
+      const rows: { user_id: string; page_id: string; granted: boolean }[] = [
+        { user_id: userId, page_id: page.id, granted },
+      ];
+      if (granted && !allowed(page.module, "view")) {
+        // The page needs its module's view to load. Granting that would also
+        // show the module's other pages -- keep the ones not showing hidden.
+        const { error } = await supabase
+          .from("permission_overrides")
+          .upsert({ user_id: userId, module: page.module, action: "view", granted: true });
+        if (error) throw error;
+        for (const other of PAGES)
+          if (
+            other.id !== page.id &&
+            other.module === page.module &&
+            !decisions.data?.has(other.id) &&
+            !shows(other)
+          )
+            rows.push({ user_id: userId, page_id: other.id, granted: false });
+      }
+      const { error } = await db.from("user_page_access").upsert(rows);
       if (error) throw error;
     },
-    onSuccess: () => invalidate(),
+    onSuccess: (_d, v) => {
+      toast.success(`${v.page.label}: ${v.granted ? "granted" : "hidden"}`);
+      invalidate();
+    },
     onError: (e: Error) => toast.error(e.message),
   });
 
-  // "Can work": create + edit + submit together. Granting it also grants the
-  // page itself -- working on a page you can't open isn't possible.
+  // "Can work": create + edit + submit on the page's module. Granting it also
+  // grants the module's view -- working on a page you can't open isn't possible.
   const setWork = useMutation({
     mutationFn: async ({ module, granted }: { module: ModuleKey; granted: boolean }) => {
       const actions: string[] = granted ? [...WORK_ACTIONS, "view"] : [...WORK_ACTIONS];
@@ -155,14 +167,13 @@ export function UserPageAccess({ userId, canEdit }: { userId: string; canEdit: b
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const clearOverride = useMutation({
-    mutationFn: async (module: ModuleKey) => {
-      const { error } = await supabase
-        .from("permission_overrides")
+  const resetPage = useMutation({
+    mutationFn: async (page: Page) => {
+      const { error } = await db
+        .from("user_page_access")
         .delete()
         .eq("user_id", userId)
-        .eq("module", module)
-        .in("action", PAGE_ACTIONS);
+        .eq("page_id", page.id);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -174,45 +185,26 @@ export function UserPageAccess({ userId, canEdit }: { userId: string; canEdit: b
 
   const clearAll = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase
+      const { error: e1 } = await db.from("user_page_access").delete().eq("user_id", userId);
+      if (e1) throw e1;
+      const { error: e2 } = await supabase
         .from("permission_overrides")
         .delete()
         .eq("user_id", userId)
         .in("action", PAGE_ACTIONS);
-      if (error) throw error;
+      if (e2) throw e2;
     },
     onSuccess: () => {
-      toast.success("All page overrides cleared");
+      toast.success("All page settings back to the role's defaults");
       invalidate();
     },
     onError: (e: Error) => toast.error(e.message),
   });
 
   const isAdmin = (userRoles.data ?? []).includes("super_admin");
-  const loading = userRoles.isLoading || roleViewGrants.isLoading || overrides.isLoading;
-  const busy =
-    setAccess.isPending || setWork.isPending || clearOverride.isPending || clearAll.isPending;
-
-  const roleAllows = (module: ModuleKey, action: string) =>
-    (userRoles.data ?? []).some((r) => roleViewGrants.data?.has(`${r}:${module}:${action}`));
-  const allowed = (module: ModuleKey, action: string) =>
-    overrides.data?.get(`${module}:${action}`) ?? roleAllows(module, action);
-
-  const state = (module: ModuleKey) => {
-    const override = overrides.data?.get(`${module}:view`);
-    const fromRole = roleAllows(module, "view");
-    // Can work when every working action is allowed, by role or override.
-    const work = WORK_ACTIONS.every((a) => allowed(module, a));
-    const workOverride = WORK_ACTIONS.some((a) => overrides.data?.has(`${module}:${a}`));
-    if (override === undefined)
-      return { checked: fromRole, source: "role" as const, work, workOverride };
-    return {
-      checked: override,
-      source: override ? ("granted" as const) : ("blocked" as const),
-      work,
-      workOverride,
-    };
-  };
+  const loading =
+    userRoles.isLoading || roleGrants.isLoading || overrides.isLoading || decisions.isLoading;
+  const busy = setPage.isPending || setWork.isPending || resetPage.isPending || clearAll.isPending;
 
   if (isAdmin) {
     return (
@@ -226,18 +218,17 @@ export function UserPageAccess({ userId, canEdit }: { userId: string; canEdit: b
     );
   }
 
-  const overrideCount = new Set([...(overrides.data?.keys() ?? [])].map((k) => k.split(":")[0]))
-    .size;
+  const changed = (decisions.data?.size ?? 0) + (overrides.data?.size ?? 0);
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">
-          Tick a page to let this user open it; tick &quot;Can work&quot; to also let them record
-          and submit there (e.g. record production and release it to the Warehouse). Ticks override
-          what their role allows, for this user only.
+          Tick each page this user may open — every page is ticked or unticked on its own. Tick
+          &quot;Can work&quot; to also let them record and submit there. Settings here override
+          their role, for this user only.
         </p>
-        {canEdit && overrideCount > 0 && (
+        {canEdit && changed > 0 && (
           <Button
             variant="outline"
             size="sm"
@@ -254,51 +245,54 @@ export function UserPageAccess({ userId, canEdit }: { userId: string; canEdit: b
         <p className="py-6 text-center text-sm text-muted-foreground">Loading page access…</p>
       ) : (
         <div className="space-y-5">
-          {sections.map(({ section, pages }) => (
+          {sections.map(({ section, entries }) => (
             <div key={section}>
               <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 {section}
               </div>
               <div className="grid gap-2 sm:grid-cols-2">
-                {pages.map((page) =>
-                  page.items.length === 1 ? (
-                    <ModuleRow
-                      key={page.title}
-                      module={page.items[0].module}
-                      label={page.title}
-                      state={state}
+                {entries.map((entry) =>
+                  entry.pages.length === 1 ? (
+                    <PageRow
+                      key={entry.title}
+                      page={entry.pages[0]}
+                      label={entry.title}
+                      checked={shows(entry.pages[0])}
+                      decision={decisions.data?.get(entry.pages[0].id)}
+                      work={WORK_ACTIONS.every((a) => allowed(entry.pages[0].module, a))}
                       canEdit={canEdit}
                       busy={busy}
-                      onToggle={(module, granted) => setAccess.mutate({ module, granted })}
-                      onWork={(module, granted) => setWork.mutate({ module, granted })}
-                      onReset={(module) => clearOverride.mutate(module)}
+                      onToggle={(granted) => setPage.mutate({ page: entry.pages[0], granted })}
+                      onWork={(granted) =>
+                        setWork.mutate({ module: entry.pages[0].module, granted })
+                      }
+                      onReset={() => resetPage.mutate(entry.pages[0])}
                     />
                   ) : (
-                    <div key={page.title} className="space-y-2 rounded-xl border p-3 sm:col-span-2">
-                      <PageHeaderRow
-                        title={page.title}
-                        items={page.items}
-                        state={state}
-                        canEdit={canEdit}
-                        busy={busy}
-                        onToggleAll={(granted) =>
-                          page.items.forEach((it) =>
-                            setAccess.mutate({ module: it.module, granted }),
-                          )
-                        }
-                      />
-                      <div className="grid gap-2 pl-6 sm:grid-cols-2">
-                        {page.items.map((it) => (
-                          <ModuleRow
-                            key={it.module}
-                            module={it.module}
-                            label={it.label}
-                            state={state}
+                    <div
+                      key={entry.title}
+                      className="space-y-2 rounded-xl border p-3 sm:col-span-2"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm font-semibold">{entry.title}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {entry.pages.filter(shows).length} of {entry.pages.length} pages
+                        </span>
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {entry.pages.map((p) => (
+                          <PageRow
+                            key={p.id}
+                            page={p}
+                            label={pageLabel(p)}
+                            checked={shows(p)}
+                            decision={decisions.data?.get(p.id)}
+                            work={WORK_ACTIONS.every((a) => allowed(p.module, a))}
                             canEdit={canEdit}
                             busy={busy}
-                            onToggle={(module, granted) => setAccess.mutate({ module, granted })}
-                            onWork={(module, granted) => setWork.mutate({ module, granted })}
-                            onReset={(module) => clearOverride.mutate(module)}
+                            onToggle={(granted) => setPage.mutate({ page: p, granted })}
+                            onWork={(granted) => setWork.mutate({ module: p.module, granted })}
+                            onReset={() => resetPage.mutate(p)}
                           />
                         ))}
                       </div>
@@ -314,96 +308,59 @@ export function UserPageAccess({ userId, canEdit }: { userId: string; canEdit: b
   );
 }
 
-type PageState = (module: ModuleKey) => {
-  checked: boolean;
-  source: "role" | "granted" | "blocked";
-  work: boolean;
-  workOverride: boolean;
-};
-
-function PageHeaderRow({
-  title,
-  items,
-  state,
-  canEdit,
-  busy,
-  onToggleAll,
-}: {
-  title: string;
-  items: { module: ModuleKey; label: string }[];
-  state: PageState;
-  canEdit: boolean;
-  busy: boolean;
-  onToggleAll: (granted: boolean) => void;
-}) {
-  const checkedCount = items.filter((it) => state(it.module).checked).length;
-  const allChecked = checkedCount === items.length;
-  return (
-    <label className="flex items-center gap-3">
-      <Checkbox
-        checked={allChecked}
-        disabled={!canEdit || busy}
-        onCheckedChange={(v) => onToggleAll(!!v)}
-      />
-      <span className="text-sm font-semibold">{title}</span>
-      <span className="text-xs text-muted-foreground">
-        {allChecked
-          ? "Full page access"
-          : checkedCount === 0
-            ? "No access"
-            : `${checkedCount} of ${items.length} tabs granted`}
-      </span>
-    </label>
-  );
-}
-
-function ModuleRow({
-  module,
+function PageRow({
+  page,
   label,
-  state,
+  checked,
+  decision,
+  work,
   canEdit,
   busy,
   onToggle,
   onWork,
   onReset,
 }: {
-  module: ModuleKey;
+  page: Page;
   label: string;
-  state: PageState;
+  checked: boolean;
+  decision: boolean | undefined;
+  work: boolean;
   canEdit: boolean;
   busy: boolean;
-  onToggle: (module: ModuleKey, granted: boolean) => void;
-  onWork: (module: ModuleKey, granted: boolean) => void;
-  onReset: (module: ModuleKey) => void;
+  onToggle: (granted: boolean) => void;
+  onWork: (granted: boolean) => void;
+  onReset: () => void;
 }) {
-  const { checked, source, work, workOverride } = state(module);
+  const id = `pa-${page.id}`;
+  // Other pages whose "Can work" moves with this one (same module).
+  const sharing = PAGES.filter((p) => p.module === page.module && p.id !== page.id);
   return (
     <label
-      htmlFor={`pa-${module}`}
+      htmlFor={id}
       className="flex items-start gap-3 rounded-xl border p-3 transition-colors hover:border-primary/40"
     >
       <Checkbox
-        id={`pa-${module}`}
+        id={id}
         className="mt-0.5"
         checked={checked}
         disabled={!canEdit || busy}
-        onCheckedChange={(v) => onToggle(module, !!v)}
+        onCheckedChange={(v) => onToggle(!!v)}
       />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-medium">{label}</span>
-          {source === "granted" && (
+          {decision === true && (
             <Badge variant="secondary" className="text-[10px]">
               Granted
             </Badge>
           )}
-          {source === "blocked" && (
+          {decision === false && (
             <Badge variant="destructive" className="text-[10px]">
-              Blocked
+              Hidden
             </Badge>
           )}
         </div>
-        {source === "role" && (
+        {decision === undefined && (
           <div className="mt-0.5 text-xs text-muted-foreground">
             {checked ? "Allowed by role" : "Not allowed by role"}
           </div>
@@ -412,32 +369,40 @@ function ModuleRow({
           // Inside the row's <label>: stop clicks here from also toggling the
           // page checkbox.
           <div
-            className="mt-2 flex items-center gap-2"
+            className="mt-2 flex items-start gap-2"
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
             }}
           >
             <Checkbox
+              className="mt-0.5"
               checked={work}
               disabled={!canEdit || busy}
-              onCheckedChange={(v) => onWork(module, !!v)}
+              onCheckedChange={(v) => onWork(!!v)}
             />
             <span
               className="cursor-pointer text-xs"
-              onClick={() => canEdit && !busy && onWork(module, !work)}
+              onClick={() => canEdit && !busy && onWork(!work)}
             >
               Can work — create, edit, submit
+              {sharing.length > 0 && (
+                <span className="block text-[11px] text-muted-foreground">
+                  {MODULE_LABELS[page.module]} rights — also used by{" "}
+                  {[...new Set(sharing.map((p) => p.label))].slice(0, 3).join(", ")}
+                  {sharing.length > 3 ? "…" : ""}
+                </span>
+              )}
             </span>
           </div>
         )}
-        {(source !== "role" || workOverride) && canEdit && (
+        {decision !== undefined && canEdit && (
           <button
             type="button"
             className="mt-1 text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
             onClick={(e) => {
               e.preventDefault();
-              onReset(module);
+              onReset();
             }}
             disabled={busy}
           >

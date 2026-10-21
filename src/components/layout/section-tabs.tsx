@@ -1,6 +1,6 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { usePermissions } from "@/lib/permissions";
 import { navItemByTitle, type NavTab } from "@/lib/nav";
+import { pageIdFor, usePageAccess } from "@/lib/page-access";
 
 // Tab bar shared by the pages grouped under one sidebar entry (Retail,
 // Production, Warehouse). Each tab is its own route; the list comes from the
@@ -20,7 +20,7 @@ export function SectionTabs({ section }: { section: string }) {
       from: s.location.state?.section,
     }),
   });
-  const { can, loading } = usePermissions();
+  const { canPage, loading } = usePageAccess();
 
   // Opened from another entry that also lists this page (its own url or a
   // tab), that entry decides: Customers opened from Directory shows no bar,
@@ -30,9 +30,15 @@ export function SectionTabs({ section }: { section: string }) {
     !!fromItem &&
     (fromItem.url === pathname || (fromItem.tabs ?? []).some((t) => t.url === pathname));
   const title = fromOwns ? from! : section;
-  const all = navItemByTitle(title)?.tabs ?? [];
+  const item = navItemByTitle(title);
+  const all = item?.tabs ?? [];
+  // Each tab is a page of its own (Admin Panel → Users → Page access).
   const tabs = all.filter(
-    (t): t is NavTab & { url: string } => !!t.url && t.inBar !== false && can(t.module),
+    (t): t is NavTab & { url: string } =>
+      !!t.url &&
+      t.inBar !== false &&
+      !!item &&
+      canPage({ id: pageIdFor(item, t), module: t.module }),
   );
   if (loading || tabs.length < 2) return null;
 

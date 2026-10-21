@@ -2,8 +2,8 @@
 -- Store & Warehouse role, and aniaustin (Ustin) limited to it
 -- ----------------------------------------------------------------------------
 -- Factory decision (2026-10-21): Ustin (account "aniaustin") works the Store,
--- the Warehouse, Suppliers and Expenses -- and nothing else. This replaces the
--- Warehouse role added for him in 20261021120000.
+-- the Warehouse and Expenses -- and nothing else (no Suppliers page). This
+-- replaces the Warehouse role added for him in 20261021120000.
 --
 -- New role 'store_warehouse' (label "Store & Warehouse"), built from what the
 -- two existing roles already do on those pages, so nothing new is invented:
@@ -18,11 +18,17 @@
 --               sending Old / New Jugs to QC
 --               + production confirm / reject WITHOUT view: accept or refuse
 --               production released to the Warehouse, but no Production page
---   Suppliers   view, create, edit, print, export
 --   Expenses    view, create, edit, submit, cancel, print, export (raising
 --               expenses; approving and posting them stay with Finance)
--- Not included: marketer / distributor accounts, inventory overview,
--- production view, and every other module.
+-- Not included: the Suppliers page, marketer / distributor accounts,
+-- inventory overview, production view, and every other module.
+--
+-- The Store forms pick the supplier of a delivery from the supplier list,
+-- which was readable only with Suppliers view. It is now also readable by
+-- whoever receives deliveries (raw-materials create / submit, goods-receiving
+-- submit / confirm), so the Store works without the Suppliers page. The Store
+-- role already read it; QC staff who record or confirm deliveries now can too.
+-- Adding or editing suppliers still needs Suppliers rights.
 --
 -- Pages shared between menus (e.g. Store requests also sits under Production
 -- and Procurement, Orders under Retail) appear wherever the menu lists them --
@@ -35,13 +41,13 @@
 
 INSERT INTO public.roles (slug, label, description, is_system) VALUES
   ('store_warehouse', 'Store & Warehouse',
-   'Store & Warehouse: raw materials and preforms, Warehouse stock and dispatches, Old / New Jugs to QC, suppliers and expenses.',
+   'Store & Warehouse: raw materials and preforms, Warehouse stock and dispatches, Old / New Jugs to QC, and expenses.',
    true)
 ON CONFLICT (slug) DO NOTHING;
 
 INSERT INTO public.role_permissions (role, module, action)
 SELECT 'store_warehouse', module, action FROM public.role_permissions
- WHERE role = 'store_keeper'
+ WHERE role = 'store_keeper' AND module <> 'suppliers'
 UNION
 SELECT 'store_warehouse', module, action FROM public.role_permissions
  WHERE role = 'store_officer'
@@ -50,10 +56,16 @@ SELECT 'store_warehouse', module, action FROM public.role_permissions
 UNION
 SELECT 'store_warehouse', 'production'::module_key, a FROM unnest(ARRAY['confirm','reject']::action_key[]) a
 UNION
-SELECT 'store_warehouse', 'suppliers'::module_key, a FROM unnest(ARRAY['view','create','edit','print','export']::action_key[]) a
-UNION
 SELECT 'store_warehouse', 'expenses'::module_key, a FROM unnest(ARRAY['view','create','edit','submit','cancel','print','export']::action_key[]) a
 ON CONFLICT DO NOTHING;
+
+-- Supplier list readable by whoever receives deliveries (see above).
+DROP POLICY IF EXISTS "suppliers read for receiving" ON public.suppliers;
+CREATE POLICY "suppliers read for receiving" ON public.suppliers FOR SELECT TO authenticated
+  USING (public.has_permission(auth.uid(), 'raw-materials'::module_key, 'create'::action_key)
+      OR public.has_permission(auth.uid(), 'raw-materials'::module_key, 'submit'::action_key)
+      OR public.has_permission(auth.uid(), 'goods-receiving'::module_key, 'submit'::action_key)
+      OR public.has_permission(auth.uid(), 'goods-receiving'::module_key, 'confirm'::action_key));
 
 -- Makes p_role the ONLY role of the one non-admin account matching p_match
 -- (name or email). Returns what it did; changes nothing otherwise.
