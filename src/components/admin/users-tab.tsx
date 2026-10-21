@@ -1,3 +1,4 @@
+import { supabase } from "@/integrations/supabase/client";
 import { useState } from "react";
 import { useAccountsAdmin, type Account } from "@/lib/use-accounts-admin";
 import { useAllRoles, usePermissions, type ProductionScope, type Role } from "@/lib/permissions";
@@ -73,7 +74,8 @@ export function UsersTab() {
   const roleLabel = (slug: string | null) =>
     slug ? (allRoles.data?.find((r) => r.slug === slug)?.label ?? slug) : "—";
 
-  const primaryRole = (userId: string) => rolesFor(userId).find((r) => !r.factory_id)?.role ?? null;
+  // Every role the user holds -- factory-wide and per-factory alike.
+  const userRoles = (userId: string) => [...new Set(rolesFor(userId).map((r) => r.role))];
 
   const lastLoginLabel = (id: string) => {
     const v = lastLogins.data?.get(id);
@@ -97,6 +99,7 @@ export function UsersTab() {
                 <TableHead></TableHead>
                 <TableHead>User</TableHead>
                 <TableHead>Role</TableHead>
+                <TableHead>Department</TableHead>
                 <TableHead>Factory</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Last Login</TableHead>
@@ -129,9 +132,22 @@ export function UsersTab() {
                     </button>
                   </TableCell>
                   <TableCell>
-                    <Badge variant="outline" className="gap-1">
-                      <ShieldCheck className="h-3 w-3" /> {roleLabel(primaryRole(a.id))}
-                    </Badge>
+                    <div className="flex flex-wrap gap-1">
+                      {userRoles(a.id).length === 0 ? (
+                        <span className="text-xs text-muted-foreground">No role</span>
+                      ) : (
+                        userRoles(a.id).map((r) => (
+                          <Badge key={r} variant="outline" className="gap-1 whitespace-nowrap">
+                            <ShieldCheck className="h-3 w-3" /> {roleLabel(r)}
+                          </Badge>
+                        ))
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    {a.department?.trim() || (
+                      <span className="text-xs text-muted-foreground">Not set</span>
+                    )}
                   </TableCell>
                   <TableCell className="text-sm">
                     {/* Water is the only factory, so every user belongs to it. */}
@@ -196,7 +212,7 @@ export function UsersTab() {
               ))}
               {rows.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
+                  <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
                     No users yet.
                   </TableCell>
                 </TableRow>
@@ -216,11 +232,15 @@ export function UsersTab() {
 function EditUserDialog({ account, onDone }: { account: Account; onDone: () => void }) {
   const { rolesFor, setProductionScope, setRole, setStatus } = useAccountsAdmin();
   const allRoles = useAllRoles();
-  const currentRole = rolesFor(account.id).find((r) => !r.factory_id)?.role ?? "";
+  // The factory-wide role, else the first per-factory one (e.g. a role given
+  // for one factory only).
+  const currentRole =
+    rolesFor(account.id).find((r) => !r.factory_id)?.role ?? rolesFor(account.id)[0]?.role ?? "";
 
   const [fullName, setFullName] = useState(account.full_name ?? "");
   const [email, setEmail] = useState(account.email ?? "");
   const [phone, setPhone] = useState(account.phone ?? "");
+  const [department, setDepartment] = useState(account.department ?? "");
   const [role, setRoleValue] = useState<Role>(currentRole);
   const [scope, setScope] = useState<ProductionScope>(account.production_scope);
   const [status, setStatusValue] = useState(account.status);
@@ -243,6 +263,13 @@ function EditUserDialog({ account, onDone }: { account: Account; onDone: () => v
 
       if (role && role !== currentRole) {
         await setRole.mutateAsync({ userId: account.id, role });
+      }
+      if (department.trim() !== (account.department ?? "").trim()) {
+        const { error } = await supabase.rpc("set_user_department", {
+          target_id: account.id,
+          new_department: department.trim(),
+        });
+        if (error) throw error;
       }
       if (scope !== account.production_scope) {
         await setProductionScope.mutateAsync({ userId: account.id, scope });
@@ -361,6 +388,14 @@ function EditUserDialog({ account, onDone }: { account: Account; onDone: () => v
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Department</Label>
+              <Input
+                value={department}
+                onChange={(e) => setDepartment(e.target.value)}
+                placeholder="e.g. Warehouse, Store, Production"
+              />
             </div>
             <div className="space-y-1.5">
               <Label>Factory</Label>

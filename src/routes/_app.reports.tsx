@@ -24,9 +24,24 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { FileDown, FileSpreadsheet, Printer, FileText } from "lucide-react";
-import { generateReportPdf } from "@/lib/pdf";
+import { generateItemsSoldPdf, generateMarketerSheetPdf, generateReportPdf } from "@/lib/pdf";
+import {
+  MARKETER_SHEET_COLUMNS,
+  fetchMarketerSheets,
+  marketerSheetRows,
+  sheetPeriodLabel,
+  type MarketerSheet,
+} from "@/lib/marketer-sales-sheet";
+import { useMarketerDirectory } from "@/lib/marketer-accounts";
 import { exportCsv, exportExcel, type ReportColumn } from "@/lib/export";
 import { logAudit } from "@/lib/audit";
+import { useCurrentUserName } from "@/lib/use-current-user";
+import {
+  ITEMS_SOLD_COLUMNS,
+  fetchItemsSold,
+  itemsSoldRows,
+  type ItemsSoldReport,
+} from "@/lib/items-sold-report";
 import {
   CUSTOMER_REPORTS,
   CUSTOMER_SNAPSHOT_REPORTS,
@@ -38,14 +53,21 @@ import {
   startOfDay,
   endOfDay,
   subDays,
+  differenceInCalendarDays,
+  subWeeks,
+  subMonths,
   startOfWeek,
+  endOfWeek,
   startOfMonth,
+  endOfMonth,
   startOfYear,
   format,
 } from "date-fns";
 
 export const Route = createFileRoute("/_app/reports")({
-  head: () => ({ meta: [{ title: "Reports — Elim Table Water" }, { name: "robots", content: "noindex" }] }),
+  head: () => ({
+    meta: [{ title: "Reports — Elim Table Water" }, { name: "robots", content: "noindex" }],
+  }),
   component: () => (
     <RequireAccess module="reports">
       <ReportsPage />
@@ -55,6 +77,8 @@ export const Route = createFileRoute("/_app/reports")({
 
 type ReportKey =
   | "sales"
+  | "items_sold"
+  | "marketer_sheet"
   | "production"
   | "inventory"
   | "raw_materials"
@@ -72,6 +96,8 @@ type ReportKey =
 
 const REPORTS: { key: ReportKey; label: string }[] = [
   { key: "sales", label: "Sales" },
+  { key: "items_sold", label: "Items Sold to Customers" },
+  { key: "marketer_sheet", label: "Marketer Daily Sales Sheet" },
   { key: "production", label: "Production" },
   { key: "inventory", label: "Inventory (Finished Goods Movements)" },
   { key: "raw_materials", label: "Raw Materials Movements" },
@@ -89,14 +115,25 @@ const REPORTS: { key: ReportKey; label: string }[] = [
 ];
 
 type RangeKey =
-  "today" | "yesterday" | "daily" | "weekly" | "monthly" | "yearly" | "custom" | "all";
+  | "today"
+  | "yesterday"
+  | "daily"
+  | "weekly"
+  | "last_week"
+  | "monthly"
+  | "last_month"
+  | "yearly"
+  | "custom"
+  | "all";
 const RANGES: { key: RangeKey; label: string }[] = [
   { key: "all", label: "All time" },
   { key: "today", label: "Today" },
   { key: "yesterday", label: "Yesterday" },
   { key: "daily", label: "Last 24h" },
   { key: "weekly", label: "This Week" },
+  { key: "last_week", label: "Last Week" },
   { key: "monthly", label: "This Month" },
+  { key: "last_month", label: "Last Month" },
   { key: "yearly", label: "This Year" },
   { key: "custom", label: "Custom Date" },
 ];
@@ -115,7 +152,15 @@ function rangeBounds(
   }
   if (key === "daily") return { start: startOfDay(now).toISOString(), end: null };
   if (key === "weekly") return { start: startOfWeek(now).toISOString(), end: null };
+  if (key === "last_week") {
+    const w = subWeeks(now, 1);
+    return { start: startOfWeek(w).toISOString(), end: endOfWeek(w).toISOString() };
+  }
   if (key === "monthly") return { start: startOfMonth(now).toISOString(), end: null };
+  if (key === "last_month") {
+    const m = subMonths(now, 1);
+    return { start: startOfMonth(m).toISOString(), end: endOfMonth(m).toISOString() };
+  }
   if (key === "yearly") return { start: startOfYear(now).toISOString(), end: null };
   if (key === "custom")
     return {
@@ -141,8 +186,25 @@ async function fetchReport(
   start: string | null,
   end: string | null,
   productionFilters?: ProductionReportFilters,
-): Promise<{ columns: ReportColumn[]; rows: Record<string, unknown>[] }> {
+): Promise<{
+  columns: ReportColumn[];
+  rows: Record<string, unknown>[];
+  itemsSold?: ItemsSoldReport;
+  sheets?: MarketerSheet[];
+}> {
   if (isCustomerReport(key)) return fetchCustomerReport(key, factoryId, start, end);
+  // Built per marketer in the page (it needs the marketer picker).
+  if (key === "marketer_sheet") throw new Error("Marketer sheet is fetched by the page");
+  if (key === "items_sold") {
+    // sale_date is a date: filter by the local calendar day, not an ISO instant.
+    const itemsSold = await fetchItemsSold(
+      supabase,
+      factoryId,
+      start ? format(new Date(start), "yyyy-MM-dd") : null,
+      end ? format(new Date(end), "yyyy-MM-dd") : null,
+    );
+    return { columns: ITEMS_SOLD_COLUMNS, rows: itemsSoldRows(itemsSold), itemsSold };
+  }
 
   const applyRange = <T,>(q: T): T => {
     let query = q as any;
@@ -545,6 +607,8 @@ async function fetchReport(
 
 const DATE_FIELDS: Record<ReportKey, string> = {
   sales: "sale_date",
+  items_sold: "sale_date",
+  marketer_sheet: "sale_date",
   production: "production_date",
   inventory: "created_at",
   raw_materials: "created_at",
@@ -571,6 +635,7 @@ const DATE_FIELDS: Record<ReportKey, string> = {
 function ReportsPage() {
   const { data: factoryId } = useFactoryId();
   const settings = useFactorySettings(factoryId);
+  const me = useCurrentUserName();
   const [reportKey, setReportKey] = useState<ReportKey>("sales");
   const [range, setRange] = useState<RangeKey>("monthly");
   const [customFrom, setCustomFrom] = useState(format(new Date(), "yyyy-MM-01"));
@@ -581,11 +646,25 @@ function ReportsPage() {
   const [prodStatus, setProdStatus] = useState("all");
   const [prodProduct, setProdProduct] = useState("all");
   const [prodBatch, setProdBatch] = useState("");
+  const [marketerId, setMarketerId] = useState("all");
+  const directory = useMarketerDirectory(reportKey === "marketer_sheet" ? factoryId : undefined);
+  const marketers = useMemo(
+    () => (directory.data ?? []).filter((m) => m.kind === "rep"),
+    [directory.data],
+  );
 
   const bounds = useMemo(
     () => rangeBounds(range, customFrom, customTo),
     [range, customFrom, customTo],
   );
+  const sheetDays = useMemo(() => {
+    if (!bounds.start) return null;
+    const from = format(new Date(bounds.start), "yyyy-MM-dd");
+    const to = format(bounds.end ? new Date(bounds.end) : new Date(), "yyyy-MM-dd");
+    return from <= to && differenceInCalendarDays(new Date(to), new Date(from)) <= 366
+      ? { from, to }
+      : null;
+  }, [bounds.start, bounds.end]);
   const productionFilters: ProductionReportFilters = useMemo(
     () => ({
       productionTypeId: prodType === "all" ? undefined : prodType,
@@ -633,28 +712,71 @@ function ReportsPage() {
       bounds.start,
       bounds.end,
       reportKey === "production" ? productionFilters : null,
+      reportKey === "marketer_sheet" ? [marketerId, marketers.length] : null,
     ],
-    enabled: !!factoryId,
-    queryFn: () =>
-      fetchReport(
+    enabled: !!factoryId && (reportKey !== "marketer_sheet" || directory.isSuccess),
+    queryFn: async () => {
+      if (reportKey === "marketer_sheet") {
+        // The sheet is day by day, so it needs a start; the RPC allows a year at most.
+        if (!sheetDays) throw new Error("Pick a period (up to a year) for the marketer sheet.");
+        const reps =
+          marketerId === "all" ? marketers : marketers.filter((m) => m.id === marketerId);
+        const sheets = await fetchMarketerSheets(
+          supabase,
+          reps,
+          sheetDays.from,
+          sheetDays.to,
+          marketerId !== "all",
+        );
+        return { columns: MARKETER_SHEET_COLUMNS, rows: marketerSheetRows(sheets), sheets };
+      }
+      return fetchReport(
         reportKey,
         factoryId!,
         DATE_FIELDS[reportKey],
         bounds.start,
         bounds.end,
         reportKey === "production" ? productionFilters : undefined,
-      ),
+      );
+    },
   });
 
   const isSnapshot = (CUSTOMER_SNAPSHOT_REPORTS as string[]).includes(reportKey);
   const reportLabel = REPORTS.find((r) => r.key === reportKey)?.label ?? "Report";
   const columns = report.data?.columns ?? [];
   const rows = report.data?.rows ?? [];
+  const fmtDay = (iso: string) => format(new Date(iso), "MMM d, yyyy");
+  const periodLabel =
+    bounds.start || bounds.end
+      ? `From ${bounds.start ? fmtDay(bounds.start) : "the beginning"} to ${fmtDay(bounds.end ?? new Date().toISOString())}`
+      : "All dates";
 
   const doExport = (type: "csv" | "excel" | "pdf" | "print") => {
     if (columns.length === 0) return;
     const name = `${reportLabel}-${format(new Date(), "yyyy-MM-dd")}`;
-    if (type === "csv") exportCsv(name, columns, rows);
+    const itemsSold = report.data?.itemsSold;
+    const sheets = report.data?.sheets;
+    if (sheets && sheetDays && (type === "pdf" || type === "print"))
+      generateMarketerSheetPdf(
+        {
+          company: { name: settings.data?.company_name, logo_url: settings.data?.logo_url },
+          sheets,
+          periodLabel: sheetPeriodLabel(sheetDays.from, sheetDays.to),
+          printedBy: me.data,
+        },
+        type === "pdf" ? "download" : "print",
+      );
+    else if (itemsSold && (type === "pdf" || type === "print"))
+      generateItemsSoldPdf(
+        {
+          company: { name: settings.data?.company_name, logo_url: settings.data?.logo_url },
+          report: itemsSold,
+          periodLabel,
+          printedBy: me.data,
+        },
+        type === "pdf" ? "download" : "print",
+      );
+    else if (type === "csv") exportCsv(name, columns, rows);
     else if (type === "excel") exportExcel(name, columns, rows);
     else if (type === "pdf")
       generateReportPdf(reportLabel, columns, rows, "download", {
@@ -715,6 +837,25 @@ function ReportsPage() {
                   {RANGES.map((r) => (
                     <SelectItem key={r.key} value={r.key}>
                       {r.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          {reportKey === "marketer_sheet" && (
+            <div>
+              <Label className="mb-1 block text-xs">Marketer</Label>
+              <Select value={marketerId} onValueChange={setMarketerId}>
+                <SelectTrigger className="w-[220px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All marketers (one page each)</SelectItem>
+                  {marketers.map((m) => (
+                    <SelectItem key={m.id} value={m.id}>
+                      {m.full_name}
+                      {m.code ? ` (${m.code})` : ""}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -836,7 +977,13 @@ function ReportsPage() {
       <Card className="rounded-2xl">
         <CardHeader>
           <CardTitle>
-            {reportLabel} ({rows.length})
+            {reportLabel} (
+            {report.data?.itemsSold
+              ? `${report.data.itemsSold.groups.length} customers`
+              : report.data?.sheets
+                ? `${report.data.sheets.length} marketers`
+                : rows.length}
+            )
           </CardTitle>
         </CardHeader>
         <CardContent className="overflow-x-auto">
@@ -850,7 +997,16 @@ function ReportsPage() {
             </TableHeader>
             <TableBody>
               {rows.map((r, i) => (
-                <TableRow key={i}>
+                <TableRow
+                  key={i}
+                  className={
+                    r.kind === "subtotal"
+                      ? "font-semibold bg-muted/40"
+                      : r.kind === "total"
+                        ? "font-bold bg-muted"
+                        : undefined
+                  }
+                >
                   {columns.map((c) => (
                     <TableCell key={c.key}>{String(r[c.key] ?? "—")}</TableCell>
                   ))}
@@ -862,7 +1018,11 @@ function ReportsPage() {
                     colSpan={columns.length || 1}
                     className="text-center text-muted-foreground py-8"
                   >
-                    No data for this range.
+                    {report.error instanceof Error
+                      ? report.error.message
+                      : report.isLoading
+                        ? "Loading…"
+                        : "No data for this range."}
                   </TableCell>
                 </TableRow>
               )}

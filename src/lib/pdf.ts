@@ -1,6 +1,7 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { money } from "./format";
+import { sheetDayLabel } from "./marketer-sales-sheet";
 
 export type InvoiceItem = {
   name: string;
@@ -1367,6 +1368,234 @@ export async function generateProductionStockReportPdf(
 
   if (action === "download") {
     doc.save(`production-report-${opts.from}-to-${opts.to}.pdf`);
+  } else {
+    if (action === "print") doc.autoPrint();
+    window.open(doc.output("bloburl"), "_blank");
+  }
+}
+
+// Items Sold to Customers: laid out like the accounting package's printout the
+// office already files — period heading, one block per customer, bold
+// customer subtotals, grand total, and "Page n of m" on every page.
+export async function generateItemsSoldPdf(
+  opts: {
+    company: { name?: string | null; logo_url?: string | null };
+    report: import("./items-sold-report").ItemsSoldReport;
+    periodLabel: string;
+    printedBy?: string | null;
+  },
+  action: PdfAction = "download",
+) {
+  const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "landscape" });
+  const pageW = doc.internal.pageSize.getWidth();
+  const printedAt = new Date().toLocaleString();
+  let y = await drawLogoHeader(doc, opts.company.logo_url, 40, 130, 60);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(13);
+  doc.text((opts.company.name ?? "Elim Table Water").toUpperCase(), pageW / 2, y, {
+    align: "center",
+  });
+  y += 16;
+  doc.setFontSize(11);
+  doc.text("Items Sold to Customers", pageW / 2, y, { align: "center" });
+  y += 15;
+  doc.text(`For the Period ${opts.periodLabel}`, pageW / 2, y, { align: "center" });
+  y += 13;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.text(
+    "Posted sales only (PR excluded). Report order is by Customer ID, Item." +
+      (opts.printedBy ? `  Printed by: ${opts.printedBy}` : ""),
+    40,
+    y,
+  );
+  y += 8;
+
+  const qty = (n: number) =>
+    new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(
+      n,
+    );
+  type Row = { cells: string[]; kind: "item" | "subtotal" | "total" };
+  const body: Row[] = [];
+  for (const g of opts.report.groups) {
+    g.items.forEach((i, idx) =>
+      body.push({
+        kind: "item",
+        cells: [
+          idx === 0 ? (g.code ?? "") : "",
+          idx === 0 ? g.name : "",
+          i.product,
+          qty(i.quantity),
+          i.unit ?? "",
+          qty(i.amount),
+        ],
+      }),
+    );
+    body.push({ kind: "subtotal", cells: ["", "", "", qty(g.quantity), "", qty(g.amount)] });
+  }
+  body.push({
+    kind: "total",
+    cells: [
+      "",
+      "",
+      `GRAND TOTAL — ${opts.report.groups.length} customer(s)`,
+      qty(opts.report.quantity),
+      "",
+      qty(opts.report.amount),
+    ],
+  });
+
+  autoTable(doc, {
+    startY: y,
+    head: [["Customer ID", "Name", "Item", "Qty", "Stocking U/M", "Amount"]],
+    body: body.map((r) => r.cells),
+    theme: "plain",
+    styles: { font: "helvetica", fontSize: 9, cellPadding: 3 },
+    headStyles: { fontStyle: "bold", lineWidth: { bottom: 0.8 }, lineColor: [0, 0, 0] },
+    columnStyles: {
+      0: { cellWidth: 90 },
+      1: { cellWidth: 180 },
+      3: { halign: "right", cellWidth: 80 },
+      4: { cellWidth: 80 },
+      5: { halign: "right", cellWidth: 110 },
+    },
+    margin: { left: 40, right: 40, top: 40 },
+    didParseCell: (d) => {
+      if (d.section !== "body") return;
+      const kind = body[d.row.index]?.kind;
+      if (kind === "subtotal" || kind === "total") {
+        d.cell.styles.fontStyle = "bold";
+        // Subtotals rule off just the Qty and Amount columns; the grand total spans.
+        const ruled = kind === "total" || d.column.index === 3 || d.column.index === 5;
+        d.cell.styles.lineWidth = { top: ruled ? (kind === "total" ? 1 : 0.5) : 0 };
+        d.cell.styles.lineColor = [0, 0, 0];
+        if (kind === "total") d.cell.styles.fontSize = 10;
+        // Space between customer blocks, like the printout.
+        else d.cell.styles.cellPadding = { top: 3, bottom: 12, left: 3, right: 3 };
+      }
+    },
+  });
+
+  const pages = doc.getNumberOfPages();
+  for (let p = 1; p <= pages; p++) {
+    doc.setPage(p);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.text(printedAt, 40, 24);
+    doc.text(`Page ${p} of ${pages}`, pageW - 40, 24, { align: "right" });
+  }
+
+  if (action === "download") {
+    doc.save(`items-sold-to-customers-${opts.periodLabel.replace(/[^\w-]+/g, "-")}.pdf`);
+  } else {
+    if (action === "print") doc.autoPrint();
+    window.open(doc.output("bloburl"), "_blank");
+  }
+}
+
+// Marketer daily sales sheet: one page (or more) per marketer, Elim logo at the
+// top centre, "NAME (SEP, 2026)" heading, a gridded day-by-day table and a
+// TOTAL line — the layout of the sheet the office already keeps by hand.
+export async function generateMarketerSheetPdf(
+  opts: {
+    company: { name?: string | null; logo_url?: string | null };
+    sheets: import("./marketer-sales-sheet").MarketerSheet[];
+    periodLabel: string;
+    printedBy?: string | null;
+  },
+  action: PdfAction = "download",
+) {
+  const doc = new jsPDF({ unit: "pt", format: "a4" });
+  const pageW = doc.internal.pageSize.getWidth();
+  const logo = await resolveLogo(opts.company.logo_url);
+  const num = (v: number) =>
+    v === 0 ? "-" : new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(v);
+
+  opts.sheets.forEach((s, idx) => {
+    if (idx > 0) doc.addPage();
+    let y = 40;
+    if (logo) {
+      const ratio = Math.min(130 / logo.width, 60 / logo.height, 1);
+      const w = logo.width * ratio,
+        h = logo.height * ratio;
+      doc.addImage(logo.dataUrl, "PNG", pageW / 2 - w / 2, 24, w, h);
+      y = 24 + h + 22;
+    }
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(14);
+    doc.text(`${s.name.toUpperCase()}  (${opts.periodLabel})`, pageW / 2, y, { align: "center" });
+    if (s.code) {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.text(`Marketer ID: ${s.code}`, pageW / 2, y + 13, { align: "center" });
+      y += 13;
+    }
+    autoTable(doc, {
+      startY: y + 10,
+      head: [
+        ["DATE", "TOTAL SALES", "CREDIT SALES", "CASH SALES", "Recovery", "TOTAL CASH REMITTED"],
+      ],
+      body: [
+        ...s.rows.map((r) => [
+          sheetDayLabel(r.day),
+          num(r.total),
+          num(r.credit),
+          num(r.cash),
+          num(r.recovery),
+          num(r.remitted),
+        ]),
+        [
+          "TOTAL",
+          num(s.totals.total),
+          num(s.totals.credit),
+          num(s.totals.cash),
+          num(s.totals.recovery),
+          num(s.totals.remitted),
+        ],
+      ],
+      theme: "grid",
+      styles: {
+        font: "helvetica",
+        fontSize: 9,
+        lineColor: [0, 0, 0],
+        lineWidth: 0.5,
+        textColor: [0, 0, 0],
+        halign: "right",
+      },
+      headStyles: { fillColor: [255, 255, 255], fontStyle: "bold", valign: "bottom" },
+      columnStyles: { 0: { cellWidth: 170 } },
+      margin: { left: 36, right: 36 },
+      didParseCell: (d) => {
+        if (d.column.index === 0 && d.section === "head") d.cell.styles.halign = "left";
+        if (d.section === "body" && d.row.index === s.rows.length) {
+          d.cell.styles.fontStyle = "bold";
+          if (d.column.index === 0) d.cell.styles.halign = "left";
+        }
+      },
+    });
+  });
+
+  const pages = doc.getNumberOfPages();
+  const printedAt = new Date().toLocaleString();
+  for (let p = 1; p <= pages; p++) {
+    doc.setPage(p);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7);
+    const foot = [
+      opts.company.name,
+      `Printed ${printedAt}`,
+      opts.printedBy && `by ${opts.printedBy}`,
+    ]
+      .filter(Boolean)
+      .join("  ·  ");
+    doc.text(foot, 36, doc.internal.pageSize.getHeight() - 18);
+    doc.text(`Page ${p} of ${pages}`, pageW - 36, doc.internal.pageSize.getHeight() - 18, {
+      align: "right",
+    });
+  }
+
+  if (action === "download") {
+    doc.save(`marketer-sales-sheet-${opts.periodLabel.replace(/[^\w-]+/g, "-")}.pdf`);
   } else {
     if (action === "print") doc.autoPrint();
     window.open(doc.output("bloburl"), "_blank");
