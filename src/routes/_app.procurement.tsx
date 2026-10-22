@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useAutofillUserDepartment, useAutofillUserName } from "@/lib/use-current-user";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -871,7 +871,9 @@ function OrdersSection({
   const [createOpen, setCreateOpen] = useState(false);
   const [cancelTarget, setCancelTarget] = useState<PoRow | null>(null);
   const [detailTarget, setDetailTarget] = useState<PoRow | null>(null);
-  const [receiveTarget, setReceiveTarget] = useState<PoRow | null>(null);
+  // Deliveries against a PO are received on the Quality Control page: QC
+  // inspects the stock there and releases only what passes to the Store.
+  const navigate = useNavigate();
 
   const approvedRequests = useQuery({
     queryKey: ["approved-purchase-requests-without-po", factoryId],
@@ -998,8 +1000,10 @@ function OrdersSection({
                           <Button
                             variant="ghost"
                             size="icon"
-                            title="Receive goods"
-                            onClick={() => setReceiveTarget(row)}
+                            title="Receive goods — inspected and released by Quality Control"
+                            onClick={() =>
+                              navigate({ to: "/quality-control", search: { po: row.id } })
+                            }
                           >
                             <PackagePlus className="h-4 w-4 text-success" />
                           </Button>
@@ -1053,17 +1057,6 @@ function OrdersSection({
             candidates={approvedRequests.data ?? []}
             onDone={() => {
               setCreateOpen(false);
-              invalidateAll();
-            }}
-          />
-        )}
-      </Dialog>
-      <Dialog open={!!receiveTarget} onOpenChange={(v) => !v && setReceiveTarget(null)}>
-        {receiveTarget && (
-          <ReceiveDialog
-            row={receiveTarget}
-            onDone={() => {
-              setReceiveTarget(null);
               invalidateAll();
             }}
           />
@@ -1226,111 +1219,6 @@ function CreatePoDialog({
           </Button>
         </DialogFooter>
       )}
-    </DialogContent>
-  );
-}
-
-function ReceiveDialog({ row, onDone }: { row: PoRow; onDone: () => void }) {
-  const outstanding = Number(row.quantity_ordered) - Number(row.quantity_received);
-  const [quantity, setQuantity] = useState(outstanding);
-  const [damagedQuantity, setDamagedQuantity] = useState(0);
-  const [unitCost, setUnitCost] = useState<number | "">(
-    row.unit_cost != null ? Number(row.unit_cost) : "",
-  );
-  const [deliveryReference, setDeliveryReference] = useState("");
-  const [remarks, setRemarks] = useState("");
-  const accepted = Math.max(quantity - damagedQuantity, 0);
-
-  const submit = useMutation({
-    mutationFn: async () => {
-      if (quantity <= 0) throw new Error("Quantity must be > 0");
-      if (quantity > outstanding)
-        throw new Error(
-          `Cannot exceed the ${num(outstanding)} ${row.unit ?? ""} still outstanding`,
-        );
-      if (damagedQuantity < 0 || damagedQuantity > quantity)
-        throw new Error("Damaged quantity must be between 0 and the received quantity");
-      const { error } = await supabase.rpc("submit_goods_receipt", {
-        payload: {
-          purchase_order_id: row.id,
-          quantity,
-          damaged_quantity: damagedQuantity,
-          unit_cost: unitCost === "" ? undefined : unitCost,
-          delivery_reference: deliveryReference || undefined,
-          remarks: remarks || undefined,
-        } as any,
-      });
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      toast.success("Submitted — awaiting confirmation by a different person");
-      onDone();
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
-  return (
-    <DialogContent>
-      <DialogHeader>
-        <DialogTitle>Receive Goods — {row.po_number}</DialogTitle>
-      </DialogHeader>
-      <div className="grid gap-3">
-        <p className="text-xs text-muted-foreground">
-          {row.raw_materials?.name} · {num(outstanding)} {row.unit} outstanding of{" "}
-          {num(Number(row.quantity_ordered))} {row.unit} ordered. Dual control: this only posts to
-          stock once someone else confirms it.
-        </p>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <Label>Quantity received</Label>
-            <MoneyInput
-              min={0.001}
-              max={outstanding}
-              step="0.001"
-              value={quantity}
-              onChange={setQuantity}
-            />
-          </div>
-          <div>
-            <Label>Damaged quantity</Label>
-            <MoneyInput
-              min={0}
-              max={quantity}
-              step="0.001"
-              value={damagedQuantity}
-              onChange={setDamagedQuantity}
-            />
-          </div>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Accepted quantity: {num(accepted)} {row.unit} — only this posts to stock; damaged goes to
-          the damage ledger.
-        </p>
-        <div>
-          <Label>Unit cost</Label>
-          <MoneyInput value={unitCost === "" ? 0 : unitCost} onChange={setUnitCost} />
-        </div>
-        <div>
-          <Label>Delivery reference</Label>
-          <Input
-            value={deliveryReference}
-            onChange={(e) => setDeliveryReference(e.target.value)}
-            placeholder="Waybill / delivery note number"
-          />
-        </div>
-        <div>
-          <Label>Remarks</Label>
-          <Textarea rows={2} value={remarks} onChange={(e) => setRemarks(e.target.value)} />
-        </div>
-      </div>
-      <DialogFooter>
-        <Button
-          disabled={submit.isPending || quantity <= 0 || damagedQuantity > quantity}
-          onClick={() => submit.mutate()}
-        >
-          {submit.isPending ? "Submitting…" : "Submit for Confirmation"}
-        </Button>
-      </DialogFooter>
     </DialogContent>
   );
 }

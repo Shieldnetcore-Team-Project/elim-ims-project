@@ -45,7 +45,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { num } from "@/lib/format";
 import { toast } from "sonner";
-import { ClipboardCheck, Search } from "lucide-react";
+import { ClipboardCheck, PackageCheck, Search } from "lucide-react";
 import { useRealtimeInvalidate } from "@/lib/realtime";
 import { useCurrentUserName } from "@/lib/use-current-user";
 import { AddMaterialDialog, MaterialCombobox } from "@/components/shared/material-picker";
@@ -59,9 +59,16 @@ import { QcJugRegister } from "@/components/qc/jug-register";
 // which posts only the passed quantity to stock. Failed quantity goes to
 // the damage ledger. Dual control still applies -- whoever records the
 // inspection can't be the one who confirms it.
+//
+// Stock material ordered on a purchase order is listed on the Purchase
+// Orders tab; QC inspects each delivery from there and releases the passed
+// quantity to the Store. Procurement's "Receive goods" lands here (?po=).
 export const Route = createFileRoute("/_app/quality-control")({
   head: () => ({
     meta: [{ title: "Quality Control — Elim Table Water" }, { name: "robots", content: "noindex" }],
+  }),
+  validateSearch: (s: Record<string, unknown>): { po?: string } => ({
+    po: typeof s.po === "string" && s.po ? s.po : undefined,
   }),
   component: () => (
     <RequireAccess module="goods-receiving">
@@ -87,6 +94,14 @@ type OpenOrder = {
   quantity_ordered: number;
   quantity_received: number;
   unit_cost: number | null;
+};
+type PoStockRow = OpenOrder & {
+  unit: string | null;
+  status: string;
+  issued_at: string;
+  expected_delivery_date: string | null;
+  raw_materials: { name: string; unit: string } | null;
+  suppliers: { name: string } | null;
 };
 type Inspection = {
   id: string;
@@ -115,17 +130,61 @@ const STATUS_LABELS: Record<
   cancelled: { label: "Cancelled", variant: "outline" },
 };
 
+// Quantity already released by QC against each PO but not yet confirmed by
+// the Store. The PO's quantity_received only moves on confirmation, so this
+// is held back from what QC can still release.
+function usePendingByOrder(factoryId: string | undefined) {
+  return useQuery({
+    queryKey: ["qc-po-pending", factoryId],
+    enabled: !!factoryId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("goods_receipts")
+        .select("purchase_order_id,quantity")
+        .eq("factory_id", factoryId!)
+        .eq("status", "pending_confirmation")
+        .not("purchase_order_id", "is", null);
+      if (error) throw error;
+      const byOrder: Record<string, number> = {};
+      for (const r of data ?? []) {
+        const id = r.purchase_order_id as string;
+        byOrder[id] = (byOrder[id] ?? 0) + Number(r.quantity);
+      }
+      return byOrder;
+    },
+  });
+}
+
 function QualityControlPage() {
   const { data: factoryId } = useFactoryId();
   const qc = useQueryClient();
   const { canSubmit, canCancel } = usePermissions();
   const submit = canSubmit("goods-receiving");
   const cancel = canCancel("goods-receiving");
-  const [open, setOpen] = useState(false);
+  const { po } = Route.useSearch();
+  const navigate = Route.useNavigate();
+  const [open, setOpen] = useState(!!po);
+  const [releaseOrderId, setReleaseOrderId] = useState<string | undefined>(po);
+  const [tab, setTab] = useState("orders");
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("all");
 
-  useRealtimeInvalidate(["goods_receipts"], [["qc-inspections"]]);
+  useRealtimeInvalidate(
+    ["goods_receipts", "purchase_orders"],
+    [["qc-inspections"], ["qc-po-stock"], ["qc-po-pending"], ["qc-open-orders"]],
+  );
+
+  const openDialog = (orderId?: string) => {
+    setReleaseOrderId(orderId);
+    setOpen(true);
+  };
+  const closeDialog = (v: boolean) => {
+    setOpen(v);
+    if (!v) {
+      setReleaseOrderId(undefined);
+      if (po) navigate({ search: {}, replace: true });
+    }
+  };
 
   const inspections = useQuery({
     queryKey: ["qc-inspections", factoryId],
@@ -184,23 +243,26 @@ function QualityControlPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Quality Control</h1>
           <p className="text-sm text-muted-foreground">
-            Inspect supplier deliveries. Passed quantity goes to the Store once it confirms receipt;
-            failed quantity is written off.
+            Inspect stock material ordered on purchase orders and release what passes to the Store.
+            The Store confirms receipt; failed quantity is written off.
           </p>
         </div>
         {submit && (
-          <Dialog open={open} onOpenChange={setOpen}>
+          <Dialog open={open} onOpenChange={closeDialog}>
             <DialogTrigger asChild>
-              <Button className="gap-2">
+              <Button className="gap-2" onClick={() => setReleaseOrderId(undefined)}>
                 <ClipboardCheck className="h-4 w-4" /> Record Inspection
               </Button>
             </DialogTrigger>
             {open && factoryId && (
               <InspectionDialog
                 factoryId={factoryId}
+                initialOrderId={releaseOrderId}
                 onDone={() => {
-                  setOpen(false);
+                  closeDialog(false);
+                  setTab("inspections");
                   qc.invalidateQueries({ queryKey: ["qc-inspections"] });
+                  qc.invalidateQueries({ queryKey: ["qc-po-pending"] });
                   qc.invalidateQueries({ queryKey: ["goods-receipts"] });
                 }}
               />
@@ -209,11 +271,17 @@ function QualityControlPage() {
         )}
       </div>
 
-      <Tabs defaultValue="inspections">
+      <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
+          <TabsTrigger value="orders">Purchase Orders</TabsTrigger>
           <TabsTrigger value="inspections">Inspections</TabsTrigger>
           <TabsTrigger value="jugs">Old &amp; New Jugs</TabsTrigger>
         </TabsList>
+        <TabsContent value="orders">
+          {factoryId && (
+            <PoStockPanel factoryId={factoryId} canRelease={submit} onRelease={openDialog} />
+          )}
+        </TabsContent>
         <TabsContent value="jugs">
           {factoryId && <QcJugRegister factoryId={factoryId} />}
         </TabsContent>
@@ -359,7 +427,154 @@ function QualityControlPage() {
   );
 }
 
-function InspectionDialog({ factoryId, onDone }: { factoryId: string; onDone: () => void }) {
+// Stock material on open purchase orders, waiting for QC. Each delivery is
+// inspected and released from here; what's released but not yet confirmed
+// by the Store shows as "Awaiting store" and can't be released twice.
+function PoStockPanel({
+  factoryId,
+  canRelease,
+  onRelease,
+}: {
+  factoryId: string;
+  canRelease: boolean;
+  onRelease: (orderId: string) => void;
+}) {
+  const [q, setQ] = useState("");
+  const orders = useQuery({
+    queryKey: ["qc-po-stock", factoryId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("purchase_orders")
+        .select(
+          "id,po_number,material_id,supplier_id,quantity_ordered,quantity_received,unit,unit_cost,status,issued_at,expected_delivery_date,raw_materials(name,unit),suppliers(name)",
+        )
+        .eq("factory_id", factoryId)
+        .in("status", ["issued", "partially_received"])
+        .order("issued_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as unknown as PoStockRow[];
+    },
+  });
+  const pending = usePendingByOrder(factoryId);
+
+  const rows = useMemo(() => {
+    const term = q.trim().toLowerCase();
+    return (orders.data ?? []).filter(
+      (r) =>
+        !term ||
+        r.po_number.toLowerCase().includes(term) ||
+        (r.raw_materials?.name ?? "").toLowerCase().includes(term) ||
+        (r.suppliers?.name ?? "").toLowerCase().includes(term),
+    );
+  }, [orders.data, q]);
+
+  return (
+    <Card className="rounded-2xl">
+      <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
+        <div>
+          <CardTitle>Stock material on purchase orders</CardTitle>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Inspect each delivery and release the passed quantity to the Store.
+          </p>
+        </div>
+        <div className="relative">
+          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            className="w-56 pl-8"
+            placeholder="Search PO, material, supplier…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+        </div>
+      </CardHeader>
+      <CardContent className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>PO Number</TableHead>
+              <TableHead>Material</TableHead>
+              <TableHead>Supplier</TableHead>
+              <TableHead>Expected</TableHead>
+              <TableHead className="text-right">Ordered</TableHead>
+              <TableHead className="text-right">In store</TableHead>
+              <TableHead className="text-right">Awaiting store</TableHead>
+              <TableHead className="text-right">To inspect</TableHead>
+              <TableHead />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">
+                  {orders.isLoading
+                    ? "Loading…"
+                    : orders.isError
+                      ? "Couldn't load purchase orders."
+                      : "No open purchase orders waiting for inspection."}
+                </TableCell>
+              </TableRow>
+            )}
+            {rows.map((r) => {
+              const unit = r.unit ?? r.raw_materials?.unit ?? "";
+              const awaiting = pending.data?.[r.id] ?? 0;
+              const toInspect = Math.max(
+                Number(r.quantity_ordered) - Number(r.quantity_received) - awaiting,
+                0,
+              );
+              return (
+                <TableRow key={r.id}>
+                  <TableCell className="font-mono text-xs">{r.po_number}</TableCell>
+                  <TableCell className="font-medium">{r.raw_materials?.name ?? "—"}</TableCell>
+                  <TableCell>{r.suppliers?.name ?? "—"}</TableCell>
+                  <TableCell className="whitespace-nowrap text-xs">
+                    {r.expected_delivery_date
+                      ? new Date(r.expected_delivery_date).toLocaleDateString()
+                      : "—"}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {num(Number(r.quantity_ordered))} {unit}
+                  </TableCell>
+                  <TableCell className="text-right">{num(Number(r.quantity_received))}</TableCell>
+                  <TableCell className="text-right">
+                    {awaiting > 0 ? <Badge variant="secondary">{num(awaiting)}</Badge> : "0"}
+                  </TableCell>
+                  <TableCell className="text-right font-semibold">{num(toInspect)}</TableCell>
+                  <TableCell>
+                    {canRelease && (
+                      <Button
+                        size="sm"
+                        className="gap-1.5"
+                        disabled={toInspect <= 0}
+                        title={
+                          toInspect <= 0
+                            ? "Everything on this PO is already released — waiting for the Store"
+                            : undefined
+                        }
+                        onClick={() => onRelease(r.id)}
+                      >
+                        <PackageCheck className="h-4 w-4" /> Inspect &amp; Release
+                      </Button>
+                    )}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
+
+function InspectionDialog({
+  factoryId,
+  initialOrderId,
+  onDone,
+}: {
+  factoryId: string;
+  initialOrderId?: string;
+  onDone: () => void;
+}) {
   const { canSubmit } = usePermissions();
   const qc = useQueryClient();
   // Whoever can record an inspection can also add a material that isn't in
@@ -434,6 +649,14 @@ function InspectionDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUserName.data]);
 
+  const pending = usePendingByOrder(factoryId);
+  // Opened from a purchase order: preselect it once the open orders load.
+  useEffect(() => {
+    if (initialOrderId && orderId === "none" && orders.data?.some((o) => o.id === initialOrderId))
+      pickOrder(initialOrderId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialOrderId, orders.data]);
+
   const order = (orders.data ?? []).find((o) => o.id === orderId);
   const material = allMaterials.find((m) => m.id === materialId);
   // Preforms are received in bags (stock is kept in pieces). A preform with
@@ -442,7 +665,12 @@ function InspectionDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
   const perBag = material ? (savedPerBag[material.id] ?? material.pieces_per_bag ?? null) : null;
   const needsBagSize = !!material && isPreform(material.name) && !perBag;
   const outstanding = order
-    ? Number(order.quantity_ordered) - Number(order.quantity_received)
+    ? Math.max(
+        Number(order.quantity_ordered) -
+          Number(order.quantity_received) -
+          (pending.data?.[order.id] ?? 0),
+        0,
+      )
     : null;
   const passed = Math.max(quantity - failedQuantity, 0);
 
@@ -469,7 +697,9 @@ function InspectionDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
       if (failedQuantity < 0 || failedQuantity > quantity)
         throw new Error("Failed quantity must be between 0 and the delivered quantity");
       if (outstanding != null && quantity > outstanding)
-        throw new Error(`Only ${num(outstanding)} is still outstanding on this purchase order`);
+        throw new Error(
+          `Only ${num(outstanding)} is still to be inspected on this purchase order (the rest is released and awaiting the Store)`,
+        );
       if (!inspectedBy.trim()) throw new Error("Enter the inspector's name");
       const remarks = [`QC inspected by ${inspectedBy.trim()}`, notes.trim()]
         .filter(Boolean)
@@ -489,7 +719,7 @@ function InspectionDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
       if (error) throw error;
     },
     onSuccess: () => {
-      toast.success("Inspection recorded — sent to the Store for confirmation");
+      toast.success("Inspected and released — awaiting Store confirmation");
       onDone();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -498,7 +728,9 @@ function InspectionDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
   return (
     <DialogContent className="max-h-[90vh] overflow-y-auto">
       <DialogHeader>
-        <DialogTitle>Record Inspection</DialogTitle>
+        <DialogTitle>
+          {order ? `Inspect & Release — ${order.po_number}` : "Record Inspection"}
+        </DialogTitle>
       </DialogHeader>
       <div className="grid gap-3">
         {(orders.data ?? []).length > 0 && (
@@ -514,7 +746,15 @@ function InspectionDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
                   <SelectItem key={o.id} value={o.id}>
                     {o.po_number} ·{" "}
                     {allMaterials.find((m) => m.id === o.material_id)?.name ?? "Material"} ·{" "}
-                    {num(Number(o.quantity_ordered) - Number(o.quantity_received))} outstanding
+                    {num(
+                      Math.max(
+                        Number(o.quantity_ordered) -
+                          Number(o.quantity_received) -
+                          (pending.data?.[o.id] ?? 0),
+                        0,
+                      ),
+                    )}{" "}
+                    to inspect
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -577,7 +817,7 @@ function InspectionDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
         <p className="text-xs text-muted-foreground">
           Passed: <BagQty value={passed} unit={material?.unit} perBag={perBag} bagsFirst /> Only
           this goes into the Store. Failed quantity is written off to the damage ledger.
-          {outstanding != null && ` ${num(outstanding)} outstanding on this PO.`}
+          {outstanding != null && ` ${num(outstanding)} still to inspect on this PO.`}
         </p>
         <div className="grid grid-cols-2 gap-3">
           <CostPerBagInput
@@ -624,7 +864,7 @@ function InspectionDialog({ factoryId, onDone }: { factoryId: string; onDone: ()
           }
           onClick={() => save.mutate()}
         >
-          {save.isPending ? "Submitting…" : "Send to Store"}
+          {save.isPending ? "Releasing…" : "Release to Store"}
         </Button>
       </DialogFooter>
 
