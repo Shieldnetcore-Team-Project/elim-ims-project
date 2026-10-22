@@ -700,12 +700,12 @@ function IssuesCard({ factoryId, materialId }: { factoryId: string; materialId: 
         <div>
           <CardTitle>Issues to production (last 12 months)</CardTitle>
           <p className="text-sm text-muted-foreground">
-            The operator acknowledges each issue on the Preform Blowing page.
+            QC accepts each issue on the Quality Control page (Good bottles).
           </p>
         </div>
         <Button variant="outline" size="sm" asChild>
-          <Link to="/preform-production" search={{ tab: "issues" }}>
-            Open Preform Blowing
+          <Link to="/preform-inventory" search={{ tab: "issues" }}>
+            Issue preforms
           </Link>
         </Button>
       </CardHeader>

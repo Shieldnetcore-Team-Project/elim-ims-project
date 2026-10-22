@@ -45,6 +45,7 @@ import {
   Plus,
   PackagePlus,
   PackageMinus,
+  RefreshCw,
   SlidersHorizontal,
   Printer,
   Pencil,
@@ -463,18 +464,6 @@ function RawMaterialsPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const toggleActive = useMutation({
-    mutationFn: async (m: Material) => {
-      const { error } = await supabase
-        .from("raw_materials")
-        .update({ active: !m.active })
-        .eq("id", m.id);
-      if (error) throw error;
-    },
-    onSuccess: () => invalidateAll(),
-    onError: (e: Error) => toast.error(e.message),
-  });
-
   const approveMaterial = useMutation({
     mutationFn: async (id: string) => {
       const { error } = await supabase.rpc("approve_new_material", { p_id: id });
@@ -751,10 +740,18 @@ function RawMaterialsPage() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              title="Submit Goods Receipt"
+                              title={
+                                confirmReceipt_
+                                  ? "Restock — goods supplied by a supplier"
+                                  : "Submit Goods Receipt"
+                              }
                               onClick={() => setReceiveTarget(m)}
                             >
-                              <PackagePlus className="h-4 w-4 text-success" />
+                              {confirmReceipt_ ? (
+                                <RefreshCw className="h-4 w-4 text-success" />
+                              ) : (
+                                <PackagePlus className="h-4 w-4 text-success" />
+                              )}
                             </Button>
                             <Button
                               variant="ghost"
@@ -808,14 +805,6 @@ function RawMaterialsPage() {
                               }}
                             >
                               <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              title={m.active ? "Deactivate" : "Activate"}
-                              onClick={() => toggleActive.mutate(m)}
-                            >
-                              {m.active ? "Deactivate" : "Activate"}
                             </Button>
                           </>
                         )}
@@ -1577,6 +1566,13 @@ function ReceiveDialog({
 }) {
   const { data: factoryId } = useFactoryId();
   const qc = useQueryClient();
+  // The Store (goods-receiving confirm) restocks supplier deliveries straight
+  // into stock (20261022110000_store_restock.sql); anyone else submits the
+  // receipt for a different person to confirm.
+  const { canConfirm } = usePermissions();
+  const restock = canConfirm("goods-receiving");
+  // One key per dialog: a double click restocks once.
+  const [clientRef] = useState(() => crypto.randomUUID());
   // Preforms are received in bags; one with no bag size sets it here first.
   const [perBag, setPerBag] = useState<number | null>(material.pieces_per_bag);
   const needsBagSize = isPreform(material.name) && !perBag;
@@ -1594,21 +1590,31 @@ function ReceiveDialog({
       if (quantity <= 0) throw new Error("Quantity must be > 0");
       if (damagedQuantity < 0 || damagedQuantity > quantity)
         throw new Error("Damaged quantity must be between 0 and the received quantity");
-      const { error } = await supabase.rpc("submit_goods_receipt", {
-        payload: {
-          material_id: material.id,
-          quantity,
-          damaged_quantity: damagedQuantity,
-          unit_cost: unitCost,
-          supplier_id: supplierId === "none" ? null : supplierId,
-          delivery_reference: deliveryReference || null,
-          remarks: remarks || null,
-        } as any,
-      });
+      const payload = {
+        material_id: material.id,
+        quantity,
+        damaged_quantity: damagedQuantity,
+        unit_cost: unitCost,
+        supplier_id: supplierId === "none" ? null : supplierId,
+        delivery_reference: deliveryReference || null,
+        remarks: remarks || null,
+      };
+      const { error } = restock
+        ? // eslint-disable-next-line @typescript-eslint/no-explicit-any -- function newer than the generated types
+          await (supabase.rpc as any)("restock_raw_material", {
+            payload: { ...payload, client_ref: clientRef },
+          })
+        : await supabase.rpc("submit_goods_receipt", { payload: payload as any });
       if (error) throw error;
     },
     onSuccess: () => {
-      toast.success("Submitted — awaiting confirmation by a different person");
+      if (restock) {
+        toast.success("Restocked — stock updated");
+        qc.invalidateQueries({ queryKey: ["raw-materials-list"] });
+        qc.invalidateQueries({ queryKey: ["goods-receipts"] });
+      } else {
+        toast.success("Submitted — awaiting confirmation by a different person");
+      }
       onDone();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -1617,7 +1623,9 @@ function ReceiveDialog({
   return (
     <DialogContent>
       <DialogHeader>
-        <DialogTitle>Submit Goods Receipt — {material.name}</DialogTitle>
+        <DialogTitle>
+          {restock ? "Restock" : "Submit Goods Receipt"} — {material.name}
+        </DialogTitle>
       </DialogHeader>
       <div className="grid gap-3">
         {onBack && <BackToPicker onBack={onBack} />}
@@ -1629,7 +1637,9 @@ function ReceiveDialog({
             perBag={perBag}
             bagsFirst
           />
-          Dual control: this only posts to stock once someone else confirms it.
+          {restock
+            ? " Enter what the supplier delivered; stock updates as soon as you restock."
+            : " Dual control: this only posts to stock once someone else confirms it."}
         </p>
         {needsBagSize && (
           <BagSizeSetup
@@ -1710,7 +1720,7 @@ function ReceiveDialog({
           disabled={submit.isPending || needsBagSize || quantity <= 0 || damagedQuantity > quantity}
           onClick={() => submit.mutate()}
         >
-          {submit.isPending ? "Submitting…" : "Submit for Confirmation"}
+          {submit.isPending ? "Saving…" : restock ? "Restock" : "Submit for Confirmation"}
         </Button>
       </DialogFooter>
     </DialogContent>

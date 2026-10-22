@@ -356,7 +356,7 @@ function PageRow({
           )}
           {decision === false && (
             <Badge variant="destructive" className="text-[10px]">
-              Hidden
+              Blocked
             </Badge>
           )}
         </div>

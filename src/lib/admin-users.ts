@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import type { Database } from "@/integrations/supabase/types";
+import { applyDefaultPageAccess } from "@/lib/page-access";
 
 // Creating a login credential needs the Supabase Admin API, which needs the
 // service-role/secret key. That key must never reach the browser, so this runs
@@ -145,6 +146,16 @@ export const adminCreateUser = createServerFn({ method: "POST" })
       // Don't leave a usable credential attached to a half-built account.
       await admin.auth.admin.deleteUser(created.user.id);
       return { ok: false, error: provisionError.message };
+    }
+
+    // A new account starts with only its department's page(s); the admin
+    // grants more in Page access. Without it the account would get every page
+    // its role allows, so a failure undoes the account like the step above.
+    try {
+      await applyDefaultPageAccess(supabase, created.user.id, data.department, data.role);
+    } catch (e) {
+      await admin.auth.admin.deleteUser(created.user.id);
+      return { ok: false, error: e instanceof Error ? e.message : "Could not set page access" };
     }
 
     return { ok: true, id: created.user.id, email: data.email };

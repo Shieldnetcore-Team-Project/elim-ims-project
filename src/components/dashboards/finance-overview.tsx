@@ -22,6 +22,8 @@ import {
 } from "@/lib/metric-queries";
 import { exportCsv } from "@/lib/export";
 import { CustomerAccountsCard } from "@/components/dashboards/customer-accounts";
+import { MonthlySalesCard } from "@/components/dashboards/monthly-sales";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -361,316 +363,329 @@ export function FinanceOverview({ factoryId }: { factoryId: string }) {
         hint="Cash position by period and payment channel, receivables, and commitments — the single view across every finance page."
       />
 
-      <Card className="rounded-2xl">
-        <CardContent className="flex flex-wrap items-end gap-3 p-4">
-          <div className="flex flex-wrap gap-2">
-            {PRESETS.map((p) => (
-              <Button
-                key={p.key}
-                size="sm"
-                variant={preset === p.key ? "default" : "outline"}
-                onClick={() => applyPreset(p)}
-              >
-                {p.label}
-              </Button>
-            ))}
-          </div>
-          <div>
-            <Label className="text-xs">From</Label>
-            <Input
-              type="date"
-              value={from}
-              max={to}
-              onChange={(e) => {
-                setPreset("custom");
-                setFrom(e.target.value);
-              }}
+      <Tabs defaultValue="overview" className="space-y-6">
+        <TabsList className="flex-wrap">
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="monthly-sales">Monthly accumulated sales</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="overview" className="space-y-6">
+          <Card className="rounded-2xl">
+            <CardContent className="flex flex-wrap items-end gap-3 p-4">
+              <div className="flex flex-wrap gap-2">
+                {PRESETS.map((p) => (
+                  <Button
+                    key={p.key}
+                    size="sm"
+                    variant={preset === p.key ? "default" : "outline"}
+                    onClick={() => applyPreset(p)}
+                  >
+                    {p.label}
+                  </Button>
+                ))}
+              </div>
+              <div>
+                <Label className="text-xs">From</Label>
+                <Input
+                  type="date"
+                  value={from}
+                  max={to}
+                  onChange={(e) => {
+                    setPreset("custom");
+                    setFrom(e.target.value);
+                  }}
+                />
+              </div>
+              <div>
+                <Label className="text-xs">To</Label>
+                <Input
+                  type="date"
+                  value={to}
+                  min={from}
+                  onChange={(e) => {
+                    setPreset("custom");
+                    setTo(e.target.value);
+                  }}
+                />
+              </div>
+              {!validRange && (
+                <p className="text-xs text-destructive">"From" must be on or before "To".</p>
+              )}
+            </CardContent>
+          </Card>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <KPI
+              icon={TrendingUp}
+              label="Sales Revenue"
+              value={money(revenue.data)}
+              hint="Approved invoices in the period"
+              tone="success"
+            />
+            <KPI
+              icon={Wallet}
+              label="Total In Flow"
+              value={money(moneyIn)}
+              hint="Payments received + other receipts"
+              tone="success"
+            />
+            <KPI
+              icon={TrendingDown}
+              label="Total Out Flow"
+              value={money(moneyOut)}
+              hint="Approved expenses + salaries paid + other payments"
+              tone="destructive"
+            />
+            <KPI
+              icon={Landmark}
+              label="Net Cash Flow"
+              value={money(netCashFlow)}
+              hint="In flow minus out flow"
+              tone={netCashFlow >= 0 ? "success" : "destructive"}
+            />
+            <KPI
+              icon={ShoppingBag}
+              label="Outstanding Receivables"
+              value={money(outstandingReceivables.data)}
+              hint="Owed to us, unpaid debts (all time)"
+              tone="warning"
+            />
+            <KPI
+              icon={FileStack}
+              label="Open Purchase Commitments"
+              value={money(openPoCommitment.data)}
+              hint="Issued POs still awaiting delivery"
+            />
+            <KPI
+              icon={CheckSquare}
+              label="Pending Approvals"
+              value={String(pending.total)}
+              hint="Waiting on you"
+              tone={pending.total > 0 ? "warning" : "success"}
+            />
+            <KPI
+              icon={Undo2}
+              label="Returns Awaiting Inspection"
+              value={String(pendingReturnsCount.data ?? 0)}
+              tone={(pendingReturnsCount.data ?? 0) > 0 ? "warning" : "success"}
             />
           </div>
-          <div>
-            <Label className="text-xs">To</Label>
-            <Input
-              type="date"
-              value={to}
-              min={from}
-              onChange={(e) => {
-                setPreset("custom");
-                setTo(e.target.value);
-              }}
-            />
-          </div>
-          {!validRange && (
-            <p className="text-xs text-destructive">"From" must be on or before "To".</p>
-          )}
-        </CardContent>
-      </Card>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <KPI
-          icon={TrendingUp}
-          label="Sales Revenue"
-          value={money(revenue.data)}
-          hint="Approved invoices in the period"
-          tone="success"
-        />
-        <KPI
-          icon={Wallet}
-          label="Total In Flow"
-          value={money(moneyIn)}
-          hint="Payments received + other receipts"
-          tone="success"
-        />
-        <KPI
-          icon={TrendingDown}
-          label="Total Out Flow"
-          value={money(moneyOut)}
-          hint="Approved expenses + salaries paid + other payments"
-          tone="destructive"
-        />
-        <KPI
-          icon={Landmark}
-          label="Net Cash Flow"
-          value={money(netCashFlow)}
-          hint="In flow minus out flow"
-          tone={netCashFlow >= 0 ? "success" : "destructive"}
-        />
-        <KPI
-          icon={ShoppingBag}
-          label="Outstanding Receivables"
-          value={money(outstandingReceivables.data)}
-          hint="Owed to us, unpaid debts (all time)"
-          tone="warning"
-        />
-        <KPI
-          icon={FileStack}
-          label="Open Purchase Commitments"
-          value={money(openPoCommitment.data)}
-          hint="Issued POs still awaiting delivery"
-        />
-        <KPI
-          icon={CheckSquare}
-          label="Pending Approvals"
-          value={String(pending.total)}
-          hint="Waiting on you"
-          tone={pending.total > 0 ? "warning" : "success"}
-        />
-        <KPI
-          icon={Undo2}
-          label="Returns Awaiting Inspection"
-          value={String(pendingReturnsCount.data ?? 0)}
-          tone={(pendingReturnsCount.data ?? 0) > 0 ? "warning" : "success"}
-        />
-      </div>
-
-      <Card className="rounded-2xl">
-        <CardHeader>
-          <CardTitle>Payment channels</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            Where the money moved — {from} to {to}. Select a channel to see its records.
-          </p>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          {failed && (
-            <p className="text-sm text-destructive">Could not load some payment records.</p>
-          )}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {channelKeys.map((k) => {
-              const c = byChannel[k];
-              const active = channelFilter === k;
-              return (
-                <button
-                  key={k}
-                  type="button"
-                  onClick={() => setChannelFilter(active ? "all" : k)}
-                  className={`rounded-xl border p-4 text-left transition-colors hover:bg-muted/40 ${
-                    active ? "border-primary bg-primary/5" : ""
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">{channelLabel(k)}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {c.count} record{c.count === 1 ? "" : "s"}
-                    </span>
-                  </div>
-                  <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
-                    <div>
-                      <div className="text-xs text-muted-foreground">In</div>
-                      <div className="font-semibold text-success">{money(c.in)}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-muted-foreground">Out</div>
-                      <div className="font-semibold text-destructive">{money(c.out)}</div>
-                    </div>
-                  </div>
-                  <div className="mt-2 text-xs text-muted-foreground">
-                    Net {money(c.in - c.out)}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="w-44">
-              <Label className="text-xs">Channel</Label>
-              <Select value={channelFilter} onValueChange={setChannelFilter}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All channels</SelectItem>
-                  {channelKeys.map((k) => (
-                    <SelectItem key={k} value={k}>
-                      {channelLabel(k)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="w-40">
-              <Label className="text-xs">Direction</Label>
-              <Select
-                value={directionFilter}
-                onValueChange={(v) => setDirectionFilter(v as typeof directionFilter)}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">In &amp; out</SelectItem>
-                  <SelectItem value="in">Money in</SelectItem>
-                  <SelectItem value="out">Money out</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="ml-auto flex items-center gap-4 text-sm">
-              <span>
-                In <strong className="text-success">{money(visibleIn)}</strong>
-              </span>
-              <span>
-                Out <strong className="text-destructive">{money(visibleOut)}</strong>
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                disabled={visible.length === 0}
-                onClick={exportRecords}
-              >
-                <FileDown className="h-4 w-4" /> CSV
-              </Button>
-            </div>
-          </div>
-
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Date</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Reference</TableHead>
-                <TableHead>Customer / Payee</TableHead>
-                <TableHead>Channel</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {loading ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground">
-                    Loading…
-                  </TableCell>
-                </TableRow>
-              ) : visible.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground">
-                    No records for this selection.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                visible.slice(0, ROW_CAP).map((t) => (
-                  <TableRow key={t.key}>
-                    <TableCell className="whitespace-nowrap">{t.date || "—"}</TableCell>
-                    <TableCell>{t.source}</TableCell>
-                    <TableCell>{t.reference}</TableCell>
-                    <TableCell>{t.party}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{channelLabel(t.channel)}</Badge>
-                    </TableCell>
-                    <TableCell
-                      className={`text-right font-medium ${
-                        t.direction === "in" ? "text-success" : "text-destructive"
+          <Card className="rounded-2xl">
+            <CardHeader>
+              <CardTitle>Payment channels</CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Where the money moved — {from} to {to}. Select a channel to see its records.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              {failed && (
+                <p className="text-sm text-destructive">Could not load some payment records.</p>
+              )}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {channelKeys.map((k) => {
+                  const c = byChannel[k];
+                  const active = channelFilter === k;
+                  return (
+                    <button
+                      key={k}
+                      type="button"
+                      onClick={() => setChannelFilter(active ? "all" : k)}
+                      className={`rounded-xl border p-4 text-left transition-colors hover:bg-muted/40 ${
+                        active ? "border-primary bg-primary/5" : ""
                       }`}
                     >
-                      {t.direction === "in" ? "+" : "−"}
-                      {money(t.amount)}
-                    </TableCell>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium">{channelLabel(k)}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {c.count} record{c.count === 1 ? "" : "s"}
+                        </span>
+                      </div>
+                      <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
+                        <div>
+                          <div className="text-xs text-muted-foreground">In</div>
+                          <div className="font-semibold text-success">{money(c.in)}</div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-muted-foreground">Out</div>
+                          <div className="font-semibold text-destructive">{money(c.out)}</div>
+                        </div>
+                      </div>
+                      <div className="mt-2 text-xs text-muted-foreground">
+                        Net {money(c.in - c.out)}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="flex flex-wrap items-end gap-3">
+                <div className="w-44">
+                  <Label className="text-xs">Channel</Label>
+                  <Select value={channelFilter} onValueChange={setChannelFilter}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All channels</SelectItem>
+                      {channelKeys.map((k) => (
+                        <SelectItem key={k} value={k}>
+                          {channelLabel(k)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="w-40">
+                  <Label className="text-xs">Direction</Label>
+                  <Select
+                    value={directionFilter}
+                    onValueChange={(v) => setDirectionFilter(v as typeof directionFilter)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">In &amp; out</SelectItem>
+                      <SelectItem value="in">Money in</SelectItem>
+                      <SelectItem value="out">Money out</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="ml-auto flex items-center gap-4 text-sm">
+                  <span>
+                    In <strong className="text-success">{money(visibleIn)}</strong>
+                  </span>
+                  <span>
+                    Out <strong className="text-destructive">{money(visibleOut)}</strong>
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                    disabled={visible.length === 0}
+                    onClick={exportRecords}
+                  >
+                    <FileDown className="h-4 w-4" /> CSV
+                  </Button>
+                </div>
+              </div>
+
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Reference</TableHead>
+                    <TableHead>Customer / Payee</TableHead>
+                    <TableHead>Channel</TableHead>
+                    <TableHead className="text-right">Amount</TableHead>
                   </TableRow>
-                ))
+                </TableHeader>
+                <TableBody>
+                  {loading ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center text-muted-foreground">
+                        Loading…
+                      </TableCell>
+                    </TableRow>
+                  ) : visible.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center text-muted-foreground">
+                        No records for this selection.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    visible.slice(0, ROW_CAP).map((t) => (
+                      <TableRow key={t.key}>
+                        <TableCell className="whitespace-nowrap">{t.date || "—"}</TableCell>
+                        <TableCell>{t.source}</TableCell>
+                        <TableCell>{t.reference}</TableCell>
+                        <TableCell>{t.party}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{channelLabel(t.channel)}</Badge>
+                        </TableCell>
+                        <TableCell
+                          className={`text-right font-medium ${
+                            t.direction === "in" ? "text-success" : "text-destructive"
+                          }`}
+                        >
+                          {t.direction === "in" ? "+" : "−"}
+                          {money(t.amount)}
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+              {visible.length > ROW_CAP && (
+                <p className="text-xs text-muted-foreground">
+                  Showing the latest {ROW_CAP} of {visible.length} records — totals above cover all
+                  of them; export CSV for the full list.
+                </p>
               )}
-            </TableBody>
-          </Table>
-          {visible.length > ROW_CAP && (
-            <p className="text-xs text-muted-foreground">
-              Showing the latest {ROW_CAP} of {visible.length} records — totals above cover all of
-              them; export CSV for the full list.
-            </p>
-          )}
-        </CardContent>
-      </Card>
+            </CardContent>
+          </Card>
 
-      <CustomerAccountsCard factoryId={factoryId} />
+          <CustomerAccountsCard factoryId={factoryId} />
 
-      <Card className="rounded-2xl">
-        <CardHeader>
-          <CardTitle>Go to</CardTitle>
-        </CardHeader>
-        <CardContent className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          {links.map((l) => (
-            <Button
-              key={l.to}
-              variant="outline"
-              className="h-auto justify-start gap-2 py-3"
-              asChild
-            >
-              <Link to={l.to}>
-                <l.icon className="h-4 w-4 shrink-0" />
-                <span className="flex-1 text-left">{l.label}</span>
-                <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              </Link>
-            </Button>
-          ))}
-        </CardContent>
-      </Card>
-
-      <Card className="rounded-2xl">
-        <CardHeader>
-          <CardTitle>Recent sales returns</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {(recentReturns.data?.length ?? 0) === 0 ? (
-            <p className="text-sm text-muted-foreground">No sales returns logged yet.</p>
-          ) : (
-            <ul className="divide-y">
-              {recentReturns.data!.map((r: any) => (
-                <li key={r.id} className="flex items-center justify-between py-2.5 text-sm">
-                  <div>
-                    <div className="font-medium">
-                      {r.return_number} · {r.products?.name ?? "—"}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      {r.customers?.name ?? "—"} · returned {r.quantity_returned}
-                      {r.status === "completed"
-                        ? ` (accepted ${r.accepted_quantity ?? 0}, damaged ${r.damaged_quantity}, rejected ${r.rejected_quantity})`
-                        : " — awaiting inspection"}
-                    </div>
-                  </div>
-                  <span className="text-xs uppercase text-muted-foreground">{r.status}</span>
-                </li>
+          <Card className="rounded-2xl">
+            <CardHeader>
+              <CardTitle>Go to</CardTitle>
+            </CardHeader>
+            <CardContent className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              {links.map((l) => (
+                <Button
+                  key={l.to}
+                  variant="outline"
+                  className="h-auto justify-start gap-2 py-3"
+                  asChild
+                >
+                  <Link to={l.to}>
+                    <l.icon className="h-4 w-4 shrink-0" />
+                    <span className="flex-1 text-left">{l.label}</span>
+                    <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  </Link>
+                </Button>
               ))}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-2xl">
+            <CardHeader>
+              <CardTitle>Recent sales returns</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {(recentReturns.data?.length ?? 0) === 0 ? (
+                <p className="text-sm text-muted-foreground">No sales returns logged yet.</p>
+              ) : (
+                <ul className="divide-y">
+                  {recentReturns.data!.map((r: any) => (
+                    <li key={r.id} className="flex items-center justify-between py-2.5 text-sm">
+                      <div>
+                        <div className="font-medium">
+                          {r.return_number} · {r.products?.name ?? "—"}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {r.customers?.name ?? "—"} · returned {r.quantity_returned}
+                          {r.status === "completed"
+                            ? ` (accepted ${r.accepted_quantity ?? 0}, damaged ${r.damaged_quantity}, rejected ${r.rejected_quantity})`
+                            : " — awaiting inspection"}
+                        </div>
+                      </div>
+                      <span className="text-xs uppercase text-muted-foreground">{r.status}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="monthly-sales">
+          <MonthlySalesCard factoryId={factoryId} />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

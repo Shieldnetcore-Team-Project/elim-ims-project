@@ -584,3 +584,109 @@ BEGIN
   PERFORM pg_temp.check((SELECT pieces_per_bag FROM raw_materials WHERE id = 'd1000000-0000-0000-0000-000000000003') = 1600,
                         'a manager can change it with a reason');
 END $$;
+
+-- @@ Test 21: QC stocks good bottles in and sends them to production, but gets no Store rights (20261022090000)
+DO $$
+DECLARE v jsonb; v_rec uuid; v_issue uuid; e text; v_before numeric;
+BEGIN
+  -- Operator 4: the Store issues 1 bag, the operator accepts it, blows 500 good; QC approves all.
+  PERFORM pg_temp.as_user('2');
+  v := public.issue_preforms(jsonb_build_object('material_id', 'd1000000-0000-0000-0000-000000000001',
+         'operator_id', 'a1000000-0000-0000-0000-000000000004', 'bags', 1));
+  v_issue := (v->>'id')::uuid;
+  PERFORM pg_temp.as_user('4');
+  PERFORM public.respond_preform_issue(v_issue, true);
+  v := public.save_preform_shift(jsonb_build_object('material_id', 'd1000000-0000-0000-0000-000000000001',
+         'production_date', public._pf_today(), 'shift', 'night', 'good_bottles', 500));
+  v_rec := (v->>'id')::uuid;
+  PERFORM public.submit_preform_shift(v_rec);
+  PERFORM pg_temp.as_user('5');
+  PERFORM public.inspect_preform_shift(v_rec, 'approved', 500, 0);
+
+  -- The operator sends 500; QC counts them in.
+  PERFORM pg_temp.as_user('4');
+  v := public.send_preform_stocking(v_rec, 500);
+  v_before := pg_temp.bottles();
+  PERFORM pg_temp.as_user('5');
+  PERFORM public.accept_preform_stocking((v->>'id')::uuid, 500);
+  PERFORM pg_temp.check(pg_temp.bottles() = v_before + 500, 'QC stocked 500 in');
+  PERFORM pg_temp.check((SELECT status FROM preform_shift_records WHERE id = v_rec) = 'completed', 'record completed');
+
+  -- QC sends to production, and may cancel a transfer not yet received.
+  v := public.dispatch_bottle_transfer('{"product_id":"e1000000-0000-0000-0000-000000000001","quantity":200,"to_department":"PM"}');
+  PERFORM pg_temp.check(pg_temp.bottles() = v_before + 300, 'QC dispatched 200 to PM');
+  PERFORM public.cancel_bottle_transfer((v->>'id')::uuid, 'Wrong line');
+  PERFORM pg_temp.check(pg_temp.bottles() = v_before + 500, 'cancelled transfer returns stock');
+  v := public.dispatch_bottle_transfer('{"product_id":"e1000000-0000-0000-0000-000000000001","quantity":200,"to_department":"PM"}');
+  e := pg_temp.err(format('SELECT public.receive_bottle_transfer(%L, 200)', (v->>'id')));
+  PERFORM pg_temp.check(e LIKE '%Insufficient permissions%' OR e LIKE '%someone other than%', 'QC cannot receive its own dispatch');
+  PERFORM pg_temp.as_user('6');
+  PERFORM public.receive_bottle_transfer((v->>'id')::uuid, 200);
+
+  -- No Store powers: QC cannot issue preforms or withdraw a Store issue.
+  PERFORM pg_temp.as_user('2');
+  v := public.issue_preforms(jsonb_build_object('material_id', 'd1000000-0000-0000-0000-000000000001',
+         'operator_id', 'a1000000-0000-0000-0000-000000000004', 'bags', 1));
+  PERFORM pg_temp.as_user('5');
+  e := pg_temp.err($q$SELECT public.issue_preforms('{"material_id":"d1000000-0000-0000-0000-000000000001","operator_id":"a1000000-0000-0000-0000-000000000004","bags":1}')$q$);
+  PERFORM pg_temp.check(e LIKE '%Insufficient permissions%', 'QC cannot issue preforms: ' || COALESCE(e, 'no error'));
+  e := pg_temp.err(format('SELECT public.cancel_preform_issue(%L, %L)', (v->>'id'), 'test'));
+  PERFORM pg_temp.check(e LIKE '%Insufficient permissions%', 'QC cannot withdraw a Store issue: ' || COALESCE(e, 'no error'));
+END $$;
+
+-- @@ Test 22: QC records her own blowing; good bottles go straight into stock, damage is recorded only (20261022100000)
+DO $$
+DECLARE v jsonb; v_rec uuid; e text; v_before numeric; r record;
+BEGIN
+  -- The Store issues QC a bag; she accepts it.
+  PERFORM pg_temp.as_user('2');
+  PERFORM pg_temp.check(EXISTS (SELECT 1 FROM public.preform_operators('f1000000-0000-0000-0000-000000000001')
+                                 WHERE id = 'a1000000-0000-0000-0000-000000000005'), 'QC is on the blowing line');
+  v := public.issue_preforms(jsonb_build_object('material_id', 'd1000000-0000-0000-0000-000000000001',
+         'operator_id', 'a1000000-0000-0000-0000-000000000005', 'bags', 1));
+  PERFORM pg_temp.as_user('5');
+  PERFORM public.respond_preform_issue((v->>'id')::uuid, true);
+
+  -- She records 900 good, 40 damaged preforms, 60 damaged bottles and submits.
+  v := public.save_preform_shift(jsonb_build_object('material_id', 'd1000000-0000-0000-0000-000000000001',
+         'production_date', public._pf_today(), 'shift', 'day', 'good_bottles', 900,
+         'damaged_preforms', 40, 'damaged_bottles', 60));
+  v_rec := (v->>'id')::uuid;
+  v_before := pg_temp.bottles();
+  v := public.submit_preform_shift(v_rec);
+  PERFORM pg_temp.check(v->>'status' = 'completed' AND (v->>'stocked')::numeric = 900, 'completed and stocked at once: ' || v::text);
+  PERFORM pg_temp.check(pg_temp.bottles() = v_before + 900, 'only the 900 good bottles entered stock');
+  SELECT * INTO r FROM preform_shift_records WHERE id = v_rec;
+  PERFORM pg_temp.check(r.qc_good = 900 AND r.qc_rejected = 0 AND r.usage_qty = 1000
+                        AND r.damaged_preforms = 40 AND r.damaged_bottles = 60, 'damage recorded on the shift, usage 1000');
+  PERFORM pg_temp.check(public._pf_remaining_to_stock(v_rec) = 0, 'nothing left to stock');
+  PERFORM pg_temp.check((SELECT COUNT(*) FROM preform_stockings WHERE shift_record_id = v_rec AND status = 'accepted'
+                           AND accepted_qty = 900) = 1, 'one accepted stocking for the good bottles');
+  PERFORM pg_temp.check((SELECT COUNT(*) FROM inventory_movements WHERE product_id = 'e1000000-0000-0000-0000-000000000001'
+                           AND movement_type = 'produced' AND quantity = 900
+                           AND reference = (SELECT reference FROM preform_stockings WHERE shift_record_id = v_rec)) = 1,
+                        'one stock movement, no damage moved anywhere');
+
+  -- She sends them to production; PM confirms.
+  v := public.dispatch_bottle_transfer('{"product_id":"e1000000-0000-0000-0000-000000000001","quantity":900,"to_department":"PM"}');
+  e := pg_temp.err(format('SELECT public.receive_bottle_transfer(%L, 900)', (v->>'id')));
+  PERFORM pg_temp.check(e LIKE '%someone other than%', 'QC cannot confirm her own dispatch');
+  PERFORM pg_temp.as_user('6');
+  PERFORM public.receive_bottle_transfer((v->>'id')::uuid, 900);
+  PERFORM pg_temp.check(pg_temp.bottles() = v_before, 'stock back down after dispatch');
+
+  -- A manager can still undo it: reverse the transfer, the stocking, then the shift.
+  PERFORM pg_temp.as_user('7');
+  PERFORM public.reverse_bottle_transfer((v->>'id')::uuid, 'Test undo');
+  PERFORM public.reverse_preform_stocking((SELECT id FROM preform_stockings WHERE shift_record_id = v_rec), 'Test undo');
+  PERFORM public.reverse_preform_shift(v_rec, 'Test undo');
+  PERFORM pg_temp.check(pg_temp.bottles() = v_before, 'stock back where it started');
+  PERFORM pg_temp.check((SELECT status FROM preform_shift_records WHERE id = v_rec) = 'reversed', 'shift reversed');
+
+  -- An ordinary operator's shift still waits for QC.
+  PERFORM pg_temp.check((SELECT COUNT(*) FROM preform_shift_records
+                          WHERE operator_id <> 'a1000000-0000-0000-0000-000000000005' AND status = 'completed'
+                            AND NOT EXISTS (SELECT 1 FROM preform_qc_inspections q WHERE q.shift_record_id = preform_shift_records.id
+                                              AND q.notes = 'Separated and stocked by QC when the shift was recorded')) >= 1,
+                        'operator shifts went through the QC route');
+END $$;

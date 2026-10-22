@@ -1,5 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
+import type { Database } from "@/integrations/supabase/types";
 import { nav, type NavItem, type NavTab } from "@/lib/nav";
 import { usePermissions, type ModuleKey } from "@/lib/permissions";
 
@@ -61,6 +63,78 @@ export const PAGES: Page[] = nav.flatMap((group) =>
 
 // The pages under one sidebar entry (one page for an entry without tabs).
 export const pagesOfEntry = (title: string) => PAGES.filter((p) => p.entry === title);
+
+// What a new account starts with: only its department's page(s), every other
+// page blocked, until an admin grants more in Page access. The department
+// decides; when it matches none, the role does; when neither matches (or the
+// account is an Admin / Chairman) there is no default and the role's pages
+// show as before. Applied once, right after the account is created or
+// approved (apply_default_page_access,
+// supabase/migrations/20261022120000_new_user_department_pages.sql).
+const SALES_PAGES = ["Retail › Sales & POS"];
+const INVENTORY_PAGES = ["Warehouse › Stock", "Store › Raw Materials"];
+const FINANCE_PAGES = ["Finance Overview"];
+const PRODUCTION_PAGES = ["Production › Production"];
+const QC_PAGES = ["Quality Control › Inspections"];
+
+const DEPARTMENT_PAGES: [RegExp, () => string[]][] = [
+  [/^sales/, () => SALES_PAGES],
+  [/inventory|store|warehouse/, () => INVENTORY_PAGES],
+  [/financ|account/, () => FINANCE_PAGES],
+  [/production|water/, () => PRODUCTION_PAGES],
+  [/quality|^qc$/, () => QC_PAGES],
+  [/^admin/, () => pagesOfEntry("Admin Panel").map((p) => p.id)],
+];
+
+const ROLE_PAGES: Record<string, string[]> = {
+  sales: SALES_PAGES,
+  inventory_officer: INVENTORY_PAGES,
+  store_officer: ["Store › Raw Materials"],
+  store_keeper: ["Store › Raw Materials"],
+  store_warehouse: ["Store › Raw Materials"],
+  warehouse_manager: ["Warehouse › Stock"],
+  accountant: FINANCE_PAGES,
+  production: PRODUCTION_PAGES,
+  qc_officer: QC_PAGES,
+};
+
+export type DefaultPageAccess = { granted: string[]; blocked: string[]; viewModules: ModuleKey[] };
+
+export function defaultPageAccess(
+  department: string | null | undefined,
+  role: string,
+): DefaultPageAccess | null {
+  if (role === "super_admin" || role === "chairman") return null;
+  const dept = (department ?? "").trim().toLowerCase();
+  const ids = (dept && DEPARTMENT_PAGES.find(([re]) => re.test(dept))?.[1]()) || ROLE_PAGES[role];
+  if (!ids) return null;
+  const granted = PAGES.filter((p) => ids.includes(p.id));
+  return {
+    granted: granted.map((p) => p.id),
+    blocked: PAGES.filter((p) => !ids.includes(p.id)).map((p) => p.id),
+    viewModules: [...new Set(granted.map((p) => p.module))],
+  };
+}
+
+// Sets that default on a just-created / just-approved account, as the signed-in
+// admin (the browser client, or the caller's client in a server function).
+export async function applyDefaultPageAccess(
+  client: SupabaseClient<Database>,
+  userId: string,
+  department: string | null | undefined,
+  role: string,
+): Promise<void> {
+  const d = defaultPageAccess(department, role);
+  if (!d) return;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- RPC newer than the generated types
+  const { error } = await (client as any).rpc("apply_default_page_access", {
+    target_id: userId,
+    p_granted: d.granted,
+    p_blocked: d.blocked,
+    p_view_modules: d.viewModules,
+  });
+  if (error) throw new Error(error.message);
+}
 
 // Where an entry's sidebar link goes: its own url when that page is allowed,
 // otherwise the first of its pages (with a route of its own) that is.

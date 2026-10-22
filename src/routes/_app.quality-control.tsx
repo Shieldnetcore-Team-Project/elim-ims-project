@@ -51,6 +51,11 @@ import { useCurrentUserName } from "@/lib/use-current-user";
 import { AddMaterialDialog, MaterialCombobox } from "@/components/shared/material-picker";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { QcJugRegister } from "@/components/qc/jug-register";
+import { BottleTrackingPanel } from "@/components/qc/bottle-tracking";
+import { GoodBottlesPanel } from "@/components/qc/good-bottles";
+import { usePreformLive, useShiftReport, useStockings } from "@/components/preform/api";
+import { localDay } from "@/lib/production-shift";
+import { PAGES, usePageAccess } from "@/lib/page-access";
 
 // Quality Control: supplier deliveries are inspected here before they can
 // reach the Store. Each inspection is a goods receipt (the existing
@@ -63,15 +68,25 @@ import { QcJugRegister } from "@/components/qc/jug-register";
 // Stock material ordered on a purchase order is listed on the Purchase
 // Orders tab; QC inspects each delivery from there and releases the passed
 // quantity to the Store. Procurement's "Receive goods" lands here (?po=).
+//
+// Good bottles (blown bottles waiting to be stocked) and Bottle tracking
+// (returnable containers) moved here from the Warehouse, which keeps track of
+// finished products only. Each tab follows its own module and page access
+// (src/lib/nav.ts → Quality Control), so e.g. a user with only distribution
+// sees just Bottle tracking.
+const QC_TABS = ["orders", "inspections", "jugs", "good-bottles", "bottle-tracking"] as const;
+type QcTab = (typeof QC_TABS)[number];
+
 export const Route = createFileRoute("/_app/quality-control")({
   head: () => ({
     meta: [{ title: "Quality Control — Elim Table Water" }, { name: "robots", content: "noindex" }],
   }),
-  validateSearch: (s: Record<string, unknown>): { po?: string } => ({
+  validateSearch: (s: Record<string, unknown>): { po?: string; tab?: QcTab } => ({
     po: typeof s.po === "string" && s.po ? s.po : undefined,
+    tab: QC_TABS.includes(s.tab as QcTab) ? (s.tab as QcTab) : undefined,
   }),
   component: () => (
-    <RequireAccess module="goods-receiving">
+    <RequireAccess module="goods-receiving" anyOf={["preform-production", "distribution"]}>
       <QualityControlPage />
     </RequireAccess>
   ),
@@ -161,11 +176,34 @@ function QualityControlPage() {
   const { canSubmit, canCancel } = usePermissions();
   const submit = canSubmit("goods-receiving");
   const cancel = canCancel("goods-receiving");
-  const { po } = Route.useSearch();
+  const { po, tab } = Route.useSearch();
   const navigate = Route.useNavigate();
+  const { canPage } = usePageAccess();
+  const pageOk = (label: string) => {
+    const p = PAGES.find((x) => x.entry === "Quality Control" && x.label === label);
+    return !!p && canPage(p);
+  };
+  const tabs: QcTab[] = [
+    ...(pageOk("Inspections") ? (["orders", "inspections", "jugs"] as const) : []),
+    ...(pageOk("Good bottles") ? (["good-bottles"] as const) : []),
+    ...(pageOk("Bottle tracking") ? (["bottle-tracking"] as const) : []),
+  ];
+  const showInspections = tabs.includes("orders");
+  const current = tab && tabs.includes(tab) ? tab : tabs[0];
+  const setTab = (t: QcTab) =>
+    navigate({ search: { tab: t === tabs[0] ? undefined : t }, replace: true });
+  usePreformLive();
+  // Good bottles needing QC: shifts to inspect plus stockings to count in.
+  const bottlesFactory = tabs.includes("good-bottles") ? factoryId : undefined;
+  const waitingQc = useShiftReport(bottlesFactory, {
+    from: "2000-01-01",
+    to: localDay(),
+    status: "awaiting_inspection",
+  });
+  const waitingStock = useStockings(bottlesFactory, "sent");
+  const bottlesWaiting = (waitingQc.data?.length ?? 0) + (waitingStock.data?.length ?? 0);
   const [open, setOpen] = useState(!!po);
   const [releaseOrderId, setReleaseOrderId] = useState<string | undefined>(po);
-  const [tab, setTab] = useState("orders");
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("all");
 
@@ -182,13 +220,13 @@ function QualityControlPage() {
     setOpen(v);
     if (!v) {
       setReleaseOrderId(undefined);
-      if (po) navigate({ search: {}, replace: true });
+      if (po) navigate({ search: { tab }, replace: true });
     }
   };
 
   const inspections = useQuery({
     queryKey: ["qc-inspections", factoryId],
-    enabled: !!factoryId,
+    enabled: !!factoryId && showInspections,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("goods_receipts")
@@ -243,11 +281,11 @@ function QualityControlPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Quality Control</h1>
           <p className="text-sm text-muted-foreground">
-            Inspect stock material ordered on purchase orders and release what passes to the Store.
-            The Store confirms receipt; failed quantity is written off.
+            Inspect stock material ordered on purchase orders and release what passes to the Store,
+            stock good blown bottles and track returnable bottles.
           </p>
         </div>
-        {submit && (
+        {submit && showInspections && (
           <Dialog open={open} onOpenChange={closeDialog}>
             <DialogTrigger asChild>
               <Button className="gap-2" onClick={() => setReleaseOrderId(undefined)}>
@@ -271,12 +309,40 @@ function QualityControlPage() {
         )}
       </div>
 
-      <Tabs value={tab} onValueChange={setTab}>
-        <TabsList>
-          <TabsTrigger value="orders">Purchase Orders</TabsTrigger>
-          <TabsTrigger value="inspections">Inspections</TabsTrigger>
-          <TabsTrigger value="jugs">Old &amp; New Jugs</TabsTrigger>
+      {tabs.length === 0 && (
+        <p className="text-sm text-muted-foreground">
+          None of the Quality Control tabs are open to your account.
+        </p>
+      )}
+      <Tabs value={current} onValueChange={(v) => setTab(v as QcTab)}>
+        <TabsList className="h-auto flex-wrap">
+          {showInspections && (
+            <>
+              <TabsTrigger value="orders">Purchase Orders</TabsTrigger>
+              <TabsTrigger value="inspections">Inspections</TabsTrigger>
+              <TabsTrigger value="jugs">Old &amp; New Jugs</TabsTrigger>
+            </>
+          )}
+          {tabs.includes("good-bottles") && (
+            <TabsTrigger value="good-bottles">
+              Good bottles
+              {bottlesWaiting > 0 && (
+                <Badge variant="secondary" className="ml-1.5 h-5 px-1.5 text-[10px]">
+                  {bottlesWaiting}
+                </Badge>
+              )}
+            </TabsTrigger>
+          )}
+          {tabs.includes("bottle-tracking") && (
+            <TabsTrigger value="bottle-tracking">Bottle tracking</TabsTrigger>
+          )}
         </TabsList>
+        <TabsContent value="good-bottles">
+          {factoryId && <GoodBottlesPanel factoryId={factoryId} />}
+        </TabsContent>
+        <TabsContent value="bottle-tracking">
+          <BottleTrackingPanel />
+        </TabsContent>
         <TabsContent value="orders">
           {factoryId && (
             <PoStockPanel factoryId={factoryId} canRelease={submit} onRelease={openDialog} />

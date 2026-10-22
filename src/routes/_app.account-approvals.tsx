@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { RequireAccess } from "@/components/layout/require-access";
 import { useAllRoles, useIsSuperAdmin, type Role } from "@/lib/permissions";
+import { applyDefaultPageAccess } from "@/lib/page-access";
 import { UserPermissionOverridesEditor } from "@/components/permissions/user-permission-overrides";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -210,6 +211,8 @@ export function AccountApprovalsPage() {
         p_department: department || undefined,
       });
       if (error) throw error;
+      // A newly approved account starts with only its department's page(s).
+      await applyDefaultPageAccess(supabase, account.id, department || account.department, role);
     },
     onSuccess: () => {
       toast.success("Account approved");

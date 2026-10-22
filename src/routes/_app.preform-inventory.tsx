@@ -44,7 +44,7 @@ import { money, num } from "@/lib/format";
 import { formatGrams, splitBags } from "@/lib/preform-units";
 import { exportCsv } from "@/lib/export";
 import { fmtDateTime } from "@/components/preform/shared";
-import { IssueDialog } from "@/components/preform/issues";
+import { IssueDialog, IssuesTab } from "@/components/preform/issues";
 import { usePreformMaterials, usePreformOperators } from "@/components/preform/api";
 import {
   MOVEMENT_LABEL,
@@ -69,7 +69,8 @@ import {
 } from "@/components/preform-inventory/panels";
 import { ReportsPanel } from "@/components/preform-inventory/reports";
 
-const TABS = ["stock", "deliveries", "counts", "reconciliation", "reports"] as const;
+// "issues": the Store issues preforms to the blowing line (QC) from here.
+const TABS = ["stock", "issues", "deliveries", "counts", "reconciliation", "reports"] as const;
 type Tab = (typeof TABS)[number];
 
 export const Route = createFileRoute("/_app/preform-inventory")({
@@ -168,6 +169,7 @@ function PreformInventoryPage() {
   const canRegister = can("raw-materials", "create") || can("raw-materials", "submit");
   const canReceive = can("goods-receiving", "submit");
   const canIssue = can("preform-production", "post");
+  const canSeeIssues = can("preform-production", "view");
   const canCount = can("raw-materials", "submit");
   const canExport = can("raw-materials", "export") || can("preform-production", "export");
 
@@ -345,6 +347,7 @@ function PreformInventoryPage() {
       <Tabs value={current} onValueChange={(v) => goTo(v as Tab)}>
         <TabsList className="h-auto flex-wrap">
           <TabsTrigger value="stock">Stock</TabsTrigger>
+          {canSeeIssues && <TabsTrigger value="issues">Issue preforms</TabsTrigger>}
           <TabsTrigger value="deliveries">Deliveries</TabsTrigger>
           <TabsTrigger value="counts">Counts &amp; adjustments</TabsTrigger>
           <TabsTrigger value="reconciliation">Reconciliation</TabsTrigger>
@@ -612,6 +615,11 @@ function PreformInventoryPage() {
             onCount={canCount ? (id) => setDialog({ kind: "count", materialId: id }) : undefined}
           />
         </TabsContent>
+        {canSeeIssues && (
+          <TabsContent value="issues">
+            {factoryId && <IssuesTab factoryId={factoryId} />}
+          </TabsContent>
+        )}
         <TabsContent value="reports">
           <ReportsPanel factoryId={factoryId} preforms={rows} />
         </TabsContent>

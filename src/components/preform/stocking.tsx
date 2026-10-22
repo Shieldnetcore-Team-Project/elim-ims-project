@@ -57,7 +57,7 @@ export function StockingTab({ factoryId }: { factoryId: string }) {
   const reverse = usePfAction(
     (a: { id: string; note: string }) =>
       rpc("reverse_preform_stocking", { p_id: a.id, p_reason: a.note }),
-    "Stocking reversed — bottles taken back out of Warehouse stock",
+    "Stocking reversed — bottles taken back out of good-bottle stock",
   );
 
   const recordCell = (s: Stocking) => (
@@ -76,10 +76,10 @@ export function StockingTab({ factoryId }: { factoryId: string }) {
     <div className="space-y-4">
       <Card className="rounded-2xl">
         <CardHeader>
-          <CardTitle>Good bottles waiting for the Warehouse</CardTitle>
+          <CardTitle>Good bottles waiting to be stocked in</CardTitle>
           <p className="text-sm text-muted-foreground">
-            Count what arrived and accept it. Warehouse stock rises by what you count; if it is less
-            than was sent, the difference becomes an exception for the production manager.
+            Count what arrived and accept it. Good-bottle stock rises by what you count; if it is
+            less than was sent, the difference becomes an exception for the production manager.
           </p>
         </CardHeader>
         <CardContent className="overflow-x-auto">
@@ -163,7 +163,7 @@ export function StockingTab({ factoryId }: { factoryId: string }) {
                 <TableHead className="text-right">Sent</TableHead>
                 <TableHead className="text-right">Accepted</TableHead>
                 <TableHead className="text-right">Difference</TableHead>
-                <TableHead>Warehouse</TableHead>
+                <TableHead>Stocked in by</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead />
               </TableRow>
@@ -235,7 +235,7 @@ export function StockingTab({ factoryId }: { factoryId: string }) {
         }
         description={
           act?.kind === "reverse"
-            ? "The accepted bottles leave Warehouse stock and the shift record goes back to awaiting stocking. Refused if the bottles are no longer in the Warehouse."
+            ? "The accepted bottles leave good-bottle stock and the shift record goes back to awaiting stocking. Refused if the bottles are no longer in stock."
             : "Nothing moves; the bottles are again waiting to be stocked on the shift record."
         }
         required={act?.kind !== "withdraw"}
@@ -264,7 +264,7 @@ function AcceptDialog({ s, onClose }: { s: Stocking; onClose: () => void }) {
   const accept = usePfAction(
     () =>
       rpc("accept_preform_stocking", { p_id: s.id, p_received: received, p_note: note || null }),
-    short ? "Accepted — the shortage is now an exception" : "Accepted into Warehouse stock",
+    short ? "Accepted — the shortage is now an exception" : "Stocked in",
   );
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -276,7 +276,7 @@ function AcceptDialog({ s, onClose }: { s: Stocking; onClose: () => void }) {
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-1.5">
-          <Label>Good bottles counted at the Warehouse</Label>
+          <Label>Good bottles counted</Label>
           <CountInput value={received} onChange={setReceived} />
           {short && (
             <p className="text-xs text-destructive">

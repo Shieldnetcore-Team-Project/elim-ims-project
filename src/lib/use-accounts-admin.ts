@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { adminDeleteUser } from "@/lib/admin-users";
+import { applyDefaultPageAccess } from "@/lib/page-access";
 import type { ProductionScope, Role } from "@/lib/permissions";
 import { toast } from "sonner";
 
@@ -101,6 +102,8 @@ export function useAccountsAdmin() {
         p_department: department || undefined,
       });
       if (error) throw error;
+      // A newly approved account starts with only its department's page(s).
+      await applyDefaultPageAccess(supabase, account.id, department || account.department, role);
     },
     onSuccess: () => {
       toast.success("Account approved");

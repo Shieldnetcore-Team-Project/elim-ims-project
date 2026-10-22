@@ -101,10 +101,12 @@ export const nav: { section: string; items: NavItem[] }[] = [
         title: "Production",
         url: "/production",
         icon: FactoryIcon,
-        modules: ["production", "production-requests", "preform-production"],
+        // Production only produces with the material issued to it and releases
+        // to the Warehouse; preform blowing is run by Quality Control (Good
+        // bottles tab), and the Store issues preforms from Preform Inventory.
+        modules: ["production", "production-requests"],
         tabs: [
           { label: "Production", module: "production", url: "/production" },
-          { label: "Preform Blowing", module: "preform-production", url: "/preform-production" },
           {
             label: "Store Requests",
             module: "production-requests",
@@ -114,10 +116,35 @@ export const nav: { section: string; items: NavItem[] }[] = [
         ],
       },
       {
+        // Supplier deliveries (POs) and jugs, plus the good blown bottles
+        // waiting to be stocked and the returnable-bottle tracking, which
+        // moved here from the Warehouse. All are tabs of one page (?tab=);
+        // each has a search so /quality-control itself opens for anyone with
+        // one of them and the page shows only the tabs they're allowed.
         title: "Quality Control",
         url: "/quality-control",
         icon: ClipboardCheck,
-        module: "goods-receiving",
+        modules: ["goods-receiving", "preform-production", "distribution"],
+        tabs: [
+          {
+            label: "Inspections",
+            module: "goods-receiving",
+            url: "/quality-control",
+            search: { tab: "orders" },
+          },
+          {
+            label: "Good bottles",
+            module: "preform-production",
+            url: "/quality-control",
+            search: { tab: "good-bottles" },
+          },
+          {
+            label: "Bottle tracking",
+            module: "distribution",
+            url: "/quality-control",
+            search: { tab: "bottle-tracking" },
+          },
+        ],
       },
       {
         title: "Store",
@@ -131,7 +158,7 @@ export const nav: { section: string; items: NavItem[] }[] = [
           {
             label: "Issue preforms",
             module: "preform-production",
-            url: "/preform-production",
+            url: "/preform-inventory",
             search: { tab: "issues" },
           },
         ],
@@ -150,17 +177,10 @@ export const nav: { section: string; items: NavItem[] }[] = [
         tabs: [
           { label: "Stock", module: "finished-goods", url: "/inventory" },
           { label: "Store requests", module: "production-requests", url: "/production-requests" },
-          {
-            label: "Good bottles",
-            module: "preform-production",
-            url: "/preform-production",
-            search: { tab: "stocking" },
-          },
           { label: "Orders", module: "sales", url: "/sales" },
           { label: "Returns", module: "sales-returns", url: "/sales-returns" },
           { label: "Reps & outlet stock", module: "distribution", url: "/distribution" },
           { label: "Dispenser & jugs", module: "distribution", url: "/jug-accountability" },
-          { label: "Bottle tracking", module: "distribution", url: "/bottle-tracking" },
           { label: "Customers", module: "customers", url: "/customers" },
           {
             label: "Finished Products",

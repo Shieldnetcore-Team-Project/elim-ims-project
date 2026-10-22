@@ -1,7 +1,7 @@
 // Run: npx tsx --test src/lib/page-access.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { PAGES, openAllowed, pageAllowed, type Page } from "./page-access";
+import { PAGES, defaultPageAccess, openAllowed, pageAllowed, type Page } from "./page-access";
 
 const byId = (id: string) => {
   const p = PAGES.find((x) => x.id === id);
@@ -63,9 +63,9 @@ test("a tab page decides for its own tab only", () => {
   const issues = byId("Store › Issue preforms");
   assert.deepEqual(issues.search, { tab: "issues" });
   const onlyIssues = (p: Page) => p.id === issues.id;
-  assert.equal(openAllowed("/preform-production", { tab: "issues" }, onlyIssues), true);
-  // Preform Blowing itself (no tab) is not granted.
-  assert.equal(openAllowed("/preform-production", {}, onlyIssues), false);
+  assert.equal(openAllowed("/preform-inventory", { tab: "issues" }, onlyIssues), true);
+  // Preform Inventory itself (no tab) is not granted.
+  assert.equal(openAllowed("/preform-inventory", {}, onlyIssues), false);
 });
 
 test("routes the menu does not list are left to their module", () => {
@@ -73,4 +73,60 @@ test("routes the menu does not list are left to their module", () => {
     openAllowed("/reset-password", {}, () => false),
     true,
   );
+});
+
+test("a new account gets only its department's pages", () => {
+  const sales = defaultPageAccess("Sales", "production");
+  assert.deepEqual(sales?.granted, ["Retail › Sales & POS"]);
+  assert.equal(sales!.granted.length + sales!.blocked.length, PAGES.length);
+  assert.ok(sales!.blocked.includes("Dashboard"));
+  assert.ok(sales!.blocked.includes("Retail › Retail Outlet"));
+  assert.deepEqual(sales?.viewModules, ["sales"]);
+
+  for (const dept of ["Inventory / Warehouse", "Store"])
+    assert.deepEqual(defaultPageAccess(dept, "store_officer")?.granted, [
+      "Store › Raw Materials",
+      "Warehouse › Stock",
+    ]);
+  assert.deepEqual(defaultPageAccess("Finance & Accounts", "accountant")?.granted, [
+    "Finance Overview",
+  ]);
+  for (const dept of ["Production", "Water Factory"])
+    assert.deepEqual(defaultPageAccess(dept, "production")?.granted, ["Production › Production"]);
+  const admin = defaultPageAccess("Admin", "hr")!;
+  assert.ok(
+    admin.granted.length > 1 && admin.granted.every((id) => id.startsWith("Admin Panel ›")),
+  );
+});
+
+test("no matching department falls back to the role; no match at all keeps the role's pages", () => {
+  assert.deepEqual(defaultPageAccess(undefined, "accountant")?.granted, ["Finance Overview"]);
+  assert.deepEqual(defaultPageAccess("Logistics", "store_officer")?.granted, [
+    "Store › Raw Materials",
+  ]);
+  assert.equal(defaultPageAccess("", "manager"), null);
+  assert.equal(defaultPageAccess("Sales", "super_admin"), null);
+  assert.equal(defaultPageAccess("Sales", "chairman"), null);
+});
+
+test("every default page id is a real page", () => {
+  const roles = [
+    "sales",
+    "inventory_officer",
+    "store_officer",
+    "store_keeper",
+    "store_warehouse",
+    "warehouse_manager",
+    "accountant",
+    "production",
+    "qc_officer",
+  ];
+  const depts = ["Sales", "Store", "Finance & Accounts", "Production", "Quality Control", "Admin"];
+  for (const d of [
+    ...roles.map((r) => defaultPageAccess("", r)),
+    ...depts.map((x) => defaultPageAccess(x, "hr")),
+  ]) {
+    assert.ok(d && d.granted.length > 0);
+    for (const id of d.granted) byId(id);
+  }
 });

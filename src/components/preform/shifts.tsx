@@ -64,6 +64,14 @@ const STATUSES = [
   "reversed",
 ] as const;
 
+// QC records her own blowing: submitting stocks her good bottles at once
+// (20261022100000_qc_records_blowing.sql). Anyone else waits for QC.
+type SubmitResult = { status: string; stocked?: number };
+const submittedMessage = (r: SubmitResult) =>
+  r?.status === "completed"
+    ? `Shift submitted — ${num(r.stocked ?? 0)} good bottles stocked; damage recorded`
+    : "Shift submitted — waiting for QC";
+
 export function ShiftsTab({ factoryId }: { factoryId: string }) {
   const { can } = usePermissions();
   const canRecord = can("preform-production", "create") || can("preform-production", "edit");
@@ -83,8 +91,8 @@ export function ShiftsTab({ factoryId }: { factoryId: string }) {
   const [act, setAct] = useState<{ kind: "shortfall" | "reverse"; row: ShiftRow } | null>(null);
 
   const submit = usePfAction(
-    (id: string) => rpc("submit_preform_shift", { p_id: id }),
-    "Shift submitted — waiting for QC",
+    (id: string) => rpc<SubmitResult>("submit_preform_shift", { p_id: id }),
+    (r) => submittedMessage(r as SubmitResult),
   );
   const send = usePfAction(
     (a: { id: string; counted: number; note: string }) =>
@@ -115,7 +123,8 @@ export function ShiftsTab({ factoryId }: { factoryId: string }) {
           <CardTitle>Shift records</CardTitle>
           <p className="text-sm text-muted-foreground">
             One record per operator, preform, date and shift. Submitting takes the usage out of the
-            operator's balance; QC then approves the good bottles for stocking.
+            operator's balance. A shift QC blew herself stocks its good bottles at once (damage is
+            recorded only); anyone else's waits for QC to approve the good bottles.
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-2">
@@ -424,10 +433,10 @@ function ShiftDialog({
           notes,
         },
       });
-      if (andSubmit) await rpc("submit_preform_shift", { p_id: r.id });
-      return andSubmit;
+      if (!andSubmit) return null;
+      return rpc<SubmitResult>("submit_preform_shift", { p_id: r.id });
     },
-    (submitted) => (submitted ? "Shift submitted — waiting for QC" : "Draft saved"),
+    (submitted) => (submitted ? submittedMessage(submitted as SubmitResult) : "Draft saved"),
   );
 
   const operatorList = isManager

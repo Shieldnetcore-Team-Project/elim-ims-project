@@ -43,6 +43,17 @@ import {
   type ItemsSoldReport,
 } from "@/lib/items-sold-report";
 import {
+  MONTHLY_ACCUMULATED_COLUMNS,
+  REVENUE_SALE_COLS,
+  SALES_REVENUE_COLUMNS,
+  buildDailyRevenue,
+  buildMonthlyAccumulated,
+  lastMonthOf,
+  monthLabel,
+  revenueRows,
+} from "@/lib/sales-revenue-report";
+import { postedSalesRows } from "@/lib/metric-queries";
+import {
   CUSTOMER_REPORTS,
   CUSTOMER_SNAPSHOT_REPORTS,
   fetchCustomerReport,
@@ -76,6 +87,8 @@ export const Route = createFileRoute("/_app/reports")({
 
 type ReportKey =
   | "sales"
+  | "sales_revenue"
+  | "monthly_accumulated"
   | "items_sold"
   | "marketer_sheet"
   | "production"
@@ -95,6 +108,8 @@ type ReportKey =
 
 const REPORTS: { key: ReportKey; label: string }[] = [
   { key: "sales", label: "Sales" },
+  { key: "sales_revenue", label: "Sales Revenue (daily, accumulated)" },
+  { key: "monthly_accumulated", label: "Monthly Accumulated Sales" },
   { key: "items_sold", label: "Items Sold to Customers" },
   { key: "marketer_sheet", label: "Marketer Daily Sales Sheet" },
   { key: "production", label: "Production" },
@@ -209,6 +224,22 @@ async function fetchReport(
   if (isCustomerReport(key)) return fetchCustomerReport(key, factoryId, start, end);
   // Built per marketer in the page (it needs the marketer picker).
   if (key === "marketer_sheet") throw new Error("Marketer sheet is fetched by the page");
+  if (key === "monthly_accumulated") throw new Error("Monthly sales are fetched by the page");
+  if (key === "sales_revenue") {
+    // sale_date is a date: filter by the local calendar day, not an ISO instant.
+    const revenue = buildDailyRevenue(
+      await postedSalesRows(
+        factoryId,
+        REVENUE_SALE_COLS,
+        start ? format(new Date(start), "yyyy-MM-dd") : "1900-01-01",
+        end ? format(new Date(end), "yyyy-MM-dd") : undefined,
+      ),
+    );
+    return {
+      columns: SALES_REVENUE_COLUMNS,
+      rows: revenueRows(revenue, (day) => format(new Date(day + "T00:00:00"), "EEE, MMM d, yyyy")),
+    };
+  }
   if (key === "items_sold") {
     // sale_date is a date: filter by the local calendar day, not an ISO instant.
     const itemsSold = await fetchItemsSold(
@@ -621,6 +652,8 @@ async function fetchReport(
 
 const DATE_FIELDS: Record<ReportKey, string> = {
   sales: "sale_date",
+  sales_revenue: "sale_date",
+  monthly_accumulated: "sale_date",
   items_sold: "sale_date",
   marketer_sheet: "sale_date",
   production: "production_date",
@@ -667,6 +700,8 @@ function ReportsPage() {
     return { year: m.getFullYear(), month: m.getMonth() };
   });
   const sheetDays = useMemo(() => sheetMonth(sheetYm.year, sheetYm.month), [sheetYm]);
+  // Monthly accumulated sales: one calendar year, this one by default.
+  const [salesYear, setSalesYear] = useState(() => new Date().getFullYear());
   const directory = useMarketerDirectory(reportKey === "marketer_sheet" ? factoryId : undefined);
   const marketers = useMemo(
     () => (directory.data ?? []).filter((m) => m.kind === "rep"),
@@ -725,9 +760,23 @@ function ReportsPage() {
       bounds.end,
       reportKey === "production" ? productionFilters : null,
       reportKey === "marketer_sheet" ? [marketerId, marketers.length, sheetDays] : null,
+      reportKey === "monthly_accumulated" ? salesYear : null,
     ],
     enabled: !!factoryId && (reportKey !== "marketer_sheet" || directory.isSuccess),
     queryFn: async () => {
+      if (reportKey === "monthly_accumulated") {
+        const monthly = buildMonthlyAccumulated(
+          await postedSalesRows(
+            factoryId!,
+            REVENUE_SALE_COLS,
+            `${salesYear}-01-01`,
+            `${salesYear}-12-31`,
+          ),
+          salesYear,
+          lastMonthOf(salesYear),
+        );
+        return { columns: MONTHLY_ACCUMULATED_COLUMNS, rows: revenueRows(monthly, monthLabel) };
+      }
       if (reportKey === "marketer_sheet") {
         const reps =
           marketerId === "all" ? marketers : marketers.filter((m) => m.id === marketerId);
@@ -832,7 +881,23 @@ function ReportsPage() {
               </SelectContent>
             </Select>
           </div>
-          {reportKey === "marketer_sheet" ? null : isSnapshot ? (
+          {reportKey === "monthly_accumulated" ? (
+            <div>
+              <Label className="mb-1 block text-xs">Year</Label>
+              <Select value={String(salesYear)} onValueChange={(v) => setSalesYear(Number(v))}>
+                <SelectTrigger className="w-[100px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map((y) => (
+                    <SelectItem key={y} value={String(y)}>
+                      {y}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : reportKey === "marketer_sheet" ? null : isSnapshot ? (
             <p className="max-w-[240px] pb-2 text-xs text-muted-foreground">
               Current balances as of now — a date range doesn't apply.
             </p>
@@ -927,22 +992,29 @@ function ReportsPage() {
               </div>
             </>
           )}
-          {reportKey !== "marketer_sheet" && !isSnapshot && range === "custom" && (
-            <>
-              <div>
-                <Label className="mb-1 block text-xs">From</Label>
-                <Input
-                  type="date"
-                  value={customFrom}
-                  onChange={(e) => setCustomFrom(e.target.value)}
-                />
-              </div>
-              <div>
-                <Label className="mb-1 block text-xs">To</Label>
-                <Input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} />
-              </div>
-            </>
-          )}
+          {reportKey !== "marketer_sheet" &&
+            reportKey !== "monthly_accumulated" &&
+            !isSnapshot &&
+            range === "custom" && (
+              <>
+                <div>
+                  <Label className="mb-1 block text-xs">From</Label>
+                  <Input
+                    type="date"
+                    value={customFrom}
+                    onChange={(e) => setCustomFrom(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <Label className="mb-1 block text-xs">To</Label>
+                  <Input
+                    type="date"
+                    value={customTo}
+                    onChange={(e) => setCustomTo(e.target.value)}
+                  />
+                </div>
+              </>
+            )}
           <div className="ml-auto flex flex-wrap gap-2">
             <Button variant="outline" size="sm" className="gap-2" onClick={() => doExport("csv")}>
               <FileDown className="h-4 w-4" /> CSV

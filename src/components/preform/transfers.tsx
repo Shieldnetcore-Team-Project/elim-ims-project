@@ -43,13 +43,15 @@ import {
 } from "./api";
 import { CountInput, ReasonDialog, StatusBadge, fmtDateTime } from "./shared";
 
-// Departments the Warehouse sends bottles to. PM (the filling / packing
+// Departments QC sends good bottles to. PM (the filling / packing
 // line) is the usual one; others can be typed.
 const DEPARTMENTS = ["PM"];
 
 export function TransfersTab({ factoryId }: { factoryId: string }) {
   const { can } = usePermissions();
-  const canDispatch = can("preform-production", "post");
+  // Whoever stocks good bottles in (confirm -- QC) also sends them to
+  // production (20261022090000_qc_stocks_good_bottles.sql).
+  const canDispatch = can("preform-production", "post") || can("preform-production", "confirm");
   const canReceive = can("preform-production", "submit");
   const canCancel = can("preform-production", "cancel") || canDispatch;
   const canReverse = can("preform-production", "reverse");
@@ -64,12 +66,12 @@ export function TransfersTab({ factoryId }: { factoryId: string }) {
   const cancel = usePfAction(
     (a: { id: string; reason: string }) =>
       rpc("cancel_bottle_transfer", { p_id: a.id, p_reason: a.reason }),
-    "Transfer cancelled — bottles back in the Warehouse",
+    "Transfer cancelled — bottles back in good-bottle stock",
   );
   const reverse = usePfAction(
     (a: { id: string; reason: string }) =>
       rpc("reverse_bottle_transfer", { p_id: a.id, p_reason: a.reason }),
-    "Transfer reversed — bottles back in the Warehouse",
+    "Transfer reversed — bottles back in good-bottle stock",
   );
 
   return (
@@ -77,16 +79,16 @@ export function TransfersTab({ factoryId }: { factoryId: string }) {
       <Card className="rounded-2xl">
         <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 space-y-0">
           <div>
-            <CardTitle>Transfers to PM</CardTitle>
+            <CardTitle>Send to production (PM)</CardTitle>
             <p className="text-sm text-muted-foreground">
-              Warehouse stock goes down when bottles are dispatched; the department's stock goes up
-              by what it confirms receiving. A short receipt becomes an exception — the dispatched
-              quantity is never changed.
+              Good-bottle stock goes down when bottles are dispatched; the department's stock goes
+              up by what it confirms receiving. A short receipt becomes an exception — the
+              dispatched quantity is never changed.
             </p>
           </div>
           {canDispatch && (
             <Button className="gap-2" onClick={() => setDispatchOpen(true)}>
-              <ArrowRightLeft className="h-4 w-4" /> Dispatch bottles
+              <ArrowRightLeft className="h-4 w-4" /> Send to production
             </Button>
           )}
         </CardHeader>
@@ -224,8 +226,8 @@ export function TransfersTab({ factoryId }: { factoryId: string }) {
         title={act?.kind === "cancel" ? `Cancel ${act.t.reference}` : `Reverse ${act?.t.reference}`}
         description={
           act?.kind === "reverse"
-            ? "The department gives back what it received and all dispatched bottles return to Warehouse stock. Refused if the department no longer holds them."
-            : "The bottles return to Warehouse stock."
+            ? "The department gives back what it received and all dispatched bottles return to good-bottle stock. Refused if the department no longer holds them."
+            : "The bottles return to good-bottle stock."
         }
         destructive
         confirmLabel={act?.kind === "cancel" ? "Cancel transfer" : "Reverse"}
@@ -242,7 +244,7 @@ export function TransfersTab({ factoryId }: { factoryId: string }) {
 }
 
 function DispatchDialog({ factoryId, onClose }: { factoryId: string; onClose: () => void }) {
-  // Semi-finished products (the empty bottles) with Warehouse stock.
+  // Semi-finished products (the empty bottles) in stock.
   const products = useQuery({
     queryKey: ["pf", "semi-products", factoryId],
     queryFn: async () => {
@@ -289,9 +291,9 @@ function DispatchDialog({ factoryId, onClose }: { factoryId: string; onClose: ()
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Dispatch bottles</DialogTitle>
+          <DialogTitle>Send bottles to production</DialogTitle>
           <DialogDescription>
-            Warehouse stock goes down now; the department confirms receipt.
+            Good-bottle stock goes down now; the department confirms receipt.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
@@ -304,7 +306,7 @@ function DispatchDialog({ factoryId, onClose }: { factoryId: string; onClose: ()
               <SelectContent>
                 {(products.data ?? []).map((x) => (
                   <SelectItem key={x.id} value={x.id}>
-                    {x.name} — {num(x.current_stock)} in Warehouse
+                    {x.name} — {num(x.current_stock)} in stock
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -322,7 +324,7 @@ function DispatchDialog({ factoryId, onClose }: { factoryId: string; onClose: ()
           <div className="space-y-1.5">
             <Label>Quantity</Label>
             <CountInput value={qty} onChange={setQty} />
-            {over && <p className="text-xs text-destructive">More than the Warehouse holds.</p>}
+            {over && <p className="text-xs text-destructive">More than is in stock.</p>}
           </div>
           <div className="space-y-1.5">
             <Label>Notes (optional)</Label>
@@ -374,11 +376,7 @@ function ReceiveDialog({ t, onClose }: { t: Transfer; onClose: () => void }) {
               {num(t.quantity_sent - (received ?? 0))} short — this becomes an exception.
             </p>
           )}
-          {over && (
-            <p className="text-xs text-destructive">
-              More than was dispatched — tell the Warehouse.
-            </p>
-          )}
+          {over && <p className="text-xs text-destructive">More than was dispatched — tell QC.</p>}
         </div>
         <div className="space-y-1.5">
           <Label>Note {short ? "(required)" : "(optional)"}</Label>

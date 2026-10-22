@@ -44,9 +44,17 @@ import {
 } from "./api";
 import { CountInput, Pieces, ReasonDialog, StatusBadge, fmtDate, fmtDateTime } from "./shared";
 
-export function IssuesTab({ factoryId }: { factoryId: string }) {
+// `receiveOnly`: the Quality Control page, where QC accepts what the Store
+// issued her -- issuing itself is done from Store → Preform Inventory.
+export function IssuesTab({
+  factoryId,
+  receiveOnly = false,
+}: {
+  factoryId: string;
+  receiveOnly?: boolean;
+}) {
   const { can } = usePermissions();
-  const canIssue = can("preform-production", "post");
+  const canIssue = can("preform-production", "post") && !receiveOnly;
   const canCancel = can("preform-production", "cancel") || canIssue;
   const canReverse = can("preform-production", "reverse");
   const canRespond = can("preform-production", "submit");
@@ -85,10 +93,13 @@ export function IssuesTab({ factoryId }: { factoryId: string }) {
     <Card className="rounded-2xl">
       <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 space-y-0">
         <div>
-          <CardTitle>Store issues to the blowing line</CardTitle>
+          <CardTitle>
+            {receiveOnly ? "Preforms issued to you" : "Store issues to the blowing line"}
+          </CardTitle>
           <p className="text-sm text-muted-foreground">
-            The store issues bags of preforms to an operator. The operator accepts them before they
-            count as available.
+            {receiveOnly
+              ? "The Store issues preforms from Store → Preform Inventory. Accept them here before they count as available for your shifts."
+              : "The store issues bags of preforms to an operator. The operator accepts them before they count as available."}
           </p>
         </div>
         {canIssue && (
@@ -295,7 +306,8 @@ export function IssueDialog({
         </DialogHeader>
         {ready.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No preform has pieces-per-bag set up yet. A production manager sets it in the Setup tab.
+            No preform has pieces-per-bag set up yet. A production manager sets it in Quality
+            Control → Good bottles → Setup.
           </p>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2">
