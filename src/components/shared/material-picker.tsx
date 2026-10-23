@@ -36,17 +36,30 @@ import { useUnitsOfMeasure, UNIT_OPTIONS as UNIT_OPTIONS_FALLBACK } from "@/lib/
 // request_new_material, which reuses an existing material of the same name
 // instead of duplicating it), so it is in the dropdown for every later entry.
 
-export type PickerMaterial = { id: string; name: string; unit: string; current_stock?: number };
+// `detail` tells apart materials of the same name: their brand ("Prima ·
+// 14.8g · Bag") -- the Store has many a "Preform".
+export type PickerMaterial = {
+  id: string;
+  name: string;
+  unit: string;
+  current_stock?: number;
+  detail?: string | null;
+};
 
-// "Name · stock 12 kg" when the caller loaded stock, else just the name.
-const describe = (m: PickerMaterial) =>
-  m.current_stock == null ? m.name : `${m.name} · stock ${num(Number(m.current_stock))} ${m.unit}`;
+// "Name (Prima · 14.8g · Bag) · stock 12 kg"; stock only when the caller loaded it.
+const describe = (m: PickerMaterial) => {
+  const name = m.detail ? `${m.name} (${m.detail})` : m.name;
+  return m.current_stock == null
+    ? name
+    : `${name} · stock ${num(Number(m.current_stock))} ${m.unit}`;
+};
 
 export function MaterialCombobox({
   value,
   materials,
   onChange,
   onAddNew,
+  addByBrand,
   disabled,
 }: {
   value: string;
@@ -54,15 +67,20 @@ export function MaterialCombobox({
   disabled?: boolean;
   onChange: (id: string) => void;
   onAddNew?: (query: string) => void;
+  addByBrand?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const selected = materials.find((m) => m.id === value);
   const query = search.trim().toLowerCase();
   const filtered = query
-    ? materials.filter((m) => m.name.toLowerCase().includes(query))
+    ? materials.filter((m) => describe(m).toLowerCase().includes(query))
     : materials;
-  const exactMatch = materials.some((m) => m.name.trim().toLowerCase() === query);
+  // A name already listed is picked rather than added again -- unless the
+  // caller adds by brand (addByBrand), when a new brand of it can be added.
+  const exactMatch = materials.some(
+    (m) => m.name.trim().toLowerCase() === query && !(addByBrand && m.detail),
+  );
 
   return (
     <Popover

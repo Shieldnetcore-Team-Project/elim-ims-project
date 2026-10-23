@@ -2640,6 +2640,7 @@ export type Database = {
         Row: {
           active: boolean
           approval_status: string
+          brand_id: string | null
           category: string | null
           category_id: string | null
           created_at: string
@@ -2663,6 +2664,7 @@ export type Database = {
         Insert: {
           active?: boolean
           approval_status?: string
+          brand_id?: string | null
           category?: string | null
           category_id?: string | null
           created_at?: string
@@ -2686,6 +2688,7 @@ export type Database = {
         Update: {
           active?: boolean
           approval_status?: string
+          brand_id?: string | null
           category?: string | null
           category_id?: string | null
           created_at?: string
@@ -2707,6 +2710,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "raw_materials_brand_id_fkey"
+            columns: ["brand_id"]
+            isOneToOne: false
+            referencedRelation: "brands"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "raw_materials_category_id_fkey"
             columns: ["category_id"]

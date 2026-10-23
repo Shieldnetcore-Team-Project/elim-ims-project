@@ -61,7 +61,9 @@ import {
   Check,
   X,
   Search,
+  Eye,
 } from "lucide-react";
+import { ReportActions } from "@/components/shared/report-actions";
 import { generateStockCardPdf } from "@/lib/pdf";
 import {
   useUnitsOfMeasure,
@@ -81,6 +83,8 @@ import {
   isPreform,
 } from "@/components/shared/bag-quantity";
 import { SupplierPicker } from "@/components/shared/supplier-picker";
+import { BrandPicker, brandDetail, useBrands } from "@/components/shared/brand-picker";
+import { format } from "date-fns";
 import { detectPack, packPlural, packWord } from "@/lib/preform-units";
 
 export const Route = createFileRoute("/_app/raw-materials")({
@@ -120,7 +124,15 @@ type Material = {
   material_categories: { name: string } | null;
   pieces_per_bag: number | null;
   grams_per_piece: number | null;
+  created_at: string;
+  brand_id: string | null;
+  brands: { name: string; category: string; grammage: string | null } | null;
 };
+
+// What one pack of a material is: its brand's pack (Bag, Carton, Roll) when it
+// has one, else read from its name / unit.
+const materialPack = (m: Pick<Material, "name" | "unit" | "brands">) =>
+  detectPack(m.brands?.category) ?? packWord(m.name, m.unit);
 type CostHistoryRow = {
   id: string;
   cost: number;
@@ -238,6 +250,7 @@ function RawMaterialsPage() {
   const [issueTarget, setIssueTarget] = useState<Material | null>(null);
   const [adjustTarget, setAdjustTarget] = useState<Material | null>(null);
   const [historyTarget, setHistoryTarget] = useState<Material | null>(null);
+  const [viewTarget, setViewTarget] = useState<Material | null>(null);
   const [purchaseTarget, setPurchaseTarget] = useState<Material | null>(null);
   const [q, setQ] = useState("");
 
@@ -262,7 +275,7 @@ function RawMaterialsPage() {
       const { data, error } = await supabase
         .from("raw_materials")
         .select(
-          "id,name,category,category_id,unit,opening_stock,current_stock,unit_cost,current_value,reorder_level,minimum_stock,active,approval_status,created_by,remarks,supplier_id,pieces_per_bag,grams_per_piece,suppliers(name),material_categories(name)",
+          "id,name,category,category_id,unit,opening_stock,current_stock,unit_cost,current_value,reorder_level,minimum_stock,active,approval_status,created_by,created_at,remarks,supplier_id,brand_id,pieces_per_bag,grams_per_piece,suppliers(name),material_categories(name),brands(name,category,grammage)",
         )
         .eq("factory_id", factoryId!)
         .order("name");
@@ -514,9 +527,24 @@ function RawMaterialsPage() {
     return (
       m.name.toLowerCase().includes(query) ||
       (m.material_categories?.name ?? m.category ?? "").toLowerCase().includes(query) ||
-      (m.suppliers?.name ?? "").toLowerCase().includes(query)
+      (m.suppliers?.name ?? "").toLowerCase().includes(query) ||
+      (brandDetail(m.brands) ?? "").toLowerCase().includes(query)
     );
   });
+
+  // Who added each material. Ones brought over from the old system have none.
+  const creatorIds = [
+    ...new Set((list.data ?? []).flatMap((m) => (m.created_by ? [m.created_by] : []))),
+  ];
+  const creators = useQuery({
+    queryKey: ["material-creators", creatorIds],
+    enabled: creatorIds.length > 0,
+    queryFn: async () => {
+      const { data } = await supabase.from("profiles").select("id,full_name").in("id", creatorIds);
+      return new Map((data ?? []).map((p) => [p.id, p.full_name ?? ""]));
+    },
+  });
+  const createdBy = (m: Material) => (m.created_by ? creators.data?.get(m.created_by) || "—" : "—");
 
   const printCard = async (m: Material) => {
     const { data, error } = await supabase
@@ -635,7 +663,7 @@ function RawMaterialsPage() {
           <div className="relative">
             <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search material, category, supplier…"
+              placeholder="Search material, brand, supplier…"
               className="pl-8 h-9 w-56"
               value={q}
               onChange={(e) => setQ(e.target.value)}
@@ -646,20 +674,27 @@ function RawMaterialsPage() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-12">S/N</TableHead>
                 <TableHead>Name</TableHead>
+                <TableHead>Brand</TableHead>
+                <TableHead>Pack</TableHead>
+                <TableHead>Grammage</TableHead>
                 <TableHead>Category</TableHead>
-                <TableHead>Supplier</TableHead>
+                <TableHead>Dealer</TableHead>
                 <TableHead className="text-right">Current Stock</TableHead>
                 <TableHead className="text-right">Total Value</TableHead>
                 <TableHead>Reorder Level</TableHead>
+                <TableHead>Created By</TableHead>
+                <TableHead>On</TableHead>
                 <TableHead></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {searchedMaterials.map((m) => {
+              {searchedMaterials.map((m, i) => {
                 const low = isLowStock(m.current_stock, m.reorder_level);
                 return (
                   <TableRow key={m.id}>
+                    <TableCell className="text-muted-foreground">{i + 1}</TableCell>
                     <TableCell className="font-medium">
                       {m.name}
                       {m.approval_status === "pending_approval" && (
@@ -678,6 +713,9 @@ function RawMaterialsPage() {
                         </Badge>
                       )}
                     </TableCell>
+                    <TableCell>{m.brands?.name ?? "—"}</TableCell>
+                    <TableCell>{m.brands?.category ?? "—"}</TableCell>
+                    <TableCell>{m.brands?.grammage ?? "—"}</TableCell>
                     <TableCell>{m.material_categories?.name ?? m.category ?? "—"}</TableCell>
                     <TableCell>{m.suppliers?.name ?? "—"}</TableCell>
                     <TableCell className="text-right">
@@ -685,7 +723,7 @@ function RawMaterialsPage() {
                         value={Number(m.current_stock)}
                         unit={m.unit}
                         perBag={m.pieces_per_bag}
-                        pack={packWord(m.name, m.unit)}
+                        pack={materialPack(m)}
                         bagsFirst
                         className={low ? "text-destructive font-medium" : ""}
                       />
@@ -703,8 +741,12 @@ function RawMaterialsPage() {
                         value={Number(m.reorder_level ?? 0)}
                         unit={m.unit}
                         perBag={m.pieces_per_bag}
-                        pack={packWord(m.name, m.unit)}
+                        pack={materialPack(m)}
                       />
+                    </TableCell>
+                    <TableCell>{createdBy(m)}</TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      {format(new Date(m.created_at), "dd-MM-yyyy HH:mm:ss")}
                     </TableCell>
                     <TableCell>
                       <div className="flex justify-end gap-1">
@@ -797,6 +839,14 @@ function RawMaterialsPage() {
                             <Button
                               variant="ghost"
                               size="icon"
+                              title="View — everything received and released"
+                              onClick={() => setViewTarget(m)}
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
                               title="Print"
                               onClick={() => printCard(m)}
                             >
@@ -822,7 +872,7 @@ function RawMaterialsPage() {
               })}
               {searchedMaterials.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={14} className="text-center text-muted-foreground py-8">
                     {q.trim() ? "No materials match your search." : "No raw materials yet."}
                   </TableCell>
                 </TableRow>
@@ -1129,6 +1179,10 @@ function RawMaterialsPage() {
           />
         )}
       </Dialog>
+      <Dialog open={!!viewTarget} onOpenChange={(v) => !v && setViewTarget(null)}>
+        {viewTarget && <ReleasesDialog material={viewTarget} />}
+      </Dialog>
+
       <Dialog open={!!historyTarget} onOpenChange={(v) => !v && setHistoryTarget(null)}>
         {historyTarget && <HistoryDialog material={historyTarget} />}
       </Dialog>
@@ -1203,9 +1257,11 @@ function AddOrReceiveMaterial({
               name: m.name,
               unit: m.unit,
               current_stock: Number(m.current_stock),
+              detail: brandDetail(m.brands),
             }))}
             onChange={setPickedId}
             onAddNew={(q) => setNewName(q)}
+            addByBrand
           />
           <p className="text-xs text-muted-foreground">
             Open the list and pick the material the supplier delivered to record the quantity
@@ -1280,6 +1336,10 @@ function MaterialForm({
 
   const [openingStock, setOpeningStock] = useState(editing ? Number(editing.opening_stock) : 0);
   const [supplierId, setSupplierId] = useState(editing?.supplier_id ?? "none");
+  // The brand (Store → Brands): its dealer and pieces per pack fill in below.
+  const brands = useBrands(factoryId);
+  const [brandId, setBrandId] = useState(editing?.brand_id ?? "none");
+  const brand = (brands.data ?? []).find((b) => b.id === brandId);
   const [reorderLevel, setReorderLevel] = useState(
     editing ? Number(editing.reorder_level ?? 0) : 0,
   );
@@ -1293,7 +1353,7 @@ function MaterialForm({
   // only converts.
   const [perBag, setPerBag] = useState<number>(Number(editing?.pieces_per_bag ?? 0));
   const [perBagReason, setPerBagReason] = useState("");
-  const detectedPack = detectPack(name, unit);
+  const detectedPack = detectPack(brand?.category) ?? detectPack(name, unit);
   const pack = detectedPack ?? "bag";
   const showPerBag =
     !!detectedPack || /preform/i.test(name) || !!editing?.pieces_per_bag || perBag > 0;
@@ -1337,6 +1397,7 @@ function MaterialForm({
         category_id: categoryId === "none" ? null : categoryId,
         unit: savedUnit.trim(),
         supplier_id: supplierId === "none" ? null : supplierId,
+        brand_id: brandId === "none" ? null : brandId,
         reorder_level: reorderLevel,
         minimum_stock: minimumStock,
         remarks: remarks || null,
@@ -1398,6 +1459,24 @@ function MaterialForm({
         <div>
           <Label>Raw material name</Label>
           <Input value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
+        <div>
+          <Label>Brand</Label>
+          <BrandPicker
+            brands={brands.data ?? []}
+            value={brandId}
+            onChange={(id) => {
+              setBrandId(id);
+              const b = (brands.data ?? []).find((x) => x.id === id);
+              if (!b) return;
+              // Fill what the brand already says; anything typed stays.
+              if (supplierId === "none" && b.supplier_id) setSupplierId(b.supplier_id);
+              if (!perBag && b.pack_quantity > 1) setPerBag(b.pack_quantity);
+            }}
+          />
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Not on the list? Add it on Store → Brands first.
+          </p>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -1661,7 +1740,7 @@ function ReceiveDialog({
             value={Number(material.current_stock)}
             unit={material.unit}
             perBag={perBag}
-            pack={packWord(material.name, material.unit)}
+            pack={materialPack(material)}
             bagsFirst
           />
           {restock
@@ -1684,7 +1763,7 @@ function ReceiveDialog({
             value={quantity}
             onChange={setQuantity}
             perBag={perBag}
-            pack={packWord(material.name, material.unit)}
+            pack={materialPack(material)}
             unit={material.unit}
             disabled={needsBagSize}
           />
@@ -1693,7 +1772,7 @@ function ReceiveDialog({
             value={damagedQuantity}
             onChange={setDamagedQuantity}
             perBag={perBag}
-            pack={packWord(material.name, material.unit)}
+            pack={materialPack(material)}
             unit={material.unit}
             disabled={needsBagSize}
           />
@@ -1704,7 +1783,7 @@ function ReceiveDialog({
             value={accepted}
             unit={material.unit}
             perBag={perBag}
-            pack={packWord(material.name, material.unit)}
+            pack={materialPack(material)}
             bagsFirst
           />{" "}
           Only this posts to stock; damaged goes to the damage ledger.
@@ -1726,7 +1805,7 @@ function ReceiveDialog({
           unitCost={unitCost}
           onChange={setUnitCost}
           perBag={perBag}
-          pack={packWord(material.name, material.unit)}
+          pack={materialPack(material)}
           unit={material.unit}
         />
         <div>
@@ -1819,7 +1898,7 @@ function RequestPurchaseDialog({ material, onDone }: { material: Material; onDon
           value={quantity}
           onChange={setQuantity}
           perBag={material.pieces_per_bag}
-          pack={packWord(material.name, material.unit)}
+          pack={materialPack(material)}
           unit={material.unit}
         />
         <div>
@@ -1907,7 +1986,7 @@ function IssueDialog({ material, onDone }: { material: Material; onDone: () => v
             value={Number(material.current_stock)}
             unit={material.unit}
             perBag={material.pieces_per_bag}
-            pack={packWord(material.name, material.unit)}
+            pack={materialPack(material)}
           />
         </p>
         <div>
@@ -1953,7 +2032,7 @@ function IssueDialog({ material, onDone }: { material: Material; onDone: () => v
           value={quantity}
           onChange={setQuantity}
           perBag={material.pieces_per_bag}
-          pack={packWord(material.name, material.unit)}
+          pack={materialPack(material)}
           unit={material.unit}
         />
         <div>
@@ -2033,7 +2112,7 @@ function AdjustDialog({ material, onDone }: { material: Material; onDone: () => 
             <BagQty
               value={oldQuantity}
               perBag={material.pieces_per_bag}
-              pack={packWord(material.name, material.unit)}
+              pack={materialPack(material)}
               className="text-xs"
             />
           </div>
@@ -2042,7 +2121,7 @@ function AdjustDialog({ material, onDone }: { material: Material; onDone: () => 
             value={newQuantity}
             onChange={setNewQuantity}
             perBag={material.pieces_per_bag}
-            pack={packWord(material.name, material.unit)}
+            pack={materialPack(material)}
             unit={material.unit}
           />
           <div>
@@ -2092,6 +2171,202 @@ function AdjustDialog({ material, onDone }: { material: Material; onDone: () => 
           {submit.isPending ? "Submitting…" : "Submit for approval"}
         </Button>
       </DialogFooter>
+    </DialogContent>
+  );
+}
+
+// View: the material's stock card as the Store reads it -- every movement with
+// the balance before it (Opening), what came in, the total, what went out,
+// who collected it and for which department, and the balance after.
+type ReleaseRow = Movement & {
+  issued_to_department: string | null;
+  issued_to_user: string | null;
+};
+
+const MOVEMENT_LABEL: Record<string, string> = {
+  received: "Received",
+  opening_balance: "Opening balance",
+  adjusted: "Adjustment",
+  correction: "Correction",
+  issued: "Issued",
+  used_for_production: "Production",
+  return_from_production: "Returned by Production",
+  returned: "Returned",
+  damaged: "Damaged",
+  expiry: "Expired",
+  transferred: "Transferred",
+};
+
+function ReleasesDialog({ material }: { material: Material }) {
+  const [day, setDay] = useState("");
+  const title = `All Materials Released For ${material.name}${
+    material.brands ? ` (${brandDetail(material.brands)})` : ""
+  }`;
+
+  const movements = useQuery({
+    queryKey: ["material-releases", material.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("raw_material_movements")
+        .select(
+          "id,movement_type,quantity,unit_cost,reference,reason,user_id,created_at,quantity_before,quantity_after,issued_to_department,issued_to_user",
+        )
+        .eq("material_id", material.id)
+        .order("created_at", { ascending: false })
+        .limit(1000);
+      if (error) throw error;
+      return (data ?? []) as unknown as ReleaseRow[];
+    },
+  });
+
+  const collectorIds = [
+    ...new Set((movements.data ?? []).flatMap((r) => (r.issued_to_user ? [r.issued_to_user] : []))),
+  ];
+  const collectors = useQuery({
+    queryKey: ["release-collectors", collectorIds],
+    enabled: collectorIds.length > 0,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("profiles")
+        .select("id,full_name")
+        .in("id", collectorIds);
+      return new Map((data ?? []).map((p) => [p.id, p.full_name ?? ""]));
+    },
+  });
+
+  const rows = (movements.data ?? [])
+    .filter((r) => !day || format(new Date(r.created_at), "yyyy-MM-dd") === day)
+    .map((r) => {
+      // In / out from the balance before and after; older rows without them
+      // fall back to the movement's direction.
+      const before = r.quantity_before == null ? null : Number(r.quantity_before);
+      const after = r.quantity_after == null ? null : Number(r.quantity_after);
+      const out = /^(issued|used_for_production|damaged|expiry|transferred)$/.test(r.movement_type);
+      const delta =
+        before != null && after != null
+          ? after - before
+          : out
+            ? -Math.abs(Number(r.quantity))
+            : Math.abs(Number(r.quantity));
+      const qtyIn = Math.max(delta, 0);
+      const qtyOut = Math.max(-delta, 0);
+      const dept = r.issued_to_department
+        ? (ISSUE_DEPARTMENT_LABEL[r.issued_to_department as IssueDepartment] ??
+          r.issued_to_department)
+        : (MOVEMENT_LABEL[r.movement_type] ?? r.movement_type.replace(/_/g, " "));
+      return {
+        id: r.id,
+        opening: before,
+        qtyIn,
+        total: before == null ? null : before + qtyIn,
+        out: qtyOut,
+        collectedBy: r.issued_to_user ? collectors.data?.get(r.issued_to_user) || "—" : "—",
+        dept,
+        balance: after,
+        when: format(new Date(r.created_at), "dd-MM-yyyy HH:mm:ss"),
+      };
+    });
+
+  const qty = (n: number | null) => (n == null ? "—" : num(n));
+
+  return (
+    <DialogContent className="max-w-5xl">
+      <DialogHeader>
+        <DialogTitle>{title}</DialogTitle>
+        <p className="text-sm text-muted-foreground">
+          List of all items received and released for {material.name}, in {material.unit}.
+        </p>
+      </DialogHeader>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <ReportActions
+          size="sm"
+          title={title}
+          fileName={`releases-${material.name.toLowerCase().replace(/\s+/g, "-")}`}
+          columns={[
+            { key: "sn", label: "S/N" },
+            { key: "opening", label: "Opening" },
+            { key: "qtyIn", label: "Qty In" },
+            { key: "total", label: "Total" },
+            { key: "out", label: "Out" },
+            { key: "collectedBy", label: "Collected By" },
+            { key: "dept", label: "Dept." },
+            { key: "balance", label: "Balance" },
+            { key: "when", label: "Date/Time" },
+          ]}
+          rows={rows.map((r, i) => ({
+            sn: i + 1,
+            opening: qty(r.opening),
+            qtyIn: num(r.qtyIn),
+            total: qty(r.total),
+            out: num(r.out),
+            collectedBy: r.collectedBy,
+            dept: r.dept,
+            balance: qty(r.balance),
+            when: r.when,
+          }))}
+          subtitle={[`Unit: ${material.unit}`, ...(day ? [`Date: ${day}`] : [])]}
+        />
+        <div className="flex items-center gap-2">
+          <Label htmlFor="release-day" className="whitespace-nowrap">
+            Filter by date
+          </Label>
+          <Input
+            id="release-day"
+            type="date"
+            className="h-9 w-44"
+            value={day}
+            onChange={(e) => setDay(e.target.value)}
+          />
+          {day && (
+            <Button variant="ghost" size="sm" onClick={() => setDay("")}>
+              Clear
+            </Button>
+          )}
+        </div>
+      </div>
+      <div className="max-h-[65vh] overflow-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-12">S/N</TableHead>
+              <TableHead className="text-right">Opening</TableHead>
+              <TableHead className="text-right">Qty In</TableHead>
+              <TableHead className="text-right">Total</TableHead>
+              <TableHead className="text-right">Out</TableHead>
+              <TableHead>Collected By</TableHead>
+              <TableHead>Dept.</TableHead>
+              <TableHead className="text-right">Balance</TableHead>
+              <TableHead>Date/Time</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((r, i) => (
+              <TableRow key={r.id}>
+                <TableCell className="text-muted-foreground">{i + 1}</TableCell>
+                <TableCell className="text-right">{qty(r.opening)}</TableCell>
+                <TableCell className="text-right">{num(r.qtyIn)}</TableCell>
+                <TableCell className="text-right">{qty(r.total)}</TableCell>
+                <TableCell className="text-right">{num(r.out)}</TableCell>
+                <TableCell>{r.collectedBy}</TableCell>
+                <TableCell>{r.dept}</TableCell>
+                <TableCell className="text-right font-medium">{qty(r.balance)}</TableCell>
+                <TableCell className="whitespace-nowrap">{r.when}</TableCell>
+              </TableRow>
+            ))}
+            {rows.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={9} className="text-center text-muted-foreground py-6">
+                  {movements.isLoading
+                    ? "Loading…"
+                    : day
+                      ? "Nothing received or released on this date."
+                      : "Nothing received or released yet."}
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
     </DialogContent>
   );
 }
@@ -2174,7 +2449,7 @@ function HistoryDialog({ material }: { material: Material }) {
                       value={Number(m.quantity)}
                       unit={material.unit}
                       perBag={material.pieces_per_bag}
-                      pack={packWord(material.name, material.unit)}
+                      pack={materialPack(material)}
                     />
                   </TableCell>
                   <TableCell className="text-right text-muted-foreground text-xs">

@@ -161,6 +161,7 @@ function BrandsPage() {
     onSuccess: () => {
       toast.success(editing ? "Brand updated" : "Brand added");
       qc.invalidateQueries({ queryKey: ["brands"] });
+      qc.invalidateQueries({ queryKey: ["brands-brief"] });
       setOpen(false);
       setEditing(null);
     },
@@ -176,6 +177,7 @@ function BrandsPage() {
       toast.success("Brand deleted");
       setDeleteTarget(null);
       qc.invalidateQueries({ queryKey: ["brands"] });
+      qc.invalidateQueries({ queryKey: ["brands-brief"] });
     },
     onError: (e: Error) => toast.error(e.message),
   });

@@ -47,6 +47,7 @@ import { toast } from "sonner";
 import { generateProductionRequestPdf } from "@/lib/pdf";
 import { logAudit } from "@/lib/audit";
 import { AddMaterialDialog, MaterialCombobox } from "@/components/shared/material-picker";
+import { brandDetail } from "@/components/shared/brand-picker";
 
 export const Route = createFileRoute("/_app/production-requests")({
   head: () => ({
@@ -65,7 +66,13 @@ export const Route = createFileRoute("/_app/production-requests")({
   ),
 });
 
-type Material = { id: string; name: string; unit: string; current_stock: number };
+type Material = {
+  id: string;
+  name: string;
+  unit: string;
+  current_stock: number;
+  detail?: string | null;
+};
 type RequestRow = {
   id: string;
   request_number: string;
@@ -128,13 +135,16 @@ function ProductionRequestsPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("raw_materials")
-        .select("id,name,unit,current_stock")
+        .select("id,name,unit,current_stock,brands(name,category,grammage)")
         .eq("factory_id", factoryId!)
         .eq("active", true)
         .eq("approval_status", "approved")
         .order("name");
       if (error) throw error;
-      return (data ?? []) as Material[];
+      return (data ?? []).map(({ brands, ...m }) => ({
+        ...m,
+        detail: brandDetail(brands),
+      })) as Material[];
     },
   });
 

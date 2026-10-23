@@ -49,6 +49,7 @@ import { ClipboardCheck, PackageCheck, Search } from "lucide-react";
 import { useRealtimeInvalidate } from "@/lib/realtime";
 import { useCurrentUserName } from "@/lib/use-current-user";
 import { AddMaterialDialog, MaterialCombobox } from "@/components/shared/material-picker";
+import { brandDetail } from "@/components/shared/brand-picker";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { QcJugRegister } from "@/components/qc/jug-register";
 import { BottleTrackingPanel } from "@/components/qc/bottle-tracking";
@@ -99,6 +100,7 @@ type Material = {
   unit_cost: number;
   supplier_id: string | null;
   pieces_per_bag?: number | null;
+  detail?: string | null;
 };
 type Supplier = { id: string; name: string };
 type OpenOrder = {
@@ -654,13 +656,16 @@ function InspectionDialog({
     queryFn: async () => {
       const { data, error } = await supabase
         .from("raw_materials")
-        .select("id,name,unit,unit_cost,supplier_id,active,pieces_per_bag")
+        .select(
+          "id,name,unit,unit_cost,supplier_id,active,pieces_per_bag,brands(name,category,grammage)",
+        )
         .eq("factory_id", factoryId)
         .order("name");
       if (error) throw error;
-      return (data ?? []).map(({ active, ...m }) => ({
+      return (data ?? []).map(({ active, brands, ...m }) => ({
         ...m,
         name: active ? m.name : `${m.name} (inactive)`,
+        detail: brandDetail(brands),
       })) as Material[];
     },
   });
