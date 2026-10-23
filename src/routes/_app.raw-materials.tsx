@@ -78,7 +78,7 @@ import {
   BagQuantityInput,
   BagSizeSetup,
   CostPerBagInput,
-  PiecesInput,
+  PackOrPiecesInput,
   PreformGrams,
   isPreform,
 } from "@/components/shared/bag-quantity";
@@ -1412,7 +1412,11 @@ function MaterialForm({
         throw new Error("Give a reason for changing the grams per preform");
       let materialId = editing?.id ?? null;
       if (editing) {
-        const { error } = await supabase.from("raw_materials").update(payload).eq("id", editing.id);
+        // The brand goes in only when it changed: until the database grants
+        // it (20261023150000), writing brand_id at all is refused.
+        const { brand_id, ...rest } = payload;
+        const update = brand_id === (editing.brand_id ?? null) ? rest : payload;
+        const { error } = await supabase.from("raw_materials").update(update).eq("id", editing.id);
         if (error) throw error;
       } else {
         // New materials still go through the request_new_material RPC (it's
@@ -1946,6 +1950,9 @@ function IssueDialog({ material, onDone }: { material: Material; onDone: () => v
   const [issueTo, setIssueTo] = useState("");
   const [toDept, toUser] = issueTo.split(":") as [IssueDepartment | "", string | undefined];
   const [quantity, setQuantity] = useState(0);
+  // Preforms are issued in bags; one with no bag size sets it here first.
+  const [perBag, setPerBag] = useState<number | null>(material.pieces_per_bag);
+  const needsBagSize = isPreform(material.name) && !perBag;
   const [purpose, setPurpose] = useState<"production" | "general">("production");
   const pickIssueTo = (v: string) => {
     setIssueTo(v);
@@ -1990,7 +1997,7 @@ function IssueDialog({ material, onDone }: { material: Material; onDone: () => v
           <BagQty
             value={Number(material.current_stock)}
             unit={material.unit}
-            perBag={material.pieces_per_bag}
+            perBag={perBag}
             pack={materialPack(material)}
           />
         </p>
@@ -2032,13 +2039,22 @@ function IssueDialog({ material, onDone }: { material: Material; onDone: () => v
             </SelectContent>
           </Select>
         </div>
-        <PiecesInput
+        {needsBagSize && (
+          <BagSizeSetup
+            materialId={material.id}
+            materialName={material.name}
+            onSaved={(n) => setPerBag(n)}
+          />
+        )}
+        {/* Entered in bags (or pieces); issued and kept in pieces. */}
+        <PackOrPiecesInput
           label="Quantity issued"
           value={quantity}
           onChange={setQuantity}
-          perBag={material.pieces_per_bag}
+          perBag={perBag}
           pack={materialPack(material)}
           unit={material.unit}
+          max={Number(material.current_stock)}
         />
         <div>
           <Label>{purpose === "production" ? "Production reference" : "Reference"}</Label>

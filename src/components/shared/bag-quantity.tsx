@@ -7,6 +7,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { MoneyInput } from "@/components/ui/money-input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { money, num } from "@/lib/format";
 import { formatBags, formatGrams, formatWeight, packPlural, splitBags } from "@/lib/preform-units";
 
@@ -177,6 +184,101 @@ export function PiecesInput({
       {split && value > 0 && (
         <p className="mt-1 text-xs text-muted-foreground">
           = {formatBags(split, pack)} of {num(perBag ?? 0)} {unit ?? "pieces"}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// One quantity box with a unit dropdown -- bags (or cartons, rolls...) or
+// pieces -- and the other unit worked out underneath: "= 46,080 pieces" for
+// bags, "= 40 bags + 300 pcs" for pieces. Starts in packs. onChange always
+// receives pieces, so stock stays in pieces. Without a pack size: the plain
+// quantity box in the material's unit.
+export function PackOrPiecesInput({
+  label,
+  value,
+  onChange,
+  perBag,
+  unit,
+  pack = "bag",
+  max,
+}: {
+  label: string;
+  value: number;
+  onChange: (pieces: number) => void;
+  perBag?: number | null;
+  unit?: string | null;
+  pack?: string;
+  max?: number;
+}) {
+  const [inPacks, setInPacks] = useState(true);
+  const [typed, setTyped] = useState("");
+  const over = max != null && value > max;
+
+  if (!perBag) {
+    return (
+      <div>
+        <Label>
+          {label}
+          {unit ? ` (${unit})` : ""}
+        </Label>
+        <MoneyInput min={0} step="0.001" value={value} onChange={onChange} />
+      </div>
+    );
+  }
+
+  const toPiecesFrom = (raw: string, packs: boolean) => {
+    const n = raw === "" ? 0 : Math.max(0, Number(raw));
+    if (!Number.isFinite(n)) return 0;
+    // Part of a bag is allowed (1.5 bags), but the pieces are whole.
+    return packs ? Math.round(n * perBag) : Math.floor(n);
+  };
+  const split = splitBags(value, perBag);
+  return (
+    <div>
+      <Label>{label}</Label>
+      <div className="flex gap-2">
+        <Input
+          type="number"
+          inputMode="decimal"
+          min={0}
+          step={inPacks ? "any" : 1}
+          placeholder="0"
+          value={typed}
+          onChange={(e) => {
+            setTyped(e.target.value);
+            onChange(toPiecesFrom(e.target.value, inPacks));
+          }}
+        />
+        <Select
+          value={inPacks ? "packs" : "pieces"}
+          onValueChange={(v) => {
+            const packs = v === "packs";
+            setInPacks(packs);
+            // Keep the same quantity, shown in the unit just chosen.
+            if (value > 0) {
+              setTyped(String(packs ? Math.round((value / perBag) * 1000) / 1000 : value));
+            }
+          }}
+        >
+          <SelectTrigger className="w-32 shrink-0">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="packs" className="capitalize">
+              {packPlural(pack)}
+            </SelectItem>
+            <SelectItem value="pieces">Pieces</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      {value > 0 && (
+        <p className={`mt-1 text-xs font-medium ${over ? "text-destructive" : ""}`}>
+          {inPacks
+            ? `= ${num(value)} pieces (${num(perBag)} pcs per ${pack})`
+            : `= ${split ? formatBags(split, pack) : ""} (${num(perBag)} pcs per ${pack})`}
+          {over && ` — only ${num(max ?? 0)} pieces in stock`}
         </p>
       )}
     </div>
