@@ -27,12 +27,28 @@ export function formatPieces(pieces: number, perBag: number | null | undefined):
   return `${base} (${formatBags(s)})`;
 }
 
-// "40 bags", "40 bags + 1 pc", "1 bag + 576 pcs"
-export function formatBags(s: BagSplit): string {
-  const bags = `${fmt(s.bags)} ${Math.abs(s.bags) === 1 ? "bag" : "bags"}`;
+// "40 bags", "40 bags + 1 pc", "1 bag + 576 pcs"; "3 cartons" with pack "carton".
+export function formatBags(s: BagSplit, pack = "bag"): string {
+  const bags = `${fmt(s.bags)} ${Math.abs(s.bags) === 1 ? pack : packPlural(pack)}`;
   if (s.pieces === 0) return bags;
   return `${bags} + ${fmt(Math.abs(s.pieces))} ${Math.abs(s.pieces) === 1 ? "pc" : "pcs"}`;
 }
+
+// The same pieces-per-pack conversion serves any material bought in packs:
+// cartons of caps, rolls of film, bags of preforms. The pack is read from the
+// material's name ("Bottle Cap Carton"), else from its unit ("cartons").
+const PACK_RE = /\b(carton|bag|roll|pack|sack|crate|box|bundle|drum|pallet)(?:e?s)?\b/i;
+
+export function detectPack(name?: string | null, unit?: string | null): string | null {
+  const m = PACK_RE.exec(name ?? "") ?? PACK_RE.exec(unit ?? "");
+  return m ? m[1].toLowerCase() : null;
+}
+
+// What one pack of this material is called; preforms come in bags.
+export const packWord = (name?: string | null, unit?: string | null) =>
+  detectPack(name, unit) ?? "bag";
+
+export const packPlural = (pack: string) => (/(x|s|ch|sh)$/.test(pack) ? `${pack}es` : `${pack}s`);
 
 // Preform weight: grams per piece is set once per preform and only describes
 // the piece -- stock stays in pieces. "18 g", "18.5 g"

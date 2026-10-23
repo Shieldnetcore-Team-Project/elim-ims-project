@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useAutofillUserName } from "@/lib/use-current-user";
 import { RequireAccess } from "@/components/layout/require-access";
+import { SectionTabs } from "@/components/layout/section-tabs";
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -80,15 +81,19 @@ import {
   isPreform,
 } from "@/components/shared/bag-quantity";
 import { SupplierPicker } from "@/components/shared/supplier-picker";
+import { detectPack, packPlural, packWord } from "@/lib/preform-units";
 
 export const Route = createFileRoute("/_app/raw-materials")({
   head: () => ({
     meta: [{ title: "Raw Materials — Elim Table Water" }, { name: "robots", content: "noindex" }],
   }),
   component: () => (
-    <RequireAccess module="raw-materials">
-      <RawMaterialsPage />
-    </RequireAccess>
+    <>
+      <SectionTabs section="Store" />
+      <RequireAccess module="raw-materials">
+        <RawMaterialsPage />
+      </RequireAccess>
+    </>
   ),
 });
 
@@ -305,7 +310,7 @@ function RawMaterialsPage() {
       const { data, error } = await supabase
         .from("goods_receipts")
         .select(
-          "id,receipt_number,material_id,quantity,damaged_quantity,accepted_quantity,status,submitted_by,submitted_at,raw_materials(name,unit)",
+          "id,receipt_number,material_id,quantity,damaged_quantity,accepted_quantity,status,submitted_by,submitted_at,raw_materials(name,unit,pieces_per_bag)",
         )
         .eq("factory_id", factoryId!)
         .eq("status", "pending_confirmation")
@@ -680,6 +685,7 @@ function RawMaterialsPage() {
                         value={Number(m.current_stock)}
                         unit={m.unit}
                         perBag={m.pieces_per_bag}
+                        pack={packWord(m.name, m.unit)}
                         bagsFirst
                         className={low ? "text-destructive font-medium" : ""}
                       />
@@ -697,6 +703,7 @@ function RawMaterialsPage() {
                         value={Number(m.reorder_level ?? 0)}
                         unit={m.unit}
                         perBag={m.pieces_per_bag}
+                        pack={packWord(m.name, m.unit)}
                       />
                     </TableCell>
                     <TableCell>
@@ -859,6 +866,7 @@ function RawMaterialsPage() {
                           value={Number(r.quantity)}
                           unit={r.raw_materials?.unit}
                           perBag={r.raw_materials?.pieces_per_bag}
+                          pack={packWord(r.raw_materials?.name, r.raw_materials?.unit)}
                         />
                       </TableCell>
                       <TableCell className="text-right text-destructive">
@@ -867,6 +875,7 @@ function RawMaterialsPage() {
                             value={Number(r.damaged_quantity)}
                             unit={r.raw_materials?.unit}
                             perBag={r.raw_materials?.pieces_per_bag}
+                            pack={packWord(r.raw_materials?.name, r.raw_materials?.unit)}
                           />
                         ) : (
                           "—"
@@ -877,6 +886,7 @@ function RawMaterialsPage() {
                           value={Number(r.accepted_quantity)}
                           unit={r.raw_materials?.unit}
                           perBag={r.raw_materials?.pieces_per_bag}
+                          pack={packWord(r.raw_materials?.name, r.raw_materials?.unit)}
                         />
                       </TableCell>
                       <TableCell>
@@ -963,6 +973,7 @@ function RawMaterialsPage() {
                           value={Number(a.quantity_delta)}
                           unit={a.raw_materials?.unit}
                           perBag={a.raw_materials?.pieces_per_bag}
+                          pack={packWord(a.raw_materials?.name, a.raw_materials?.unit)}
                         />
                       </TableCell>
                       <TableCell className="text-muted-foreground">{a.reason ?? "—"}</TableCell>
@@ -1268,7 +1279,6 @@ function MaterialForm({
   }, [selectedCategoryName, allUnitOptions]);
 
   const [openingStock, setOpeningStock] = useState(editing ? Number(editing.opening_stock) : 0);
-  const [unitCost, setUnitCost] = useState(editing ? Number(editing.unit_cost) : 0);
   const [supplierId, setSupplierId] = useState(editing?.supplier_id ?? "none");
   const [reorderLevel, setReorderLevel] = useState(
     editing ? Number(editing.reorder_level ?? 0) : 0,
@@ -1277,11 +1287,19 @@ function MaterialForm({
     editing ? Number(editing.minimum_stock ?? 0) : 0,
   );
   const [remarks, setRemarks] = useState(editing?.remarks ?? "");
-  // Bag size for materials delivered in bags but counted in pieces (PET
-  // preforms of every size). Stock stays in pieces; this only converts.
+  // Pack size for materials delivered in packs but counted in pieces: bags of
+  // preforms, cartons of caps, rolls... The pack is read from the name
+  // ("Bottle Cap Carton") or the unit chosen. Stock stays in pieces; this
+  // only converts.
   const [perBag, setPerBag] = useState<number>(Number(editing?.pieces_per_bag ?? 0));
   const [perBagReason, setPerBagReason] = useState("");
-  const showPerBag = /preform/i.test(name) || !!editing?.pieces_per_bag || perBag > 0;
+  const detectedPack = detectPack(name, unit);
+  const pack = detectedPack ?? "bag";
+  const showPerBag =
+    !!detectedPack || /preform/i.test(name) || !!editing?.pieces_per_bag || perBag > 0;
+  // A new material with a pack size is stocked in pieces, whatever unit was picked.
+  const pieceUnit = allUnitOptions.find((u) => /^piece/i.test(u)) ?? "pieces";
+  const savedUnit = !editing && perBag > 0 ? pieceUnit : unit;
   const perBagChanged =
     !!editing?.pieces_per_bag && perBag > 0 && perBag !== Number(editing.pieces_per_bag);
   // Weight of one preform in grams; shown wherever the preform is picked.
@@ -1312,21 +1330,21 @@ function MaterialForm({
   const save = useMutation({
     mutationFn: async () => {
       if (!name.trim()) throw new Error("Material name is required");
-      if (!unit.trim()) throw new Error("Select or enter a unit of measurement");
+      if (!savedUnit.trim()) throw new Error("Select or enter a unit of measurement");
+      // No unit cost here: the cost comes in with each delivery (Restock).
       const payload = {
         name: name.trim(),
         category_id: categoryId === "none" ? null : categoryId,
-        unit: unit.trim(),
-        unit_cost: unitCost,
+        unit: savedUnit.trim(),
         supplier_id: supplierId === "none" ? null : supplierId,
         reorder_level: reorderLevel,
         minimum_stock: minimumStock,
         remarks: remarks || null,
       };
       if (perBag && (perBag < 0 || perBag !== Math.floor(perBag)))
-        throw new Error("Pieces per bag must be a whole number");
+        throw new Error(`Pieces per ${pack} must be a whole number`);
       if (perBagChanged && !perBagReason.trim())
-        throw new Error("Give a reason for changing pieces per bag");
+        throw new Error(`Give a reason for changing pieces per ${pack}`);
       if (gramsChanged && !gramsReason.trim())
         throw new Error("Give a reason for changing the grams per preform");
       let materialId = editing?.id ?? null;
@@ -1435,50 +1453,52 @@ function MaterialForm({
         {showPerBag && (
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label>Pieces per bag</Label>
+              <Label className="capitalize">Pieces per {pack}</Label>
               <Input
                 type="number"
                 inputMode="numeric"
                 min={0}
                 step={1}
                 value={perBag || ""}
-                placeholder="e.g. 1152"
+                placeholder={pack === "carton" ? "e.g. 4800" : "e.g. 1152"}
                 onChange={(e) =>
                   setPerBag(e.target.value === "" ? 0 : Math.floor(Number(e.target.value)))
                 }
               />
               <p className="mt-1 text-[11px] text-muted-foreground">
-                Stock is kept in pieces and also shown in bags; deliveries and issues can be entered
-                as bags + loose pieces.
+                Stock is kept in pieces and also shown in {packPlural(pack)}; deliveries and issues
+                can be entered as {packPlural(pack)} + loose pieces.
               </p>
             </div>
             {perBagChanged && (
               <div>
-                <Label>Why is the bag size changing?</Label>
+                <Label>Why is the {pack} size changing?</Label>
                 <Input
                   value={perBagReason}
                   onChange={(e) => setPerBagReason(e.target.value)}
-                  placeholder="e.g. new supplier bag size"
+                  placeholder={`e.g. new supplier ${pack} size`}
                 />
               </div>
             )}
-            <div>
-              <Label>Weight per preform (grams)</Label>
-              <Input
-                type="number"
-                inputMode="decimal"
-                min={0}
-                step="0.1"
-                value={grams || ""}
-                placeholder="e.g. 18"
-                onChange={(e) =>
-                  setGrams(e.target.value === "" ? 0 : Math.max(0, Number(e.target.value)))
-                }
-              />
-              <p className="mt-1 text-[11px] text-muted-foreground">
-                Comes along wherever this preform is picked.
-              </p>
-            </div>
+            {(isPreform(name) || !!editing?.grams_per_piece) && (
+              <div>
+                <Label>Weight per preform (grams)</Label>
+                <Input
+                  type="number"
+                  inputMode="decimal"
+                  min={0}
+                  step="0.1"
+                  value={grams || ""}
+                  placeholder="e.g. 18"
+                  onChange={(e) =>
+                    setGrams(e.target.value === "" ? 0 : Math.max(0, Number(e.target.value)))
+                  }
+                />
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Comes along wherever this preform is picked.
+                </p>
+              </div>
+            )}
             {gramsChanged && (
               <div>
                 <Label>Why are the grams changing?</Label>
@@ -1501,7 +1521,17 @@ function MaterialForm({
             />
           </div>
         )}
-        <div className="grid grid-cols-2 gap-3">
+        {perBag > 0 ? (
+          <BagQuantityInput
+            label="Opening stock"
+            value={openingStock}
+            onChange={setOpeningStock}
+            perBag={perBag}
+            unit={editing ? editing.unit : pieceUnit}
+            pack={pack}
+            disabled={!!editing}
+          />
+        ) : (
           <div>
             <Label>Opening stock</Label>
             <MoneyInput
@@ -1512,11 +1542,7 @@ function MaterialForm({
               disabled={!!editing}
             />
           </div>
-          <div>
-            <Label>Unit cost</Label>
-            <MoneyInput value={unitCost} onChange={setUnitCost} />
-          </div>
-        </div>
+        )}
         <div>
           <Label>Supplier</Label>
           <SupplierPicker
@@ -1635,6 +1661,7 @@ function ReceiveDialog({
             value={Number(material.current_stock)}
             unit={material.unit}
             perBag={perBag}
+            pack={packWord(material.name, material.unit)}
             bagsFirst
           />
           {restock
@@ -1657,6 +1684,7 @@ function ReceiveDialog({
             value={quantity}
             onChange={setQuantity}
             perBag={perBag}
+            pack={packWord(material.name, material.unit)}
             unit={material.unit}
             disabled={needsBagSize}
           />
@@ -1665,14 +1693,21 @@ function ReceiveDialog({
             value={damagedQuantity}
             onChange={setDamagedQuantity}
             perBag={perBag}
+            pack={packWord(material.name, material.unit)}
             unit={material.unit}
             disabled={needsBagSize}
           />
         </div>
         <p className="text-xs text-muted-foreground">
           Accepted quantity:{" "}
-          <BagQty value={accepted} unit={material.unit} perBag={perBag} bagsFirst /> Only this posts
-          to stock; damaged goes to the damage ledger.
+          <BagQty
+            value={accepted}
+            unit={material.unit}
+            perBag={perBag}
+            pack={packWord(material.name, material.unit)}
+            bagsFirst
+          />{" "}
+          Only this posts to stock; damaged goes to the damage ledger.
         </p>
         {(isPreform(material.name) || grams) && (
           <PreformGrams
@@ -1691,6 +1726,7 @@ function ReceiveDialog({
           unitCost={unitCost}
           onChange={setUnitCost}
           perBag={perBag}
+          pack={packWord(material.name, material.unit)}
           unit={material.unit}
         />
         <div>
@@ -1783,6 +1819,7 @@ function RequestPurchaseDialog({ material, onDone }: { material: Material; onDon
           value={quantity}
           onChange={setQuantity}
           perBag={material.pieces_per_bag}
+          pack={packWord(material.name, material.unit)}
           unit={material.unit}
         />
         <div>
@@ -1870,6 +1907,7 @@ function IssueDialog({ material, onDone }: { material: Material; onDone: () => v
             value={Number(material.current_stock)}
             unit={material.unit}
             perBag={material.pieces_per_bag}
+            pack={packWord(material.name, material.unit)}
           />
         </p>
         <div>
@@ -1915,6 +1953,7 @@ function IssueDialog({ material, onDone }: { material: Material; onDone: () => v
           value={quantity}
           onChange={setQuantity}
           perBag={material.pieces_per_bag}
+          pack={packWord(material.name, material.unit)}
           unit={material.unit}
         />
         <div>
@@ -1991,13 +2030,19 @@ function AdjustDialog({ material, onDone }: { material: Material; onDone: () => 
           <div>
             <Label>Old quantity</Label>
             <Input type="number" value={oldQuantity} disabled />
-            <BagQty value={oldQuantity} perBag={material.pieces_per_bag} className="text-xs" />
+            <BagQty
+              value={oldQuantity}
+              perBag={material.pieces_per_bag}
+              pack={packWord(material.name, material.unit)}
+              className="text-xs"
+            />
           </div>
           <BagQuantityInput
             label="New quantity"
             value={newQuantity}
             onChange={setNewQuantity}
             perBag={material.pieces_per_bag}
+            pack={packWord(material.name, material.unit)}
             unit={material.unit}
           />
           <div>
@@ -2129,6 +2174,7 @@ function HistoryDialog({ material }: { material: Material }) {
                       value={Number(m.quantity)}
                       unit={material.unit}
                       perBag={material.pieces_per_bag}
+                      pack={packWord(material.name, material.unit)}
                     />
                   </TableCell>
                   <TableCell className="text-right text-muted-foreground text-xs">

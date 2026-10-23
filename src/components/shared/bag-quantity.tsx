@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { MoneyInput } from "@/components/ui/money-input";
 import { money, num } from "@/lib/format";
-import { formatBags, formatGrams, formatWeight, splitBags } from "@/lib/preform-units";
+import { formatBags, formatGrams, formatWeight, packPlural, splitBags } from "@/lib/preform-units";
 
 // Materials delivered in bags but counted in pieces (PET preforms of every
 // size) have raw_materials.pieces_per_bag set. The Store receives them in
@@ -25,12 +25,14 @@ export function BagQty({
   unit,
   perBag,
   bagsFirst,
+  pack,
   className = "",
 }: {
   value: number | null | undefined;
   unit?: string | null;
   perBag?: number | null;
   bagsFirst?: boolean;
+  pack?: string;
   className?: string;
 }) {
   if (value == null) return <span className="text-muted-foreground">—</span>;
@@ -39,7 +41,7 @@ export function BagQty({
   if (split && bagsFirst) {
     return (
       <span className={className}>
-        {formatBags(split)}
+        {formatBags(split, pack)}
         <span className="block text-[11px] font-normal text-muted-foreground">{pieces}</span>
       </span>
     );
@@ -49,7 +51,7 @@ export function BagQty({
       {pieces}
       {split && (
         <span className="block text-[11px] font-normal text-muted-foreground">
-          {formatBags(split)}
+          {formatBags(split, pack)}
         </span>
       )}
     </span>
@@ -58,12 +60,14 @@ export function BagQty({
 
 // Entry in bags (+ any loose pieces) when the material has a bag size;
 // otherwise the usual quantity box. onChange always receives pieces.
+// `pack` names the pack for materials not bought in bags ("carton", "roll").
 export function BagQuantityInput({
   label,
   value,
   onChange,
   perBag,
   unit,
+  pack = "bag",
   disabled,
 }: {
   label: string;
@@ -71,6 +75,7 @@ export function BagQuantityInput({
   onChange: (pieces: number) => void;
   perBag?: number | null;
   unit?: string | null;
+  pack?: string;
   disabled?: boolean;
 }) {
   const start = splitBags(value, perBag);
@@ -116,7 +121,9 @@ export function BagQuantityInput({
               onChange(b * perBag + loose);
             }}
           />
-          <span className="text-[11px] text-muted-foreground">bags ({num(perBag)} pcs each)</span>
+          <span className="text-[11px] text-muted-foreground">
+            {packPlural(pack)} ({num(perBag)} pcs each)
+          </span>
         </div>
         <div>
           <Input
@@ -150,12 +157,14 @@ export function PiecesInput({
   onChange,
   perBag,
   unit,
+  pack,
 }: {
   label: string;
   value: number;
   onChange: (pieces: number) => void;
   perBag?: number | null;
   unit?: string | null;
+  pack?: string;
 }) {
   const split = splitBags(value, perBag);
   return (
@@ -167,7 +176,7 @@ export function PiecesInput({
       <MoneyInput min={0} step={perBag ? "1" : "0.001"} value={value} onChange={onChange} />
       {split && value > 0 && (
         <p className="mt-1 text-xs text-muted-foreground">
-          = {formatBags(split)} of {num(perBag ?? 0)} {unit ?? "pieces"}
+          = {formatBags(split, pack)} of {num(perBag ?? 0)} {unit ?? "pieces"}
         </p>
       )}
     </div>
@@ -181,11 +190,13 @@ export function CostPerBagInput({
   onChange,
   perBag,
   unit,
+  pack = "bag",
 }: {
   unitCost: number;
   onChange: (perPiece: number) => void;
   perBag?: number | null;
   unit?: string | null;
+  pack?: string;
 }) {
   const [perBagCost, setPerBagCost] = useState(
     perBag ? Math.round(unitCost * perBag * 100) / 100 : 0,
@@ -204,7 +215,7 @@ export function CostPerBagInput({
   }
   return (
     <div>
-      <Label>Cost per bag</Label>
+      <Label>Cost per {pack}</Label>
       <MoneyInput
         value={perBagCost}
         onChange={(v) => {

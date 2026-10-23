@@ -19,6 +19,7 @@ import { Route as AppApprovalWorkflowsRouteImport } from './routes/_app.approval
 import { Route as AppApprovalsRouteImport } from './routes/_app.approvals'
 import { Route as AppAuditLogsRouteImport } from './routes/_app.audit-logs'
 import { Route as AppBottleTrackingRouteImport } from './routes/_app.bottle-tracking'
+import { Route as AppBrandsRouteImport } from './routes/_app.brands'
 import { Route as AppCashLedgerRouteImport } from './routes/_app.cash-ledger'
 import { Route as AppCostingRouteImport } from './routes/_app.costing'
 import { Route as AppCreditSalesRouteImport } from './routes/_app.credit-sales'
@@ -108,6 +109,11 @@ const AppAuditLogsRoute = AppAuditLogsRouteImport.update({
 const AppBottleTrackingRoute = AppBottleTrackingRouteImport.update({
   id: '/bottle-tracking',
   path: '/bottle-tracking',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppBrandsRoute = AppBrandsRouteImport.update({
+  id: '/brands',
+  path: '/brands',
   getParentRoute: () => AppRoute,
 } as any)
 const AppCashLedgerRoute = AppCashLedgerRouteImport.update({
@@ -329,6 +335,7 @@ export interface FileRoutesByFullPath {
   '/approvals': typeof AppApprovalsRoute
   '/audit-logs': typeof AppAuditLogsRoute
   '/bottle-tracking': typeof AppBottleTrackingRoute
+  '/brands': typeof AppBrandsRoute
   '/cash-ledger': typeof AppCashLedgerRouteWithChildren
   '/costing': typeof AppCostingRoute
   '/credit-sales': typeof AppCreditSalesRoute
@@ -381,6 +388,7 @@ export interface FileRoutesByTo {
   '/approvals': typeof AppApprovalsRoute
   '/audit-logs': typeof AppAuditLogsRoute
   '/bottle-tracking': typeof AppBottleTrackingRoute
+  '/brands': typeof AppBrandsRoute
   '/costing': typeof AppCostingRoute
   '/credit-sales': typeof AppCreditSalesRoute
   '/customers': typeof AppCustomersRoute
@@ -434,6 +442,7 @@ export interface FileRoutesById {
   '/_app/approvals': typeof AppApprovalsRoute
   '/_app/audit-logs': typeof AppAuditLogsRoute
   '/_app/bottle-tracking': typeof AppBottleTrackingRoute
+  '/_app/brands': typeof AppBrandsRoute
   '/_app/cash-ledger': typeof AppCashLedgerRouteWithChildren
   '/_app/costing': typeof AppCostingRoute
   '/_app/credit-sales': typeof AppCreditSalesRoute
@@ -488,6 +497,7 @@ export interface FileRouteTypes {
     | '/approvals'
     | '/audit-logs'
     | '/bottle-tracking'
+    | '/brands'
     | '/cash-ledger'
     | '/costing'
     | '/credit-sales'
@@ -540,6 +550,7 @@ export interface FileRouteTypes {
     | '/approvals'
     | '/audit-logs'
     | '/bottle-tracking'
+    | '/brands'
     | '/costing'
     | '/credit-sales'
     | '/customers'
@@ -592,6 +603,7 @@ export interface FileRouteTypes {
     | '/_app/approvals'
     | '/_app/audit-logs'
     | '/_app/bottle-tracking'
+    | '/_app/brands'
     | '/_app/cash-ledger'
     | '/_app/costing'
     | '/_app/credit-sales'
@@ -711,6 +723,13 @@ declare module '@tanstack/react-router' {
       path: '/bottle-tracking'
       fullPath: '/bottle-tracking'
       preLoaderRoute: typeof AppBottleTrackingRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/brands': {
+      id: '/_app/brands'
+      path: '/brands'
+      fullPath: '/brands'
+      preLoaderRoute: typeof AppBrandsRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/cash-ledger': {
@@ -1027,6 +1046,7 @@ interface AppRouteChildren {
   AppApprovalsRoute: typeof AppApprovalsRoute
   AppAuditLogsRoute: typeof AppAuditLogsRoute
   AppBottleTrackingRoute: typeof AppBottleTrackingRoute
+  AppBrandsRoute: typeof AppBrandsRoute
   AppCashLedgerRoute: typeof AppCashLedgerRouteWithChildren
   AppCostingRoute: typeof AppCostingRoute
   AppCreditSalesRoute: typeof AppCreditSalesRoute
@@ -1075,6 +1095,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppApprovalsRoute: AppApprovalsRoute,
   AppAuditLogsRoute: AppAuditLogsRoute,
   AppBottleTrackingRoute: AppBottleTrackingRoute,
+  AppBrandsRoute: AppBrandsRoute,
   AppCashLedgerRoute: AppCashLedgerRouteWithChildren,
   AppCostingRoute: AppCostingRoute,
   AppCreditSalesRoute: AppCreditSalesRoute,

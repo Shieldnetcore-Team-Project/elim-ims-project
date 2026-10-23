@@ -2,6 +2,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  detectPack,
+  packWord,
   formatBags,
   formatGrams,
   formatPieces,
@@ -51,4 +53,16 @@ test("pieces from a delivery weight", () => {
   assert.equal(piecesFromWeight(20_740, 18), 1152);
   assert.equal(piecesFromWeight(1000, null), 0);
   assert.equal(piecesFromWeight(null, 18), 0);
+});
+
+test("cartons, rolls and other packs convert like bags", () => {
+  assert.equal(detectPack("Bottle Cap Carton"), "carton");
+  assert.equal(detectPack("Sachet Roll"), "roll");
+  assert.equal(detectPack("Bottle Cap", "cartons"), "carton");
+  assert.equal(detectPack("Packing Nylon", "kg"), null);
+  assert.equal(packWord("Preform 29mm"), "bag");
+  assert.equal(formatBags(splitBags(9600, 4800)!, "carton"), "2 cartons");
+  assert.equal(formatBags(splitBags(4801, 4800)!, "carton"), "1 carton + 1 pc");
+  assert.equal(formatBags(splitBags(20, 10)!, "box"), "2 boxes");
+  assert.equal(toPieces(3, 0, 4800), 14400);
 });

@@ -86,6 +86,60 @@ export type Database = {
           },
         ]
       }
+      brands: {
+        Row: {
+          category: string
+          created_at: string
+          created_by: string | null
+          factory_id: string
+          grammage: string | null
+          id: string
+          name: string
+          pack_quantity: number
+          supplier_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          category: string
+          created_at?: string
+          created_by?: string | null
+          factory_id: string
+          grammage?: string | null
+          id?: string
+          name: string
+          pack_quantity?: number
+          supplier_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          created_by?: string | null
+          factory_id?: string
+          grammage?: string | null
+          id?: string
+          name?: string
+          pack_quantity?: number
+          supplier_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "brands_factory_id_fkey"
+            columns: ["factory_id"]
+            isOneToOne: false
+            referencedRelation: "factories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "brands_supplier_id_fkey"
+            columns: ["supplier_id"]
+            isOneToOne: false
+            referencedRelation: "suppliers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cash_transactions: {
         Row: {
           amount: number
