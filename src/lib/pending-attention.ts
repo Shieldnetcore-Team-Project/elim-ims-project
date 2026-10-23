@@ -43,7 +43,7 @@ function useCount(
 }
 
 export function usePendingAttention() {
-  const { canApprove, canConfirm } = usePermissions();
+  const { canApprove, canConfirm, canSubmit } = usePermissions();
   const { data: uid } = useCurrentUserId();
   // approve_sale()/reject_sale() exempt an admin (super_admin) from the
   // self-approval block every other approver role is still under -- mirror
@@ -107,6 +107,14 @@ export function usePendingAttention() {
       .select("id", { count: "exact", head: true })
       .eq("status", "pending_confirmation")
       .neq("submitted_by", uid ?? ""),
+  );
+  // Store issues to Quality Control waiting for QC to confirm receiving them
+  // (20261023160000_qc_store.sql).
+  const qcStoreReceipts = useCount("qc-store-receipts", canSubmit("goods-receiving"), uid, () =>
+    supabase
+      .from("qc_store_receipts")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "pending"),
   );
   // Production releases from the hall waiting for the Warehouse to accept.
   const productionBatches = useCount("production-batches", canConfirm("production"), uid, () =>
@@ -181,6 +189,7 @@ export function usePendingAttention() {
       "stock_adjustment_requests",
       "role_grant_requests",
       "goods_receipts",
+      "qc_store_receipts",
       "production",
       "costing_sheets",
       "production_requests",
@@ -220,6 +229,12 @@ export function usePendingAttention() {
       label: "Goods receipts awaiting confirmation",
       to: "/raw-materials",
       query: goodsReceipts,
+    },
+    {
+      key: "qc-store-receipts",
+      label: "Store issues for QC to confirm",
+      to: "/quality-control",
+      query: qcStoreReceipts,
     },
     {
       key: "production-batches",

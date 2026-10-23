@@ -2538,6 +2538,124 @@ export type Database = {
           },
         ]
       }
+      qc_store_receipts: {
+        Row: {
+          confirmed_at: string | null
+          confirmed_by: string | null
+          factory_id: string
+          id: string
+          issued_at: string
+          issued_by: string | null
+          issued_to_user: string | null
+          material_id: string
+          movement_id: string
+          quantity: number
+          status: string
+        }
+        Insert: {
+          confirmed_at?: string | null
+          confirmed_by?: string | null
+          factory_id: string
+          id?: string
+          issued_at: string
+          issued_by?: string | null
+          issued_to_user?: string | null
+          material_id: string
+          movement_id: string
+          quantity: number
+          status?: string
+        }
+        Update: {
+          confirmed_at?: string | null
+          confirmed_by?: string | null
+          factory_id?: string
+          id?: string
+          issued_at?: string
+          issued_by?: string | null
+          issued_to_user?: string | null
+          material_id?: string
+          movement_id?: string
+          quantity?: number
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "qc_store_receipts_factory_id_fkey"
+            columns: ["factory_id"]
+            isOneToOne: false
+            referencedRelation: "factories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "qc_store_receipts_material_id_fkey"
+            columns: ["material_id"]
+            isOneToOne: false
+            referencedRelation: "raw_materials"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "qc_store_receipts_movement_id_fkey"
+            columns: ["movement_id"]
+            isOneToOne: true
+            referencedRelation: "raw_material_movements"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      qc_store_usage: {
+        Row: {
+          client_ref: string | null
+          factory_id: string
+          id: string
+          issued_to_department: string | null
+          issued_to_user: string | null
+          material_id: string
+          quantity: number
+          reason: string
+          used_at: string
+          used_by: string | null
+        }
+        Insert: {
+          client_ref?: string | null
+          factory_id: string
+          id?: string
+          issued_to_department?: string | null
+          issued_to_user?: string | null
+          material_id: string
+          quantity: number
+          reason: string
+          used_at?: string
+          used_by?: string | null
+        }
+        Update: {
+          client_ref?: string | null
+          factory_id?: string
+          id?: string
+          issued_to_department?: string | null
+          issued_to_user?: string | null
+          material_id?: string
+          quantity?: number
+          reason?: string
+          used_at?: string
+          used_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "qc_store_usage_factory_id_fkey"
+            columns: ["factory_id"]
+            isOneToOne: false
+            referencedRelation: "factories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "qc_store_usage_material_id_fkey"
+            columns: ["material_id"]
+            isOneToOne: false
+            referencedRelation: "raw_materials"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       raw_material_cost_history: {
         Row: {
           cost: number

@@ -54,6 +54,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { QcJugRegister } from "@/components/qc/jug-register";
 import { BottleTrackingPanel } from "@/components/qc/bottle-tracking";
 import { GoodBottlesPanel } from "@/components/qc/good-bottles";
+import { ReceivedFromStorePanel } from "@/components/qc/received-from-store";
 import { usePreformLive, useShiftReport, useStockings } from "@/components/preform/api";
 import { localDay } from "@/lib/production-shift";
 import { PAGES, usePageAccess } from "@/lib/page-access";
@@ -75,7 +76,14 @@ import { PAGES, usePageAccess } from "@/lib/page-access";
 // finished products only. Each tab follows its own module and page access
 // (src/lib/nav.ts → Quality Control), so e.g. a user with only distribution
 // sees just Bottle tracking.
-const QC_TABS = ["orders", "inspections", "jugs", "good-bottles", "bottle-tracking"] as const;
+const QC_TABS = [
+  "received",
+  "orders",
+  "inspections",
+  "jugs",
+  "good-bottles",
+  "bottle-tracking",
+] as const;
 type QcTab = (typeof QC_TABS)[number];
 
 export const Route = createFileRoute("/_app/quality-control")({
@@ -186,7 +194,8 @@ function QualityControlPage() {
     return !!p && canPage(p);
   };
   const tabs: QcTab[] = [
-    ...(pageOk("Inspections") ? (["orders", "inspections", "jugs"] as const) : []),
+    // Received from Store comes first, for whoever works the QC inspections.
+    ...(pageOk("Inspections") ? (["received", "orders", "inspections", "jugs"] as const) : []),
     ...(pageOk("Good bottles") ? (["good-bottles"] as const) : []),
     ...(pageOk("Bottle tracking") ? (["bottle-tracking"] as const) : []),
   ];
@@ -320,6 +329,7 @@ function QualityControlPage() {
         <TabsList className="h-auto flex-wrap">
           {showInspections && (
             <>
+              <TabsTrigger value="received">Received from Store</TabsTrigger>
               <TabsTrigger value="orders">Purchase Orders</TabsTrigger>
               <TabsTrigger value="inspections">Inspections</TabsTrigger>
               <TabsTrigger value="jugs">Old &amp; New Jugs</TabsTrigger>
@@ -339,6 +349,9 @@ function QualityControlPage() {
             <TabsTrigger value="bottle-tracking">Bottle tracking</TabsTrigger>
           )}
         </TabsList>
+        <TabsContent value="received">
+          {factoryId && <ReceivedFromStorePanel factoryId={factoryId} />}
+        </TabsContent>
         <TabsContent value="good-bottles">
           {factoryId && <GoodBottlesPanel factoryId={factoryId} />}
         </TabsContent>

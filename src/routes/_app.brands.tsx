@@ -179,7 +179,13 @@ function BrandsPage() {
       qc.invalidateQueries({ queryKey: ["brands"] });
       qc.invalidateQueries({ queryKey: ["brands-brief"] });
     },
-    onError: (e: Error) => toast.error(e.message),
+    // A brand that materials use cannot be deleted (20261023180000).
+    onError: (e: Error) =>
+      toast.error(
+        /foreign key/i.test(e.message)
+          ? "This brand is used by materials in the Store. Change their brand first, then delete it."
+          : e.message,
+      ),
   });
 
   const term = q.trim().toLowerCase();

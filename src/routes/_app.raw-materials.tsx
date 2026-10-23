@@ -85,7 +85,7 @@ import {
 import { SupplierPicker } from "@/components/shared/supplier-picker";
 import { BrandPicker, brandDetail, useBrands } from "@/components/shared/brand-picker";
 import { format } from "date-fns";
-import { detectPack, packPlural, packWord } from "@/lib/preform-units";
+import { detectPack, formatBags, packPlural, packWord, splitBags } from "@/lib/preform-units";
 
 export const Route = createFileRoute("/_app/raw-materials")({
   head: () => ({
@@ -662,14 +662,55 @@ function RawMaterialsPage() {
       <Card className="rounded-2xl">
         <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>Materials</CardTitle>
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search material, brand, supplier…"
-              className="pl-8 h-9 w-56"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
+          <div className="flex flex-wrap items-center gap-2">
+            <ReportActions
+              size="sm"
+              title="Store — Raw Materials"
+              fileName="store-raw-materials"
+              columns={[
+                { key: "sn", label: "S/N" },
+                { key: "name", label: "Name" },
+                { key: "brand", label: "Brand" },
+                { key: "pack", label: "Pack" },
+                { key: "grammage", label: "Grammage" },
+                { key: "category", label: "Category" },
+                { key: "dealer", label: "Dealer" },
+                { key: "stock", label: "Current Stock" },
+                { key: "packs", label: "In packs" },
+                { key: "value", label: "Total Value" },
+                { key: "reorder", label: "Reorder Level" },
+                { key: "by", label: "Created By" },
+                { key: "on", label: "On" },
+              ]}
+              rows={searchedMaterials.map((m, i) => {
+                const split = splitBags(Number(m.current_stock), m.pieces_per_bag);
+                return {
+                  sn: i + 1,
+                  name: m.name,
+                  brand: m.brands?.name ?? "",
+                  pack: m.brands?.category ?? "",
+                  grammage: m.brands?.grammage ?? "",
+                  category: m.material_categories?.name ?? m.category ?? "",
+                  dealer: m.suppliers?.name ?? "",
+                  stock: `${num(Number(m.current_stock))} ${m.unit}`,
+                  packs: split ? formatBags(split, materialPack(m)) : "",
+                  value: money(Number(m.current_value)),
+                  reorder: num(Number(m.reorder_level ?? 0)),
+                  by: createdBy(m),
+                  on: format(new Date(m.created_at), "dd-MM-yyyy HH:mm:ss"),
+                };
+              })}
+              subtitle={q.trim() ? [`Search: ${q.trim()}`] : []}
             />
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search material, brand, supplier…"
+                className="pl-8 h-9 w-56"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+              />
+            </div>
           </div>
         </CardHeader>
         <CardContent className="overflow-x-auto">

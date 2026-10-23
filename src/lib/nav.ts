@@ -161,6 +161,7 @@ export const nav: { section: string; items: NavItem[] }[] = [
             url: "/preform-inventory",
             search: { tab: "issues" },
           },
+          { label: "Issued out", module: "raw-materials", url: "/store-issues" },
           { label: "Brands", module: "raw-materials", url: "/brands" },
         ],
       },
