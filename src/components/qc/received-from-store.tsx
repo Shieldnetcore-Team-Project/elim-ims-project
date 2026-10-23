@@ -490,22 +490,25 @@ export function ReceivedFromStorePanel({ factoryId }: { factoryId: string }) {
                         </div>
                       </div>
                     ) : canAct ? (
-                      <div className="flex flex-wrap gap-1">
+                      <div className="flex gap-1">
                         <Button
-                          size="sm"
-                          className="gap-1"
+                          variant="ghost"
+                          size="icon"
+                          title="Confirm received"
+                          aria-label="Confirm received"
                           disabled={confirm.isPending}
                           onClick={() => confirm.mutate(r.id)}
                         >
-                          <Check className="h-4 w-4" /> Confirm received
+                          <Check className="h-4 w-4 text-success" />
                         </Button>
                         <Button
-                          size="sm"
-                          variant="outline"
-                          className="gap-1 text-destructive"
+                          variant="ghost"
+                          size="icon"
+                          title="Reject — back to the Store"
+                          aria-label="Reject"
                           onClick={() => setRejecting(r)}
                         >
-                          <X className="h-4 w-4" /> Reject
+                          <X className="h-4 w-4 text-destructive" />
                         </Button>
                       </div>
                     ) : (
