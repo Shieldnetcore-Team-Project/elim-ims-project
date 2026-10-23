@@ -67,6 +67,12 @@ function Field({
   );
 }
 
+// Old Jug, then New Jug, then any other jug type.
+const jugTypeRank = (name: string) => {
+  const n = name.trim().toLowerCase();
+  return n === "old jug" ? 0 : n === "new jug" ? 1 : 2;
+};
+
 // ----------------------------------------------------------- record return
 // What the marketer says they brought back. Nothing moves until the
 // Warehouse counts it (Returns tab -> Confirm count).
@@ -84,7 +90,11 @@ export function RecordReturnDialog({
   onClose: () => void;
 }) {
   const [repId, setRepId] = useState(initialRepId ?? "");
-  const [typeId, setTypeId] = useState(initialTypeId ?? types[0]?.id ?? "");
+  // Old Jug / New Jug (20261023190000) first; the person returning picks one.
+  const [typeId, setTypeId] = useState(initialTypeId ?? "");
+  const jugTypes = [...types].sort(
+    (a, b) => jugTypeRank(a.name) - jugTypeRank(b.name) || a.name.localeCompare(b.name),
+  );
   const [qty, setQty] = useState<number | null>(null);
   const [notes, setNotes] = useState("");
   // One key per dialog: a double click records one return.
@@ -132,10 +142,10 @@ export function RecordReturnDialog({
           <Field label="Jug type">
             <Select value={typeId} onValueChange={setTypeId}>
               <SelectTrigger>
-                <SelectValue placeholder="Choose" />
+                <SelectValue placeholder="Old Jug or New Jug?" />
               </SelectTrigger>
               <SelectContent>
-                {types.map((t) => (
+                {jugTypes.map((t) => (
                   <SelectItem key={t.id} value={t.id}>
                     {t.name}
                   </SelectItem>

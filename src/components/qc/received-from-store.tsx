@@ -31,7 +31,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Check, MinusCircle, Search, Send } from "lucide-react";
+import { Check, MinusCircle, Search, Send, X } from "lucide-react";
 import { BagQty, PackOrPiecesInput } from "@/components/shared/bag-quantity";
 import { brandDetail } from "@/components/shared/brand-picker";
 import { ReportActions } from "@/components/shared/report-actions";
@@ -56,7 +56,10 @@ type ReceiptRow = {
   id: string;
   material_id: string;
   quantity: number;
-  status: "pending" | "confirmed";
+  status: "pending" | "confirmed" | "rejected";
+  reject_reason: string | null;
+  rejected_by: string | null;
+  rejected_at: string | null;
   issued_to_user: string | null;
   issued_by: string | null;
   issued_at: string;
@@ -99,6 +102,8 @@ export function ReceivedFromStorePanel({ factoryId }: { factoryId: string }) {
   const [useFor, setUseFor] = useState<Balance | null>(null);
   // Issue to Production: the material whose row icon was clicked.
   const [issueFor, setIssueFor] = useState<Balance | null>(null);
+  // Reject a Store issue (with a reason): it goes back to the Store.
+  const [rejecting, setRejecting] = useState<ReceiptRow | null>(null);
   useRealtimeInvalidate(["qc_store_receipts", "qc_store_usage"], [["qc-store"]]);
 
   const receipts = useQuery({
@@ -107,7 +112,7 @@ export function ReceivedFromStorePanel({ factoryId }: { factoryId: string }) {
       const { data, error } = await supabase
         .from("qc_store_receipts")
         .select(
-          `id,material_id,quantity,status,issued_to_user,issued_by,issued_at,confirmed_by,confirmed_at,${MATERIAL_SELECT},raw_material_movements(reference,reason)`,
+          `id,material_id,quantity,status,issued_to_user,issued_by,issued_at,confirmed_by,confirmed_at,reject_reason,rejected_by,rejected_at,${MATERIAL_SELECT},raw_material_movements(reference,reason)`,
         )
         .eq("factory_id", factoryId)
         .order("issued_at", { ascending: false })
@@ -136,7 +141,12 @@ export function ReceivedFromStorePanel({ factoryId }: { factoryId: string }) {
   const peopleIds = [
     ...new Set(
       [
-        ...(receipts.data ?? []).flatMap((r) => [r.issued_to_user, r.issued_by, r.confirmed_by]),
+        ...(receipts.data ?? []).flatMap((r) => [
+          r.issued_to_user,
+          r.issued_by,
+          r.confirmed_by,
+          r.rejected_by,
+        ]),
         ...(usage.data ?? []).flatMap((u) => [u.used_by, u.issued_to_user]),
       ].filter(Boolean) as string[],
     ),
@@ -176,8 +186,9 @@ export function ReceivedFromStorePanel({ factoryId }: { factoryId: string }) {
   };
   for (const r of receipts.data ?? []) {
     const b = balanceOf(r.material_id, r.raw_materials);
+    // A rejected issue went back to the Store: never QC's stock.
     if (r.status === "confirmed") b.received += Number(r.quantity);
-    else b.pending += Number(r.quantity);
+    else if (r.status === "pending") b.pending += Number(r.quantity);
   }
   for (const u of usage.data ?? [])
     balanceOf(u.material_id, u.raw_materials).out += Number(u.quantity);
@@ -210,6 +221,7 @@ export function ReceivedFromStorePanel({ factoryId }: { factoryId: string }) {
       collectedBy: nameOf(r.issued_to_user) ?? "Quality Control (department)",
       issuedBy: nameOf(r.issued_by) ?? "—",
       confirmedBy: nameOf(r.confirmed_by),
+      rejectedBy: nameOf(r.rejected_by),
       note: [r.raw_material_movements?.reference, r.raw_material_movements?.reason]
         .filter(Boolean)
         .join(" — "),
@@ -395,7 +407,9 @@ export function ReceivedFromStorePanel({ factoryId }: { factoryId: string }) {
                 status:
                   r.status === "confirmed"
                     ? `Confirmed${r.confirmedBy ? ` by ${r.confirmedBy}` : ""}`
-                    : "Awaiting confirmation",
+                    : r.status === "rejected"
+                      ? `Rejected — back in store: ${r.reject_reason ?? ""}`
+                      : "Awaiting confirmation",
                 note: r.note,
               }))}
               subtitle={[
@@ -466,15 +480,34 @@ export function ReceivedFromStorePanel({ factoryId }: { factoryId: string }) {
                           {r.confirmed_at ? ` · ${when(r.confirmed_at)}` : ""}
                         </div>
                       </div>
+                    ) : r.status === "rejected" ? (
+                      <div className="max-w-56">
+                        <Badge variant="destructive">Rejected — back in store</Badge>
+                        <div className="mt-1 text-[11px] text-muted-foreground">
+                          {r.reject_reason ?? "—"}
+                          {r.rejectedBy ? ` · ${r.rejectedBy}` : ""}
+                          {r.rejected_at ? ` · ${when(r.rejected_at)}` : ""}
+                        </div>
+                      </div>
                     ) : canAct ? (
-                      <Button
-                        size="sm"
-                        className="gap-1"
-                        disabled={confirm.isPending}
-                        onClick={() => confirm.mutate(r.id)}
-                      >
-                        <Check className="h-4 w-4" /> Confirm received
-                      </Button>
+                      <div className="flex flex-wrap gap-1">
+                        <Button
+                          size="sm"
+                          className="gap-1"
+                          disabled={confirm.isPending}
+                          onClick={() => confirm.mutate(r.id)}
+                        >
+                          <Check className="h-4 w-4" /> Confirm received
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1 text-destructive"
+                          onClick={() => setRejecting(r)}
+                        >
+                          <X className="h-4 w-4" /> Reject
+                        </Button>
+                      </div>
                     ) : (
                       <Badge variant="outline">Awaiting confirmation</Badge>
                     )}
@@ -589,6 +622,18 @@ export function ReceivedFromStorePanel({ factoryId }: { factoryId: string }) {
         )}
       </Dialog>
 
+      <Dialog open={!!rejecting} onOpenChange={(o) => !o && setRejecting(null)}>
+        {rejecting && (
+          <RejectIssueDialog
+            receipt={rejecting}
+            onDone={() => {
+              setRejecting(null);
+              qc.invalidateQueries({ queryKey: ["qc-store"] });
+            }}
+          />
+        )}
+      </Dialog>
+
       <Dialog open={!!issueFor} onOpenChange={(o) => !o && setIssueFor(null)}>
         {issueFor && (
           <IssueToProductionDialog
@@ -602,6 +647,65 @@ export function ReceivedFromStorePanel({ factoryId }: { factoryId: string }) {
         )}
       </Dialog>
     </div>
+  );
+}
+
+// Reject what the Store issued, with a reason: it never becomes QC's stock and
+// goes back into the Store (qc_reject_store_receipt, 20261023210000).
+function RejectIssueDialog({ receipt, onDone }: { receipt: ReceiptRow; onDone: () => void }) {
+  const m = receipt.raw_materials;
+  const [reason, setReason] = useState("");
+  const save = useMutation({
+    mutationFn: async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- RPC newer than the generated types
+      const { error } = await (supabase as any).rpc("qc_reject_store_receipt", {
+        p_id: receipt.id,
+        p_reason: reason.trim(),
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Rejected — returned to the Store");
+      onDone();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  return (
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle>Reject — {m?.name ?? "material"}</DialogTitle>
+      </DialogHeader>
+      <div className="grid gap-3">
+        <p className="text-sm text-muted-foreground">
+          {m?.brands ? `${brandDetail(m.brands)} · ` : ""}Issued {when(receipt.issued_at)}:{" "}
+          <BagQty
+            value={Number(receipt.quantity)}
+            unit={m?.unit}
+            perBag={m?.pieces_per_bag}
+            pack={packOf(m)}
+          />
+          . It goes back into the Store and never counts as Quality Control&rsquo;s stock.
+        </p>
+        <div>
+          <Label>Reason for rejecting *</Label>
+          <Textarea
+            rows={3}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="e.g. wrong size, damaged on arrival, not what was requested"
+          />
+        </div>
+      </div>
+      <DialogFooter>
+        <Button
+          variant="destructive"
+          disabled={save.isPending || reason.trim().length < 3}
+          onClick={() => save.mutate()}
+        >
+          {save.isPending ? "Rejecting…" : "Reject and return to Store"}
+        </Button>
+      </DialogFooter>
+    </DialogContent>
   );
 }
 
