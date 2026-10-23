@@ -81,3 +81,24 @@ BEGIN
   PERFORM pg_temp.check((SELECT current_stock FROM raw_materials WHERE id = 'c6000000-0000-0000-0000-000000000001') = 145,
                         'nothing moved');
 END $$;
+
+-- @@ Test 4: restocking needs no approval: an Inventory Officer (raw-materials submit/create, no confirm) restocks straight into stock
+INSERT INTO auth.users(id, email) VALUES ('a6000000-0000-0000-0000-000000000004', 'inventory@rs');
+INSERT INTO profiles(id, email, full_name)
+SELECT 'a6000000-0000-0000-0000-000000000004', 'inventory@rs', 'inventory'
+ WHERE NOT EXISTS (SELECT 1 FROM profiles WHERE id = 'a6000000-0000-0000-0000-000000000004');
+DELETE FROM user_roles WHERE user_id = 'a6000000-0000-0000-0000-000000000004';
+INSERT INTO user_roles(user_id, role, factory_id) VALUES
+  ('a6000000-0000-0000-0000-000000000004', 'inventory_officer', 'f6000000-0000-0000-0000-000000000001');
+DO $$
+DECLARE v jsonb; r record;
+BEGIN
+  PERFORM pg_temp.as_user('4');
+  PERFORM pg_temp.check(NOT public.has_permission(auth.uid(), 'goods-receiving'::module_key, 'confirm'::action_key),
+                        'inventory officer has no confirm right');
+  v := public.restock_raw_material('{"material_id":"c6000000-0000-0000-0000-000000000001","quantity":20,"unit_cost":10,"client_ref":"d6000000-0000-0000-0000-000000000004"}');
+  SELECT * INTO r FROM goods_receipts WHERE id = (v->>'id')::uuid;
+  PERFORM pg_temp.check(r.status = 'posted' AND r.restocked_directly, 'posted at once, status ' || r.status);
+  PERFORM pg_temp.check((SELECT current_stock FROM raw_materials WHERE id = 'c6000000-0000-0000-0000-000000000001') = 165,
+                        'stock up by 20');
+END $$;

@@ -219,6 +219,8 @@ function RawMaterialsPage() {
   const canSubmitPurchase = canSubmit("production-requests");
   const submitMaterial = canSubmit("raw-materials");
   const confirmReceipt_ = canConfirm("goods-receiving");
+  // Restocks straight into stock, no approval (same rule as ReceiveDialog).
+  const restocks = confirmReceipt_ || submitMaterial || write;
   const rejectReceipt_ = canReject("goods-receiving");
   const cancelReceipt_ = canCancel("goods-receiving");
   useRealtimeInvalidate(
@@ -790,13 +792,13 @@ function RawMaterialsPage() {
                               variant="ghost"
                               size="icon"
                               title={
-                                confirmReceipt_
+                                restocks
                                   ? "Restock — goods supplied by a supplier"
                                   : "Submit Goods Receipt"
                               }
                               onClick={() => setReceiveTarget(m)}
                             >
-                              {confirmReceipt_ ? (
+                              {restocks ? (
                                 <RefreshCw className="h-4 w-4 text-success" />
                               ) : (
                                 <PackagePlus className="h-4 w-4 text-success" />
@@ -1671,11 +1673,14 @@ function ReceiveDialog({
 }) {
   const { data: factoryId } = useFactoryId();
   const qc = useQueryClient();
-  // The Store (goods-receiving confirm) restocks supplier deliveries straight
-  // into stock (20261022110000_store_restock.sql); anyone else submits the
-  // receipt for a different person to confirm.
-  const { canConfirm } = usePermissions();
-  const restock = canConfirm("goods-receiving");
+  // Restocking on the Store page needs no approval: whoever keeps stock here
+  // (goods-receiving confirm, or raw-materials submit / create) restocks
+  // supplier deliveries straight into stock
+  // (20261023120000_store_restock_no_approval.sql). Anyone else (QC) submits
+  // the receipt for a different person to confirm.
+  const { canConfirm, canSubmit, canCreate } = usePermissions();
+  const restock =
+    canConfirm("goods-receiving") || canSubmit("raw-materials") || canCreate("raw-materials");
   // One key per dialog: a double click restocks once.
   const [clientRef] = useState(() => crypto.randomUUID());
   // Preforms are received in bags; one with no bag size sets it here first.
