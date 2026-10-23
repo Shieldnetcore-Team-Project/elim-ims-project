@@ -173,9 +173,11 @@ function StoreIssuesPage() {
       department === "quality_control"
         ? qcStatus === "confirmed"
           ? "Confirmed by QC"
-          : qcStatus
-            ? "Awaiting QC confirmation"
-            : null
+          : qcStatus === "rejected"
+            ? "Rejected by QC — back in store"
+            : qcStatus
+              ? "Awaiting QC confirmation"
+              : null
         : preform
           ? (PREFORM_STATUS[preform.status] ?? preform.status)
           : null;

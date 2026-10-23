@@ -19,9 +19,18 @@ import { ExceptionsTab } from "@/components/preform/exceptions";
 import { ReportsTab } from "@/components/preform/reports";
 import { SetupTab } from "@/components/preform/setup";
 import { usePermissions } from "@/lib/permissions";
+import { QcReportsPanel } from "@/components/qc/qc-reports";
 
 type Step =
-  "preforms" | "record" | "send" | "inspect" | "stock-in" | "exceptions" | "reports" | "setup";
+  | "preforms"
+  | "record"
+  | "send"
+  | "qc-reports"
+  | "inspect"
+  | "stock-in"
+  | "exceptions"
+  | "reports"
+  | "setup";
 
 // Blown bottles, end to end on the Quality Control page. QC is in charge of
 // blowing: she accepts the preforms the Store issues her, records each shift
@@ -77,6 +86,7 @@ export function GoodBottlesPanel({ factoryId }: { factoryId: string }) {
           <TabsTrigger value="preforms">1. Preforms received{count(waitingIssues)}</TabsTrigger>
           <TabsTrigger value="record">2. Record blowing</TabsTrigger>
           <TabsTrigger value="send">3. Send to production{count(inTransit)}</TabsTrigger>
+          <TabsTrigger value="qc-reports">4. QC reports</TabsTrigger>
           {showInspect && (
             <TabsTrigger value="inspect">
               Operator shifts to inspect{count(waitingQc.data?.length)}
@@ -105,6 +115,9 @@ export function GoodBottlesPanel({ factoryId }: { factoryId: string }) {
         </TabsContent>
         <TabsContent value="send">
           <TransfersTab factoryId={factoryId} />
+        </TabsContent>
+        <TabsContent value="qc-reports">
+          <QcReportsPanel factoryId={factoryId} />
         </TabsContent>
         <TabsContent value="inspect">
           <QcTab factoryId={factoryId} />

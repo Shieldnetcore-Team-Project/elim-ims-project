@@ -74,7 +74,13 @@ function pickVariant(roles: Role[]): Variant {
   if (roles.includes("super_admin") || roles.includes("chairman")) return "admin";
   if (roles.includes("accountant") || roles.includes("payroll_officer")) return "finance";
   if (roles.includes("sales") || roles.includes("cashier")) return "sales";
-  if (roles.includes("inventory_officer") || roles.includes("store_keeper")) return "inventory";
+  // Store & Warehouse (e.g. Austin) works the Store first: the stock view.
+  if (
+    roles.includes("inventory_officer") ||
+    roles.includes("store_keeper") ||
+    roles.includes("store_warehouse")
+  )
+    return "inventory";
   if (roles.includes("production")) return "production";
   if (roles.includes("store_officer")) return "warehouse";
   return "generic";

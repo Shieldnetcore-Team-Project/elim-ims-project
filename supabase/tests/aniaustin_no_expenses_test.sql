@@ -41,3 +41,16 @@ BEGIN
   msg := public._no_expenses_for('noexp-tester');
   PERFORM pg_temp.check(NOT public.has_permission(u, 'expenses'::module_key, 'view'::action_key), 'idempotent');
 END $$;
+
+-- @@ Test 2: Dashboard for an account (20261023220000), Expenses still off
+DO $$
+DECLARE u uuid := '8b000000-0000-0000-0000-000000000001'; msg text;
+BEGIN
+  msg := public._grant_dashboard_for('noexp-tester');
+  PERFORM pg_temp.check(msg LIKE '%now has the Dashboard%', msg);
+  PERFORM pg_temp.check(public.has_permission(u, 'dashboard'::module_key, 'view'::action_key), 'Dashboard right on');
+  PERFORM pg_temp.check((SELECT granted FROM user_page_access WHERE user_id = u AND page_id = 'Dashboard'), 'Dashboard page allowed');
+  PERFORM pg_temp.check(NOT public.has_permission(u, 'expenses'::module_key, 'view'::action_key), 'Expenses still off');
+  msg := public._grant_dashboard_for('nobody-matches-this');
+  PERFORM pg_temp.check(msg LIKE 'Skipped: 0 accounts%', 'no match changes nothing: ' || msg);
+END $$;
