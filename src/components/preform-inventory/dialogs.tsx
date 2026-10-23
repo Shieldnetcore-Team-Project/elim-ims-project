@@ -887,8 +887,9 @@ export function CountDialog({
       ),
     (r) => {
       const x = r as { request: boolean; reference_number?: string };
+      // Store counts post at once (20261023130000_store_stock_counts_no_approval.sql).
       return x.request
-        ? `${x.reference_number} raised — awaiting approval`
+        ? `${x.reference_number} posted — stock updated to the count`
         : "Count matches the system — recorded, no adjustment needed";
     },
   );
@@ -899,8 +900,8 @@ export function CountDialog({
         <DialogHeader>
           <DialogTitle>Record a physical count</DialogTitle>
           <DialogDescription>
-            Enter what is physically in the store. Any difference becomes an adjustment that another
-            authorised person approves and posts.
+            Enter what is physically in the store. Any difference is adjusted in stock straight
+            away, no approval needed.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">

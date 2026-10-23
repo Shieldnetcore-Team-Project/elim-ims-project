@@ -213,7 +213,8 @@ export function usePendingAttention() {
       to: "/finished-goods",
       query: stockFinished,
     },
-    { key: "role-grants", label: "Role changes pending", to: "/admin", query: roleGrants },
+    // Role changes are reviewed in the Approval Center.
+    { key: "role-grants", label: "Role changes pending", to: "/approvals", query: roleGrants },
     {
       key: "goods-receipts",
       label: "Goods receipts awaiting confirmation",

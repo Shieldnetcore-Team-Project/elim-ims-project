@@ -28,6 +28,10 @@
 ALTER TABLE public.raw_materials
   ADD COLUMN IF NOT EXISTS brand_id uuid REFERENCES public.brands(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS raw_materials_brand_idx ON public.raw_materials (brand_id);
+-- UPDATE on raw_materials is granted column by column
+-- (20260826090000_stock_adjustment_hardening_and_column_lockdown.sql), so the
+-- Store's Edit form can set the brand only with this.
+GRANT UPDATE (brand_id) ON public.raw_materials TO authenticated;
 
 -- ---------- 2. The old system's materials ----------
 -- Times are Nigeria time (WAT, +01).

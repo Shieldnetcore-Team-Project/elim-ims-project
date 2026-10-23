@@ -294,7 +294,7 @@ BEGIN
                           WHERE id = pg_temp.id('pf75')), 'average cost is not the latest price');
 END $$;
 
--- @@ Test 10: opening balance and physical count -- counted, approved and posted by different people
+-- @@ Test 10: opening balance and physical count -- posted at once, no approval (20261023130000)
 DO $$
 DECLARE v jsonb; e text; rq uuid;
 BEGIN
@@ -309,19 +309,13 @@ BEGIN
   v := public.request_stock_count(jsonb_build_object('material_id', pg_temp.id('pfpent'), 'kind', 'opening_balance',
          'counted_quantity', 1250, 'unit_cost', 40, 'supporting_reference', 'CS-1', 'reason', 'Opening stock count, Store A'));
   rq := (v->>'id')::uuid;
-  PERFORM pg_temp.check((v->>'variance')::numeric = 1250 AND pg_temp.stock('pfpent') = 0, 'request raised, stock untouched');
-  e := pg_temp.err(format($q$SELECT public.request_stock_count('{"material_id":"%s","counted_quantity":10,"supporting_reference":"CS-2","reason":"Second count same day"}')$q$, pg_temp.id('pfpent')));
-  PERFORM pg_temp.check(e LIKE '%still awaiting approval%', 'one open count per material');
-  e := pg_temp.err(format($q$SELECT public.approve_stock_adjustment('%s')$q$, rq));
-  PERFORM pg_temp.check(e LIKE '%Insufficient%' OR e LIKE '%yourself%', 'the counter cannot approve: ' || COALESCE(e, 'no error'));
-  PERFORM pg_temp.as_user('3');
-  e := pg_temp.err(format($q$SELECT public.post_stock_adjustment('%s')$q$, rq));
-  PERFORM pg_temp.check(e LIKE '%Insufficient%', 'QC cannot post an adjustment');
-
-  PERFORM pg_temp.as_user('6');
-  PERFORM public.approve_stock_adjustment(rq);
-  PERFORM public.post_stock_adjustment(rq);
-  PERFORM pg_temp.check(pg_temp.stock('pfpent') = 1250, 'opening balance posted');
+  PERFORM pg_temp.check((v->>'variance')::numeric = 1250 AND (v->>'posted')::boolean, 'count posted at once');
+  PERFORM pg_temp.check(pg_temp.stock('pfpent') = 1250, 'opening balance in stock');
+  PERFORM pg_temp.check((SELECT status = 'posted' AND reviewed_by = submitted_by FROM stock_adjustment_requests WHERE id = rq),
+                        'request posted by the counter, nobody else');
+  PERFORM pg_temp.check(NOT EXISTS (SELECT 1 FROM notifications WHERE body LIKE
+                          (SELECT reference_number FROM stock_adjustment_requests WHERE id = rq) || '%'),
+                        'no awaiting-approval notification');
   PERFORM pg_temp.check((SELECT current_value FROM raw_materials WHERE id = pg_temp.id('pfpent')) = 1250 * 40, 'valued at the entered cost');
   PERFORM pg_temp.check((SELECT movement_type = 'opening_balance' AND quantity_before = 0 AND quantity_after = 1250
                            FROM raw_material_movements WHERE material_id = pg_temp.id('pfpent')
@@ -336,17 +330,8 @@ BEGIN
   PERFORM pg_temp.check(NOT (v->>'request')::boolean, 'matching count raises no request');
   v := public.request_stock_count(jsonb_build_object('material_id', pg_temp.id('pfpent'), 'counted_quantity', 1200,
          'supporting_reference', 'CS-5', 'reason', 'Month-end count short by 50'));
-  rq := (v->>'id')::uuid;
   PERFORM pg_temp.check((v->>'variance')::numeric = -50, 'variance = counted - system');
-  -- Stock moves before the count is posted: the variance is stale.
-  UPDATE raw_materials SET current_stock = current_stock + 1 WHERE id = pg_temp.id('pfpent');
-  PERFORM pg_temp.as_user('6');
-  PERFORM public.approve_stock_adjustment(rq);
-  e := pg_temp.err(format($q$SELECT public.post_stock_adjustment('%s')$q$, rq));
-  PERFORM pg_temp.check(e LIKE '%Stock has moved%', 'stale count refused: ' || COALESCE(e, 'no error'));
-  UPDATE raw_materials SET current_stock = current_stock - 1 WHERE id = pg_temp.id('pfpent');
-  PERFORM public.post_stock_adjustment(rq);
-  PERFORM pg_temp.check(pg_temp.stock('pfpent') = 1200, 'count posted: 1200');
+  PERFORM pg_temp.check(pg_temp.stock('pfpent') = 1200, 'count posted at once: 1200');
   PERFORM pg_temp.as_user('9');
   PERFORM pg_temp.check((SELECT COUNT(*) FROM public.preform_adjustments('f4000000-0000-0000-0000-000000000001')
                           WHERE material_id = pg_temp.id('pfpent') AND status = 'posted' AND counted_quantity IS NOT NULL) = 2,
@@ -501,8 +486,8 @@ BEGIN
   SELECT * INTO a FROM public.preform_adjustments('f4000000-0000-0000-0000-000000000001') WHERE id = (v->>'id')::uuid;
   PERFORM pg_temp.check(a.counted_bags = 40 AND a.counted_loose = 300 AND a.counted_pieces_per_bag = 1152
                         AND a.counted_quantity = 46380, 'count keeps 40 x 1152 + 300');
+  PERFORM pg_temp.check(pg_temp.stock('pf15') = 46380, 'count posted at once');
   PERFORM pg_temp.as_user('2');
-  PERFORM public.cancel_stock_adjustment((v->>'id')::uuid, 'test');
   -- Bags of another size on the same shelf are counted at their own size.
   v := public.request_stock_count(jsonb_build_object('material_id', pg_temp.id('pf15'), 'counted_bags', 30,
          'counted_pieces_per_bag', 1250, 'supporting_reference', 'CS-10', 'reason', 'Count of Pentagon-packed bags'));

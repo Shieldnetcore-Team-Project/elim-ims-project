@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ShieldAlert } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -17,6 +17,10 @@ import { PAGES, usePageAccess } from "@/lib/page-access";
 export const Route = createFileRoute("/_app/admin")({
   head: () => ({
     meta: [{ title: "Admin Panel — Elim Table Water" }, { name: "robots", content: "noindex" }],
+  }),
+  // ?tab=delete-requests opens that tab (links from the notifications bell).
+  validateSearch: (s: Record<string, unknown>): { tab?: string } => ({
+    tab: typeof s.tab === "string" ? s.tab : undefined,
   }),
   component: AdminPanelPage,
 });
@@ -71,7 +75,12 @@ function AdminPanelPage() {
       },
     ),
   );
-  const [tab, setTab] = useState<string | null>(null);
+  const { tab: linkedTab } = Route.useSearch();
+  const [tab, setTab] = useState<string | null>(linkedTab ?? null);
+  // A link followed while the page is open switches the tab too.
+  useEffect(() => {
+    if (linkedTab) setTab(linkedTab);
+  }, [linkedTab]);
   const current = visible.find((t) => t.value === tab)?.value ?? visible[0]?.value;
 
   if (loading) return null;

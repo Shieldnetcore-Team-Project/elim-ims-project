@@ -19,7 +19,8 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { FactorySwitcher } from "./factory-switcher";
 import { useTheme } from "@/lib/theme";
-import { Moon, Sun, LogOut, User as UserIcon, Bell } from "lucide-react";
+import { Moon, Sun, LogOut, User as UserIcon, Bell, ChevronRight } from "lucide-react";
+import { adjustmentReference, notificationLink } from "@/lib/notification-links";
 import { GlobalSearch } from "./global-search";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
@@ -44,6 +45,33 @@ function NotificationsBell() {
       return data ?? [];
     },
   });
+
+  // A stock adjustment notification opens Raw Materials or Finished Goods,
+  // whichever the adjustment (by its reference) is for.
+  const adjustmentRefs = (notifications.data ?? []).flatMap((n) => {
+    const ref = adjustmentReference(n.body);
+    return ref ? [ref] : [];
+  });
+  const adjustmentTypes = useQuery({
+    queryKey: ["notification-adjustments", adjustmentRefs],
+    enabled: adjustmentRefs.length > 0,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("stock_adjustment_requests")
+        .select("reference_number,entity_type")
+        .in("reference_number", adjustmentRefs);
+      return new Map(
+        (data ?? []).map((a) => [
+          a.reference_number,
+          a.entity_type as "raw_material" | "finished_good",
+        ]),
+      );
+    },
+  });
+  const linkFor = (n: { title: string; body: string | null }) => {
+    const ref = adjustmentReference(n.body);
+    return notificationLink(n.title, n.body, ref ? adjustmentTypes.data?.get(ref) : null);
+  };
 
   const unreadCount = (notifications.data ?? []).filter((n) => !n.read).length;
   const badgeCount = unreadCount + pendingTotal;
@@ -107,18 +135,34 @@ function NotificationsBell() {
         ) : (
           <ScrollArea className="h-80">
             <div className="space-y-1 p-1">
-              {notifications.data!.map((n) => (
-                <div
-                  key={n.id}
-                  className={`rounded-md p-2 text-sm ${n.read ? "" : "bg-accent/50"}`}
-                >
-                  <div className="font-medium">{n.title}</div>
-                  {n.body && <div className="text-xs text-muted-foreground">{n.body}</div>}
-                  <div className="mt-1 text-[10px] text-muted-foreground">
-                    {formatDistanceToNow(new Date(n.created_at), { addSuffix: true })}
+              {notifications.data!.map((n) => {
+                const link = linkFor(n);
+                const content = (
+                  <>
+                    <div className="flex items-center justify-between gap-2 font-medium">
+                      <span>{n.title}</span>
+                      {link && <ChevronRight className="h-3.5 w-3.5 shrink-0 opacity-60" />}
+                    </div>
+                    {n.body && <div className="text-xs text-muted-foreground">{n.body}</div>}
+                    <div className="mt-1 text-[10px] text-muted-foreground">
+                      {formatDistanceToNow(new Date(n.created_at), { addSuffix: true })}
+                    </div>
+                  </>
+                );
+                const tone = `rounded-md p-2 text-sm ${n.read ? "" : "bg-accent/50"}`;
+                // With somewhere to act on it, the notification opens that page.
+                return link ? (
+                  <DropdownMenuItem key={n.id} asChild className={`${tone} block cursor-pointer`}>
+                    <Link to={link.to} search={link.search}>
+                      {content}
+                    </Link>
+                  </DropdownMenuItem>
+                ) : (
+                  <div key={n.id} className={tone}>
+                    {content}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </ScrollArea>
         )}

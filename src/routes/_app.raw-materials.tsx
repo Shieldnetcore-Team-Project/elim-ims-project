@@ -2098,7 +2098,8 @@ function AdjustDialog({ material, onDone }: { material: Material; onDone: () => 
       if (error) throw error;
     },
     onSuccess: () => {
-      toast.success("Submitted for approval");
+      // Store adjustments post at once (20261023130000_store_stock_counts_no_approval.sql).
+      toast.success("Stock adjusted");
       onDone();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -2164,8 +2165,8 @@ function AdjustDialog({ material, onDone }: { material: Material; onDone: () => 
           </div>
         )}
         <p className="text-xs text-muted-foreground">
-          Both increases and reductions require a second person's approval — this submits a request
-          instead of adjusting stock immediately.
+          The stock changes as soon as you save — no approval needed. It is recorded in the
+          material&rsquo;s history with your name and reason.
         </p>
       </div>
       <DialogFooter>
@@ -2173,7 +2174,7 @@ function AdjustDialog({ material, onDone }: { material: Material; onDone: () => 
           disabled={submit.isPending || delta === 0 || !reason}
           onClick={() => submit.mutate()}
         >
-          {submit.isPending ? "Submitting…" : "Submit for approval"}
+          {submit.isPending ? "Saving…" : "Adjust stock"}
         </Button>
       </DialogFooter>
     </DialogContent>

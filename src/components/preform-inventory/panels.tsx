@@ -306,8 +306,8 @@ export function CountsPanel({ factoryId, onCount }: { factoryId: string; onCount
         <div>
           <CardTitle>Counts, opening balances &amp; adjustments</CardTitle>
           <p className="text-sm text-muted-foreground">
-            A count raises an adjustment for the variance; someone else approves and posts it. A
-            count is refused at posting if stock has moved since it was taken.
+            A count adjusts stock by the variance straight away, no approval needed. Each one is
+            listed here with who counted and why.
           </p>
         </div>
         {onCount && can("raw-materials", "submit") && (
