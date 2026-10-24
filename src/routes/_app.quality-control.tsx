@@ -55,6 +55,7 @@ import { QcJugRegister } from "@/components/qc/jug-register";
 import { BottleTrackingPanel } from "@/components/qc/bottle-tracking";
 import { GoodBottlesPanel } from "@/components/qc/good-bottles";
 import { ReceivedFromStorePanel } from "@/components/qc/received-from-store";
+import { QcPreformsPanel } from "@/components/qc/qc-preforms";
 import { usePreformLive, useShiftReport, useStockings } from "@/components/preform/api";
 import { localDay } from "@/lib/production-shift";
 import { PAGES, usePageAccess } from "@/lib/page-access";
@@ -78,6 +79,7 @@ import { PAGES, usePageAccess } from "@/lib/page-access";
 // sees just Bottle tracking.
 const QC_TABS = [
   "received",
+  "preforms",
   "orders",
   "inspections",
   "jugs",
@@ -195,7 +197,10 @@ function QualityControlPage() {
   };
   const tabs: QcTab[] = [
     // Received from Store comes first, for whoever works the QC inspections.
-    ...(pageOk("Inspections") ? (["received", "orders", "inspections", "jugs"] as const) : []),
+    ...(pageOk("Inspections") ? (["received"] as const) : []),
+    // QC's preform store: what the Store issued her for blowing, blown, damages.
+    ...(pageOk("Good bottles") ? (["preforms"] as const) : []),
+    ...(pageOk("Inspections") ? (["orders", "inspections", "jugs"] as const) : []),
     ...(pageOk("Good bottles") ? (["good-bottles"] as const) : []),
     ...(pageOk("Bottle tracking") ? (["bottle-tracking"] as const) : []),
   ];
@@ -330,10 +335,14 @@ function QualityControlPage() {
           {showInspections && (
             <>
               <TabsTrigger value="received">Received from Store</TabsTrigger>
+              {tabs.includes("preforms") && <TabsTrigger value="preforms">Preforms</TabsTrigger>}
               <TabsTrigger value="orders">Purchase Orders</TabsTrigger>
               <TabsTrigger value="inspections">Inspections</TabsTrigger>
               <TabsTrigger value="jugs">Old &amp; New Jugs</TabsTrigger>
             </>
+          )}
+          {!showInspections && tabs.includes("preforms") && (
+            <TabsTrigger value="preforms">Preforms</TabsTrigger>
           )}
           {tabs.includes("good-bottles") && (
             <TabsTrigger value="good-bottles">
@@ -351,6 +360,9 @@ function QualityControlPage() {
         </TabsList>
         <TabsContent value="received">
           {factoryId && <ReceivedFromStorePanel factoryId={factoryId} />}
+        </TabsContent>
+        <TabsContent value="preforms">
+          {factoryId && <QcPreformsPanel factoryId={factoryId} />}
         </TabsContent>
         <TabsContent value="good-bottles">
           {factoryId && <GoodBottlesPanel factoryId={factoryId} />}

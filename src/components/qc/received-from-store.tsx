@@ -56,7 +56,7 @@ type ReceiptRow = {
   id: string;
   material_id: string;
   quantity: number;
-  status: "pending" | "confirmed" | "rejected";
+  status: "pending" | "confirmed" | "rejected" | "moved";
   reject_reason: string | null;
   rejected_by: string | null;
   rejected_at: string | null;
@@ -237,7 +237,9 @@ export function ReceivedFromStorePanel({ factoryId }: { factoryId: string }) {
       wentTo:
         u.issued_to_department === "production"
           ? `Production${u.issued_to_user ? ` — ${nameOf(u.issued_to_user)}` : ""}`
-          : "Used by QC",
+          : u.reason.startsWith("Moved to Quality Control → Preforms")
+            ? "Moved to Preforms"
+            : "Used by QC",
     }))
     .filter((u) => matches(u.material, u.brand, u.usedBy, u.reason, u.wentTo));
 
@@ -409,7 +411,9 @@ export function ReceivedFromStorePanel({ factoryId }: { factoryId: string }) {
                     ? `Confirmed${r.confirmedBy ? ` by ${r.confirmedBy}` : ""}`
                     : r.status === "rejected"
                       ? `Rejected — back in store: ${r.reject_reason ?? ""}`
-                      : "Awaiting confirmation",
+                      : r.status === "moved"
+                        ? "Moved to Quality Control → Preforms"
+                        : "Awaiting confirmation",
                 note: r.note,
               }))}
               subtitle={[
@@ -480,6 +484,8 @@ export function ReceivedFromStorePanel({ factoryId }: { factoryId: string }) {
                           {r.confirmed_at ? ` · ${when(r.confirmed_at)}` : ""}
                         </div>
                       </div>
+                    ) : r.status === "moved" ? (
+                      <Badge variant="secondary">Moved to Preforms</Badge>
                     ) : r.status === "rejected" ? (
                       <div className="max-w-56">
                         <Badge variant="destructive">Rejected — back in store</Badge>

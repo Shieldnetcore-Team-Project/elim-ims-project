@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -22,6 +22,7 @@ import { useTheme } from "@/lib/theme";
 import { Moon, Sun, LogOut, User as UserIcon, Bell, ChevronRight } from "lucide-react";
 import { adjustmentReference, notificationLink } from "@/lib/notification-links";
 import { GlobalSearch } from "./global-search";
+import { playBeep } from "@/lib/notification-sound";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 
@@ -72,6 +73,25 @@ function NotificationsBell() {
     const ref = adjustmentReference(n.body);
     return notificationLink(n.title, n.body, ref ? adjustmentTypes.data?.get(ref) : null);
   };
+
+  // Beep whenever a notification we haven't seen before drops in.
+  // The first load for a factory only records what's already there.
+  const seenIds = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    seenIds.current = null;
+  }, [factoryId]);
+  useEffect(() => {
+    if (!notifications.data) return;
+    const ids = notifications.data.map((n) => n.id);
+    if (seenIds.current === null) {
+      seenIds.current = new Set(ids);
+      return;
+    }
+    const seen = seenIds.current;
+    const arrived = notifications.data.some((n) => !n.read && !seen.has(n.id));
+    ids.forEach((id) => seen.add(id));
+    if (arrived) playBeep();
+  }, [notifications.data]);
 
   const unreadCount = (notifications.data ?? []).filter((n) => !n.read).length;
   const badgeCount = unreadCount + pendingTotal;

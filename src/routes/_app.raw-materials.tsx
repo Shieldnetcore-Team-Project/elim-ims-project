@@ -124,6 +124,7 @@ type Material = {
   material_categories: { name: string } | null;
   pieces_per_bag: number | null;
   grams_per_piece: number | null;
+  is_preform?: boolean | null;
   created_at: string;
   brand_id: string | null;
   brands: { name: string; category: string; grammage: string | null } | null;
@@ -277,7 +278,7 @@ function RawMaterialsPage() {
       const { data, error } = await supabase
         .from("raw_materials")
         .select(
-          "id,name,category,category_id,unit,opening_stock,current_stock,unit_cost,current_value,reorder_level,minimum_stock,active,approval_status,created_by,created_at,remarks,supplier_id,brand_id,pieces_per_bag,grams_per_piece,suppliers(name),material_categories(name),brands(name,category,grammage)",
+          "id,name,category,category_id,unit,opening_stock,current_stock,unit_cost,current_value,reorder_level,minimum_stock,active,approval_status,created_by,created_at,remarks,supplier_id,brand_id,pieces_per_bag,grams_per_piece,is_preform,suppliers(name),material_categories(name),brands(name,category,grammage)",
         )
         .eq("factory_id", factoryId!)
         .order("name");
@@ -1993,7 +1994,9 @@ function IssueDialog({ material, onDone }: { material: Material; onDone: () => v
   const [quantity, setQuantity] = useState(0);
   // Preforms are issued in bags; one with no bag size sets it here first.
   const [perBag, setPerBag] = useState<number | null>(material.pieces_per_bag);
-  const needsBagSize = isPreform(material.name) && !perBag;
+  const needsBagSize = !!(material.is_preform || isPreform(material.name)) && !perBag;
+  // One key per dialog: a double click issues preforms once.
+  const [clientRef] = useState(() => crypto.randomUUID());
   const [purpose, setPurpose] = useState<"production" | "general">("production");
   const pickIssueTo = (v: string) => {
     setIssueTo(v);
@@ -2003,10 +2006,34 @@ function IssueDialog({ material, onDone }: { material: Material; onDone: () => v
   const [reason, setReason] = useState("");
   const [reference, setReference] = useState("");
 
+  // Preforms to Quality Control go into the QC person's blowing stock (an
+  // ordinary preform issue: she accepts it on Quality Control → Preforms and
+  // records the blowing there), not into QC's general store.
+  const preformToQc =
+    !!(material.is_preform || isPreform(material.name)) && toDept === "quality_control";
+
   const submit = useMutation({
     mutationFn: async () => {
       if (quantity <= 0) throw new Error("Quantity must be > 0");
       if (!toDept) throw new Error("Pick who the stock is issued to");
+      if (preformToQc) {
+        if (!toUser)
+          throw new Error("Pick the Quality Control person who will blow these preforms");
+        if (!perBag) throw new Error("Set pieces per bag for this preform first");
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- RPC newer than the generated types
+        const { error } = await (supabase as any).rpc("issue_preforms", {
+          payload: {
+            client_ref: clientRef,
+            material_id: material.id,
+            operator_id: toUser,
+            bags: Math.floor(quantity / perBag),
+            loose_pieces: quantity % perBag,
+            notes: [reference, reason].filter(Boolean).join(" — ") || null,
+          },
+        });
+        if (error) throw error;
+        return;
+      }
       const { error } = await supabase.rpc("issue_raw_material", {
         payload: {
           material_id: material.id,
@@ -2021,7 +2048,11 @@ function IssueDialog({ material, onDone }: { material: Material; onDone: () => v
       if (error) throw error;
     },
     onSuccess: () => {
-      toast.success(`Issued to ${toDept ? ISSUE_DEPARTMENT_LABEL[toDept] : "—"}`);
+      toast.success(
+        preformToQc
+          ? "Issued to Quality Control — waiting for her to accept it on Quality Control → Preforms"
+          : `Issued to ${toDept ? ISSUE_DEPARTMENT_LABEL[toDept] : "—"}`,
+      );
       onDone();
     },
     onError: (e: Error) => toast.error(e.message),

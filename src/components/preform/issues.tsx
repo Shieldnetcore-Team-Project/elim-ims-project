@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -27,20 +27,25 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Check, Loader2, PackagePlus, Undo2, X } from "lucide-react";
+import { Check, Eye, Loader2, PackagePlus, Search, Undo2, X } from "lucide-react";
 import { usePermissions } from "@/lib/permissions";
 import { formatPieces, toPieces } from "@/lib/preform-units";
 import { localDay } from "@/lib/production-shift";
+import { num } from "@/lib/format";
+import { useFactoryId } from "@/lib/use-factory";
 import {
+  preformDetail,
   rpc,
   useIssues,
   useMyUserId,
   usePfAction,
   usePreformMaterials,
   usePreformOperators,
+  usePreformOverview,
   useUserNames,
   type Issue,
   type PreformMaterial,
+  type PreformOverview,
 } from "./api";
 import { CountInput, Pieces, ReasonDialog, StatusBadge, fmtDate, fmtDateTime } from "./shared";
 
@@ -62,8 +67,13 @@ export function IssuesTab({
   const materials = usePreformMaterials(factoryId);
   const operators = usePreformOperators(factoryId);
   const issues = useIssues(factoryId);
+  // Brand, grammage, supplier and where each preform stands now.
+  const overview = usePreformOverview(factoryId);
   const names = useUserNames((issues.data ?? []).flatMap((i) => [i.operator_id, i.issued_by]));
   const [issueOpen, setIssueOpen] = useState(false);
+  const [viewing, setViewing] = useState<Issue | null>(null);
+  const [q, setQ] = useState("");
+  const [status, setStatus] = useState("all");
   const [act, setAct] = useState<{ kind: "reject" | "cancel" | "reverse"; issue: Issue } | null>(
     null,
   );
@@ -72,6 +82,25 @@ export function IssuesTab({
     () => Object.fromEntries((materials.data ?? []).map((m) => [m.id, m])),
     [materials.data],
   );
+  const infoById = useMemo(
+    () => Object.fromEntries((overview.data ?? []).map((o) => [o.material_id, o])),
+    [overview.data],
+  );
+  const nameOf = (id: string) => matById[id]?.name ?? infoById[id]?.material ?? "—";
+  const rows = (issues.data ?? []).filter((i) => {
+    const term = q.trim().toLowerCase();
+    return (
+      (status === "all" || i.status === status) &&
+      (!term ||
+        [
+          i.reference,
+          nameOf(i.material_id),
+          preformDetail(infoById[i.material_id]),
+          names.data?.[i.operator_id] ?? "",
+          i.notes ?? "",
+        ].some((s) => s.toLowerCase().includes(term)))
+    );
+  });
 
   const respond = usePfAction(
     (a: { id: string; accept: boolean; note?: string }) =>
@@ -94,19 +123,45 @@ export function IssuesTab({
       <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 space-y-0">
         <div>
           <CardTitle>
-            {receiveOnly ? "Preforms issued to you" : "Store issues to the blowing line"}
+            {receiveOnly
+              ? "Preforms issued to Quality Control"
+              : "Store issues to the blowing line"}
           </CardTitle>
           <p className="text-sm text-muted-foreground">
             {receiveOnly
-              ? "The Store issues preforms from Store → Preform Inventory. Accept them here before they count as available for your shifts."
+              ? "Every preform the Store issues (Store → Preform Inventory / Issue Stock), with its full details. Accept each one before it counts as available for blowing."
               : "The store issues bags of preforms to an operator. The operator accepts them before they count as available."}
           </p>
         </div>
-        {canIssue && (
-          <Button className="gap-2" onClick={() => setIssueOpen(true)}>
-            <PackagePlus className="h-4 w-4" /> Issue preforms
-          </Button>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative">
+            <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              className="h-9 w-56 pl-8"
+              placeholder="Search reference, preform, brand…"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+          </div>
+          <Select value={status} onValueChange={setStatus}>
+            <SelectTrigger className="h-9 w-40">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All statuses</SelectItem>
+              <SelectItem value="issued">Waiting to accept</SelectItem>
+              <SelectItem value="accepted">Accepted</SelectItem>
+              <SelectItem value="rejected">Rejected</SelectItem>
+              <SelectItem value="cancelled">Cancelled</SelectItem>
+              <SelectItem value="reversed">Reversed</SelectItem>
+            </SelectContent>
+          </Select>
+          {canIssue && (
+            <Button className="gap-2" onClick={() => setIssueOpen(true)}>
+              <PackagePlus className="h-4 w-4" /> Issue preforms
+            </Button>
+          )}
+        </div>
       </CardHeader>
       <CardContent className="overflow-x-auto">
         <Table>
@@ -115,7 +170,7 @@ export function IssuesTab({
               <TableHead>Reference</TableHead>
               <TableHead>Date</TableHead>
               <TableHead>Preform</TableHead>
-              <TableHead>Operator</TableHead>
+              <TableHead>{receiveOnly ? "Issued to" : "Operator"}</TableHead>
               <TableHead className="text-right">Bags</TableHead>
               <TableHead className="text-right">Pieces</TableHead>
               <TableHead>Issued by</TableHead>
@@ -124,15 +179,24 @@ export function IssuesTab({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {(issues.data ?? []).map((i) => {
+            {rows.map((i) => {
               const mine = i.operator_id === me.data;
+              const detail = preformDetail(infoById[i.material_id]);
               return (
                 <TableRow key={i.id}>
                   <TableCell className="font-mono text-xs">{i.reference}</TableCell>
                   <TableCell className="whitespace-nowrap text-xs">
                     {fmtDate(i.issue_date)}
                   </TableCell>
-                  <TableCell>{matById[i.material_id]?.name ?? "—"}</TableCell>
+                  <TableCell>
+                    <div className="font-medium">{nameOf(i.material_id)}</div>
+                    {detail && <div className="text-[11px] text-muted-foreground">{detail}</div>}
+                    {i.notes && (
+                      <div className="max-w-56 text-[11px] italic text-muted-foreground">
+                        {i.notes}
+                      </div>
+                    )}
+                  </TableCell>
                   <TableCell>{names.data?.[i.operator_id] ?? "…"}</TableCell>
                   <TableCell className="text-right">
                     {i.bags}
@@ -158,6 +222,15 @@ export function IssuesTab({
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-1">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        title="Full details"
+                        aria-label="Full details"
+                        onClick={() => setViewing(i)}
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
                       {i.status === "issued" && canRespond && (mine || canReverse) && (
                         <>
                           <Button
@@ -201,16 +274,28 @@ export function IssuesTab({
                 </TableRow>
               );
             })}
-            {(issues.data ?? []).length === 0 && (
+            {rows.length === 0 && (
               <TableRow>
                 <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">
-                  No preforms issued yet.
+                  {(issues.data ?? []).length === 0
+                    ? "No preforms issued yet."
+                    : "No issues match the search."}
                 </TableCell>
               </TableRow>
             )}
           </TableBody>
         </Table>
       </CardContent>
+
+      {viewing && (
+        <IssueDetailsDialog
+          issue={viewing}
+          name={nameOf(viewing.material_id)}
+          info={infoById[viewing.material_id]}
+          names={names.data ?? {}}
+          onClose={() => setViewing(null)}
+        />
+      )}
 
       {issueOpen && (
         <IssueDialog
@@ -252,6 +337,96 @@ export function IssuesTab({
   );
 }
 
+// Everything about one issue: the preform in full, what was issued, who
+// issued and received it, and where that preform stands now (Store, QC,
+// blown, damaged, good bottles).
+function IssueDetailsDialog({
+  issue: i,
+  name,
+  info,
+  names,
+  onClose,
+}: {
+  issue: Issue;
+  name: string;
+  info: PreformOverview | undefined;
+  names: Record<string, string>;
+  onClose: () => void;
+}) {
+  const line = (label: string, value: ReactNode) =>
+    value === null || value === undefined || value === "" ? null : (
+      <>
+        <dt className="text-muted-foreground">{label}</dt>
+        <dd className="text-right">{value}</dd>
+      </>
+    );
+  const responded =
+    i.status === "accepted" ? "Accepted" : i.status === "rejected" ? "Rejected" : "Answered";
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>
+            {i.reference} — {name}
+          </DialogTitle>
+          <DialogDescription>
+            <StatusBadge status={i.status} />
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 text-sm">
+          <section>
+            <h3 className="mb-1 text-xs font-semibold uppercase text-muted-foreground">Preform</h3>
+            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-0.5">
+              {line("Material", name)}
+              {line("Brand", info?.brand)}
+              {line("Grammage", info?.grammage)}
+              {line("Supplier", info?.supplier)}
+              {line("Pieces per bag", num(i.pieces_per_bag))}
+            </dl>
+          </section>
+          <section>
+            <h3 className="mb-1 text-xs font-semibold uppercase text-muted-foreground">Issued</h3>
+            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-0.5">
+              {line("Issue date", fmtDate(i.issue_date))}
+              {line("Bags", `${num(i.bags)} × ${num(i.pieces_per_bag)}`)}
+              {line("Loose pieces", i.loose_pieces ? num(i.loose_pieces) : null)}
+              {line("Total pieces", <span className="font-semibold">{num(i.pieces)}</span>)}
+              {line("Issued to", names[i.operator_id] ?? "…")}
+              {line("Issued by", `${names[i.issued_by ?? ""] ?? "—"}, ${fmtDateTime(i.issued_at)}`)}
+              {line(responded, i.responded_at ? fmtDateTime(i.responded_at) : null)}
+              {line("Note", i.notes)}
+              {line("Response", i.response_note)}
+              {line("Reversal reason", i.reversal_reason)}
+            </dl>
+          </section>
+          {info && (
+            <section>
+              <h3 className="mb-1 text-xs font-semibold uppercase text-muted-foreground">
+                This preform now (all issues)
+              </h3>
+              <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-0.5">
+                {line("In the Store", formatPieces(info.in_store, info.pieces_per_bag))}
+                {line("Issued from the Store", num(info.issued))}
+                {line("Waiting to be accepted", num(info.waiting))}
+                {line("Received by QC", num(info.received))}
+                {line("Blown", num(info.blown))}
+                {line("Damages", <span className="text-destructive">{num(info.damages)}</span>)}
+                {line("Good bottles (Blown − Damages)", num(info.good))}
+                {line("QC holds, not yet blown", num(info.qc_holds))}
+              </dl>
+            </section>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // Also opened from Store → Preform Inventory, with the preform preselected.
 export function IssueDialog({
   materials,
@@ -276,6 +451,9 @@ export function IssueDialog({
   // One key per dialog: a double click posts once.
   const [clientRef] = useState(() => crypto.randomUUID());
   const m = materials.find((x) => x.id === materialId);
+  const { data: factoryId } = useFactoryId();
+  const overview = usePreformOverview(factoryId);
+  const info = overview.data?.find((o) => o.material_id === materialId);
   const pieces = m?.pieces_per_bag ? toPieces(bags ?? 0, loose ?? 0, m.pieces_per_bag) : 0;
   const tooMany = !!m && pieces > m.current_stock;
 
@@ -325,6 +503,41 @@ export function IssueDialog({
                   ))}
                 </SelectContent>
               </Select>
+              {m && (
+                <dl className="grid grid-cols-[auto_1fr] gap-x-4 rounded-md bg-muted/40 p-2 text-xs">
+                  {info?.brand && (
+                    <>
+                      <dt className="text-muted-foreground">Brand</dt>
+                      <dd>{info.brand}</dd>
+                    </>
+                  )}
+                  {info?.grammage && (
+                    <>
+                      <dt className="text-muted-foreground">Grammage</dt>
+                      <dd>{info.grammage}</dd>
+                    </>
+                  )}
+                  {info?.supplier && (
+                    <>
+                      <dt className="text-muted-foreground">Supplier</dt>
+                      <dd>{info.supplier}</dd>
+                    </>
+                  )}
+                  <dt className="text-muted-foreground">Pieces per bag</dt>
+                  <dd>{m.pieces_per_bag ? num(m.pieces_per_bag) : "—"}</dd>
+                  <dt className="text-muted-foreground">In the Store</dt>
+                  <dd>
+                    {formatPieces(m.current_stock, m.pieces_per_bag)} ({num(m.current_stock)}{" "}
+                    pieces)
+                  </dd>
+                  {info && info.waiting > 0 && (
+                    <>
+                      <dt className="text-muted-foreground">Issued, not yet accepted</dt>
+                      <dd>{num(info.waiting)} pieces</dd>
+                    </>
+                  )}
+                </dl>
+              )}
             </div>
             <div className="space-y-1.5 sm:col-span-2">
               <Label>Receiving operator</Label>

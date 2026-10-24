@@ -488,6 +488,60 @@ export function useStockings(factoryId: string | undefined, status?: string) {
   });
 }
 
+// Every preform from the Store to the good bottles, one line each, with its
+// brand, grammage and supplier (qc_preform_overview, 20261024010000).
+export type PreformOverview = {
+  material_id: string;
+  material: string;
+  brand: string | null;
+  grammage: string | null;
+  supplier: string | null;
+  pieces_per_bag: number | null;
+  in_store: number;
+  issued: number;
+  waiting: number;
+  received: number;
+  blown: number;
+  damages: number;
+  good: number;
+  qc_holds: number;
+  last_issue: string | null;
+};
+
+export function usePreformOverview(factoryId: string | undefined) {
+  return useQuery({
+    queryKey: ["pf", "overview", factoryId],
+    enabled: !!factoryId,
+    queryFn: async () => {
+      const rows = await rpc<PreformOverview[]>("qc_preform_overview", { p_factory: factoryId });
+      return rows.map((r) => {
+        const out = { ...r };
+        for (const k of [
+          "in_store",
+          "issued",
+          "waiting",
+          "received",
+          "blown",
+          "damages",
+          "good",
+          "qc_holds",
+        ] as const)
+          out[k] = n(r[k]);
+        out.pieces_per_bag = nn(r.pieces_per_bag);
+        return out;
+      });
+    },
+  });
+}
+
+// "Prima-16.5g · Prima Plastics": a preform's brand, grammage and supplier.
+export const preformDetail = (o: PreformOverview | undefined) =>
+  o
+    ? [o.brand ? `${o.brand}${o.grammage ? `-${o.grammage}` : ""}` : o.grammage, o.supplier]
+        .filter(Boolean)
+        .join(" · ")
+    : "";
+
 export function useTransfers(factoryId: string | undefined) {
   return useQuery({
     queryKey: ["pf", "transfers", factoryId],

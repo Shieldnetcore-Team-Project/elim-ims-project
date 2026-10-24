@@ -4,13 +4,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { localDay } from "@/lib/production-shift";
 import {
   useExceptions,
-  useIssues,
-  useMyUserId,
   useShiftReport,
   useStockings,
   useTransfers,
 } from "@/components/preform/api";
-import { IssuesTab } from "@/components/preform/issues";
 import { ShiftsTab } from "@/components/preform/shifts";
 import { QcTab } from "@/components/preform/qc";
 import { StockingTab } from "@/components/preform/stocking";
@@ -22,18 +19,11 @@ import { usePermissions } from "@/lib/permissions";
 import { QcReportsPanel } from "@/components/qc/qc-reports";
 
 type Step =
-  | "preforms"
-  | "record"
-  | "send"
-  | "qc-reports"
-  | "inspect"
-  | "stock-in"
-  | "exceptions"
-  | "reports"
-  | "setup";
+  "record" | "send" | "qc-reports" | "inspect" | "stock-in" | "exceptions" | "reports" | "setup";
 
 // Blown bottles, end to end on the Quality Control page. QC is in charge of
-// blowing: she accepts the preforms the Store issues her, records each shift
+// blowing: she accepts the preforms the Store issues her (Quality Control →
+// Preforms, src/components/qc/qc-preforms.tsx), records each shift
 // (preforms used, good bottles, damage) and submits it -- the good bottles go
 // straight into stock, the damage is recorded only -- then sends the good
 // bottles to production (PM), which confirms receipt
@@ -51,9 +41,6 @@ export function GoodBottlesPanel({ factoryId }: { factoryId: string }) {
   const isManager = can("preform-production", "reverse");
   const canSetup = isManager || can("settings", "edit");
   const openExceptions = useExceptions(isManager ? factoryId : undefined, "open");
-  const me = useMyUserId();
-  const myIssues = useIssues(factoryId, { status: "issued" });
-  const waitingIssues = (myIssues.data ?? []).filter((i) => i.operator_id === me.data).length;
   const waitingQc = useShiftReport(factoryId, {
     from: "2000-01-01",
     to: localDay(),
@@ -77,16 +64,15 @@ export function GoodBottlesPanel({ factoryId }: { factoryId: string }) {
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        Accept the preforms the Store issues you → record each blowing shift, separating good
-        bottles from damaged → good bottles go straight into stock (damage is recorded only) → send
-        the good bottles to production, which confirms what it receives.
+        Accept the preforms the Store issues you on the Preforms tab → record each blowing shift,
+        separating good bottles from damaged → good bottles go straight into stock (damage is
+        recorded only) → send the good bottles to production, which confirms what it receives.
       </p>
       <Tabs value={step} onValueChange={(v) => setStep(v as Step)}>
         <TabsList className="h-auto flex-wrap">
-          <TabsTrigger value="preforms">1. Preforms received{count(waitingIssues)}</TabsTrigger>
-          <TabsTrigger value="record">2. Record blowing</TabsTrigger>
-          <TabsTrigger value="send">3. Send to production{count(inTransit)}</TabsTrigger>
-          <TabsTrigger value="qc-reports">4. QC reports</TabsTrigger>
+          <TabsTrigger value="record">1. Record blowing</TabsTrigger>
+          <TabsTrigger value="send">2. Send to production{count(inTransit)}</TabsTrigger>
+          <TabsTrigger value="qc-reports">3. QC reports</TabsTrigger>
           {showInspect && (
             <TabsTrigger value="inspect">
               Operator shifts to inspect{count(waitingQc.data?.length)}
@@ -107,9 +93,6 @@ export function GoodBottlesPanel({ factoryId }: { factoryId: string }) {
           )}
           {canSetup && <TabsTrigger value="setup">Setup</TabsTrigger>}
         </TabsList>
-        <TabsContent value="preforms">
-          <IssuesTab factoryId={factoryId} receiveOnly />
-        </TabsContent>
         <TabsContent value="record">
           <ShiftsTab factoryId={factoryId} />
         </TabsContent>
