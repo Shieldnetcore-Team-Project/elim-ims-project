@@ -16,10 +16,8 @@ import { ExceptionsTab } from "@/components/preform/exceptions";
 import { ReportsTab } from "@/components/preform/reports";
 import { SetupTab } from "@/components/preform/setup";
 import { usePermissions } from "@/lib/permissions";
-import { QcReportsPanel } from "@/components/qc/qc-reports";
 
-type Step =
-  "record" | "send" | "qc-reports" | "inspect" | "stock-in" | "exceptions" | "reports" | "setup";
+type Step = "record" | "send" | "inspect" | "stock-in" | "exceptions" | "reports" | "setup";
 
 // Blown bottles, end to end on the Quality Control page. QC is in charge of
 // blowing: she accepts the preforms the Store issues her (Quality Control →
@@ -34,16 +32,14 @@ type Step =
 // show while something is waiting in them.
 //
 // Managers only (moved from the old Preform Production page, which now
-// redirects here): Exceptions (resolve shortfalls), Reports, and Setup (each
-// preform's bottle product and pieces per bag).
+// redirects here): Exceptions (resolve shortfalls), Reports (per grammage and
+// session, bottle inventory, shifts, issues to PM, PM-stage rejections) and
+// Setup (each preform's bottle product and pieces per bag). The printed QC
+// sheets are on Quality Control → Reports (src/components/qc/qc-reports.tsx).
 export function GoodBottlesPanel({ factoryId }: { factoryId: string }) {
   const { can } = usePermissions();
   const isManager = can("preform-production", "reverse");
   const canSetup = isManager || can("settings", "edit");
-  // Whoever may print or export (QC included) generates the daily and
-  // per-grammage reports; exceptions stay with managers.
-  const canReports =
-    isManager || can("preform-production", "print") || can("preform-production", "export");
   const openExceptions = useExceptions(isManager ? factoryId : undefined, "open");
   const waitingQc = useShiftReport(factoryId, {
     from: "2000-01-01",
@@ -76,7 +72,6 @@ export function GoodBottlesPanel({ factoryId }: { factoryId: string }) {
         <TabsList className="h-auto flex-wrap">
           <TabsTrigger value="record">1. Record blowing</TabsTrigger>
           <TabsTrigger value="send">2. Send to production{count(inTransit)}</TabsTrigger>
-          <TabsTrigger value="qc-reports">3. QC reports</TabsTrigger>
           {showInspect && (
             <TabsTrigger value="inspect">
               Operator shifts to inspect{count(waitingQc.data?.length)}
@@ -92,7 +87,7 @@ export function GoodBottlesPanel({ factoryId }: { factoryId: string }) {
               Exceptions{count(openExceptions.data?.length)}
             </TabsTrigger>
           )}
-          {canReports && <TabsTrigger value="reports">Reports</TabsTrigger>}
+          {isManager && <TabsTrigger value="reports">Reports</TabsTrigger>}
           {canSetup && <TabsTrigger value="setup">Setup</TabsTrigger>}
         </TabsList>
         <TabsContent value="record">
@@ -100,9 +95,6 @@ export function GoodBottlesPanel({ factoryId }: { factoryId: string }) {
         </TabsContent>
         <TabsContent value="send">
           <TransfersTab factoryId={factoryId} />
-        </TabsContent>
-        <TabsContent value="qc-reports">
-          <QcReportsPanel factoryId={factoryId} />
         </TabsContent>
         <TabsContent value="inspect">
           <QcTab factoryId={factoryId} />
@@ -115,7 +107,7 @@ export function GoodBottlesPanel({ factoryId }: { factoryId: string }) {
             <ExceptionsTab factoryId={factoryId} />
           </TabsContent>
         )}
-        {canReports && (
+        {isManager && (
           <TabsContent value="reports">
             <ReportsTab factoryId={factoryId} />
           </TabsContent>

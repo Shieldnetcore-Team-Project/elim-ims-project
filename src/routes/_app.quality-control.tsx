@@ -56,6 +56,7 @@ import { BottleTrackingPanel } from "@/components/qc/bottle-tracking";
 import { GoodBottlesPanel } from "@/components/qc/good-bottles";
 import { ReceivedFromStorePanel } from "@/components/qc/received-from-store";
 import { QcPreformsPanel } from "@/components/qc/qc-preforms";
+import { QcReportsTab } from "@/components/qc/qc-reports";
 import { usePreformLive, useShiftReport, useStockings } from "@/components/preform/api";
 import { localDay } from "@/lib/production-shift";
 import { PAGES, usePageAccess } from "@/lib/page-access";
@@ -85,6 +86,7 @@ const QC_TABS = [
   "jugs",
   "good-bottles",
   "bottle-tracking",
+  "reports",
 ] as const;
 type QcTab = (typeof QC_TABS)[number];
 
@@ -203,6 +205,8 @@ function QualityControlPage() {
     ...(pageOk("Inspections") ? (["orders", "inspections", "jugs"] as const) : []),
     ...(pageOk("Good bottles") ? (["good-bottles"] as const) : []),
     ...(pageOk("Bottle tracking") ? (["bottle-tracking"] as const) : []),
+    // The printed QC sheets (preform and bottles), for whoever works QC.
+    ...(pageOk("Inspections") || pageOk("Good bottles") ? (["reports"] as const) : []),
   ];
   const showInspections = tabs.includes("orders");
   const current = tab && tabs.includes(tab) ? tab : tabs[0];
@@ -357,6 +361,7 @@ function QualityControlPage() {
           {tabs.includes("bottle-tracking") && (
             <TabsTrigger value="bottle-tracking">Bottle tracking</TabsTrigger>
           )}
+          {tabs.includes("reports") && <TabsTrigger value="reports">Reports</TabsTrigger>}
         </TabsList>
         <TabsContent value="received">
           {factoryId && <ReceivedFromStorePanel factoryId={factoryId} />}
@@ -369,6 +374,9 @@ function QualityControlPage() {
         </TabsContent>
         <TabsContent value="bottle-tracking">
           <BottleTrackingPanel />
+        </TabsContent>
+        <TabsContent value="reports">
+          {factoryId && <QcReportsTab factoryId={factoryId} />}
         </TabsContent>
         <TabsContent value="orders">
           {factoryId && (

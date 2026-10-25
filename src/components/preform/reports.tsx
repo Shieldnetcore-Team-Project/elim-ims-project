@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -44,6 +43,7 @@ import {
 import { preformReportPdf } from "./report-pdf";
 import { fmtDate, fmtDateTime } from "./shared";
 import { TraceDialog } from "./trace-dialog";
+import { DatePicker } from "@/components/shared/date-picker";
 
 type Kind = "grammage" | "bottle" | "shift" | "daily" | "stocking" | "transfer" | "rejection";
 type Col = { key: string; label: string; align?: "right" };
@@ -732,7 +732,6 @@ export function ReportsTab({ factoryId }: { factoryId: string }) {
         : null,
       pending: list.filter((t) => t.status === "dispatched").length,
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- pick() reads gram/supplier/capacity, listed below
   }, [
     kind,
     shifts.data,
@@ -866,20 +865,10 @@ export function ReportsTab({ factoryId }: { factoryId: string }) {
             </Select>
           </Field>
           <Field label="From">
-            <Input
-              type="date"
-              className="w-36"
-              value={from}
-              onChange={(e) => setFrom(e.target.value)}
-            />
+            <DatePicker value={from} max={to} onChange={setFrom} />
           </Field>
           <Field label="To">
-            <Input
-              type="date"
-              className="w-36"
-              value={to}
-              onChange={(e) => setTo(e.target.value)}
-            />
+            <DatePicker value={to} min={from} max={localDay()} onChange={setTo} />
           </Field>
           <Field label="">
             <div className="flex gap-1">

@@ -55,7 +55,7 @@ import { usePermissions } from "@/lib/permissions";
 // Quality Control → Preforms: QC's preform store, end to end.
 //   1. Received from Store -- preforms the Store issues to QC (Store → Issue
 //      Stock / Issue preforms) wait here for her to accept them.
-//   2. Preform report -- one row per preform over a date range, as the
+//   2. Process preforms -- where QC blows them: one row per preform over a date range, as the
 //      factory's printed "Preform Report from … to …" sheet. She enters each
 //      day's blowing (the pencil): Blown (every bottle blown) and Damages (the
 //      bad ones). That records and submits a blowing shift
@@ -109,18 +109,18 @@ export function QcPreformsPanel({ factoryId }: { factoryId: string }) {
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">
-        Accept the preforms the Store issues you → enter what was blown and what was damaged → the
-        good bottles go into stock (damage is kept on record) → send them to PM, who confirms what
-        it receives.
-      </p>
-      <PreformJourney factoryId={factoryId} />
+      {/* The three steps first; the all-preforms overview sits below them. */}
       <Tabs value={step} onValueChange={(v) => setStep(v as Step)}>
         <TabsList className="h-auto flex-wrap">
           <TabsTrigger value="received">1. Received from Store{count(waitingIssues)}</TabsTrigger>
-          <TabsTrigger value="report">2. Preform report</TabsTrigger>
+          <TabsTrigger value="report">2. Process preforms</TabsTrigger>
           <TabsTrigger value="send">3. Send to PM{count(inTransit)}</TabsTrigger>
         </TabsList>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Accept the preforms the Store issues you → enter what was blown and what was damaged → the
+          good bottles go into stock (damage is kept on record) → send them to PM, who confirms what
+          it receives.
+        </p>
         <TabsContent value="received">
           <IssuesTab factoryId={factoryId} receiveOnly />
         </TabsContent>
@@ -131,6 +131,7 @@ export function QcPreformsPanel({ factoryId }: { factoryId: string }) {
           <TransfersTab factoryId={factoryId} />
         </TabsContent>
       </Tabs>
+      <PreformJourney factoryId={factoryId} />
     </div>
   );
 }
