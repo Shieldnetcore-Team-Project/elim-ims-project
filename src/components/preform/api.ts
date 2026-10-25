@@ -128,6 +128,9 @@ export type Transfer = {
   to_department: string;
   quantity_sent: number;
   quantity_received: number | null;
+  quantity_requested: number | null;
+  shift: Shift | null;
+  production_reference: string | null;
   status: "dispatched" | "received" | "discrepancy" | "cancelled" | "reversed";
   notes: string | null;
   sent_by: string | null;
@@ -222,6 +225,7 @@ export const STATUS_LABEL: Record<string, string> = {
   discrepancy: "Received short",
   open: "Open",
   resolved: "Resolved",
+  posted: "Posted",
   voided: "Voided",
 };
 
@@ -260,6 +264,7 @@ export function usePreformLive() {
       "bottle_transfers",
       "department_stock",
       "preform_exceptions",
+      "bottle_rejections",
     ],
     [["pf"]],
   );
@@ -558,8 +563,308 @@ export function useTransfers(factoryId: string | undefined) {
         ...t,
         quantity_sent: n(t.quantity_sent),
         quantity_received: nn(t.quantity_received),
+        quantity_requested: nn(t.quantity_requested),
       }));
     },
+  });
+}
+
+// Bottles PM found defective after receiving them (PM-stage rejection,
+// 20261025090000) -- separate from the blowing-stage damage on the records.
+export type Rejection = {
+  id: string;
+  reference: string;
+  transfer_id: string;
+  product_id: string;
+  department: string;
+  quantity: number;
+  reason: string;
+  production_reference: string | null;
+  production_date: string;
+  shift: Shift | null;
+  status: "posted" | "reversed";
+  recorded_by: string | null;
+  recorded_at: string;
+  reversed_by: string | null;
+  reversed_at: string | null;
+  reversal_reason: string | null;
+  product: { name: string } | null;
+  transfer: { reference: string } | null;
+};
+
+export function useRejections(factoryId: string | undefined) {
+  return useQuery({
+    queryKey: ["pf", "rejections", factoryId],
+    enabled: !!factoryId,
+    queryFn: async () => {
+      const { data, error } = await db
+        .from("bottle_rejections")
+        .select("*, product:products(name), transfer:bottle_transfers(reference)")
+        .eq("factory_id", factoryId)
+        .order("recorded_at", { ascending: false })
+        .limit(300);
+      if (error) throw error;
+      return ((data ?? []) as Rejection[]).map((r) => ({ ...r, quantity: n(r.quantity) }));
+    },
+  });
+}
+
+// One row per blowing session and preform specification
+// (preform_grammage_report, 20261025090000).
+export type GrammageRow = {
+  id: string;
+  reference: string;
+  production_date: string;
+  shift: Shift;
+  operator_id: string;
+  operator: string;
+  material_id: string;
+  material: string;
+  brand: string | null;
+  grammage: string | null;
+  supplier_id: string | null;
+  supplier: string | null;
+  pieces_per_bag: number | null;
+  bottle_product_id: string | null;
+  bottle: string | null;
+  capacity: string | null;
+  opening_qty: number | null;
+  received_bags: number;
+  received_loose: number;
+  received_pieces: number | null;
+  issue_refs: string | null;
+  available_qty: number | null;
+  processed: number | null;
+  damaged_preforms: number;
+  damaged_bottles: number;
+  other_losses: number;
+  good_bottles: number;
+  qc_rejected: number;
+  closing_qty: number | null;
+  stocked: number;
+  pending_stock: number;
+  exception_qty: number;
+  ledger_variance: number | null;
+  stock_variance: number | null;
+  status: ShiftRow["status"];
+  submitted_at: string | null;
+};
+
+const GRAMMAGE_TEXT = new Set([
+  "id",
+  "reference",
+  "production_date",
+  "shift",
+  "operator_id",
+  "operator",
+  "material_id",
+  "material",
+  "brand",
+  "grammage",
+  "supplier_id",
+  "supplier",
+  "bottle_product_id",
+  "bottle",
+  "capacity",
+  "issue_refs",
+  "status",
+  "submitted_at",
+]);
+const GRAMMAGE_NULLABLE = new Set([
+  "pieces_per_bag",
+  "opening_qty",
+  "received_pieces",
+  "available_qty",
+  "processed",
+  "closing_qty",
+  "ledger_variance",
+  "stock_variance",
+]);
+
+export function useGrammageReport(
+  factoryId: string | undefined,
+  f: {
+    from: string;
+    to: string;
+    shift?: string | null;
+    materialId?: string | null;
+    operatorId?: string | null;
+    status?: string | null;
+  },
+) {
+  return useQuery({
+    queryKey: ["pf", "grammage", factoryId, f],
+    enabled: !!factoryId && !!f.from && !!f.to && f.from <= f.to,
+    queryFn: async () => {
+      const rows = await rpc<Record<string, unknown>[]>("preform_grammage_report", {
+        p_factory: factoryId,
+        p_from: f.from,
+        p_to: f.to,
+        p_shift: f.shift || null,
+        p_material: f.materialId || null,
+        p_operator: f.operatorId || null,
+        p_status: f.status || null,
+      });
+      return rows.map((r) => {
+        const out: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(r))
+          out[k] = GRAMMAGE_TEXT.has(k) ? v : GRAMMAGE_NULLABLE.has(k) ? nn(v) : n(v);
+        return out as GrammageRow;
+      });
+    },
+  });
+}
+
+// Bottle stock per bottle product, from its stock ledger (bottle_stock_report).
+export type BottleStockRow = {
+  product_id: string;
+  product: string;
+  capacity: string | null;
+  opening: number;
+  from_blowing: number;
+  issued_to_pm: number;
+  other: number;
+  closing: number;
+  current_stock: number;
+  pm_received: number;
+  pm_rejected: number;
+  in_transit: number;
+};
+
+// Good bottles in, by bottle and the preform specification they came from.
+export type BottleSourceRow = {
+  product_id: string;
+  product: string;
+  capacity: string | null;
+  material_id: string;
+  material: string;
+  brand: string | null;
+  grammage: string | null;
+  supplier: string | null;
+  sessions: number;
+  good_in_period: number;
+  good_all_time: number;
+};
+
+const numify = <T>(rows: Record<string, unknown>[], text: string[]) =>
+  rows.map((r) =>
+    Object.fromEntries(Object.entries(r).map(([k, v]) => [k, text.includes(k) ? v : n(v)])),
+  ) as T[];
+
+export function useBottleStockReport(factoryId: string | undefined, from: string, to: string) {
+  return useQuery({
+    queryKey: ["pf", "bottle-stock", factoryId, from, to],
+    enabled: !!factoryId && !!from && !!to && from <= to,
+    queryFn: async () =>
+      numify<BottleStockRow>(
+        await rpc("bottle_stock_report", { p_factory: factoryId, p_from: from, p_to: to }),
+        ["product_id", "product", "capacity"],
+      ),
+  });
+}
+
+export function useBottleSources(factoryId: string | undefined, from: string, to: string) {
+  return useQuery({
+    queryKey: ["pf", "bottle-sources", factoryId, from, to],
+    enabled: !!factoryId && !!from && !!to && from <= to,
+    queryFn: async () =>
+      numify<BottleSourceRow>(
+        await rpc("bottle_source_breakdown", { p_factory: factoryId, p_from: from, p_to: to }),
+        [
+          "product_id",
+          "product",
+          "capacity",
+          "material_id",
+          "material",
+          "brand",
+          "grammage",
+          "supplier",
+        ],
+      ),
+  });
+}
+
+// Drill-down behind one blowing session (preform_record_trace).
+export type RecordTrace = {
+  record: ShiftRecord & {
+    reference: string;
+    status: ShiftRow["status"];
+    opening_qty: number | null;
+    issued_qty: number | null;
+    available_qty: number | null;
+    usage_qty: number | null;
+    expected_remaining: number | null;
+    reversal_reason: string | null;
+    operator: string;
+    material: string;
+    grammage: string | null;
+    bottle: string | null;
+    capacity: string | null;
+  };
+  issues: {
+    reference: string;
+    issue_date: string;
+    bags: number;
+    pieces_per_bag: number;
+    loose_pieces: number;
+    pieces: number;
+    status: string;
+    issued_by: string | null;
+    received_by: string | null;
+  }[];
+  movements: {
+    type: string;
+    quantity: number;
+    before: number;
+    after: number;
+    reason: string | null;
+    at: string;
+    by: string | null;
+  }[];
+  inspections: {
+    decision: string;
+    good: number;
+    rejected: number;
+    reason: string | null;
+    notes: string | null;
+    by: string | null;
+    at: string;
+  }[];
+  stockings: {
+    reference: string;
+    product: string;
+    counted: number;
+    accepted: number | null;
+    status: string;
+    received_by: string | null;
+    received_at: string | null;
+    reversal_reason: string | null;
+  }[];
+  exceptions: {
+    reference: string;
+    kind: string;
+    difference: number;
+    status: string;
+    note: string | null;
+    resolution_note: string | null;
+  }[];
+  pm_issues: {
+    reference: string;
+    to: string;
+    sent: number;
+    received: number | null;
+    status: string;
+    sent_at: string;
+    production_reference: string | null;
+    rejected: number;
+  }[];
+};
+
+export function useRecordTrace(id: string | null) {
+  return useQuery({
+    queryKey: ["pf", "trace", id],
+    enabled: !!id,
+    queryFn: async () => rpc<RecordTrace>("preform_record_trace", { p_record: id }),
   });
 }
 

@@ -175,10 +175,16 @@ BEGIN
   PERFORM public.save_preform_shift(jsonb_build_object('id', pg_temp.id('day'), 'material_id', 'd1000000-0000-0000-0000-000000000001',
          'production_date', public._pf_today(), 'shift', 'day', 'machine', 'Blower 1',
          'good_bottles', 40000, 'damaged_preforms', 100, 'damaged_bottles', 300));
-  -- A second day-shift record for the same operator/preform/date is refused.
-  e := pg_temp.err($q$SELECT public.save_preform_shift(jsonb_build_object('material_id','d1000000-0000-0000-0000-000000000001',
-        'production_date', public._pf_today(),'shift','day','good_bottles',1))$q$);
-  PERFORM pg_temp.check(e LIKE '%already a day shift record%', 'one record per shift: ' || COALESCE(e, 'no error'));
+  -- A second day-shift session for the same operator/preform/date is its own
+  -- record (20261025090000); the same client reference never makes two.
+  v := public.save_preform_shift(jsonb_build_object('material_id','d1000000-0000-0000-0000-000000000001',
+        'production_date', public._pf_today(),'shift','day','good_bottles',1,
+        'client_ref','c1000000-0000-0000-0000-000000000001'));
+  PERFORM pg_temp.check((v->>'id')::uuid <> pg_temp.id('day'), 'a second session is a separate record');
+  PERFORM pg_temp.check((public.save_preform_shift(jsonb_build_object('material_id','d1000000-0000-0000-0000-000000000001',
+        'production_date', public._pf_today(),'shift','day','good_bottles',1,
+        'client_ref','c1000000-0000-0000-0000-000000000001'))->>'id')::uuid = (v->>'id')::uuid, 'same client_ref, same record');
+  DELETE FROM preform_shift_records WHERE id = (v->>'id')::uuid;  -- not part of the rest of this scenario
 
   v := public.submit_preform_shift(pg_temp.id('day'));
   SELECT * INTO r FROM preform_shift_records WHERE id = pg_temp.id('day');

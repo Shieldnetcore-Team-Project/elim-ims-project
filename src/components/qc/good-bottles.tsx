@@ -40,6 +40,10 @@ export function GoodBottlesPanel({ factoryId }: { factoryId: string }) {
   const { can } = usePermissions();
   const isManager = can("preform-production", "reverse");
   const canSetup = isManager || can("settings", "edit");
+  // Whoever may print or export (QC included) generates the daily and
+  // per-grammage reports; exceptions stay with managers.
+  const canReports =
+    isManager || can("preform-production", "print") || can("preform-production", "export");
   const openExceptions = useExceptions(isManager ? factoryId : undefined, "open");
   const waitingQc = useShiftReport(factoryId, {
     from: "2000-01-01",
@@ -84,13 +88,11 @@ export function GoodBottlesPanel({ factoryId }: { factoryId: string }) {
             </TabsTrigger>
           )}
           {isManager && (
-            <>
-              <TabsTrigger value="exceptions">
-                Exceptions{count(openExceptions.data?.length)}
-              </TabsTrigger>
-              <TabsTrigger value="reports">Reports</TabsTrigger>
-            </>
+            <TabsTrigger value="exceptions">
+              Exceptions{count(openExceptions.data?.length)}
+            </TabsTrigger>
           )}
+          {canReports && <TabsTrigger value="reports">Reports</TabsTrigger>}
           {canSetup && <TabsTrigger value="setup">Setup</TabsTrigger>}
         </TabsList>
         <TabsContent value="record">
@@ -109,14 +111,14 @@ export function GoodBottlesPanel({ factoryId }: { factoryId: string }) {
           <StockingTab factoryId={factoryId} />
         </TabsContent>
         {isManager && (
-          <>
-            <TabsContent value="exceptions">
-              <ExceptionsTab factoryId={factoryId} />
-            </TabsContent>
-            <TabsContent value="reports">
-              <ReportsTab factoryId={factoryId} />
-            </TabsContent>
-          </>
+          <TabsContent value="exceptions">
+            <ExceptionsTab factoryId={factoryId} />
+          </TabsContent>
+        )}
+        {canReports && (
+          <TabsContent value="reports">
+            <ReportsTab factoryId={factoryId} />
+          </TabsContent>
         )}
         {canSetup && (
           <TabsContent value="setup">

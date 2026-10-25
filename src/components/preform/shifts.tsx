@@ -66,11 +66,13 @@ const STATUSES = [
 
 // QC records her own blowing: submitting stocks her good bottles at once
 // (20261022100000_qc_records_blowing.sql). Anyone else waits for QC.
-type SubmitResult = { status: string; stocked?: number };
+type SubmitResult = { status: string; stocked?: number; duplicate?: boolean };
 const submittedMessage = (r: SubmitResult) =>
-  r?.status === "completed"
-    ? `Shift submitted — ${num(r.stocked ?? 0)} good bottles stocked; damage recorded`
-    : "Shift submitted — waiting for QC";
+  r?.duplicate
+    ? "Already submitted — nothing posted twice"
+    : r?.status === "completed"
+      ? `Shift submitted — ${num(r.stocked ?? 0)} good bottles stocked; damage recorded`
+      : "Shift submitted — waiting for QC";
 
 export function ShiftsTab({ factoryId }: { factoryId: string }) {
   const { can } = usePermissions();
@@ -383,6 +385,10 @@ function ShiftDialog({
   const [ol, setOl] = useState<number | null>(null);
   const [olReason, setOlReason] = useState("");
   const [notes, setNotes] = useState("");
+  // This form is one blowing session: saving it again (draft, then submit,
+  // or a retry) updates the same record and never posts twice
+  // (save_preform_shift client_ref, 20261025090000).
+  const [clientRef] = useState(() => crypto.randomUUID());
 
   // Load an existing draft once.
   useEffect(() => {
@@ -417,22 +423,27 @@ function ShiftDialog({
 
   const save = usePfAction(
     async (andSubmit: boolean) => {
-      const r = await rpc<{ id: string }>("save_preform_shift", {
-        payload: {
-          id: recordId,
-          operator_id: operatorId,
-          material_id: materialId,
-          production_date: date,
-          shift,
-          machine,
-          good_bottles: good ?? 0,
-          damaged_preforms: dp ?? 0,
-          damaged_bottles: dbl ?? 0,
-          other_losses: ol ?? 0,
-          other_loss_reason: olReason,
-          notes,
+      const r = await rpc<{ id: string; status: string; duplicate?: boolean }>(
+        "save_preform_shift",
+        {
+          payload: {
+            id: recordId,
+            client_ref: clientRef,
+            operator_id: operatorId,
+            material_id: materialId,
+            production_date: date,
+            shift,
+            machine,
+            good_bottles: good ?? 0,
+            damaged_preforms: dp ?? 0,
+            damaged_bottles: dbl ?? 0,
+            other_losses: ol ?? 0,
+            other_loss_reason: olReason,
+            notes,
+          },
         },
-      });
+      );
+      if (r.duplicate && r.status !== "draft") return { status: r.status, duplicate: true };
       if (!andSubmit) return null;
       return rpc<SubmitResult>("submit_preform_shift", { p_id: r.id });
     },

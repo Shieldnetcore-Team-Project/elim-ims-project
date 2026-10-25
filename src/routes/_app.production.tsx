@@ -68,6 +68,7 @@ import { logAudit } from "@/lib/audit";
 import { QuickAddProductDialog, ADD_NEW_ITEM } from "@/components/shared/quick-add-item";
 import { SHIFT_LABEL, addDays, localDay, suggestedEntry, type Shift } from "@/lib/production-shift";
 import { PmJugsFromQc } from "@/components/qc/jug-handover";
+import { PmBottlesFromQc } from "@/components/preform/pm-bottles";
 
 export const Route = createFileRoute("/_app/production")({
   head: () => ({
@@ -457,6 +458,7 @@ function ProductionPage() {
       </div>
 
       {factoryId && <PmJugsFromQc factoryId={factoryId} />}
+      {factoryId && <PmBottlesFromQc factoryId={factoryId} />}
 
       {factory.isError && (
         <Alert variant="destructive">

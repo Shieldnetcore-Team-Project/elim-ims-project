@@ -541,6 +541,10 @@ function BlowingDialog({
     ? summary.data.damaged_preforms + summary.data.damaged_bottles + summary.data.other_losses
     : 0;
   const [shift, setShift] = useState<"day" | "night">("day");
+  // One blowing session per dialog: a retried or double-clicked save posts it
+  // once (save_preform_shift client_ref, 20261025090000). Several sessions in
+  // one shift are separate entries.
+  const [clientRef] = useState(() => crypto.randomUUID());
   const [blown, setBlown] = useState<number | null>(null);
   const [damages, setDamages] = useState<number | null>(null);
   const b = blown ?? 0;
@@ -561,7 +565,7 @@ function BlowingDialog({
       if (!typedName) throw new Error("Select the bottle type");
       // A draft left by an earlier attempt (e.g. one that stopped for want of
       // a bottle) is completed rather than duplicated.
-      const { data: draft } = await supabase
+      const { data: drafts } = await supabase
         .from("preform_shift_records" as never)
         .select("id")
         .eq("operator_id", operatorId)
@@ -569,25 +573,32 @@ function BlowingDialog({
         .eq("production_date", day)
         .eq("shift", shift)
         .eq("status", "draft")
-        .maybeSingle();
-      const r = await rpc<{ id: string }>("save_preform_shift", {
-        payload: {
-          id: (draft as { id: string } | null)?.id ?? null,
-          operator_id: operatorId,
-          material_id: row.material_id,
-          production_date: day,
-          shift,
-          good_bottles: good,
-          damaged_bottles: d,
+        .limit(1);
+      const r = await rpc<{ id: string; status: string; duplicate?: boolean }>(
+        "save_preform_shift",
+        {
+          payload: {
+            id: ((drafts ?? []) as { id: string }[])[0]?.id ?? null,
+            client_ref: clientRef,
+            operator_id: operatorId,
+            material_id: row.material_id,
+            production_date: day,
+            shift,
+            good_bottles: good,
+            damaged_bottles: d,
+          },
         },
-      });
+      );
+      // Already posted by an earlier click: nothing more to do.
+      if (r.duplicate && r.status !== "draft") return { status: r.status, duplicate: true };
       // This entry's good bottles go into the bottle type picked
       // (set_shift_bottle, 20261023235800).
       await rpc("set_shift_bottle_by_name", { p_record: r.id, p_name: typedName });
       return rpc<{ status: string; stocked?: number }>("submit_preform_shift", { p_id: r.id });
     },
     (r) => {
-      const x = r as { status: string; stocked?: number };
+      const x = r as { status: string; stocked?: number; duplicate?: boolean };
+      if (x?.duplicate) return "Already recorded — nothing posted twice";
       return x?.status === "completed"
         ? `Recorded — ${num(x.stocked ?? 0)} good bottles stocked; damage recorded`
         : "Recorded — waiting for QC";
@@ -602,7 +613,7 @@ function BlowingDialog({
           <DialogDescription>
             {day}. {operatorName} {summary.isLoading ? "…" : num(held)} pieces of this preform.
             {dayBlown > 0 &&
-              ` Already entered on ${day}: ${num(dayBlown)} blown, ${num(dayDamages)} damaged — this adds another shift.`}
+              ` Already entered on ${day}: ${num(dayBlown)} blown, ${num(dayDamages)} damaged — this adds another session.`}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
