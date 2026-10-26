@@ -577,27 +577,30 @@ export function ReportsTab({ factoryId }: { factoryId: string }) {
       };
     }
     if (kind === "daily") {
-      const rows = (daily.data ?? []).map((r) => ({
-        date: fmtDate(r.day),
-        operator: r.operator,
-        material: r.material,
-        opening: r.opening,
-        received: r.received,
-        available: r.opening + r.received,
-        good: r.good_bottles,
-        dmg_pre: r.damaged_preforms,
-        dmg_bot: r.damaged_bottles,
-        other: r.other_losses,
-        reversed: r.reversed,
-        usage: r.usage,
-        closing: r.closing,
-        closing_bags: bagsText(r.closing, r.pieces_per_bag),
-        shifts: r.shifts,
-        qc_good: r.qc_good,
-        qc_rej: r.qc_rejected,
-        stocked: r.stocked,
-        pending: r.pending_shifts,
-      }));
+      const rows = (daily.data ?? [])
+        // Days with nothing held or moved (incl. cleared test data) are left out.
+        .filter((r) => r.opening || r.received || r.usage || r.closing)
+        .map((r) => ({
+          date: fmtDate(r.day),
+          operator: r.operator,
+          material: r.material,
+          opening: r.opening,
+          received: r.received,
+          available: r.opening + r.received,
+          good: r.good_bottles,
+          dmg_pre: r.damaged_preforms,
+          dmg_bot: r.damaged_bottles,
+          other: r.other_losses,
+          reversed: r.reversed,
+          usage: r.usage,
+          closing: r.closing,
+          closing_bags: bagsText(r.closing, r.pieces_per_bag),
+          shifts: r.shifts,
+          qc_good: r.qc_good,
+          qc_rej: r.qc_rejected,
+          stocked: r.stocked,
+          pending: r.pending_shifts,
+        }));
       return {
         columns: [
           { key: "date", label: "Date" },

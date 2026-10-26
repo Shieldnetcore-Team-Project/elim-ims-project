@@ -3,6 +3,9 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useRealtimeInvalidate } from "@/lib/realtime";
 
+// Lists leave out rows flagged test_cleared (the test data reversed on
+// 2026-10-26, 20261026120000); the database and audit log keep them.
+//
 // Data layer for the Preform Production page. Every write is a server
 // function in supabase/migrations/20261020130000_preform_production_workflow.sql
 // (which also does every calculation); these tables and functions are newer
@@ -351,6 +354,7 @@ export function useIssues(
         .from("preform_issues")
         .select("*")
         .eq("factory_id", factoryId)
+        .eq("test_cleared", false)
         .order("issued_at", { ascending: false })
         .limit(opts.limit ?? 200);
       if (opts.operatorId) q = q.eq("operator_id", opts.operatorId);
@@ -477,6 +481,7 @@ export function useStockings(factoryId: string | undefined, status?: string) {
           "*, record:preform_shift_records(reference,production_date,shift,operator_id), product:products(name)",
         )
         .eq("factory_id", factoryId)
+        .eq("test_cleared", false)
         .order("sent_at", { ascending: false })
         .limit(300);
       if (status) q = q.eq("status", status);
@@ -556,6 +561,7 @@ export function useTransfers(factoryId: string | undefined) {
         .from("bottle_transfers")
         .select("*, product:products(name)")
         .eq("factory_id", factoryId)
+        .eq("test_cleared", false)
         .order("sent_at", { ascending: false })
         .limit(300);
       if (error) throw error;
@@ -601,6 +607,7 @@ export function useRejections(factoryId: string | undefined) {
         .from("bottle_rejections")
         .select("*, product:products(name), transfer:bottle_transfers(reference)")
         .eq("factory_id", factoryId)
+        .eq("test_cleared", false)
         .order("recorded_at", { ascending: false })
         .limit(300);
       if (error) throw error;
@@ -903,6 +910,7 @@ export function useExceptions(factoryId: string | undefined, status?: string) {
           "*, product:products(name), record:preform_shift_records(reference), transfer:bottle_transfers(reference,to_department)",
         )
         .eq("factory_id", factoryId)
+        .eq("test_cleared", false)
         .order("raised_at", { ascending: false })
         .limit(300);
       if (status) q = q.eq("status", status);

@@ -177,9 +177,11 @@ function StoreIssuesPage() {
             ? "Rejected by QC — back in store"
             : qcStatus === "moved"
               ? "Moved to QC Preforms"
-              : qcStatus
-                ? "Awaiting QC confirmation"
-                : null
+              : qcStatus === "cleared"
+                ? "Test data — back in store"
+                : qcStatus
+                  ? "Awaiting QC confirmation"
+                  : null
         : preform
           ? (PREFORM_STATUS[preform.status] ?? preform.status)
           : null;

@@ -97,7 +97,7 @@ type Balance = {
 const MATERIAL_SELECT =
   "raw_materials(name,unit,pieces_per_bag,is_preform,brands(name,category,grammage))";
 const isPreformInfo = (m: MaterialInfo | null) =>
-  !!m && (!!m.is_preform || /preform/i.test(m.name));
+  !!m && (!!m.is_preform || /preform/i.test(m.name) || /preform/i.test(m.brands?.name ?? ""));
 const packOf = (m: MaterialInfo | null) =>
   detectPack(m?.brands?.category) ?? packWord(m?.name, m?.unit);
 const when = (iso: string) => format(new Date(iso), "dd-MM-yyyy HH:mm:ss");
@@ -127,6 +127,8 @@ export function ReceivedFromStorePanel({ factoryId }: { factoryId: string }) {
           `id,material_id,quantity,status,issued_to_user,issued_by,issued_at,confirmed_by,confirmed_at,reject_reason,rejected_by,rejected_at,${MATERIAL_SELECT},raw_material_movements(reference,reason)`,
         )
         .eq("factory_id", factoryId)
+        // Test data cleared on 2026-10-26 (20261026120000) is not shown.
+        .eq("test_cleared" as never, false as never) // column newer than the generated types
         .order("issued_at", { ascending: false })
         .limit(1000);
       if (error) throw error;
@@ -142,6 +144,7 @@ export function ReceivedFromStorePanel({ factoryId }: { factoryId: string }) {
           `id,material_id,quantity,reason,used_by,used_at,issued_to_department,issued_to_user,${MATERIAL_SELECT}`,
         )
         .eq("factory_id", factoryId)
+        .eq("test_cleared" as never, false as never) // column newer than the generated types
         .order("used_at", { ascending: false })
         .limit(1000);
       if (error) throw error;

@@ -122,18 +122,22 @@ export function QcReportsTab({ factoryId }: { factoryId: string }) {
         { key: "expected", label: "Expected Bottles" },
         { key: "balance", label: "Balance" },
       ],
-      rows: (preforms.data ?? []).map((r, i) => ({
-        sn: i + 1,
-        material: preformLabel(r),
-        fromStore: fromStore(r),
-        pieces: r.pieces_per_bag ? n(r.pieces_per_bag) : "—",
-        opening: n(r.opening),
-        total: n(r.total),
-        blown: n(r.blown),
-        damages: n(r.damages),
-        expected: n(r.expected_bottles),
-        balance: n(r.balance),
-      })),
+      // A preform with nothing in the period (e.g. only cleared test data,
+      // which nets to zero) is not listed.
+      rows: (preforms.data ?? [])
+        .filter((r) => n(r.opening) || n(r.received) || n(r.blown) || n(r.balance))
+        .map((r, i) => ({
+          sn: i + 1,
+          material: preformLabel(r),
+          fromStore: fromStore(r),
+          pieces: r.pieces_per_bag ? n(r.pieces_per_bag) : "—",
+          opening: n(r.opening),
+          total: n(r.total),
+          blown: n(r.blown),
+          damages: n(r.damages),
+          expected: n(r.expected_bottles),
+          balance: n(r.balance),
+        })),
     },
     bottle: {
       title: `Quality Control Department: Bottles Report ${period}`,
@@ -146,15 +150,17 @@ export function QcReportsTab({ factoryId }: { factoryId: string }) {
         { key: "released", label: "Released" },
         { key: "balance", label: "Balance" },
       ],
-      rows: (bottles.data ?? []).map((r, i) => ({
-        sn: i + 1,
-        material: r.product,
-        opening: n(r.opening),
-        in: n(r.quantity_in),
-        total: n(r.total),
-        released: n(r.released),
-        balance: n(r.balance),
-      })),
+      rows: (bottles.data ?? [])
+        .filter((r) => n(r.opening) || n(r.quantity_in) || n(r.released) || n(r.balance))
+        .map((r, i) => ({
+          sn: i + 1,
+          material: r.product,
+          opening: n(r.opening),
+          in: n(r.quantity_in),
+          total: n(r.total),
+          released: n(r.released),
+          balance: n(r.balance),
+        })),
     },
   };
   const current = which === "preform" ? preforms : bottles;

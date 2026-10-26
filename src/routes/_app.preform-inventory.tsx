@@ -68,9 +68,20 @@ import {
   ReconciliationPanel,
 } from "@/components/preform-inventory/panels";
 import { ReportsPanel } from "@/components/preform-inventory/reports";
+import { PreformJourney } from "@/components/preform/preform-journey";
 
 // "issues": the Store issues preforms to the blowing line (QC) from here.
-const TABS = ["stock", "issues", "deliveries", "counts", "reconciliation", "reports"] as const;
+// "journey": every preform from the Store to PM (Store issued, QC accepted,
+// blown, damaged, good bottles, QC holds; good bottles sent to PM).
+const TABS = [
+  "stock",
+  "issues",
+  "deliveries",
+  "counts",
+  "reconciliation",
+  "journey",
+  "reports",
+] as const;
 type Tab = (typeof TABS)[number];
 
 export const Route = createFileRoute("/_app/preform-inventory")({
@@ -351,6 +362,7 @@ function PreformInventoryPage() {
           <TabsTrigger value="deliveries">Deliveries</TabsTrigger>
           <TabsTrigger value="counts">Counts &amp; adjustments</TabsTrigger>
           <TabsTrigger value="reconciliation">Reconciliation</TabsTrigger>
+          {canSeeIssues && <TabsTrigger value="journey">Store to PM</TabsTrigger>}
           <TabsTrigger value="reports">Reports</TabsTrigger>
         </TabsList>
 
@@ -618,6 +630,11 @@ function PreformInventoryPage() {
         {canSeeIssues && (
           <TabsContent value="issues">
             {factoryId && <IssuesTab factoryId={factoryId} />}
+          </TabsContent>
+        )}
+        {canSeeIssues && (
+          <TabsContent value="journey">
+            {factoryId && <PreformJourney factoryId={factoryId} />}
           </TabsContent>
         )}
         <TabsContent value="reports">
