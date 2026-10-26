@@ -31,7 +31,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Check, MinusCircle, Search, Send, X } from "lucide-react";
+import { ArrowRightLeft, Check, MinusCircle, Search, Send, X } from "lucide-react";
 import { BagQty, PackOrPiecesInput } from "@/components/shared/bag-quantity";
 import { brandDetail } from "@/components/shared/brand-picker";
 import { ReportActions } from "@/components/shared/report-actions";
@@ -45,11 +45,17 @@ import { useRealtimeInvalidate } from "@/lib/realtime";
 // waits here until QC confirms receiving it; only then is it QC's stock.
 // QC records what it uses (out). Available = confirmed received - out, per
 // material. Quantities are kept in pieces and shown with their bags.
+//
+// Preforms belong in QC's blowing stock (Preforms → Process preforms), not
+// here. Any preform still here -- awaiting confirmation or confirmed and
+// unused -- has a "Move to Preforms" button on its stock row
+// (qc_move_preforms_to_blowing, 20261026100000) so QC can blow it.
 
 type MaterialInfo = {
   name: string;
   unit: string;
   pieces_per_bag: number | null;
+  is_preform: boolean | null;
   brands: { name: string; category: string; grammage: string | null } | null;
 };
 type ReceiptRow = {
@@ -88,15 +94,21 @@ type Balance = {
   available: number;
 };
 
-const MATERIAL_SELECT = "raw_materials(name,unit,pieces_per_bag,brands(name,category,grammage))";
+const MATERIAL_SELECT =
+  "raw_materials(name,unit,pieces_per_bag,is_preform,brands(name,category,grammage))";
+const isPreformInfo = (m: MaterialInfo | null) =>
+  !!m && (!!m.is_preform || /preform/i.test(m.name));
 const packOf = (m: MaterialInfo | null) =>
   detectPack(m?.brands?.category) ?? packWord(m?.name, m?.unit);
 const when = (iso: string) => format(new Date(iso), "dd-MM-yyyy HH:mm:ss");
 
 export function ReceivedFromStorePanel({ factoryId }: { factoryId: string }) {
   const qc = useQueryClient();
-  const { canSubmit } = usePermissions();
+  const { canSubmit, can } = usePermissions();
   const canAct = canSubmit("goods-receiving");
+  // Whoever records blowing may move stuck preforms into her blowing stock.
+  const canMove = can("preform-production", "submit");
+  const [moveFor, setMoveFor] = useState<Balance | null>(null);
   const [day, setDay] = useState("");
   const [q, setQ] = useState("");
   const [useFor, setUseFor] = useState<Balance | null>(null);
@@ -315,7 +327,7 @@ export function ReceivedFromStorePanel({ factoryId }: { factoryId: string }) {
                 <TableHead className="text-right">Received</TableHead>
                 <TableHead className="text-right">Out</TableHead>
                 <TableHead className="text-right">Available</TableHead>
-                {canAct && <TableHead />}
+                {(canAct || canMove) && <TableHead />}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -331,29 +343,46 @@ export function ReceivedFromStorePanel({ factoryId }: { factoryId: string }) {
                   <TableCell className="text-right font-medium">
                     {qtyCell(b.available, b.info)}
                   </TableCell>
-                  {canAct && (
+                  {(canAct || canMove) && (
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          title="Issue to a Production person"
-                          aria-label="Issue to a Production person"
-                          disabled={b.available <= 0}
-                          onClick={() => setIssueFor(b)}
-                        >
-                          <Send className="h-4 w-4 text-primary" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          title="Record use by QC"
-                          aria-label="Record use by QC"
-                          disabled={b.available <= 0}
-                          onClick={() => setUseFor(b)}
-                        >
-                          <MinusCircle className="h-4 w-4 text-warning" />
-                        </Button>
+                        {canMove &&
+                          isPreformInfo(b.info) &&
+                          b.pending + Math.max(b.available, 0) > 0 && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="gap-1"
+                              title="Move into your blowing stock (Preforms → Process preforms)"
+                              onClick={() => setMoveFor(b)}
+                            >
+                              <ArrowRightLeft className="h-3.5 w-3.5" /> Move to Preforms
+                            </Button>
+                          )}
+                        {canAct && (
+                          <>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title="Issue to a Production person"
+                              aria-label="Issue to a Production person"
+                              disabled={b.available <= 0}
+                              onClick={() => setIssueFor(b)}
+                            >
+                              <Send className="h-4 w-4 text-primary" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title="Record use by QC"
+                              aria-label="Record use by QC"
+                              disabled={b.available <= 0}
+                              onClick={() => setUseFor(b)}
+                            >
+                              <MinusCircle className="h-4 w-4 text-warning" />
+                            </Button>
+                          </>
+                        )}
                       </div>
                     </TableCell>
                   )}
@@ -643,6 +672,19 @@ export function ReceivedFromStorePanel({ factoryId }: { factoryId: string }) {
         )}
       </Dialog>
 
+      <Dialog open={!!moveFor} onOpenChange={(o) => !o && setMoveFor(null)}>
+        {moveFor && (
+          <MoveToPreformsDialog
+            balance={moveFor}
+            onDone={() => {
+              setMoveFor(null);
+              qc.invalidateQueries({ queryKey: ["qc-store"] });
+              qc.invalidateQueries({ queryKey: ["pf"] });
+            }}
+          />
+        )}
+      </Dialog>
+
       <Dialog open={!!issueFor} onOpenChange={(o) => !o && setIssueFor(null)}>
         {issueFor && (
           <IssueToProductionDialog
@@ -656,6 +698,81 @@ export function ReceivedFromStorePanel({ factoryId }: { factoryId: string }) {
         )}
       </Dialog>
     </div>
+  );
+}
+
+// Everything of one preform still in this store -- awaiting confirmation or
+// confirmed and unused -- into the QC person's blowing stock, where she
+// records the blowing (qc_move_preforms_to_blowing, 20261026100000). A
+// preform with no bag size takes one here the first time.
+function MoveToPreformsDialog({ balance, onDone }: { balance: Balance; onDone: () => void }) {
+  const m = balance.info;
+  const available = Math.max(balance.available, 0);
+  const total = balance.pending + available;
+  const [perBag, setPerBag] = useState("");
+  const ppb = m?.pieces_per_bag ?? (Number(perBag) > 0 ? Math.floor(Number(perBag)) : null);
+  const qty = (v: number) => <BagQty value={v} unit={m?.unit} perBag={ppb} pack={packOf(m)} />;
+  const save = useMutation({
+    mutationFn: async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- RPC newer than the generated types
+      const { data, error } = await (supabase as any).rpc("qc_move_preforms_to_blowing", {
+        p_material: balance.material_id,
+        p_pieces_per_bag: m?.pieces_per_bag ? null : ppb,
+      });
+      if (error) throw error;
+      return data as { reference: string; pieces: number };
+    },
+    onSuccess: (r) => {
+      toast.success(
+        `${r.reference}: ${num(Number(r.pieces))} pieces moved — blow them on Preforms → Process preforms`,
+      );
+      onDone();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  return (
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle>Move to Preforms — {m?.name ?? "preform"}</DialogTitle>
+      </DialogHeader>
+      <div className="grid gap-3 text-sm">
+        <p className="text-muted-foreground">
+          These preforms go into your blowing stock so you can record their blowing on Preforms →
+          Process preforms. The Store&rsquo;s stock is not changed — they already left it.
+        </p>
+        <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 rounded-md bg-muted/40 p-3">
+          <dt className="text-muted-foreground">Awaiting confirmation</dt>
+          <dd className="text-right">{qty(balance.pending)}</dd>
+          <dt className="text-muted-foreground">Confirmed, not yet used</dt>
+          <dd className="text-right">{qty(available)}</dd>
+          <dt className="font-medium">Moves to Preforms</dt>
+          <dd className="text-right font-semibold">{qty(total)}</dd>
+        </dl>
+        {!m?.pieces_per_bag && (
+          <div>
+            <Label htmlFor="qc-move-ppb">Pieces per bag *</Label>
+            <Input
+              id="qc-move-ppb"
+              type="number"
+              min={1}
+              step={1}
+              inputMode="numeric"
+              value={perBag}
+              placeholder="e.g. 1600"
+              onChange={(e) => setPerBag(e.target.value)}
+            />
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              This preform has no bag size yet; it is saved with it.
+            </p>
+          </div>
+        )}
+      </div>
+      <DialogFooter>
+        <Button disabled={save.isPending || total <= 0 || !ppb} onClick={() => save.mutate()}>
+          {save.isPending ? "Moving…" : `Move ${num(total)} to Preforms`}
+        </Button>
+      </DialogFooter>
+    </DialogContent>
   );
 }
 
