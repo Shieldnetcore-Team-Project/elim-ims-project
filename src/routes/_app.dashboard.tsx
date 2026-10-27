@@ -226,6 +226,7 @@ function AdminDashboard({ factoryId }: { factoryId: string }) {
               .select("current_stock")
               .eq("factory_id", factoryId)
               .eq("active", true)
+              .eq("product_type", "finished")
               .order("id")
               .range(a, b) as any,
         ),
@@ -568,6 +569,7 @@ function SalesDashboard({ factoryId }: { factoryId: string }) {
         .select("id", { count: "exact", head: true })
         .eq("factory_id", factoryId)
         .eq("active", true)
+        .eq("product_type", "finished")
         .gt("current_stock", 0);
       if (error) throw error;
       return count ?? 0;
@@ -1049,6 +1051,7 @@ function WarehouseDashboard({ factoryId }: { factoryId: string }) {
             .select("id,current_stock")
             .eq("factory_id", factoryId)
             .eq("active", true)
+            .eq("product_type", "finished")
             .order("id")
             .range(a, b) as any,
       ),

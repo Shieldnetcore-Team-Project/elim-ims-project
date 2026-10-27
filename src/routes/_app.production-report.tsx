@@ -170,6 +170,7 @@ function ProductionReportPage() {
         .select("id,name,product_categories(name)")
         .eq("factory_id", factoryId!)
         .eq("active", true)
+        .eq("product_type", "finished")
         .order("name");
       if (error) return [] as ReportProduct[];
       return (data ?? []) as unknown as ReportProduct[];

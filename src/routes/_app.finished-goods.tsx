@@ -185,7 +185,6 @@ function FinishedGoodsPage() {
   );
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
-  const [typeFilter, setTypeFilter] = useState<"all" | "finished" | "semi_finished">("all");
   const [q, setQ] = useState("");
   const [adjustTarget, setAdjustTarget] = useState<{
     product: Product;
@@ -205,6 +204,7 @@ function FinishedGoodsPage() {
         )
         .eq("factory_id", factoryId!)
         .eq("active", true)
+        .eq("product_type", "finished")
         .order("name");
       if (error) throw error;
       return (data ?? []) as unknown as Product[];
@@ -357,9 +357,9 @@ function FinishedGoodsPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const filteredList = (list.data ?? []).filter(
-    (p) => typeFilter === "all" || p.product_type === typeFilter,
-  );
+  // Finished products only (the list query already leaves out the empty
+  // blown bottles, which are QC stock).
+  const filteredList = list.data ?? [];
   // Search only narrows which rows are shown in the table below — it
   // deliberately doesn't affect the summary cards above (those reflect the
   // type filter's overall totals, not "what happens to match this search").
@@ -466,7 +466,7 @@ function FinishedGoodsPage() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <SummaryCard
           icon={Boxes}
-          label={typeFilter === "semi_finished" ? "Semi-Finished SKUs" : "Finished Products SKUs"}
+          label="Finished Products SKUs"
           value={String(summary.totalSkus)}
         />
         <SummaryCard icon={Wallet} label="Inventory Value" value={money(summary.totalValue)} />
@@ -497,16 +497,6 @@ function FinishedGoodsPage() {
                 onChange={(e) => setQ(e.target.value)}
               />
             </div>
-            <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as typeof typeFilter)}>
-              <SelectTrigger className="h-9 w-[170px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All types</SelectItem>
-                <SelectItem value="finished">Finished only</SelectItem>
-                <SelectItem value="semi_finished">Semi-Finished only</SelectItem>
-              </SelectContent>
-            </Select>
           </div>
         </CardHeader>
         <CardContent className="overflow-x-auto">

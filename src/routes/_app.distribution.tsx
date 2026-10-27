@@ -1178,6 +1178,8 @@ export function PostToHolderDialog({
     <NewDispatchDialog
       factoryId={factoryId}
       kind={kind}
+      // Posting to a retail shop: no vehicle / driver / route to pick.
+      hideTransport={kind === "outlet"}
       reps={p.holders(kind)}
       products={p.products}
       vehicles={p.vehicles}

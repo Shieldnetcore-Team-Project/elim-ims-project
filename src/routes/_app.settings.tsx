@@ -916,6 +916,7 @@ function ProductsCard({ factoryId }: { factoryId: string }) {
           "id,name,sku,unit,unit_price,cost_price,current_stock,reorder_level,category_id,product_type,active,product_categories(name)",
         )
         .eq("factory_id", factoryId)
+        .eq("product_type", "finished")
         .order("active", { ascending: false })
         .order("name");
       if (error) throw error;

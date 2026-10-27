@@ -189,6 +189,7 @@ function CostingPage() {
         .select("id,name,unit,product_categories(product_line)")
         .eq("factory_id", factoryId!)
         .eq("active", true)
+        .eq("product_type", "finished")
         .order("name");
       if (error) throw error;
       return (data ?? []) as unknown as ProductRow[];

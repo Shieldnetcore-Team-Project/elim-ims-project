@@ -157,7 +157,6 @@ export function ProductForm({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="finished">Finished product</SelectItem>
-                <SelectItem value="semi_finished">Semi-finished product</SelectItem>
               </SelectContent>
             </Select>
           </div>

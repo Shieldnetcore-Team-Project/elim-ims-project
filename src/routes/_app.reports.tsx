@@ -745,6 +745,7 @@ function ReportsPage() {
         .from("products")
         .select("id,name")
         .eq("factory_id", factoryId!)
+        .eq("product_type", "finished")
         .order("name");
       if (error) throw error;
       return data ?? [];

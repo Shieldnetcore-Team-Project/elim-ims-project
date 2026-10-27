@@ -120,6 +120,7 @@ function PerformancePage() {
         .select("id,name,unit,product_commission_rates(amount_per_unit,updated_at)")
         .eq("factory_id", factoryId!)
         .eq("active", true)
+        .eq("product_type", "finished")
         .order("name");
       if (error) throw error;
       return (data ?? []) as unknown as RateRow[];

@@ -226,7 +226,6 @@ export function QuickAddProductDialog({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="finished">Finished product</SelectItem>
-                  <SelectItem value="semi_finished">Semi-finished product</SelectItem>
                 </SelectContent>
               </Select>
             </div>

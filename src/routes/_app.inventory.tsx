@@ -143,6 +143,7 @@ function InventoryOverviewPage() {
         )
         .eq("factory_id", factoryId!)
         .eq("active", true)
+        .eq("product_type", "finished")
         .order("name");
       if (error) throw error;
       return (data ?? []) as unknown as ProductRow[];
