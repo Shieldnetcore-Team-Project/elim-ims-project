@@ -700,9 +700,6 @@ function DispatchesTab({
             factoryId={factoryId}
             reps={reps}
             products={products}
-            vehicles={vehicles}
-            drivers={drivers}
-            routes={routes}
             onDone={() => {
               setOpen(false);
               refresh();
@@ -854,22 +851,15 @@ function NewDispatchDialog({
   factoryId,
   reps,
   products,
-  vehicles,
-  drivers,
-  routes,
   onDone,
   kind,
   fixedRepId,
   embedded,
   carryReturn,
-  hideTransport,
 }: {
   factoryId: string;
   reps: Rep[];
   products: Product[];
-  vehicles: NamedRow[];
-  drivers: NamedRow[];
-  routes: NamedRow[];
   onDone: () => void;
   // Marketer returns → "Add products": the returned products are still on
   // the van, so the dispatch starts with them and is linked to the return.
@@ -881,17 +871,12 @@ function NewDispatchDialog({
   fixedRepId?: string;
   // Render just the form, for use inside another dialog.
   embedded?: boolean;
-  // No vehicle / driver / route pickers (Warehouse → Marketers posting).
-  hideTransport?: boolean;
 }) {
   const [pickedRepId, setRepId] = useState(kind && reps.length === 1 ? reps[0].id : "");
   const repId = fixedRepId ?? pickedRepId;
   const holderLabel =
     kind === "outlet" ? "Retail shop" : kind === "rep" ? "Marketer" : "Rep / outlet";
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
-  const [vehicleId, setVehicleId] = useState("none");
-  const [driverId, setDriverId] = useState("none");
-  const [routeId, setRouteId] = useState("none");
   const [notes, setNotes] = useState(
     carryReturn ? `Carried over from return ${carryReturn.return_number}` : "",
   );
@@ -918,9 +903,6 @@ function NewDispatchDialog({
           factory_id: factoryId,
           sales_rep_id: repId,
           dispatch_date: date,
-          vehicle_id: vehicleId === "none" ? undefined : vehicleId,
-          driver_id: driverId === "none" ? undefined : driverId,
-          route_id: routeId === "none" ? undefined : routeId,
           notes: notes || undefined,
           carry_return_id: carryReturn?.id,
           items: clean.map((l) => ({ product_id: l.product_id, quantity: l.quantity })),
@@ -970,58 +952,6 @@ function NewDispatchDialog({
             <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
           </div>
         </div>
-        {!hideTransport && (
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <Label className="text-xs">Vehicle</Label>
-              <Select value={vehicleId} onValueChange={setVehicleId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="—" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">— None —</SelectItem>
-                  {vehicles.map((v) => (
-                    <SelectItem key={v.id} value={v.id}>
-                      {v.plate_number}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label className="text-xs">Driver</Label>
-              <Select value={driverId} onValueChange={setDriverId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="—" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">— None —</SelectItem>
-                  {drivers.map((d) => (
-                    <SelectItem key={d.id} value={d.id}>
-                      {d.full_name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label className="text-xs">Route</Label>
-              <Select value={routeId} onValueChange={setRouteId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="—" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">— None —</SelectItem>
-                  {routes.map((r) => (
-                    <SelectItem key={r.id} value={r.id}>
-                      {r.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        )}
 
         <div>
           <Label>Products (warehouse stock shown in brackets)</Label>
@@ -1178,13 +1108,8 @@ export function PostToHolderDialog({
     <NewDispatchDialog
       factoryId={factoryId}
       kind={kind}
-      // Posting to a retail shop: no vehicle / driver / route to pick.
-      hideTransport={kind === "outlet"}
       reps={p.holders(kind)}
       products={p.products}
-      vehicles={p.vehicles}
-      drivers={p.drivers}
-      routes={p.routes}
       onDone={onDone}
     />
   );
@@ -1509,15 +1434,11 @@ export function MarketerPostDialog({
                 <NewDispatchDialog
                   key={marketer.id}
                   embedded
-                  hideTransport
                   kind="rep"
                   fixedRepId={marketer.id}
                   factoryId={factoryId}
                   reps={marketers}
                   products={p.products}
-                  vehicles={p.vehicles}
-                  drivers={p.drivers}
-                  routes={p.routes}
                   onDone={onDone}
                 />
               </TabsContent>
@@ -2039,9 +1960,6 @@ function CarryOverDialog({
           fixedRepId={row.sales_rep_id}
           reps={[rep]}
           products={p.products}
-          vehicles={p.vehicles}
-          drivers={p.drivers}
-          routes={p.routes}
           carryReturn={{ id: row.id, return_number: row.return_number, lines }}
           embedded
           onDone={onDone}
