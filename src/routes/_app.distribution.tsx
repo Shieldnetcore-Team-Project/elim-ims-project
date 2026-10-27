@@ -1621,8 +1621,8 @@ function MarketerPostingsCard({
       <CardHeader>
         <CardTitle className="text-base">Postings</CardTitle>
         <p className="text-xs text-muted-foreground">
-          Posted the wrong figure or product? Click Correct, fix the lines and post again — the old
-          posting is reversed and the corrected one takes its place on the same date.
+          Posted the wrong figure or product? Click the pencil, fix the lines and post again — the
+          old posting is reversed and the corrected one takes its place on the same date.
         </p>
       </CardHeader>
       <CardContent className="overflow-x-auto">
@@ -1661,12 +1661,13 @@ function MarketerPostingsCard({
                 <TableCell className="text-right">
                   {d.status === "posted" && canCorrect && (
                     <Button
-                      variant="outline"
-                      size="sm"
-                      className="gap-1"
+                      variant="ghost"
+                      size="icon"
+                      title="Correct"
+                      aria-label="Correct"
                       onClick={() => setTarget(d)}
                     >
-                      <Pencil className="h-4 w-4" /> Correct
+                      <Pencil className="h-4 w-4" />
                     </Button>
                   )}
                 </TableCell>
