@@ -22,7 +22,15 @@ import { StatusBadge, fmtDateTime } from "./shared";
 // what arrived (never more than issued) and records any it later finds
 // defective as a PM-stage rejection against that receipt. Bottles reach PM
 // only this way -- never straight from preform stock.
-export function PmBottlesFromQc({ factoryId }: { factoryId: string }) {
+// showEmpty keeps the card (with an empty-state row) when nothing was issued
+// yet, for its own tab on the Production page.
+export function PmBottlesFromQc({
+  factoryId,
+  showEmpty = false,
+}: {
+  factoryId: string;
+  showEmpty?: boolean;
+}) {
   const { can } = usePermissions();
   const canView = can("preform-production", "view");
   const canReceive = can("preform-production", "submit");
@@ -37,7 +45,7 @@ export function PmBottlesFromQc({ factoryId }: { factoryId: string }) {
   const names = useUserNames(rows.flatMap((t) => [t.sent_by, t.received_by]));
   const [receive, setReceive] = useState<Transfer | null>(null);
   const [reject, setReject] = useState<Transfer | null>(null);
-  if (!canView || (!rows.length && !transfers.isLoading)) return null;
+  if (!canView || (!showEmpty && !rows.length && !transfers.isLoading)) return null;
 
   return (
     <>
@@ -114,6 +122,13 @@ export function PmBottlesFromQc({ factoryId }: { factoryId: string }) {
                   </TableRow>
                 );
               })}
+              {rows.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={8} className="py-6 text-center text-muted-foreground">
+                    {transfers.isLoading ? "Loading…" : "No bottles issued to PM yet."}
+                  </TableCell>
+                </TableRow>
+              )}
             </TableBody>
           </Table>
         </CardContent>

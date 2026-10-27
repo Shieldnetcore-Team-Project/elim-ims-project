@@ -3,7 +3,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { logAudit } from "@/lib/audit";
-import { useUnitsOfMeasure, UNIT_OPTIONS as UNIT_OPTIONS_FALLBACK } from "@/lib/units";
+import {
+  useUnitsOfMeasure,
+  UNIT_OPTIONS as UNIT_OPTIONS_FALLBACK,
+  isBottleWater,
+  packUnitOf,
+} from "@/lib/units";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -101,6 +106,7 @@ export function QuickAddProductDialog({
   onCreated?: (id: string) => void;
 }) {
   const qc = useQueryClient();
+  const unitsOfMeasure = useUnitsOfMeasure();
   const [name, setName] = useState("");
   const [productType, setProductType] = useState<"finished" | "semi_finished">("finished");
   const [categoryId, setCategoryId] = useState("none");
@@ -202,6 +208,8 @@ export function QuickAddProductDialog({
                 if (match) setCategoryId(match.id);
                 const price = defaultPriceFor(n);
                 if (price) setUnitPrice(price);
+                if (isBottleWater(n))
+                  setUnitChoice(packUnitOf(unitsOfMeasure.data ?? UNIT_OPTIONS_FALLBACK));
               }}
               autoFocus
             />

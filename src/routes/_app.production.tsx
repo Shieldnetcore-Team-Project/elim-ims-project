@@ -65,11 +65,12 @@ import { money, num } from "@/lib/format";
 import { toast } from "sonner";
 import { generateProductionSlipPdf } from "@/lib/pdf";
 import { logAudit } from "@/lib/audit";
-import { useUnitsOfMeasure, UNIT_OPTIONS as UNIT_OPTIONS_FALLBACK } from "@/lib/units";
+import { useUnitsOfMeasure, UNIT_OPTIONS as UNIT_OPTIONS_FALLBACK, packUnitOf } from "@/lib/units";
 import { QuickAddProductDialog, ADD_NEW_ITEM } from "@/components/shared/quick-add-item";
 import { SHIFT_LABEL, addDays, localDay, suggestedEntry, type Shift } from "@/lib/production-shift";
 import { PmJugsFromQc } from "@/components/qc/jug-handover";
 import { PmBottlesFromQc } from "@/components/preform/pm-bottles";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export const Route = createFileRoute("/_app/production")({
   head: () => ({
@@ -175,6 +176,10 @@ type ProductionRow = {
   production_types: { name: string } | null;
 };
 type ProductUnit = { id: string; packaging_unit: string; conversion_factor: number };
+// A picked unit of measure ("Pack") matches a product's packaging unit
+// ("packs") regardless of case or a plural s.
+const sameUnit = (a: string, b: string) =>
+  a.trim().toLowerCase().replace(/s$/, "") === b.trim().toLowerCase().replace(/s$/, "");
 
 const statusBadge = (s: string): "default" | "secondary" | "outline" | "destructive" => {
   if (s === "posted") return "secondary";
@@ -203,7 +208,8 @@ function ProductionPage() {
   const factoryId = factory.data;
   const settings = useFactorySettings(factoryId);
   const qc = useQueryClient();
-  const { canWrite, canCancel, canPrint, canExport, canConfirm } = usePermissions();
+  const { canWrite, canCancel, canPrint, canExport, canConfirm, can } = usePermissions();
+  const canSeeBottles = can("preform-production", "view");
   // Undoing releases takes stock back out of the Warehouse, so it needs the
   // Warehouse's acceptance right (admins have every right).
   const canReverseReleases = canConfirm("production");
@@ -227,6 +233,9 @@ function ProductionPage() {
         .select("id,name,unit,current_stock")
         .eq("factory_id", factoryId!)
         .eq("active", true)
+        // Production posts finished products only; the empty blown bottles
+        // (semi_finished, in pieces) belong to QC.
+        .eq("product_type", "finished")
         .order("name");
       if (error) throw error;
       return (data ?? []) as Product[];
@@ -430,7 +439,9 @@ function ProductionPage() {
               </DialogTrigger>
               {formOpen &&
                 (factoryId ? (
+                  // Remounted per batch, so New Production always opens empty.
                   <ProductionForm
+                    key={editing?.id ?? "new"}
                     factoryId={factoryId}
                     products={products.data ?? []}
                     eligibleRequests={eligibleRequests.data ?? []}
@@ -458,195 +469,213 @@ function ProductionPage() {
         )}
       </div>
 
-      {factoryId && <PmJugsFromQc factoryId={factoryId} />}
-      {factoryId && <PmBottlesFromQc factoryId={factoryId} />}
+      {/* Good bottles QC issues to PM have their own tab, apart from what
+          Production records and releases. */}
+      <Tabs defaultValue="production" className="space-y-6">
+        {canSeeBottles && (
+          <TabsList>
+            <TabsTrigger value="production">Production</TabsTrigger>
+            <TabsTrigger value="good-bottles">Good bottles from QC</TabsTrigger>
+          </TabsList>
+        )}
+        {canSeeBottles && (
+          <TabsContent value="good-bottles">
+            {factoryId && <PmBottlesFromQc factoryId={factoryId} showEmpty />}
+          </TabsContent>
+        )}
+        <TabsContent value="production" className="space-y-6">
+          {factoryId && <PmJugsFromQc factoryId={factoryId} />}
 
-      {factory.isError && (
-        <Alert variant="destructive">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>Can't reach factory data</AlertTitle>
-          <AlertDescription>
-            {factory.error instanceof Error ? factory.error.message : "Unknown error"} — production,
-            and every other action on this page, needs this to load first.
-          </AlertDescription>
-        </Alert>
-      )}
+          {factory.isError && (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertTitle>Can't reach factory data</AlertTitle>
+              <AlertDescription>
+                {factory.error instanceof Error ? factory.error.message : "Unknown error"} —
+                production, and every other action on this page, needs this to load first.
+              </AlertDescription>
+            </Alert>
+          )}
 
-      {factoryId && <ProductionHall factoryId={factoryId} />}
+          {factoryId && <ProductionHall factoryId={factoryId} />}
 
-      <AlertDialog open={!!releasedBlock} onOpenChange={(v) => !v && setReleasedBlock(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Goods from this batch were already released</AlertDialogTitle>
-            <AlertDialogDescription>
-              {releasedBlock?.production_number} can only be cancelled after the releases that took
-              its goods to the Warehouse are reversed. Continuing reverses just enough of the latest
-              releases of this product: ones still awaiting the Warehouse are withdrawn, and
-              accepted ones are taken back out of finished-goods stock. It fails, changing nothing,
-              if the Warehouse has already sold those goods.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Back</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={cancelWithReleases.isPending}
-              onClick={(e) => {
-                e.preventDefault();
-                if (releasedBlock) cancelWithReleases.mutate(releasedBlock);
-              }}
-            >
-              {cancelWithReleases.isPending ? "Reversing…" : "Reverse releases and cancel"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+          <AlertDialog open={!!releasedBlock} onOpenChange={(v) => !v && setReleasedBlock(null)}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Goods from this batch were already released</AlertDialogTitle>
+                <AlertDialogDescription>
+                  {releasedBlock?.production_number} can only be cancelled after the releases that
+                  took its goods to the Warehouse are reversed. Continuing reverses just enough of
+                  the latest releases of this product: ones still awaiting the Warehouse are
+                  withdrawn, and accepted ones are taken back out of finished-goods stock. It fails,
+                  changing nothing, if the Warehouse has already sold those goods.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Back</AlertDialogCancel>
+                <AlertDialogAction
+                  disabled={cancelWithReleases.isPending}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    if (releasedBlock) cancelWithReleases.mutate(releasedBlock);
+                  }}
+                >
+                  {cancelWithReleases.isPending ? "Reversing…" : "Reverse releases and cancel"}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
 
-      <Card className="rounded-2xl">
-        <CardHeader>
-          <CardTitle>Production Runs</CardTitle>
-        </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Number</TableHead>
-                <TableHead>Date</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Product</TableHead>
-                <TableHead className="text-right">Qty Produced</TableHead>
-                <TableHead className="text-right">Cost</TableHead>
-                <TableHead>Scope</TableHead>
-                <TableHead>Supervisor</TableHead>
-                <TableHead>Batch</TableHead>
-                <TableHead>Request</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {(list.data ?? []).map((row) => (
-                <TableRow key={row.id}>
-                  <TableCell className="font-mono text-xs">{row.production_number}</TableCell>
-                  <TableCell className="whitespace-nowrap">
-                    {row.production_date}
-                    {row.shift && (
-                      <Badge variant="outline" className="ml-2">
-                        {SHIFT_LABEL[row.shift]}
-                      </Badge>
-                    )}
-                  </TableCell>
-                  <TableCell>{row.production_types?.name ?? "—"}</TableCell>
-                  <TableCell className="font-medium">
-                    {row.products?.name ?? "—"}
-                    {row.packaging_unit && row.packaging_quantity != null && (
-                      <div className="text-xs text-muted-foreground">
-                        {num(Number(row.packaging_quantity))} {row.packaging_unit}
-                      </div>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {num(Number(row.quantity_produced))} {row.unit}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {money(Number(row.production_cost ?? 0))}
-                  </TableCell>
-                  <TableCell>
-                    {row.production_scope ? (
-                      <Badge variant="outline" className="capitalize">
-                        {row.production_scope.toLowerCase()}
-                      </Badge>
-                    ) : (
-                      "—"
-                    )}
-                  </TableCell>
-                  <TableCell>{row.supervisor ?? "—"}</TableCell>
-                  <TableCell>{row.batch_number ?? "—"}</TableCell>
-                  <TableCell className="font-mono text-xs">
-                    {row.production_requests?.request_number ?? "—"}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={statusBadge(row.status)} className="capitalize">
-                      {PRODUCTION_STATUS_LABELS[row.status] ?? row.status.replace(/_/g, " ")}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex justify-end gap-1">
-                      {allowPrint && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          title="Print"
-                          onClick={() => print(row, "print")}
-                        >
-                          <Printer className="h-4 w-4" />
-                        </Button>
-                      )}
-                      {allowExport && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          title="Export PDF"
-                          onClick={() => print(row, "download")}
-                        >
-                          <FileDown className="h-4 w-4" />
-                        </Button>
-                      )}
-                      {row.status === "pending_confirmation" && factoryId && (
-                        <ReleaseBatchButton factoryId={factoryId} productId={row.product_id} />
-                      )}
-                      {row.status === "pending_confirmation" && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          title="Edit"
-                          onClick={() => {
-                            setEditing(row);
-                            setFormOpen(true);
-                          }}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                      )}
-                      {row.status === "pending_confirmation" && cancel && (
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button variant="ghost" size="icon" title="Cancel">
-                              <Ban className="h-4 w-4 text-destructive" />
+          <Card className="rounded-2xl">
+            <CardHeader>
+              <CardTitle>Production Runs</CardTitle>
+            </CardHeader>
+            <CardContent className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Number</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Product</TableHead>
+                    <TableHead className="text-right">Qty Produced</TableHead>
+                    <TableHead>Scope</TableHead>
+                    <TableHead>Supervisor</TableHead>
+                    <TableHead>Batch</TableHead>
+                    <TableHead>Request</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(list.data ?? []).map((row) => (
+                    <TableRow key={row.id}>
+                      <TableCell className="font-mono text-xs">{row.production_number}</TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        {row.production_date}
+                        {row.shift && (
+                          <Badge variant="outline" className="ml-2">
+                            {SHIFT_LABEL[row.shift]}
+                          </Badge>
+                        )}
+                      </TableCell>
+                      <TableCell>{row.production_types?.name ?? "—"}</TableCell>
+                      <TableCell className="font-medium">{row.products?.name ?? "—"}</TableCell>
+                      {/* Shown in the unit it was entered in; a packaging unit
+                      also shows what that comes to in the base unit. */}
+                      <TableCell className="text-right">
+                        {row.packaging_unit && row.packaging_quantity != null ? (
+                          <>
+                            {num(Number(row.packaging_quantity))} {row.packaging_unit}
+                            <div className="text-xs text-muted-foreground">
+                              = {num(Number(row.quantity_produced))} {row.unit}
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            {num(Number(row.quantity_produced))} {row.unit}
+                          </>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {row.production_scope ? (
+                          <Badge variant="outline" className="capitalize">
+                            {row.production_scope.toLowerCase()}
+                          </Badge>
+                        ) : (
+                          "—"
+                        )}
+                      </TableCell>
+                      <TableCell>{row.supervisor ?? "—"}</TableCell>
+                      <TableCell>{row.batch_number ?? "—"}</TableCell>
+                      <TableCell className="font-mono text-xs">
+                        {row.production_requests?.request_number ?? "—"}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={statusBadge(row.status)} className="capitalize">
+                          {PRODUCTION_STATUS_LABELS[row.status] ?? row.status.replace(/_/g, " ")}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex justify-end gap-1">
+                          {allowPrint && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title="Print"
+                              onClick={() => print(row, "print")}
+                            >
+                              <Printer className="h-4 w-4" />
                             </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>Cancel this batch?</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                Removes the batch and its quantity from the production hall. Its
-                                linked production request (if any) becomes available for a new
-                                batch.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Back</AlertDialogCancel>
-                              <AlertDialogAction onClick={() => cancelBatch.mutate(row)}>
-                                Cancel Batch
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      )}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {(list.data ?? []).length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={12} className="text-center text-muted-foreground py-8">
-                    No production runs yet.
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+                          )}
+                          {allowExport && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title="Export PDF"
+                              onClick={() => print(row, "download")}
+                            >
+                              <FileDown className="h-4 w-4" />
+                            </Button>
+                          )}
+                          {row.status === "pending_confirmation" && factoryId && (
+                            <ReleaseBatchButton factoryId={factoryId} productId={row.product_id} />
+                          )}
+                          {row.status === "pending_confirmation" && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title="Edit"
+                              onClick={() => {
+                                setEditing(row);
+                                setFormOpen(true);
+                              }}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                          )}
+                          {row.status === "pending_confirmation" && cancel && (
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button variant="ghost" size="icon" title="Cancel">
+                                  <Ban className="h-4 w-4 text-destructive" />
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Cancel this batch?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    Removes the batch and its quantity from the production hall. Its
+                                    linked production request (if any) becomes available for a new
+                                    batch.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Back</AlertDialogCancel>
+                                  <AlertDialogAction onClick={() => cancelBatch.mutate(row)}>
+                                    Cancel Batch
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {(list.data ?? []).length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={11} className="text-center text-muted-foreground py-8">
+                        No production runs yet.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
@@ -671,16 +700,43 @@ function DailyProductionSheet({
   const [suggested] = useState(suggestedEntry);
   const [date, setDate] = useState(suggested.date);
   const [shift, setShift] = useState<Shift>(suggested.shift);
-  // The sheet starts empty; the manager adds a row per product produced.
-  const [rows, setRows] = useState<{ key: number; productId: string; qty: number }[]>([]);
+  // The sheet starts empty; the manager adds a row per product produced, each
+  // counted in the unit picked beside it (Packs by default).
+  const unitsOfMeasure = useUnitsOfMeasure();
+  const unitChoices = unitsOfMeasure.data ?? UNIT_OPTIONS_FALLBACK;
+  const packUnit = packUnitOf(unitChoices);
+  const unitOptions = [...new Set([packUnit, ...unitChoices])];
+  type SheetRow = { key: number; productId: string; qty: number; unit: string };
+  const [rows, setRows] = useState<SheetRow[]>([]);
   const [nextKey, setNextKey] = useState(1);
   const [addingFor, setAddingFor] = useState<number | null>(null);
   const addRow = () => {
-    setRows((rs) => [...rs, { key: nextKey, productId: "", qty: 0 }]);
+    setRows((rs) => [...rs, { key: nextKey, productId: "", qty: 0, unit: "" }]);
     setNextKey((k) => k + 1);
   };
-  const update = (key: number, patch: Partial<{ productId: string; qty: number }>) =>
+  const update = (key: number, patch: Partial<Omit<SheetRow, "key">>) =>
     setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+
+  // Packaging conversions of the products on the sheet, so a unit like
+  // Packs or Cartons is converted to the base unit on save.
+  const sheetProductIds = [...new Set(rows.map((r) => r.productId).filter(Boolean))].sort();
+  const sheetUnits = useQuery({
+    queryKey: ["product-units-for-sheet", sheetProductIds],
+    enabled: sheetProductIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("product_units")
+        .select("id,product_id,packaging_unit,conversion_factor")
+        .in("product_id", sheetProductIds)
+        .eq("active", true);
+      if (error) throw error;
+      return (data ?? []) as (ProductUnit & { product_id: string })[];
+    },
+  });
+  const packagingFor = (productId: string, unit: string) =>
+    (sheetUnits.data ?? []).find(
+      (u) => u.product_id === productId && sameUnit(u.packaging_unit, unit),
+    );
   const [supervisor, setSupervisor] = useState("");
   const [remarks, setRemarks] = useState("");
   const today = localDay();
@@ -718,8 +774,12 @@ function DailyProductionSheet({
 
   const lines = rows
     .filter((r) => r.productId && r.qty > 0)
-    .map((r) => ({ qty: r.qty, p: products.find((x) => x.id === r.productId) }))
-    .filter((l): l is { qty: number; p: Product } => !!l.p);
+    .map((r) => ({
+      qty: r.qty,
+      unit: r.unit || packUnit,
+      p: products.find((x) => x.id === r.productId),
+    }))
+    .filter((l): l is { qty: number; unit: string; p: Product } => !!l.p);
   const save = useMutation({
     mutationFn: async () => {
       if (rows.some((r) => !r.productId))
@@ -729,13 +789,16 @@ function DailyProductionSheet({
       if (lines.length === 0) throw new Error("Add at least one product with its quantity");
       const batch = generateBatchNumber();
       let done = 0;
-      for (const { p, qty } of lines) {
+      for (const { p, qty, unit } of lines) {
+        const packaging = packagingFor(p.id, unit);
         const { error } = await supabase.rpc("create_production", {
           payload: {
             factory_id: factoryId,
             product_id: p.id,
-            quantity_produced: qty,
-            unit: p.unit,
+            quantity_produced: packaging ? undefined : qty,
+            packaging_unit: packaging?.packaging_unit,
+            packaging_quantity: packaging ? qty : undefined,
+            unit: packaging ? p.unit : unit,
             production_date: date,
             shift,
             supervisor: supervisor || null,
@@ -819,6 +882,7 @@ function DailyProductionSheet({
               <TableHead>Product</TableHead>
               <TableHead className="text-right">Already recorded</TableHead>
               <TableHead className="w-36 text-right">Produced now</TableHead>
+              <TableHead className="w-32">Unit</TableHead>
               <TableHead className="w-10" />
             </TableRow>
           </TableHeader>
@@ -866,6 +930,23 @@ function DailyProductionSheet({
                     />
                   </TableCell>
                   <TableCell>
+                    <Select
+                      value={row.unit || packUnit}
+                      onValueChange={(v) => update(row.key, { unit: v })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {unitOptions.map((u) => (
+                          <SelectItem key={u} value={u}>
+                            {u}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </TableCell>
+                  <TableCell>
                     <Button
                       type="button"
                       variant="ghost"
@@ -881,7 +962,7 @@ function DailyProductionSheet({
             })}
             {rows.length === 0 && (
               <TableRow>
-                <TableCell colSpan={4} className="py-6 text-center text-muted-foreground">
+                <TableCell colSpan={5} className="py-6 text-center text-muted-foreground">
                   Click Add product for each product produced this shift.
                 </TableCell>
               </TableRow>
@@ -967,7 +1048,7 @@ function ProductionForm({
   // for that unit, the quantity is converted to the base unit on save.
   const unitsOfMeasure = useUnitsOfMeasure();
   const unitChoices = unitsOfMeasure.data ?? UNIT_OPTIONS_FALLBACK;
-  const packUnit = unitChoices.find((u) => /^packs?$/i.test(u.trim())) ?? "Packs";
+  const packUnit = packUnitOf(unitChoices);
   const [unitPicked, setUnit] = useState(
     editing ? (editing.packaging_unit ?? editing.unit ?? "") : "",
   );
@@ -1023,8 +1104,6 @@ function ProductionForm({
     },
   });
 
-  const sameUnit = (a: string, b: string) =>
-    a.trim().toLowerCase().replace(/s$/, "") === b.trim().toLowerCase().replace(/s$/, "");
   const selectedPackaging = (productUnits.data ?? []).find((u) => sameUnit(u.packaging_unit, unit));
   const computedBaseQty = selectedPackaging
     ? quantity * Number(selectedPackaging.conversion_factor)
@@ -1049,7 +1128,12 @@ function ProductionForm({
         const { error } = await supabase.rpc("update_production", {
           payload: {
             id: editing.id,
+            // A correction may change the product and the unit the
+            // quantity was counted in (update_production converts it).
+            product_id: productId,
             quantity_produced: computedBaseQty,
+            packaging_unit: selectedPackaging?.packaging_unit ?? null,
+            packaging_quantity: selectedPackaging ? quantity : null,
             damaged_quantity: damagedQuantity,
             unit: selectedPackaging ? selectedProduct?.unit : unit,
             production_cost: cost,
@@ -1193,7 +1277,7 @@ function ProductionForm({
               }
               setProductId(v);
             }}
-            disabled={!!editing || !!requestId}
+            disabled={!!requestId || !!editing?.production_requests}
           >
             <SelectTrigger>
               <SelectValue placeholder="Select product…" />

@@ -41,6 +41,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { Dialog } from "@/components/ui/dialog";
+import { ProductForm, type ProductFormProduct } from "@/components/products/product-form";
+import { money } from "@/lib/format";
 
 export const Route = createFileRoute("/_app/settings")({
   head: () => ({
@@ -327,6 +330,7 @@ export function SettingsPage() {
             </CardContent>
           </Card>
 
+          {factoryId && <ProductsCard factoryId={factoryId} />}
           <ProductionTypesCard />
           <UnitsOfMeasureCard />
 
@@ -883,6 +887,183 @@ function ProductionTypesCard() {
           </div>
         )}
       </CardContent>
+    </Card>
+  );
+}
+
+type ProductRow = ProductFormProduct & {
+  active: boolean;
+  product_categories: { name: string } | null;
+};
+
+// Product setup: every product of the factory with its name, type, category,
+// unit, selling price and cost price, added and edited here. Production only
+// records quantities; what a unit costs is set on the product here (or by an
+// approved Costing sheet).
+function ProductsCard({ factoryId }: { factoryId: string }) {
+  const qc = useQueryClient();
+  const { canWrite } = usePermissions();
+  const write = canWrite("finished-goods") || canWrite("settings");
+  const [formOpen, setFormOpen] = useState(false);
+  const [editing, setEditing] = useState<ProductRow | null>(null);
+
+  const products = useQuery({
+    queryKey: ["settings-products", factoryId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("products")
+        .select(
+          "id,name,sku,unit,unit_price,cost_price,current_stock,reorder_level,category_id,product_type,active,product_categories(name)",
+        )
+        .eq("factory_id", factoryId)
+        .order("active", { ascending: false })
+        .order("name");
+      if (error) throw error;
+      return (data ?? []) as unknown as ProductRow[];
+    },
+  });
+
+  const categories = useQuery({
+    queryKey: ["product-categories", factoryId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("product_categories")
+        .select("id,name")
+        .eq("factory_id", factoryId)
+        .order("name");
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  const invalidate = () => {
+    for (const key of [
+      "settings-products",
+      "finished-goods",
+      "products-active",
+      "products-for-production",
+    ])
+      qc.invalidateQueries({ queryKey: [key] });
+  };
+
+  const toggleActive = useMutation({
+    mutationFn: async (p: ProductRow) => {
+      const { error } = await supabase
+        .from("products")
+        .update({ active: !p.active })
+        .eq("id", p.id);
+      if (error) throw error;
+    },
+    onSuccess: invalidate,
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return (
+    <Card className="rounded-2xl">
+      <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
+        <CardTitle>Products</CardTitle>
+        {write && (
+          <Button
+            size="sm"
+            className="gap-1"
+            onClick={() => {
+              setEditing(null);
+              setFormOpen(true);
+            }}
+          >
+            <Plus className="h-4 w-4" /> Add product
+          </Button>
+        )}
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Name, type, unit, selling price and cost of each product. Production records only
+          quantities; the cost of a unit is set here.
+        </p>
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead>Category</TableHead>
+                <TableHead>Unit</TableHead>
+                <TableHead className="text-right">Selling price</TableHead>
+                <TableHead className="text-right">Cost price</TableHead>
+                <TableHead>Status</TableHead>
+                {write && <TableHead></TableHead>}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {(products.data ?? []).map((p) => (
+                <TableRow key={p.id}>
+                  <TableCell className="font-medium">{p.name}</TableCell>
+                  <TableCell>
+                    {p.product_type === "semi_finished" ? "Semi-finished" : "Finished"}
+                  </TableCell>
+                  <TableCell>{p.product_categories?.name ?? "—"}</TableCell>
+                  <TableCell>{p.unit}</TableCell>
+                  <TableCell className="text-right">{money(Number(p.unit_price))}</TableCell>
+                  <TableCell className="text-right">{money(Number(p.cost_price))}</TableCell>
+                  <TableCell>
+                    <Badge variant={p.active ? "secondary" : "outline"}>
+                      {p.active ? "Active" : "Inactive"}
+                    </Badge>
+                  </TableCell>
+                  {write && (
+                    <TableCell className="whitespace-nowrap text-right">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setEditing(p);
+                          setFormOpen(true);
+                        }}
+                      >
+                        Edit
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => toggleActive.mutate(p)}>
+                        {p.active ? "Deactivate" : "Activate"}
+                      </Button>
+                    </TableCell>
+                  )}
+                </TableRow>
+              ))}
+              {(products.data ?? []).length === 0 && (
+                <TableRow>
+                  <TableCell
+                    colSpan={write ? 8 : 7}
+                    className="py-6 text-center text-muted-foreground"
+                  >
+                    {products.isLoading ? "Loading…" : "No products yet."}
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </CardContent>
+      <Dialog
+        open={formOpen}
+        onOpenChange={(v) => {
+          setFormOpen(v);
+          if (!v) setEditing(null);
+        }}
+      >
+        {formOpen && (
+          <ProductForm
+            key={editing?.id ?? "new"}
+            factoryId={factoryId}
+            categories={categories.data ?? []}
+            editing={editing}
+            onDone={() => {
+              setFormOpen(false);
+              setEditing(null);
+              invalidate();
+            }}
+          />
+        )}
+      </Dialog>
     </Card>
   );
 }

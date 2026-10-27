@@ -407,7 +407,6 @@ export async function generateProductionSlipPdf(
           ] as [string, string],
         ]
       : [["Quantity produced", `${opts.quantity_produced} ${opts.unit}`] as [string, string]]),
-    ["Production cost", money(opts.production_cost, currency)],
     ["Department", opts.department || "—"],
     ["Production scope", opts.production_scope || "—"],
     ["Status / Approval", (opts.status ?? "").replace(/_/g, " ").toUpperCase() || "—"],

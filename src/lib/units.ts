@@ -23,6 +23,12 @@ export const UNIT_OPTIONS = [
   "boxes",
 ];
 
+// The pack unit as spelled in the configured list ("Pack" / "Packs"). Bottle
+// Water is posted and stocked in packs.
+export const packUnitOf = (units: string[]) =>
+  units.find((u) => /^packs?$/i.test(u.trim())) ?? "Pack";
+export const isBottleWater = (name: string) => /bottle water$/i.test(name.trim());
+
 // Packaging categories that only ever come in these two units. Matched
 // against the admin-defined `material_categories.name` (case-insensitive),
 // not a fixed category enum — factories can still add other categories,
