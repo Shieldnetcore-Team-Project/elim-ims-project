@@ -67,6 +67,7 @@ import {
 import {
   AdjustDialog,
   JugSetupPanel,
+  ReceiveNewJugsDialog,
   ReceiveUnsoldDialog,
   RecordReturnDialog,
   RowDetailDialog,
@@ -208,11 +209,14 @@ function JugAccountabilityPage() {
   const canSetup = can("distribution", "approve");
   // Same permission create_rep_return checks on the server.
   const canReceiveUnsold = can("distribution", "submit");
+  // Same permissions receive_new_jugs checks on the server.
+  const canReceiveNew = can("distribution", "confirm") || can("distribution", "approve");
 
   const [dialog, setDialog] = useState<
     | { kind: "return"; repId?: string; typeId?: string }
     | { kind: "adjust" }
     | { kind: "unsold" }
+    | { kind: "new" }
     | { kind: "row"; row: ReportRow }
     | null
   >(null);
@@ -612,6 +616,7 @@ function JugAccountabilityPage() {
             onReceiveUnsold={
               canReceiveUnsold && !noJugs ? () => setDialog({ kind: "unsold" }) : undefined
             }
+            onReceiveNew={canReceiveNew && !noJugs ? () => setDialog({ kind: "new" }) : undefined}
           />
         </TabsContent>
 
@@ -659,6 +664,13 @@ function JugAccountabilityPage() {
           onClose={() => setDialog(null)}
         />
       )}
+      {dialog?.kind === "new" && (
+        <ReceiveNewJugsDialog
+          factoryId={factoryId}
+          types={(types.data ?? []).filter((t) => t.active)}
+          onClose={() => setDialog(null)}
+        />
+      )}
       {dialog?.kind === "row" && (
         <RowDetailDialog
           factoryId={factoryId}
@@ -681,6 +693,7 @@ function JugsPanel({
   productNames,
   typeNames,
   onReceiveUnsold,
+  onReceiveNew,
 }: {
   factoryId: string;
   from: string;
@@ -691,6 +704,7 @@ function JugsPanel({
   productNames: Record<string, string>;
   typeNames: Record<string, string>;
   onReceiveUnsold?: () => void;
+  onReceiveNew?: () => void;
 }) {
   const movements = useJugMovements(factoryId, from, to);
   const [q, setQ] = useState("");
@@ -724,11 +738,18 @@ function JugsPanel({
 
   return (
     <div className="space-y-4">
-      {onReceiveUnsold && (
-        <div className="flex justify-end">
-          <Button className="gap-2" onClick={onReceiveUnsold}>
-            <Undo2 className="h-4 w-4" /> Receive unsold dispensers
-          </Button>
+      {(onReceiveNew || onReceiveUnsold) && (
+        <div className="flex flex-wrap justify-end gap-2">
+          {onReceiveNew && (
+            <Button className="gap-2" onClick={onReceiveNew}>
+              <PackageCheck className="h-4 w-4" /> Receive new jugs
+            </Button>
+          )}
+          {onReceiveUnsold && (
+            <Button variant="secondary" className="gap-2" onClick={onReceiveUnsold}>
+              <Undo2 className="h-4 w-4" /> Receive unsold dispensers
+            </Button>
+          )}
         </div>
       )}
       <WarehouseJugsToQc factoryId={factoryId} />
@@ -766,8 +787,8 @@ function JugsPanel({
             {o.empty_in_warehouse < 0 && (
               <p className="text-xs text-destructive sm:col-span-3 lg:col-span-6">
                 Filled stock is higher than the jugs the Warehouse holds on the ledger — jugs bought
-                or held before tracking began were never recorded. Record them (Setup / Bottle
-                tracking → Bought in) rather than adjusting stock.
+                or held before tracking began were never recorded. Record them (Receive new jugs)
+                rather than adjusting stock.
               </p>
             )}
           </CardContent>

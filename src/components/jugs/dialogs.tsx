@@ -468,6 +468,96 @@ export function AdjustDialog({
   );
 }
 
+// ------------------------------------------------------------ new jugs in
+// New jugs bought in, counted into the Warehouse (receive_new_jugs): a
+// "Bought in" ledger move from outside, so they show as empty jugs in the
+// Warehouse ready for filling.
+export function ReceiveNewJugsDialog({
+  factoryId,
+  types,
+  onClose,
+}: {
+  factoryId: string;
+  types: { id: string; name: string }[];
+  onClose: () => void;
+}) {
+  const sorted = useMemo(
+    () => [...types].sort((a, b) => jugTypeRank(a.name) - jugTypeRank(b.name)),
+    [types],
+  );
+  const [typeId, setTypeId] = useState(
+    () => sorted.find((t) => t.name.trim().toLowerCase() === "new jug")?.id ?? sorted[0]?.id ?? "",
+  );
+  const [qty, setQty] = useState<number | null>(null);
+  const [reference, setReference] = useState("");
+  const [notes, setNotes] = useState("");
+  const save = useJugAction(
+    () =>
+      rpc("receive_new_jugs", {
+        p_factory: factoryId,
+        p_container_type: typeId,
+        p_quantity: qty,
+        p_reference: reference,
+        p_notes: notes,
+      }),
+    `${num(qty ?? 0)} jugs received into the Warehouse`,
+  );
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Receive new jugs</DialogTitle>
+          <DialogDescription>
+            Count the new jugs delivered and stock them into the Warehouse as empties ready for
+            filling.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3">
+          <Field label="Jug type">
+            <Select value={typeId} onValueChange={setTypeId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Choose" />
+              </SelectTrigger>
+              <SelectContent>
+                {sorted.map((t) => (
+                  <SelectItem key={t.id} value={t.id}>
+                    {t.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field label="Jugs received">
+            <CountInput value={qty} onChange={setQty} placeholder="0" />
+          </Field>
+          <Field label="Delivery note / invoice no.">
+            <Input
+              value={reference}
+              onChange={(e) => setReference(e.target.value)}
+              placeholder="e.g. DN-0457"
+            />
+          </Field>
+          <Field label="Note" hint="Optional — supplier, condition on arrival.">
+            <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
+          </Field>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            disabled={!typeId || !qty || !reference.trim() || save.isPending}
+            onClick={() => save.mutate(undefined, { onSuccess: onClose })}
+          >
+            {save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Receive {qty ? num(qty) : ""}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ------------------------------------------------------------ day detail
 // Every transaction behind one row of the report.
 export function RowDetailDialog({

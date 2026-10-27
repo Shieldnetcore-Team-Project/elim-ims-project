@@ -289,76 +289,71 @@ export function TransfersTab({ factoryId }: { factoryId: string }) {
   );
 }
 
-// One send covers every bottle in stock: each in-stock bottle is a line,
-// ticked and filled with its whole stock; QC unticks or lowers what stays
-// behind. Each line is its own transfer (PM receives / rejects per line) with
-// a fixed client_ref, so retrying after a failure part-way never sends twice.
+// QC sends to PM by batch: every finished blowing whose good bottles have
+// not all gone is a line, ticked with what is left of it, and one click sends
+// them all (pf_unsent_batches, 20261027120000_send_batches_to_pm.sql). Stock
+// from before batches were tracked is an "earlier stock" line per bottle.
+// Each line is its own transfer, tagged with its batch, with a fixed
+// client_ref, so retrying after a failure part-way never sends twice.
 function DispatchDialog({ factoryId, onClose }: { factoryId: string; onClose: () => void }) {
-  // The bottle products blowing stocks into (semi-finished, or whatever a
-  // preform makes / was stocked into), in-stock first. Through
-  // pf_bottle_products because QC cannot read the products table itself
-  // (20261027090000_qc_reads_bottle_products.sql).
-  const products = useQuery({
-    queryKey: ["pf", "bottle-products", factoryId],
+  const batches = useQuery({
+    queryKey: ["pf", "unsent-batches", factoryId],
     queryFn: async () => {
-      const data = await rpc<{ id: string; name: string; current_stock: number }[]>(
-        "pf_bottle_products",
-        { p_factory: factoryId },
-      );
-      return (data ?? []).map((p) => ({ ...p, current_stock: Number(p.current_stock) }));
+      const data = await rpc<UnsentBatch[]>("pf_unsent_batches", { p_factory: factoryId });
+      return (data ?? []).map((b) => ({
+        ...b,
+        key: b.shift_record_id ?? `earlier-${b.product_id}`,
+        to_send: Number(b.to_send),
+        stocked: b.stocked == null ? null : Number(b.stocked),
+        sent: b.sent == null ? null : Number(b.sent),
+      }));
     },
   });
-  const inStock = useMemo(
-    () => (products.data ?? []).filter((x) => x.current_stock > 0),
-    [products.data],
-  );
+  const rows = useMemo(() => batches.data ?? [], [batches.data]);
   const [lines, setLines] = useState<Record<string, DispatchLine>>({});
-  // New in-stock bottles start ticked with their whole stock.
+  // New batches start ticked with all that is left of them; earlier stock
+  // (no batch) starts unticked.
   useEffect(() => {
     setLines((cur) => {
       const next = { ...cur };
-      for (const x of inStock)
-        next[x.id] ??= {
-          send: true,
-          qty: x.current_stock,
-          requested: null,
+      for (const b of rows)
+        next[b.key] ??= {
+          send: !!b.shift_record_id,
+          qty: b.to_send,
           clientRef: crypto.randomUUID(),
         };
       return next;
     });
-  }, [inStock]);
-  const setLine = (id: string, patch: Partial<DispatchLine>) =>
-    setLines((cur) => ({ ...cur, [id]: { ...cur[id], ...patch } }));
+  }, [rows]);
+  const setLine = (key: string, patch: Partial<DispatchLine>) =>
+    setLines((cur) => ({ ...cur, [key]: { ...cur[key], ...patch } }));
 
   const [dept, setDept] = useState(DEPARTMENTS[0]);
   const [shift, setShift] = useState<Shift>(suggestedEntry().shift);
-  const [prodRef, setProdRef] = useState("");
   const [notes, setNotes] = useState("");
 
-  const lineError = (x: { id: string; current_stock: number }) => {
-    const l = lines[x.id];
+  const lineError = (b: (typeof rows)[number]) => {
+    const l = lines[b.key];
     if (!l?.send) return null;
-    if ((l.qty ?? 0) > x.current_stock) return "More than is in stock";
-    if (l.requested != null && (l.qty ?? 0) > l.requested) return "More than PM requested";
+    if ((l.qty ?? 0) > b.to_send) return `At most ${num(b.to_send)}`;
     return null;
   };
-  const chosen = inStock.filter((x) => lines[x.id]?.send && (lines[x.id]?.qty ?? 0) > 0);
-  const hasError = inStock.some((x) => lineError(x));
-  const total = chosen.reduce((s, x) => s + (lines[x.id].qty ?? 0), 0);
+  const chosen = rows.filter((b) => lines[b.key]?.send && (lines[b.key]?.qty ?? 0) > 0);
+  const hasError = rows.some((b) => lineError(b));
+  const total = chosen.reduce((s, b) => s + (lines[b.key].qty ?? 0), 0);
 
   const dispatch = usePfAction(
     async () => {
       const refs: string[] = [];
-      for (const x of chosen) {
-        const l = lines[x.id];
+      for (const b of chosen) {
+        const l = lines[b.key];
         const r = await rpc<{ reference: string }>("dispatch_bottle_transfer", {
           payload: {
             client_ref: l.clientRef,
-            product_id: x.id,
+            product_id: b.product_id,
+            shift_record_id: b.shift_record_id,
             quantity: l.qty,
-            quantity_requested: l.requested,
             shift,
-            production_reference: prodRef,
             to_department: dept,
             notes,
           },
@@ -371,80 +366,97 @@ function DispatchDialog({ factoryId, onClose }: { factoryId: string; onClose: ()
       const refs = r as string[];
       return refs.length === 1
         ? `${refs[0]} dispatched`
-        : `${refs.length} transfers dispatched (${refs.join(", ")})`;
+        : `${refs.length} batches dispatched (${refs.join(", ")})`;
     },
   );
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-3xl">
         <DialogHeader>
-          <DialogTitle>Send bottles to production</DialogTitle>
+          <DialogTitle>Send batches to production</DialogTitle>
           <DialogDescription>
-            Every bottle in stock is listed with its full stock — untick or lower what stays behind.
-            Good-bottle stock goes down now; the department confirms receipt.
+            Every finished blowing not yet sent is listed with its good bottles. Send them all at
+            once — untick a batch or lower its count to hold some back. The department confirms
+            receipt.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
-          <div className="overflow-x-auto rounded-lg border">
+          <div className="max-h-[50vh] overflow-auto rounded-lg border">
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-10">
                     <Checkbox
-                      checked={inStock.length > 0 && inStock.every((x) => lines[x.id]?.send)}
-                      onCheckedChange={(c) => inStock.forEach((x) => setLine(x.id, { send: !!c }))}
+                      checked={rows.length > 0 && rows.every((b) => lines[b.key]?.send)}
+                      onCheckedChange={(c) => rows.forEach((b) => setLine(b.key, { send: !!c }))}
                       aria-label="Send all"
                     />
                   </TableHead>
-                  <TableHead>Bottle</TableHead>
-                  <TableHead className="text-right">In stock</TableHead>
-                  <TableHead className="w-32">Requested (optional)</TableHead>
+                  <TableHead>Batch</TableHead>
+                  <TableHead>Preform → bottle</TableHead>
+                  <TableHead className="text-right">Good bottles</TableHead>
+                  <TableHead className="text-right">Already sent</TableHead>
                   <TableHead className="w-32">Send</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {inStock.map((x) => {
-                  const l = lines[x.id];
-                  const err = lineError(x);
+                {rows.map((b) => {
+                  const l = lines[b.key];
+                  const err = lineError(b);
                   return (
-                    <TableRow key={x.id} className={l?.send ? "" : "opacity-50"}>
+                    <TableRow key={b.key} className={l?.send ? "" : "opacity-50"}>
                       <TableCell>
                         <Checkbox
                           checked={!!l?.send}
-                          onCheckedChange={(c) => setLine(x.id, { send: !!c })}
-                          aria-label={`Send ${x.name}`}
+                          onCheckedChange={(c) => setLine(b.key, { send: !!c })}
+                          aria-label={`Send ${b.reference ?? b.product}`}
                         />
                       </TableCell>
-                      <TableCell className="font-medium">{x.name}</TableCell>
-                      <TableCell className="text-right">{num(x.current_stock)}</TableCell>
-                      <TableCell>
-                        <CountInput
-                          value={l?.requested ?? null}
-                          onChange={(v) => setLine(x.id, { requested: v })}
-                        />
+                      {b.shift_record_id ? (
+                        <TableCell className="whitespace-nowrap">
+                          <div className="font-mono text-xs">{b.reference}</div>
+                          <div className="text-[11px] text-muted-foreground">
+                            {fmtDate(b.production_date)}
+                            {b.shift ? ` · ${SHIFT_LABEL[b.shift]}` : ""}
+                          </div>
+                        </TableCell>
+                      ) : (
+                        <TableCell className="text-xs text-muted-foreground">
+                          Earlier stock (no batch)
+                        </TableCell>
+                      )}
+                      <TableCell className="text-sm">
+                        {b.preform ? `${b.preform} → ` : ""}
+                        <span className="font-medium">{b.product}</span>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {b.stocked == null ? num(b.to_send) : num(b.stocked)}
+                      </TableCell>
+                      <TableCell className="text-right text-muted-foreground">
+                        {b.sent ? num(b.sent) : "—"}
                       </TableCell>
                       <TableCell>
                         <CountInput
                           value={l?.qty ?? null}
-                          onChange={(v) => setLine(x.id, { qty: v })}
+                          onChange={(v) => setLine(b.key, { qty: v })}
                         />
                         {err && <p className="mt-1 text-xs text-destructive">{err}</p>}
                       </TableCell>
                     </TableRow>
                   );
                 })}
-                {inStock.length === 0 && (
+                {rows.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={5} className="py-6 text-center text-muted-foreground">
-                      {products.isLoading ? "Loading…" : "No good bottles in stock to send."}
+                    <TableCell colSpan={6} className="py-6 text-center text-muted-foreground">
+                      {batches.isLoading ? "Loading…" : "Every finished batch has been sent."}
                     </TableCell>
                   </TableRow>
                 )}
               </TableBody>
             </Table>
           </div>
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label>To department</Label>
               <Input list="pf-departments" value={dept} onChange={(e) => setDept(e.target.value)} />
@@ -466,14 +478,6 @@ function DispatchDialog({ factoryId, onClose }: { factoryId: string; onClose: ()
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1.5">
-              <Label>Production reference (optional)</Label>
-              <Input
-                value={prodRef}
-                placeholder="Batch / request no."
-                onChange={(e) => setProdRef(e.target.value)}
-              />
-            </div>
           </div>
           <div className="space-y-1.5">
             <Label>Notes (optional)</Label>
@@ -489,7 +493,8 @@ function DispatchDialog({ factoryId, onClose }: { factoryId: string; onClose: ()
             onClick={() => dispatch.mutate(undefined, { onSuccess: onClose })}
           >
             {dispatch.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Send {total ? num(total) : ""} to {dept.trim() || "production"}
+            Send {chosen.length > 1 ? `${chosen.length} batches · ` : ""}
+            {total ? num(total) : ""} to {dept.trim() || "production"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -497,10 +502,23 @@ function DispatchDialog({ factoryId, onClose }: { factoryId: string; onClose: ()
   );
 }
 
+type UnsentBatch = {
+  shift_record_id: string | null;
+  reference: string | null;
+  production_date: string | null;
+  shift: Shift | null;
+  preform: string | null;
+  product_id: string;
+  product: string;
+  stocked: number | null;
+  sent: number | null;
+  to_send: number;
+  current_stock: number;
+};
+
 type DispatchLine = {
   send: boolean;
   qty: number | null;
-  requested: number | null;
   clientRef: string;
 };
 
