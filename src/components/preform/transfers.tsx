@@ -29,6 +29,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ArrowRightLeft, Ban, Check, Loader2, Undo2, X } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { usePermissions } from "@/lib/permissions";
 import { num } from "@/lib/format";
 import { SHIFT_LABEL, localDay, suggestedEntry } from "@/lib/production-shift";
@@ -288,6 +289,10 @@ export function TransfersTab({ factoryId }: { factoryId: string }) {
   );
 }
 
+// One send covers every bottle in stock: each in-stock bottle is a line,
+// ticked and filled with its whole stock; QC unticks or lowers what stays
+// behind. Each line is its own transfer (PM receives / rejects per line) with
+// a fixed client_ref, so retrying after a failure part-way never sends twice.
 function DispatchDialog({ factoryId, onClose }: { factoryId: string; onClose: () => void }) {
   // The bottle products blowing stocks into (semi-finished, or whatever a
   // preform makes / was stocked into), in-stock first. Through
@@ -303,93 +308,152 @@ function DispatchDialog({ factoryId, onClose }: { factoryId: string; onClose: ()
       return (data ?? []).map((p) => ({ ...p, current_stock: Number(p.current_stock) }));
     },
   });
-  const [productId, setProductId] = useState("");
+  const inStock = useMemo(
+    () => (products.data ?? []).filter((x) => x.current_stock > 0),
+    [products.data],
+  );
+  const [lines, setLines] = useState<Record<string, DispatchLine>>({});
+  // New in-stock bottles start ticked with their whole stock.
+  useEffect(() => {
+    setLines((cur) => {
+      const next = { ...cur };
+      for (const x of inStock)
+        next[x.id] ??= {
+          send: true,
+          qty: x.current_stock,
+          requested: null,
+          clientRef: crypto.randomUUID(),
+        };
+      return next;
+    });
+  }, [inStock]);
+  const setLine = (id: string, patch: Partial<DispatchLine>) =>
+    setLines((cur) => ({ ...cur, [id]: { ...cur[id], ...patch } }));
+
   const [dept, setDept] = useState(DEPARTMENTS[0]);
-  const [requested, setRequested] = useState<number | null>(null);
-  const [qty, setQty] = useState<number | null>(null);
   const [shift, setShift] = useState<Shift>(suggestedEntry().shift);
   const [prodRef, setProdRef] = useState("");
   const [notes, setNotes] = useState("");
-  const [clientRef] = useState(() => crypto.randomUUID());
-  const p = useMemo(
-    () => products.data?.find((x) => x.id === productId),
-    [products.data, productId],
-  );
-  // One bottle in stock (the usual case after a blowing): pick it.
-  useEffect(() => {
-    const inStock = (products.data ?? []).filter((x) => x.current_stock > 0);
-    if (!productId && inStock.length === 1) setProductId(inStock[0].id);
-  }, [products.data, productId]);
-  const over = !!p && (qty ?? 0) > p.current_stock;
-  const overRequest = requested != null && (qty ?? 0) > requested;
+
+  const lineError = (x: { id: string; current_stock: number }) => {
+    const l = lines[x.id];
+    if (!l?.send) return null;
+    if ((l.qty ?? 0) > x.current_stock) return "More than is in stock";
+    if (l.requested != null && (l.qty ?? 0) > l.requested) return "More than PM requested";
+    return null;
+  };
+  const chosen = inStock.filter((x) => lines[x.id]?.send && (lines[x.id]?.qty ?? 0) > 0);
+  const hasError = inStock.some((x) => lineError(x));
+  const total = chosen.reduce((s, x) => s + (lines[x.id].qty ?? 0), 0);
 
   const dispatch = usePfAction(
-    () =>
-      rpc<{ reference: string; duplicate?: boolean }>("dispatch_bottle_transfer", {
-        payload: {
-          client_ref: clientRef,
-          product_id: productId,
-          quantity: qty,
-          quantity_requested: requested,
-          shift,
-          production_reference: prodRef,
-          to_department: dept,
-          notes,
-        },
-      }),
+    async () => {
+      const refs: string[] = [];
+      for (const x of chosen) {
+        const l = lines[x.id];
+        const r = await rpc<{ reference: string }>("dispatch_bottle_transfer", {
+          payload: {
+            client_ref: l.clientRef,
+            product_id: x.id,
+            quantity: l.qty,
+            quantity_requested: l.requested,
+            shift,
+            production_reference: prodRef,
+            to_department: dept,
+            notes,
+          },
+        });
+        refs.push(r.reference);
+      }
+      return refs;
+    },
     (r) => {
-      const x = r as { reference: string; duplicate?: boolean };
-      return x.duplicate ? `${x.reference} was already dispatched` : `${x.reference} dispatched`;
+      const refs = r as string[];
+      return refs.length === 1
+        ? `${refs[0]} dispatched`
+        : `${refs.length} transfers dispatched (${refs.join(", ")})`;
     },
   );
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>Send bottles to production</DialogTitle>
           <DialogDescription>
+            Every bottle in stock is listed with its full stock — untick or lower what stays behind.
             Good-bottle stock goes down now; the department confirms receipt.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
-          <div className="space-y-1.5">
-            <Label>Product</Label>
-            <Select value={productId} onValueChange={setProductId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Pick a product" />
-              </SelectTrigger>
-              <SelectContent>
-                {(products.data ?? []).map((x) => (
-                  <SelectItem key={x.id} value={x.id} disabled={x.current_stock <= 0}>
-                    {x.name} — {num(x.current_stock)} in stock
-                  </SelectItem>
+          <div className="overflow-x-auto rounded-lg border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-10">
+                    <Checkbox
+                      checked={inStock.length > 0 && inStock.every((x) => lines[x.id]?.send)}
+                      onCheckedChange={(c) => inStock.forEach((x) => setLine(x.id, { send: !!c }))}
+                      aria-label="Send all"
+                    />
+                  </TableHead>
+                  <TableHead>Bottle</TableHead>
+                  <TableHead className="text-right">In stock</TableHead>
+                  <TableHead className="w-32">Requested (optional)</TableHead>
+                  <TableHead className="w-32">Send</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {inStock.map((x) => {
+                  const l = lines[x.id];
+                  const err = lineError(x);
+                  return (
+                    <TableRow key={x.id} className={l?.send ? "" : "opacity-50"}>
+                      <TableCell>
+                        <Checkbox
+                          checked={!!l?.send}
+                          onCheckedChange={(c) => setLine(x.id, { send: !!c })}
+                          aria-label={`Send ${x.name}`}
+                        />
+                      </TableCell>
+                      <TableCell className="font-medium">{x.name}</TableCell>
+                      <TableCell className="text-right">{num(x.current_stock)}</TableCell>
+                      <TableCell>
+                        <CountInput
+                          value={l?.requested ?? null}
+                          onChange={(v) => setLine(x.id, { requested: v })}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <CountInput
+                          value={l?.qty ?? null}
+                          onChange={(v) => setLine(x.id, { qty: v })}
+                        />
+                        {err && <p className="mt-1 text-xs text-destructive">{err}</p>}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+                {inStock.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={5} className="py-6 text-center text-muted-foreground">
+                      {products.isLoading ? "Loading…" : "No good bottles in stock to send."}
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="space-y-1.5">
+              <Label>To department</Label>
+              <Input list="pf-departments" value={dept} onChange={(e) => setDept(e.target.value)} />
+              <datalist id="pf-departments">
+                {DEPARTMENTS.map((d) => (
+                  <option key={d} value={d} />
                 ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label>To department</Label>
-            <Input list="pf-departments" value={dept} onChange={(e) => setDept(e.target.value)} />
-            <datalist id="pf-departments">
-              {DEPARTMENTS.map((d) => (
-                <option key={d} value={d} />
-              ))}
-            </datalist>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>Requested by PM (optional)</Label>
-              <CountInput value={requested} onChange={setRequested} />
+              </datalist>
             </div>
-            <div className="space-y-1.5">
-              <Label>Quantity issued</Label>
-              <CountInput value={qty} onChange={setQty} />
-            </div>
-          </div>
-          {over && <p className="text-xs text-destructive">More than is in stock.</p>}
-          {overRequest && <p className="text-xs text-destructive">More than PM requested.</p>}
-          <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Shift</Label>
               <Select value={shift} onValueChange={(v) => setShift(v as Shift)}>
@@ -421,19 +485,24 @@ function DispatchDialog({ factoryId, onClose }: { factoryId: string; onClose: ()
             Close
           </Button>
           <Button
-            disabled={
-              dispatch.isPending || !productId || !dept.trim() || !qty || over || overRequest
-            }
+            disabled={dispatch.isPending || !chosen.length || !dept.trim() || hasError}
             onClick={() => dispatch.mutate(undefined, { onSuccess: onClose })}
           >
             {dispatch.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Dispatch {qty ? num(qty) : ""}
+            Send {total ? num(total) : ""} to {dept.trim() || "production"}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
 }
+
+type DispatchLine = {
+  send: boolean;
+  qty: number | null;
+  requested: number | null;
+  clientRef: string;
+};
 
 // Posted PM-stage rejections per transfer.
 export function useRejectedByTransfer(factoryId: string | undefined) {
