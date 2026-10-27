@@ -33,7 +33,6 @@ import { usePermissions } from "@/lib/permissions";
 import { num } from "@/lib/format";
 import { SHIFT_LABEL, localDay, suggestedEntry } from "@/lib/production-shift";
 import {
-  db,
   rpc,
   useDepartmentStock,
   useMyUserId,
@@ -290,44 +289,18 @@ export function TransfersTab({ factoryId }: { factoryId: string }) {
 }
 
 function DispatchDialog({ factoryId, onClose }: { factoryId: string; onClose: () => void }) {
-  // The bottle products blowing stocks into: semi-finished products, plus
-  // whatever product a preform makes (set on first blowing, any type) or a
-  // stocking went into -- otherwise freshly blown bottles were missing here.
-  // In-stock bottles first.
+  // The bottle products blowing stocks into (semi-finished, or whatever a
+  // preform makes / was stocked into), in-stock first. Through
+  // pf_bottle_products because QC cannot read the products table itself
+  // (20261027090000_qc_reads_bottle_products.sql).
   const products = useQuery({
     queryKey: ["pf", "bottle-products", factoryId],
     queryFn: async () => {
-      const [stocked, outputs] = await Promise.all([
-        db.from("preform_stockings").select("product_id").eq("factory_id", factoryId),
-        db
-          .from("raw_materials")
-          .select("output_product_id")
-          .eq("factory_id", factoryId)
-          .not("output_product_id", "is", null),
-      ]);
-      if (stocked.error) throw stocked.error;
-      if (outputs.error) throw outputs.error;
-      const ids = [
-        ...new Set([
-          ...((stocked.data ?? []) as { product_id: string }[]).map((r) => r.product_id),
-          ...((outputs.data ?? []) as { output_product_id: string }[]).map(
-            (r) => r.output_product_id,
-          ),
-        ]),
-      ];
-      let q = db
-        .from("products")
-        .select("id,name,current_stock")
-        .eq("factory_id", factoryId)
-        .eq("active", true);
-      q = ids.length
-        ? q.or(`product_type.eq.semi_finished,id.in.(${ids.join(",")})`)
-        : q.eq("product_type", "semi_finished");
-      const { data, error } = await q.order("name");
-      if (error) throw error;
-      return ((data ?? []) as { id: string; name: string; current_stock: number }[])
-        .map((p) => ({ ...p, current_stock: Number(p.current_stock) }))
-        .sort((a, b) => Number(b.current_stock > 0) - Number(a.current_stock > 0));
+      const data = await rpc<{ id: string; name: string; current_stock: number }[]>(
+        "pf_bottle_products",
+        { p_factory: factoryId },
+      );
+      return (data ?? []).map((p) => ({ ...p, current_stock: Number(p.current_stock) }));
     },
   });
   const [productId, setProductId] = useState("");
