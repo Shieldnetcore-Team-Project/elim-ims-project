@@ -6,10 +6,10 @@ import {
   Container,
   Download,
   FileSpreadsheet,
-  FileText,
   Factory,
   PackageCheck,
   Plus,
+  Printer,
   Search,
   ShoppingCart,
   SlidersHorizontal,
@@ -46,10 +46,11 @@ import { useFactoryId, useFactorySettings } from "@/lib/use-factory";
 import { useCurrentUserName } from "@/lib/use-current-user";
 import { usePermissions } from "@/lib/permissions";
 import { localDay } from "@/lib/production-shift";
-import { money, num } from "@/lib/format";
+import { num } from "@/lib/format";
 import { exportCsv, exportExcel, type ReportColumn } from "@/lib/export";
-import { generateReportPdf } from "@/lib/pdf";
-import { formatDay, parseDay, rowIsConsistent, totalRows } from "@/lib/jug-accountability";
+import { DatePicker } from "@/components/shared/date-picker";
+import { qcLetterheadPdf, sheetCompany } from "@/components/qc/qc-report-pdf";
+import { formatDay, rowIsConsistent, totalRows } from "@/lib/jug-accountability";
 import {
   SOURCE_LABEL,
   useJugAction,
@@ -97,23 +98,23 @@ export const Route = createFileRoute("/_app/jug-accountability")({
   ),
 });
 
-const COLUMNS: ReportColumn[] = [
+// As on the factory's Empty Jugs Report sheet, with the date after S/N.
+// Empties sold and write-offs still count in Expected / Outstanding (see the
+// row detail); they are not columns of the report.
+const COLUMNS: (ReportColumn & { align?: "right" })[] = [
   { key: "sn", label: "S/N" },
-  { key: "code", label: "ID" },
-  { key: "name", label: "Marketer / Outlet" },
-  { key: "jug", label: "Jug" },
-  { key: "opening", label: "Opening" },
-  { key: "loaded", label: "Loaded" },
-  { key: "total", label: "Total" },
-  { key: "jug_water_sold", label: "Jug + Water Sold" },
-  { key: "empties_sold", label: "Empties Sold" },
-  { key: "empties_value", label: "Empties Cost" },
-  { key: "returned", label: "Returned" },
-  { key: "expected_empties", label: "Expected Empties" },
-  { key: "received", label: "Received" },
-  { key: "written_off", label: "Written Off" },
-  { key: "outstanding", label: "Outstanding" },
   { key: "date", label: "Date" },
+  { key: "code", label: "ID" },
+  { key: "name", label: "Marketer" },
+  { key: "jug", label: "Jug" },
+  { key: "opening", label: "Opening", align: "right" },
+  { key: "loaded", label: "Loaded", align: "right" },
+  { key: "total", label: "Total", align: "right" },
+  { key: "jug_water_sold", label: "Jug + Water Sold", align: "right" },
+  { key: "returned", label: "Returned", align: "right" },
+  { key: "expected_empties", label: "Expected", align: "right" },
+  { key: "received", label: "Received", align: "right" },
+  { key: "outstanding", label: "Outstanding", align: "right" },
 ];
 
 function Stat({
@@ -166,27 +167,15 @@ function JugAccountabilityPage() {
   const goTo = (t: Tab) =>
     navigate({ search: { tab: t === "report" ? undefined : t }, replace: true, state: (p) => p });
 
-  // Dates are validated: an empty or impossible date never reaches the
-  // server or the screen ("Invalid date"); the last valid one stays in use.
+  // From / To picked on a calendar (one day = the same date twice). The
+  // pickers only give real dates; To never falls before From.
   const today = localDay();
-  const [mode, setMode] = useState<"day" | "range">("day");
-  const [fromRaw, setFromRaw] = useState(today);
-  const [toRaw, setToRaw] = useState(today);
-  const [lastGood, setLastGood] = useState({ from: today, to: today });
-  const fromOk = parseDay(fromRaw);
-  const toOk = mode === "day" ? fromOk : parseDay(toRaw);
-  const rangeOk = !!fromOk && !!toOk && fromOk <= toOk;
-  if (rangeOk && (lastGood.from !== fromOk || lastGood.to !== toOk))
-    setLastGood({ from: fromOk!, to: toOk! });
-  const from = rangeOk ? fromOk! : lastGood.from;
-  const to = rangeOk ? toOk! : lastGood.to;
-  const dateError = !fromOk
-    ? "Choose a valid date"
-    : mode === "range" && !parseDay(toRaw)
-      ? "Choose a valid end date"
-      : !rangeOk
-        ? "The end date is before the start date"
-        : null;
+  const [from, setFrom] = useState(today);
+  const [to, setTo] = useState(today);
+  const pickFrom = (d: string) => {
+    setFrom(d);
+    if (d > to) setTo(d);
+  };
 
   const [typeId, setTypeId] = useState("all");
   const [q, setQ] = useState("");
@@ -247,6 +236,7 @@ function JugAccountabilityPage() {
 
   const exportRows = rows.map((r, i) => ({
     sn: i + 1,
+    date: r.report_date,
     code: r.rep_code ?? "",
     name: r.rep_name,
     jug: r.container_name,
@@ -254,25 +244,62 @@ function JugAccountabilityPage() {
     loaded: r.loaded,
     total: r.total,
     jug_water_sold: r.jug_water_sold,
-    empties_sold: r.empties_sold,
-    empties_value: r.empties_value,
     returned: r.returned,
     expected_empties: r.expected_empties,
     received: r.received,
-    written_off: r.written_off,
     outstanding: r.outstanding,
-    date: r.report_date,
   }));
   const fileName = `jug-accountability-${from}${from === to ? "" : `-to-${to}`}`;
-  const printReport = () =>
-    generateReportPdf(
-      "Dispenser Jug Accountability",
-      COLUMNS,
-      exportRows.map((r) => ({ ...r, empties_value: money(r.empties_value) })),
-      "print",
-      { name: settings.data?.company_name, logo_url: settings.data?.logo_url },
-      [`Reporting period: ${period}`, `Printed by: ${me.data ?? "—"}`],
-    );
+  // The factory's printed form: letterhead, "EMPTY JUGS REPORT FROM … TO …",
+  // the table with a totals row, then a summary. The Jug column only when
+  // more than one jug type is on the report.
+  const printReport = () => {
+    const multiJug = new Set(rows.map((r) => r.container_type_id)).size > 1;
+    const cols = COLUMNS.filter((c) => multiJug || c.key !== "jug");
+    const at = (k: string) => cols.findIndex((c) => c.key === k);
+    const foot: (string | number)[] = cols.map(() => "");
+    foot[at("name")] = from === to ? "Total" : "Total (period)";
+    for (const k of [
+      "opening",
+      "loaded",
+      "total",
+      "jug_water_sold",
+      "returned",
+      "expected_empties",
+      "received",
+      "outstanding",
+    ] as const)
+      foot[at(k)] = num(totals[k]);
+    const owing = rows.filter((r) => r.report_date === lastDay && r.outstanding > 0).length;
+    void qcLetterheadPdf({
+      company: sheetCompany(settings.data),
+      filename: fileName,
+      reports: [
+        {
+          title: `Empty Jugs Report from ${from} to ${to}`,
+          columns: cols.map((c) => ({ label: c.label, align: c.align })),
+          rows: exportRows.map((r) =>
+            cols.map((c) => {
+              const v = r[c.key as keyof typeof r];
+              return typeof v === "number" && c.key !== "sn" ? num(v) : v;
+            }),
+          ),
+          foot,
+          summary: [
+            ["Marketers / outlets", new Set(rows.map((r) => r.sales_rep_id)).size],
+            ["Jugs loaded", num(totals.loaded)],
+            ["Jug + Water sold", num(totals.jug_water_sold)],
+            ["Empties expected", num(totals.expected_empties)],
+            ["Empties received", num(totals.received)],
+            [`Outstanding at end of ${formatDay(lastDay)}`, num(outstandingNow)],
+            ["Marketers still owing", owing],
+            ["Printed by", me.data ?? "—"],
+            ["Printed on", new Date().toLocaleString("en-GB")],
+          ],
+        },
+      ],
+    });
+  };
 
   if (!factoryId) return null;
   const noJugs = (types.data ?? []).length === 0;
@@ -284,56 +311,32 @@ function JugAccountabilityPage() {
           Dispenser Production &amp; Jug Accountability
         </h1>
         <p className="text-sm text-muted-foreground">
-          Opening + Loaded = Total; Total − Jug + Water sold − Empties sold = Expected empties;
-          Expected − Received (Warehouse-verified) − Written off = Outstanding, carried to the next
-          day&apos;s Opening.
+          Opening + Loaded = Total; Total − Jug + Water sold = Expected; Expected − Received
+          (Warehouse-verified) = Outstanding, carried to the next day&apos;s Opening. Empty jugs
+          sold and approved write-offs also reduce Expected / Outstanding — click a row to see them.
         </p>
       </div>
 
       <Card className="rounded-2xl">
         <CardContent className="flex flex-wrap items-end gap-2 p-3">
+          <div className="space-y-1">
+            <Label htmlFor="jug-from" className="text-xs">
+              From
+            </Label>
+            <DatePicker id="jug-from" value={from} max={today} onChange={pickFrom} />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="jug-to" className="text-xs">
+              To
+            </Label>
+            <DatePicker id="jug-to" value={to} min={from} max={today} onChange={setTo} />
+          </div>
           <Button className="gap-2" onClick={printReport} disabled={!rows.length}>
-            <FileText className="h-4 w-4" /> Report
+            <Printer className="h-4 w-4" /> Print
           </Button>
           <Button variant="secondary" className="gap-2" onClick={() => goTo("jugs")}>
             <Container className="h-4 w-4" /> Jug(s)
           </Button>
-          <div className="space-y-1">
-            <Label className="text-xs">Period</Label>
-            <Select value={mode} onValueChange={(v) => setMode(v as "day" | "range")}>
-              <SelectTrigger className="w-28">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="day">One day</SelectItem>
-                <SelectItem value="range">Range</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">{mode === "day" ? "Date" : "From"}</Label>
-            <Input
-              type="date"
-              className="w-40"
-              value={fromRaw}
-              max={today}
-              onChange={(e) => setFromRaw(e.target.value)}
-              aria-invalid={!fromOk}
-            />
-          </div>
-          {mode === "range" && (
-            <div className="space-y-1">
-              <Label className="text-xs">To</Label>
-              <Input
-                type="date"
-                className="w-40"
-                value={toRaw}
-                min={fromOk ?? undefined}
-                onChange={(e) => setToRaw(e.target.value)}
-                aria-invalid={!parseDay(toRaw)}
-              />
-            </div>
-          )}
           <div className="space-y-1">
             <Label className="text-xs">Jug</Label>
             <Select value={typeId} onValueChange={setTypeId}>
@@ -391,11 +394,6 @@ function JugAccountabilityPage() {
               <Download className="h-4 w-4" />
             </Button>
           </div>
-          {dateError && (
-            <p className="w-full text-xs text-destructive">
-              {dateError} — showing {period}.
-            </p>
-          )}
         </CardContent>
       </Card>
 
@@ -410,7 +408,7 @@ function JugAccountabilityPage() {
         </Card>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <Stat
           icon={Factory}
           label="Produced & approved"
@@ -441,12 +439,6 @@ function JugAccountabilityPage() {
           value={num(outstandingNow)}
           hint={`With marketers at end of ${formatDay(lastDay)}`}
           tone={outstandingNow ? "warning" : "primary"}
-        />
-        <Stat
-          icon={PackageCheck}
-          label="Empty-jug sales"
-          value={money(sumOv("empties_value"))}
-          hint="Empties Cost in the period"
         />
       </div>
 
@@ -507,26 +499,23 @@ function JugAccountabilityPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>S/N</TableHead>
+                    <TableHead>Date</TableHead>
                     <TableHead>ID</TableHead>
-                    <TableHead>Marketer / Outlet</TableHead>
+                    <TableHead>Marketer</TableHead>
                     <TableHead className="text-right">Opening</TableHead>
                     <TableHead className="text-right">Loaded</TableHead>
                     <TableHead className="text-right">Total</TableHead>
                     <TableHead className="text-right">Jug + Water Sold</TableHead>
-                    <TableHead className="text-right">Empties Sold</TableHead>
-                    <TableHead className="text-right">Empties Cost</TableHead>
                     <TableHead className="text-right">Returned</TableHead>
-                    <TableHead className="text-right">Expected Empties</TableHead>
+                    <TableHead className="text-right">Expected</TableHead>
                     <TableHead className="text-right">Received</TableHead>
-                    <TableHead className="text-right">Written Off</TableHead>
                     <TableHead className="text-right">Outstanding</TableHead>
-                    <TableHead>Date</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {rows.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={15} className="py-10 text-center text-muted-foreground">
+                      <TableCell colSpan={12} className="py-10 text-center text-muted-foreground">
                         {report.isLoading
                           ? "Loading…"
                           : report.error
@@ -542,6 +531,9 @@ function JugAccountabilityPage() {
                       onClick={() => setDialog({ kind: "row", row: r })}
                     >
                       <TableCell className="text-muted-foreground">{i + 1}</TableCell>
+                      <TableCell className="whitespace-nowrap text-xs">
+                        {formatDay(r.report_date)}
+                      </TableCell>
                       <TableCell className="font-mono text-xs">{r.rep_code ?? "—"}</TableCell>
                       <TableCell>
                         {r.rep_name}
@@ -555,8 +547,6 @@ function JugAccountabilityPage() {
                       <TableCell className="text-right">{num(r.loaded)}</TableCell>
                       <TableCell className="text-right font-medium">{num(r.total)}</TableCell>
                       <TableCell className="text-right">{num(r.jug_water_sold)}</TableCell>
-                      <TableCell className="text-right">{num(r.empties_sold)}</TableCell>
-                      <TableCell className="text-right">{money(r.empties_value)}</TableCell>
                       <TableCell className="text-right">
                         {num(r.returned)}
                         {r.pending_claims > 0 && (
@@ -567,14 +557,10 @@ function JugAccountabilityPage() {
                       </TableCell>
                       <TableCell className="text-right">{num(r.expected_empties)}</TableCell>
                       <TableCell className="text-right">{num(r.received)}</TableCell>
-                      <TableCell className="text-right">{num(r.written_off)}</TableCell>
                       <TableCell
                         className={`text-right font-semibold ${r.outstanding > 0 ? "text-warning" : r.outstanding < 0 ? "text-destructive" : "text-primary"}`}
                       >
                         {num(r.outstanding)}
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap text-xs">
-                        {formatDay(r.report_date)}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -582,19 +568,15 @@ function JugAccountabilityPage() {
                 {rows.length > 0 && (
                   <TableFooter>
                     <TableRow>
-                      <TableCell colSpan={3}>Total{from !== to ? " (period)" : ""}</TableCell>
+                      <TableCell colSpan={4}>Total{from !== to ? " (period)" : ""}</TableCell>
                       <TableCell className="text-right">{num(totals.opening)}</TableCell>
                       <TableCell className="text-right">{num(totals.loaded)}</TableCell>
                       <TableCell className="text-right">{num(totals.total)}</TableCell>
                       <TableCell className="text-right">{num(totals.jug_water_sold)}</TableCell>
-                      <TableCell className="text-right">{num(totals.empties_sold)}</TableCell>
-                      <TableCell className="text-right">{money(totals.empties_value)}</TableCell>
                       <TableCell className="text-right">{num(totals.returned)}</TableCell>
                       <TableCell className="text-right">{num(totals.expected_empties)}</TableCell>
                       <TableCell className="text-right">{num(totals.received)}</TableCell>
-                      <TableCell className="text-right">{num(totals.written_off)}</TableCell>
                       <TableCell className="text-right">{num(totals.outstanding)}</TableCell>
-                      <TableCell />
                     </TableRow>
                   </TableFooter>
                 )}

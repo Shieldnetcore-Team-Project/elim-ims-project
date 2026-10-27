@@ -9,7 +9,7 @@ import { splitBags } from "@/lib/preform-units";
 import { localDay } from "@/lib/production-shift";
 import { useFactorySettings } from "@/lib/use-factory";
 import type { PdfAction } from "@/lib/pdf";
-import { qcLetterheadPdf, type QcCompany, type QcPdfReport } from "./qc-report-pdf";
+import { qcLetterheadPdf, sheetCompany, type QcPdfReport } from "./qc-report-pdf";
 
 // Quality Control → Reports: pick Preform or Bottle, a From and To date (one
 // day = the same date twice) and Print; the sheet prints as the factory's own
@@ -51,15 +51,6 @@ type Sheet = {
   rows: Record<string, string | number>[];
 };
 
-// As printed on the factory's sheets when Settings has no details yet.
-const SHEET_DEFAULTS = {
-  address:
-    "Plot No. 188A, FCDA SchemeExtension III, Off Bwari/Dutse Road, By Power Station, Opp. KAS Guest House, Kubwa, FCT Abuja.",
-  phone: "+2348166399794",
-  email: "info@elimtablewater.com",
-  website: "www.elimtablewater.com",
-};
-
 const n = (v: unknown) => Number(v ?? 0);
 // "Preform 29mm(Prima-16.5g)", as on the printed report.
 const preformLabel = (r: PreformRow) =>
@@ -99,13 +90,7 @@ export function QcReportsTab({ factoryId }: { factoryId: string }) {
       rpc<BottleRow[]>("qc_bottle_report", { p_factory: factoryId, p_from: from, p_to: to }),
   });
 
-  const company: QcCompany = {
-    logo_url: settings.data?.logo_url,
-    address: settings.data?.address || SHEET_DEFAULTS.address,
-    phone: settings.data?.phone || SHEET_DEFAULTS.phone,
-    email: settings.data?.email || SHEET_DEFAULTS.email,
-    website: settings.data?.website || SHEET_DEFAULTS.website,
-  };
+  const company = sheetCompany(settings.data);
   const period = `FROM ${from} TO ${to}`;
   const sheets: Record<Which, Sheet> = {
     preform: {
