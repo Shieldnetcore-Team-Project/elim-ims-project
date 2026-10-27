@@ -1350,7 +1350,9 @@ export function PosDialog({
         .eq("factory_id", factoryId)
         .eq("active", true)
         // Don't require a category: some finished products are uncategorized.
-        // Semi-finished items are kept out by being inactive instead.
+        // Finished products only: the empty blown bottles (semi_finished, in
+        // pieces) are QC stock, never sold.
+        .eq("product_type", "finished")
         .order("name");
       if (error) throw error;
       return (data ?? []) as Product[];

@@ -119,6 +119,7 @@ type DispatchRow = {
   notes: string | null;
   sales_reps: { full_name: string } | null;
   stock_dispatch_items: {
+    product_id?: string;
     quantity: number;
     unit_price: number;
     line_value: number;
@@ -211,6 +212,9 @@ function DistributionPage() {
         .select("id,name,unit,unit_price,current_stock")
         .eq("factory_id", factoryId!)
         .eq("active", true)
+        // Finished products only (bottle water in packs); empty blown
+        // bottles are QC stock in pieces, never posted.
+        .eq("product_type", "finished")
         .order("name");
       if (error) throw error;
       return (data ?? []) as Product[];
@@ -1089,6 +1093,7 @@ function useDispatchPickers(factoryId: string) {
         .select("id,name,unit,unit_price,current_stock")
         .eq("factory_id", factoryId)
         .eq("active", true)
+        .eq("product_type", "finished")
         .order("name");
       if (error) throw error;
       return (data ?? []) as Product[];
@@ -1358,9 +1363,8 @@ function RepStockView({ repId }: { repId: string }) {
   );
 }
 
-// Warehouse "Post → Marketers". Picking a marketer shows their stock record
-// (RepStockView: stock held, postings, their customers/offices) next to the
-// form for posting them new stock.
+// Warehouse "Post → Marketers". Picking a marketer opens the form for posting
+// them new stock, next to their postings (to correct) and returns.
 export function MarketerPostDialog({
   factoryId,
   onDone,
@@ -1372,7 +1376,9 @@ export function MarketerPostDialog({
   const qc = useQueryClient();
   const p = useDispatchPickers(factoryId);
   const [repId, setRepId] = useState("");
-  const [tab, setTab] = useState<"account" | "post">("account");
+  const [tab, setTab] = useState<"post" | "history">(
+    perms.canCreate("distribution") ? "post" : "history",
+  );
   // "+ New marketer": the Warehouse adds a marketer on the spot. The new
   // sales_reps row is their account — every posting to them lands on it.
   const [adding, setAdding] = useState(false);
@@ -1491,14 +1497,11 @@ export function MarketerPostDialog({
         {marketer && (
           <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
             <TabsList>
-              <TabsTrigger value="account">Stock &amp; customers</TabsTrigger>
               {perms.canCreate("distribution") && (
                 <TabsTrigger value="post">Post products</TabsTrigger>
               )}
+              <TabsTrigger value="history">Postings &amp; returns</TabsTrigger>
             </TabsList>
-            <TabsContent value="account" className="pt-2">
-              <RepStockView repId={marketer.id} />
-            </TabsContent>
             {perms.canCreate("distribution") && (
               <TabsContent value="post" className="pt-2">
                 <NewDispatchDialog
@@ -1517,6 +1520,23 @@ export function MarketerPostDialog({
                 />
               </TabsContent>
             )}
+            <TabsContent value="history" className="space-y-4 pt-2">
+              <MarketerPostingsCard
+                factoryId={factoryId}
+                repId={marketer.id}
+                products={p.products}
+                canCorrect={perms.canCreate("distribution")}
+              />
+              <ReturnsTab
+                factoryId={factoryId}
+                reps={[marketer]}
+                products={p.products}
+                perms={perms}
+                currentUserId={null}
+                title="Returns"
+                repId={marketer.id}
+              />
+            </TabsContent>
           </Tabs>
         )}
       </div>
@@ -1564,6 +1584,212 @@ function ReverseDialog({ row, onDone }: { row: DispatchRow; onDone: () => void }
   );
 }
 
+// One marketer's postings, newest first, with "Correct" on a live posting:
+// fix the figures or products and post again (correct_stock_dispatch).
+function MarketerPostingsCard({
+  factoryId,
+  repId,
+  products,
+  canCorrect,
+}: {
+  factoryId: string;
+  repId: string;
+  products: Product[];
+  canCorrect: boolean;
+}) {
+  const qc = useQueryClient();
+  const [target, setTarget] = useState<DispatchRow | null>(null);
+  const list = useQuery({
+    queryKey: ["dist-dispatches", factoryId, repId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("stock_dispatches")
+        .select(
+          "id,dispatch_number,dispatch_date,status,total_value,notes,reverse_reason,sales_reps(full_name),stock_dispatch_items(product_id,quantity,unit_price,line_value,products(name,unit))",
+        )
+        .eq("factory_id", factoryId)
+        .eq("sales_rep_id", repId)
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (error) throw error;
+      return (data ?? []) as unknown as (DispatchRow & { reverse_reason: string | null })[];
+    },
+  });
+
+  return (
+    <Card className="rounded-2xl">
+      <CardHeader>
+        <CardTitle className="text-base">Postings</CardTitle>
+        <p className="text-xs text-muted-foreground">
+          Posted the wrong figure or product? Click Correct, fix the lines and post again — the old
+          posting is reversed and the corrected one takes its place on the same date.
+        </p>
+      </CardHeader>
+      <CardContent className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Posting #</TableHead>
+              <TableHead>Date</TableHead>
+              <TableHead>Products</TableHead>
+              <TableHead className="text-right">Value</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead></TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {(list.data ?? []).map((d) => (
+              <TableRow key={d.id}>
+                <TableCell className="font-mono text-xs">{d.dispatch_number}</TableCell>
+                <TableCell className="whitespace-nowrap text-xs">
+                  {new Date(d.dispatch_date).toLocaleDateString()}
+                </TableCell>
+                <TableCell className="text-xs">
+                  {d.stock_dispatch_items
+                    ?.map((it) => `${it.products?.name ?? "—"} × ${num(Number(it.quantity))}`)
+                    .join(", ")}
+                </TableCell>
+                <TableCell className="text-right">{money(Number(d.total_value))}</TableCell>
+                <TableCell>
+                  <Badge variant={statusBadge(d.status)} className="capitalize">
+                    {d.status}
+                  </Badge>
+                  {d.status === "reversed" && d.reverse_reason && (
+                    <div className="mt-1 text-xs text-muted-foreground">{d.reverse_reason}</div>
+                  )}
+                </TableCell>
+                <TableCell className="text-right">
+                  {d.status === "posted" && canCorrect && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1"
+                      onClick={() => setTarget(d)}
+                    >
+                      <Pencil className="h-4 w-4" /> Correct
+                    </Button>
+                  )}
+                </TableCell>
+              </TableRow>
+            ))}
+            {(list.data ?? []).length === 0 && (
+              <TableRow>
+                <TableCell colSpan={6} className="py-6 text-center text-muted-foreground">
+                  {list.isLoading ? "Loading…" : "Nothing posted to this marketer yet."}
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </CardContent>
+      <Dialog open={!!target} onOpenChange={(v) => !v && setTarget(null)}>
+        {target && (
+          <CorrectDispatchDialog
+            row={target}
+            products={products}
+            onDone={() => {
+              setTarget(null);
+              for (const key of [
+                "dist-dispatches",
+                "dist-products",
+                "dist-rep-stock",
+                "dist-account",
+                "dist-returns",
+                "finished-goods",
+              ])
+                qc.invalidateQueries({ queryKey: [key] });
+            }}
+          />
+        )}
+      </Dialog>
+    </Card>
+  );
+}
+
+function CorrectDispatchDialog({
+  row,
+  products,
+  onDone,
+}: {
+  row: DispatchRow;
+  products: Product[];
+  onDone: () => void;
+}) {
+  const original = row.stock_dispatch_items
+    .filter((it) => it.product_id)
+    .map((it) => ({ product_id: it.product_id!, quantity: Number(it.quantity) }));
+  const [lines, setLines] = useState<Line[]>(original);
+  const [date, setDate] = useState(row.dispatch_date.slice(0, 10));
+  const [reason, setReason] = useState("");
+  // What a line can take: the Warehouse stock plus what this posting already
+  // took of it (it goes back before the corrected posting is made).
+  const stockOf = (pid: string) =>
+    Number(products.find((p) => p.id === pid)?.current_stock ?? 0) +
+    original.filter((l) => l.product_id === pid).reduce((s, l) => s + l.quantity, 0);
+
+  const run = useMutation({
+    mutationFn: async () => {
+      const clean = lines.filter((l) => l.product_id && l.quantity > 0);
+      if (clean.length === 0) throw new Error("Add at least one product line");
+      const { data, error } = await supabase.rpc(
+        "correct_stock_dispatch" as never,
+        {
+          p_id: row.id,
+          payload: {
+            dispatch_date: date,
+            reason: reason.trim() || undefined,
+            items: clean.map((l) => ({ product_id: l.product_id, quantity: l.quantity })),
+          },
+        } as never,
+      );
+      if (error) throw error;
+      return data as unknown as { dispatch_number?: string };
+    },
+    onSuccess: (data) => {
+      toast.success(`${row.dispatch_number} corrected — now ${data?.dispatch_number ?? ""}`);
+      onDone();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return (
+    <DialogContent className="max-w-2xl">
+      <DialogHeader>
+        <DialogTitle>Correct {row.dispatch_number}</DialogTitle>
+      </DialogHeader>
+      <p className="text-sm text-muted-foreground">
+        Change the figures or products, then repost. The marketer&apos;s stock and account follow
+        the corrected posting. Something they have already sold or returned can&apos;t be taken off
+        them.
+      </p>
+      <div className="grid gap-3">
+        <div className="max-w-xs">
+          <Label>Date</Label>
+          <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        </div>
+        <div>
+          <Label>Products (available in brackets)</Label>
+          <LineEditor products={products} lines={lines} setLines={setLines} stockOf={stockOf} />
+        </div>
+        <div>
+          <Label>What was wrong (optional)</Label>
+          <Input
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="e.g. typed 100 instead of 60"
+          />
+        </div>
+      </div>
+      <DialogFooter>
+        <Button onClick={() => run.mutate()} disabled={run.isPending}>
+          {run.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          Repost corrected
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  );
+}
+
 /* ---------------------------------------------------------------- Returns --- */
 
 export function ReturnsTab({
@@ -1574,6 +1800,7 @@ export function ReturnsTab({
   currentUserId,
   title = "Rep Returns",
   hideLog,
+  repId,
 }: {
   factoryId: string;
   reps: Rep[];
@@ -1584,6 +1811,8 @@ export function ReturnsTab({
   // Warehouse → Returns logs marketer returns from its own "Log Return" form
   // and shows this list for inspecting them, without a second button.
   hideLog?: boolean;
+  // Only this marketer's returns (Warehouse → Marketers dialog).
+  repId?: string;
 }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -1599,17 +1828,17 @@ export function ReturnsTab({
   const canCancel = perms.canCancel("distribution");
 
   const list = useQuery({
-    queryKey: ["dist-returns", factoryId],
+    queryKey: ["dist-returns", factoryId, repId ?? "all"],
     enabled: !!factoryId,
     queryFn: async () => {
-      const { data, error } = await supabase
+      let q = supabase
         .from("rep_returns")
         .select(
           "id,return_number,return_date,status,received_by,notes,sales_rep_id,sales_reps(full_name,kind),carried:stock_dispatches!rep_returns_carried_dispatch_id_fkey(dispatch_number,status),rep_return_items(id,product_id,quantity_returned,unit_price,accepted_quantity,damaged_quantity,rejected_quantity,charge_rep,products(name,unit))",
         )
-        .eq("factory_id", factoryId!)
-        .order("received_at", { ascending: false })
-        .limit(300);
+        .eq("factory_id", factoryId!);
+      if (repId) q = q.eq("sales_rep_id", repId);
+      const { data, error } = await q.order("received_at", { ascending: false }).limit(300);
       if (error) throw error;
       return (data ?? []) as unknown as ReturnRow[];
     },
@@ -1834,7 +2063,9 @@ function LogReturnDialog({
   products: Product[];
   onDone: () => void;
 }) {
-  const [repId, setRepId] = useState("");
+  // A lone rep (opened for one marketer) is preselected. The date can be set
+  // back, e.g. to yesterday, for goods returned unsold from that day.
+  const [repId, setRepId] = useState(reps.length === 1 ? reps[0].id : "");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState<Line[]>([{ product_id: "", quantity: 0 }]);

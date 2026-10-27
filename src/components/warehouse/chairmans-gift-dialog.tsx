@@ -53,6 +53,7 @@ export function ChairmansGiftDialog({
         .select("id,name,unit,cost_price,current_stock")
         .eq("factory_id", factoryId)
         .eq("active", true)
+        .eq("product_type", "finished")
         .order("name");
       if (error) throw error;
       return (data ?? []) as GiftProduct[];
@@ -63,10 +64,7 @@ export function ChairmansGiftDialog({
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState<GiftLine[]>([{ product_id: "", quantity: 0 }]);
 
-  const byId = useMemo(
-    () => new Map((products.data ?? []).map((p) => [p.id, p])),
-    [products.data],
-  );
+  const byId = useMemo(() => new Map((products.data ?? []).map((p) => [p.id, p])), [products.data]);
   const total = lines.reduce((t, l) => {
     const p = byId.get(l.product_id);
     return t + (p ? Number(p.cost_price) * (l.quantity || 0) : 0);

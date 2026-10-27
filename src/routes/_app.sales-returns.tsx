@@ -176,6 +176,7 @@ function SalesReturnsPage() {
         .select("id,name,unit")
         .eq("factory_id", factoryId!)
         .eq("active", true)
+        .eq("product_type", "finished")
         .order("name");
       if (error) throw error;
       return (data ?? []) as Product[];
@@ -207,6 +208,7 @@ function SalesReturnsPage() {
         .select("id,name,unit,unit_price,current_stock")
         .eq("factory_id", factoryId!)
         .eq("active", true)
+        .eq("product_type", "finished")
         .order("name");
       if (error) throw error;
       return (data ?? []) as {
