@@ -9,6 +9,7 @@ import { usePermissions } from "@/lib/permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { localDay } from "@/lib/production-shift";
 import { MoneyInput } from "@/components/ui/money-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -82,6 +83,7 @@ type ReturnRow = {
   rejected_quantity: number;
   received_by: string;
   received_at: string;
+  return_date: string | null;
   inspected_by: string | null;
   inspected_at: string | null;
   notes: string | null;
@@ -244,7 +246,7 @@ function SalesReturnsPage() {
       const { data, error } = await supabase
         .from("sales_returns")
         .select(
-          "id,return_number,sale_id,customer_id,product_id,quantity_returned,unit,reason,status,accepted_quantity,damaged_quantity,rejected_quantity,received_by,received_at,inspected_by,inspected_at,notes,products(name,unit),customers(name),sales(invoice_number)",
+          "id,return_number,sale_id,customer_id,product_id,quantity_returned,unit,reason,status,accepted_quantity,damaged_quantity,rejected_quantity,received_by,received_at,return_date,inspected_by,inspected_at,notes,products(name,unit),customers(name),sales(invoice_number)",
         )
         .eq("factory_id", factoryId!)
         .order("received_at", { ascending: false })
@@ -421,7 +423,7 @@ function SalesReturnsPage() {
                 <TableRow key={row.id}>
                   <TableCell className="font-mono text-xs">{row.return_number}</TableCell>
                   <TableCell className="whitespace-nowrap text-xs">
-                    {new Date(row.received_at).toLocaleDateString()}
+                    {new Date(row.return_date ?? row.received_at).toLocaleDateString()}
                   </TableCell>
                   <TableCell className="font-medium">{row.products?.name ?? "—"}</TableCell>
                   <TableCell>{row.customers?.name ?? "—"}</TableCell>
@@ -586,6 +588,11 @@ function CreateReturnDialog({
   // is shared across lines but only one can be adding at a time.
   const [addingProductIndex, setAddingProductIndex] = useState<number | null>(null);
   const [reason, setReason] = useState("");
+  // The day the goods came back. Defaults to today; set it back (e.g. to
+  // yesterday) when products returned at close are logged the next morning,
+  // so the return sits on the same day as the supply.
+  const today = localDay();
+  const [returnDate, setReturnDate] = useState(today);
 
   const updateLine = (i: number, patch: Partial<ReturnLine>) =>
     setLines((prev) => prev.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
@@ -600,11 +607,14 @@ function CreateReturnDialog({
       if (validLines.length === 0) throw new Error("Add at least one returned product");
       if (!linesReady) throw new Error("Every product line needs a product and a quantity > 0");
       if (!canLogSalesReturn && !isMarketerReturn) throw new Error("Select the marketer");
+      if (!returnDate) throw new Error("Pick the date the products came back");
+      if (returnDate > today) throw new Error("A return can't be dated in the future");
       if (isMarketerReturn) {
         const { data, error } = await supabase.rpc("create_rep_return", {
           payload: {
             factory_id: factoryId,
             sales_rep_id: repId,
+            return_date: returnDate,
             notes: reason || undefined,
             items: validLines.map((l) => ({
               product_id: l.product_id,
@@ -628,6 +638,7 @@ function CreateReturnDialog({
             product_id: line.product_id,
             quantity_returned: line.quantity,
             reason: reason || undefined,
+            return_date: returnDate,
           } as any,
         });
         if (error) throw error;
@@ -700,6 +711,19 @@ function CreateReturnDialog({
             </Select>
           </div>
         )}
+        <div>
+          <Label>Return date</Label>
+          <Input
+            type="date"
+            value={returnDate}
+            max={today}
+            onChange={(e) => setReturnDate(e.target.value)}
+          />
+          <p className="mt-1 text-xs text-muted-foreground">
+            Set it back to the day the products came back (e.g. yesterday) when logging them the
+            next day.
+          </p>
+        </div>
         <div>
           <Label>Products returned</Label>
           <div className="space-y-2">
@@ -959,7 +983,9 @@ function DetailDialog({ row }: { row: ReturnRow }) {
             </Badge>
           </div>
           <div>
-            <span className="text-muted-foreground">Received:</span>{" "}
+            <span className="text-muted-foreground">Return date:</span>{" "}
+            {new Date(row.return_date ?? row.received_at).toLocaleDateString()}
+            <span className="ml-2 text-muted-foreground">Logged:</span>{" "}
             {new Date(row.received_at).toLocaleString()}
           </div>
           {row.status === "completed" && (
