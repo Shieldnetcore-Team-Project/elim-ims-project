@@ -65,6 +65,7 @@ import { money, num } from "@/lib/format";
 import { toast } from "sonner";
 import { generateProductionSlipPdf } from "@/lib/pdf";
 import { logAudit } from "@/lib/audit";
+import { useUnitsOfMeasure, UNIT_OPTIONS as UNIT_OPTIONS_FALLBACK } from "@/lib/units";
 import { QuickAddProductDialog, ADD_NEW_ITEM } from "@/components/shared/quick-add-item";
 import { SHIFT_LABEL, addDays, localDay, suggestedEntry, type Shift } from "@/lib/production-shift";
 import { PmJugsFromQc } from "@/components/qc/jug-handover";
@@ -958,16 +959,27 @@ function ProductionForm({
   const [date, setDate] = useState(editing?.production_date ?? suggested.date);
   const [shift, setShift] = useState<Shift | "">(editing ? (editing.shift ?? "") : suggested.shift);
   const today = localDay();
-  const [quantityUnit, setQuantityUnit] = useState(editing?.packaging_unit ?? "__base__");
   const [quantity, setQuantity] = useState(
     editing ? Number(editing.packaging_quantity ?? editing.quantity_produced) : 0,
   );
-  const [unit, setUnit] = useState(editing?.unit ?? "");
+  // The unit the quantity is counted in, picked from every unit of measure;
+  // new entries start on Packs. When the product has a packaging conversion
+  // for that unit, the quantity is converted to the base unit on save.
+  const unitsOfMeasure = useUnitsOfMeasure();
+  const unitChoices = unitsOfMeasure.data ?? UNIT_OPTIONS_FALLBACK;
+  const packUnit = unitChoices.find((u) => /^packs?$/i.test(u.trim())) ?? "Packs";
+  const [unitPicked, setUnit] = useState(
+    editing ? (editing.packaging_unit ?? editing.unit ?? "") : "",
+  );
+  const unit = unitPicked || packUnit;
+  const unitOptions = [...new Set([unit, packUnit, ...unitChoices])];
   // Production doesn't enter damage — the Warehouse records it when it accepts
   // a release. Editing an older batch re-sends the damage it was recorded with
   // (base/stocking unit) so update_production doesn't wipe it.
   const damagedQuantity = editing ? Number(editing.damaged_quantity ?? 0) : 0;
-  const [cost, setCost] = useState(editing ? Number(editing.production_cost ?? 0) : 0);
+  // Production cost isn't entered here; editing an older batch re-sends the
+  // cost it was recorded with so update_production doesn't wipe it.
+  const cost = editing ? Number(editing.production_cost ?? 0) : 0;
   const [supervisor, setSupervisor] = useState(editing?.supervisor ?? "");
   const [batch] = useState(editing?.batch_number ?? generateBatchNumber());
   const [remarks, setRemarks] = useState(editing?.remarks ?? "");
@@ -1011,9 +1023,9 @@ function ProductionForm({
     },
   });
 
-  const selectedPackaging = (productUnits.data ?? []).find(
-    (u) => u.packaging_unit === quantityUnit,
-  );
+  const sameUnit = (a: string, b: string) =>
+    a.trim().toLowerCase().replace(/s$/, "") === b.trim().toLowerCase().replace(/s$/, "");
+  const selectedPackaging = (productUnits.data ?? []).find((u) => sameUnit(u.packaging_unit, unit));
   const computedBaseQty = selectedPackaging
     ? quantity * Number(selectedPackaging.conversion_factor)
     : quantity;
@@ -1023,7 +1035,6 @@ function ProductionForm({
     const req = eligibleRequests.find((r) => r.id === id);
     if (req) {
       setProductId(req.product_id);
-      setQuantityUnit("__base__");
       setQuantity(Number(req.quantity_requested));
       setUnit(req.unit ?? req.products?.unit ?? "");
     }
@@ -1040,7 +1051,7 @@ function ProductionForm({
             id: editing.id,
             quantity_produced: computedBaseQty,
             damaged_quantity: damagedQuantity,
-            unit: unit || selectedProduct?.unit,
+            unit: selectedPackaging ? selectedProduct?.unit : unit,
             production_cost: cost,
             supervisor: supervisor || null,
             batch_number: batch || null,
@@ -1056,9 +1067,9 @@ function ProductionForm({
             factory_id: factoryId,
             product_id: productId,
             quantity_produced: selectedPackaging ? undefined : quantity,
-            packaging_unit: selectedPackaging ? quantityUnit : undefined,
+            packaging_unit: selectedPackaging?.packaging_unit,
             packaging_quantity: selectedPackaging ? quantity : undefined,
-            unit: unit || selectedProduct?.unit,
+            unit: selectedPackaging ? selectedProduct?.unit : unit,
             production_cost: cost,
             supervisor: supervisor || null,
             batch_number: batch || null,
@@ -1181,9 +1192,6 @@ function ProductionForm({
                 return;
               }
               setProductId(v);
-              setQuantityUnit("__base__");
-              const p = products.find((x) => x.id === v);
-              if (p) setUnit(p.unit);
             }}
             disabled={!!editing || !!requestId}
           >
@@ -1205,34 +1213,12 @@ function ProductionForm({
             open={addingProduct}
             onOpenChange={setAddingProduct}
             factoryId={factoryId}
-            onCreated={(id) => {
-              setProductId(id);
-              setQuantityUnit("__base__");
-            }}
+            onCreated={(id) => setProductId(id)}
           />
         </div>
-        {!editing && selectedProduct && (
-          <div>
-            <Label>Quantity entered as</Label>
-            <Select value={quantityUnit} onValueChange={setQuantityUnit}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__base__">{selectedProduct.unit} (base unit)</SelectItem>
-                {(productUnits.data ?? []).map((u) => (
-                  <SelectItem key={u.id} value={u.packaging_unit} className="capitalize">
-                    {u.packaging_unit} (1 = {num(Number(u.conversion_factor))}{" "}
-                    {selectedProduct.unit})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <Label>{selectedPackaging ? `Quantity (${quantityUnit})` : "Quantity produced"}</Label>
+            <Label>Quantity produced</Label>
             <MoneyInput min={0.001} step="0.001" value={quantity} onChange={setQuantity} />
             {selectedPackaging && (
               <p className="mt-1 text-xs text-muted-foreground">
@@ -1242,12 +1228,19 @@ function ProductionForm({
           </div>
           <div>
             <Label>Unit</Label>
-            <Input value={unit} onChange={(e) => setUnit(e.target.value)} />
+            <Select value={unit} onValueChange={setUnit}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {unitOptions.map((u) => (
+                  <SelectItem key={u} value={u}>
+                    {u}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-        </div>
-        <div>
-          <Label>Production cost</Label>
-          <MoneyInput value={cost} onChange={setCost} />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
