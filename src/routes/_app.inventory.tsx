@@ -260,12 +260,7 @@ function InventoryOverviewPage() {
             label="Chairman's Gifts"
             value={money(giftSummary.value)}
             tone="warning"
-            hint={`Value at cost of products given out on the chairman's request (${num(giftSummary.count)} posted). Not revenue — nobody pays for it.`}
-          >
-            <div className="mt-1 text-xs text-muted-foreground">
-              This month {money(giftSummary.month)}
-            </div>
-          </SummaryCard>
+          />
         )}
       </div>
 
