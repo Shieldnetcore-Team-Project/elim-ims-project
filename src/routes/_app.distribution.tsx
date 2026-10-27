@@ -5,6 +5,7 @@ import { Fragment, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useFactoryId, useFactorySettings } from "@/lib/use-factory";
+import { printDispatchSlip } from "@/lib/dispatch-slip";
 import { printSaleInvoice } from "@/lib/invoice";
 import { generateReceiptPdf } from "@/lib/pdf";
 import { usePermissions } from "@/lib/permissions";
@@ -595,6 +596,7 @@ function DispatchesTab({
   perms: Perms;
 }) {
   const qc = useQueryClient();
+  const settings = useFactorySettings(factoryId);
   const [open, setOpen] = useState(false);
   const [reverseTarget, setReverseTarget] = useState<DispatchRow | null>(null);
   const [detail, setDetail] = useState<DispatchRow | null>(null);
@@ -668,6 +670,15 @@ function DispatchesTab({
                   <div className="flex justify-end gap-1">
                     <Button variant="ghost" size="icon" title="View" onClick={() => setDetail(d)}>
                       <Eye className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      title="Print"
+                      aria-label="Print"
+                      onClick={() => printDispatchSlip({ id: d.id }, settings.data, "print")}
+                    >
+                      <Printer className="h-4 w-4" />
                     </Button>
                     {d.status === "posted" && canReverse && (
                       <Button
@@ -1521,6 +1532,7 @@ function MarketerPostingsCard({
   canCorrect: boolean;
 }) {
   const qc = useQueryClient();
+  const settings = useFactorySettings(factoryId);
   const [target, setTarget] = useState<DispatchRow | null>(null);
   const list = useQuery({
     queryKey: ["dist-dispatches", factoryId, repId],
@@ -1581,7 +1593,16 @@ function MarketerPostingsCard({
                     <div className="mt-1 text-xs text-muted-foreground">{d.reverse_reason}</div>
                   )}
                 </TableCell>
-                <TableCell className="text-right">
+                <TableCell className="whitespace-nowrap text-right">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    title="Print"
+                    aria-label="Print"
+                    onClick={() => printDispatchSlip({ id: d.id }, settings.data, "print")}
+                  >
+                    <Printer className="h-4 w-4" />
+                  </Button>
                   {d.status === "posted" && canCorrect && (
                     <Button
                       variant="ghost"

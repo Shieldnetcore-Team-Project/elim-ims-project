@@ -1,7 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
+import { Printer } from "lucide-react";
+import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useRealtimeInvalidate } from "@/lib/realtime";
+import { useFactorySettings } from "@/lib/use-factory";
+import { printDispatchSlip } from "@/lib/dispatch-slip";
+import { printSaleInvoice } from "@/lib/invoice";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -56,6 +62,26 @@ export function WarehouseRecentActivity({ factoryId }: { factoryId: string }) {
     },
   });
   const rows = activity.data ?? [];
+  const settings = useFactorySettings(factoryId);
+  // Postings print their slip; a distributor posting is a sale, so it prints
+  // its invoice.
+  const print = async (a: Activity) => {
+    if (a.kind === "marketer" || a.kind === "retail") {
+      await printDispatchSlip({ number: a.reference }, settings.data, "print");
+      return;
+    }
+    const { data, error } = await supabase
+      .from("sales")
+      .select("id")
+      .eq("factory_id", factoryId)
+      .eq("invoice_number", a.reference)
+      .maybeSingle();
+    if (error || !data) {
+      toast.error(error?.message ?? "Invoice not found");
+      return;
+    }
+    await printSaleInvoice(data.id, settings.data, "print");
+  };
 
   return (
     <Card className="rounded-2xl">
@@ -76,6 +102,7 @@ export function WarehouseRecentActivity({ factoryId }: { factoryId: string }) {
               <TableHead>To / from</TableHead>
               <TableHead>Products</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -97,12 +124,25 @@ export function WarehouseRecentActivity({ factoryId }: { factoryId: string }) {
                       {a.status.replace(/_/g, " ")}
                     </Badge>
                   </TableCell>
+                  <TableCell className="text-right">
+                    {(a.kind === "marketer" || a.kind === "retail" || a.kind === "distributor") && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title="Print"
+                        aria-label="Print"
+                        onClick={() => void print(a)}
+                      >
+                        <Printer className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </TableCell>
                 </TableRow>
               );
             })}
             {rows.length === 0 && (
               <TableRow>
-                <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
+                <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
                   {activity.isLoading
                     ? "Loading…"
                     : activity.isError

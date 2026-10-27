@@ -962,6 +962,147 @@ export async function generateProductionRequestPdf(
   }
 }
 
+// A posting from the Warehouse to a marketer or the Company Retail Shop
+// (stock_dispatches): what went out, to whom, and signatures for both sides.
+// Laid out for the Warehouse's slim 80mm POS roll: everything stacked in one
+// narrow column, the logo, company name, address and phone centred at the
+// top, and the page only as long as the content.
+export async function generateDispatchSlipPdf(
+  opts: {
+    company: {
+      name: string;
+      address?: string | null;
+      phone?: string | null;
+      email?: string | null;
+      logo_url?: string | null;
+    };
+    dispatch_number: string;
+    dispatch_date: string;
+    holder: { name: string; code?: string | null; kind?: string | null };
+    status: string;
+    items: {
+      name: string;
+      quantity: number;
+      unit: string;
+      unit_price: number;
+      line_value: number;
+    }[];
+    total_value: number;
+    notes?: string | null;
+    posted_by?: string | null;
+    currency?: string;
+  },
+  action: PdfAction = "download",
+) {
+  const currency = opts.currency ?? "NGN";
+  const cur = (n: number) => pdfMoney(n, currency);
+  const logo = await resolveLogo(opts.company.logo_url);
+  const holderLabel = opts.holder.kind === "outlet" ? "Retail Shop" : "Marketer";
+
+  const W = 226; // 80mm roll in pt
+  const M = 10;
+  const contentW = W - M * 2;
+  const center = W / 2;
+
+  const draw = (doc: jsPDF): number => {
+    let y = M;
+    const centred = (text: string, size: number, bold = false, gap = 10) => {
+      doc.setFont("helvetica", bold ? "bold" : "normal");
+      doc.setFontSize(size);
+      (doc.splitTextToSize(text, contentW) as string[]).forEach((ln) => {
+        doc.text(ln, center, y, { align: "center" });
+        y += gap;
+      });
+    };
+    const left = (text: string, size = 8, bold = false) => {
+      doc.setFont("helvetica", bold ? "bold" : "normal");
+      doc.setFontSize(size);
+      (doc.splitTextToSize(text, contentW) as string[]).forEach((ln) => {
+        doc.text(ln, M, y);
+        y += 10;
+      });
+    };
+    const rule = () => {
+      doc.setLineDashPattern([2, 1], 0);
+      doc.line(M, y, W - M, y);
+      doc.setLineDashPattern([], 0);
+      y += 10;
+    };
+
+    // Header, centred.
+    if (logo) {
+      const ratio = Math.min(70 / logo.width, 40 / logo.height, 1);
+      const w = logo.width * ratio;
+      const h = logo.height * ratio;
+      doc.addImage(logo.dataUrl, "PNG", center - w / 2, y, w, h);
+      y += h + 8;
+    }
+    centred(opts.company.name || "Company", 10, true, 12);
+    if (opts.company.address) centred(opts.company.address, 7, false, 9);
+    const contact = [opts.company.phone, opts.company.email].filter(Boolean).join(" · ");
+    if (contact) centred(contact, 7, false, 9);
+    y += 2;
+    rule();
+
+    centred("STOCK POSTING", 10, true, 12);
+    left(`No: ${opts.dispatch_number}`);
+    left(`Date: ${opts.dispatch_date}`);
+    left(`Status: ${opts.status.replace(/_/g, " ").toUpperCase()}`);
+    rule();
+
+    left(
+      `${holderLabel}: ${opts.holder.name}${opts.holder.code ? ` (${opts.holder.code})` : ""}`,
+      8,
+      true,
+    );
+    rule();
+
+    // Lines: product name, then "qty unit x price" and the value on the right.
+    opts.items.forEach((it) => {
+      left(it.name, 8, true);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      doc.text(`${it.quantity.toLocaleString()} ${it.unit} x ${cur(it.unit_price)}`, M, y);
+      doc.text(cur(it.line_value), W - M, y, { align: "right" });
+      y += 12;
+    });
+    rule();
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.text("TOTAL", M, y);
+    doc.text(cur(opts.total_value), W - M, y, { align: "right" });
+    y += 14;
+    rule();
+
+    if (opts.posted_by) left(`Posted by: ${opts.posted_by}`);
+    if (opts.notes) left(`Notes: ${opts.notes}`);
+
+    // Signatures, one under the other.
+    y += 22;
+    doc.line(M, y, W - M, y);
+    y += 10;
+    left("Warehouse (issued by) / Date", 7);
+    y += 18;
+    doc.line(M, y, W - M, y);
+    y += 10;
+    left(`${holderLabel} (received by) / Date`, 7);
+    return y + 4;
+  };
+
+  const scratch = new jsPDF({ unit: "pt", format: [W, 4000] });
+  const finalY = draw(scratch);
+  const doc = new jsPDF({ unit: "pt", format: [W, finalY + M] });
+  draw(doc);
+
+  if (action === "download") {
+    doc.save(`${opts.dispatch_number}.pdf`);
+  } else {
+    if (action === "print") doc.autoPrint();
+    window.open(doc.output("bloburl"), "_blank");
+  }
+}
+
 export async function generatePurchaseOrderPdf(
   opts: {
     company: {
