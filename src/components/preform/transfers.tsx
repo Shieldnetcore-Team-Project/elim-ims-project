@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -290,22 +290,44 @@ export function TransfersTab({ factoryId }: { factoryId: string }) {
 }
 
 function DispatchDialog({ factoryId, onClose }: { factoryId: string; onClose: () => void }) {
-  // Semi-finished products (the empty bottles) in stock.
+  // The bottle products blowing stocks into: semi-finished products, plus
+  // whatever product a preform makes (set on first blowing, any type) or a
+  // stocking went into -- otherwise freshly blown bottles were missing here.
+  // In-stock bottles first.
   const products = useQuery({
-    queryKey: ["pf", "semi-products", factoryId],
+    queryKey: ["pf", "bottle-products", factoryId],
     queryFn: async () => {
-      const { data, error } = await db
+      const [stocked, outputs] = await Promise.all([
+        db.from("preform_stockings").select("product_id").eq("factory_id", factoryId),
+        db
+          .from("raw_materials")
+          .select("output_product_id")
+          .eq("factory_id", factoryId)
+          .not("output_product_id", "is", null),
+      ]);
+      if (stocked.error) throw stocked.error;
+      if (outputs.error) throw outputs.error;
+      const ids = [
+        ...new Set([
+          ...((stocked.data ?? []) as { product_id: string }[]).map((r) => r.product_id),
+          ...((outputs.data ?? []) as { output_product_id: string }[]).map(
+            (r) => r.output_product_id,
+          ),
+        ]),
+      ];
+      let q = db
         .from("products")
         .select("id,name,current_stock")
         .eq("factory_id", factoryId)
-        .eq("product_type", "semi_finished")
-        .eq("active", true)
-        .order("name");
+        .eq("active", true);
+      q = ids.length
+        ? q.or(`product_type.eq.semi_finished,id.in.(${ids.join(",")})`)
+        : q.eq("product_type", "semi_finished");
+      const { data, error } = await q.order("name");
       if (error) throw error;
-      return ((data ?? []) as { id: string; name: string; current_stock: number }[]).map((p) => ({
-        ...p,
-        current_stock: Number(p.current_stock),
-      }));
+      return ((data ?? []) as { id: string; name: string; current_stock: number }[])
+        .map((p) => ({ ...p, current_stock: Number(p.current_stock) }))
+        .sort((a, b) => Number(b.current_stock > 0) - Number(a.current_stock > 0));
     },
   });
   const [productId, setProductId] = useState("");
@@ -320,6 +342,11 @@ function DispatchDialog({ factoryId, onClose }: { factoryId: string; onClose: ()
     () => products.data?.find((x) => x.id === productId),
     [products.data, productId],
   );
+  // One bottle in stock (the usual case after a blowing): pick it.
+  useEffect(() => {
+    const inStock = (products.data ?? []).filter((x) => x.current_stock > 0);
+    if (!productId && inStock.length === 1) setProductId(inStock[0].id);
+  }, [products.data, productId]);
   const over = !!p && (qty ?? 0) > p.current_stock;
   const overRequest = requested != null && (qty ?? 0) > requested;
 
@@ -361,7 +388,7 @@ function DispatchDialog({ factoryId, onClose }: { factoryId: string; onClose: ()
               </SelectTrigger>
               <SelectContent>
                 {(products.data ?? []).map((x) => (
-                  <SelectItem key={x.id} value={x.id}>
+                  <SelectItem key={x.id} value={x.id} disabled={x.current_stock <= 0}>
                     {x.name} — {num(x.current_stock)} in stock
                   </SelectItem>
                 ))}
