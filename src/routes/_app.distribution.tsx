@@ -858,6 +858,7 @@ function NewDispatchDialog({
   fixedRepId,
   embedded,
   carryReturn,
+  hideTransport,
 }: {
   factoryId: string;
   reps: Rep[];
@@ -876,6 +877,8 @@ function NewDispatchDialog({
   fixedRepId?: string;
   // Render just the form, for use inside another dialog.
   embedded?: boolean;
+  // No vehicle / driver / route pickers (Warehouse → Marketers posting).
+  hideTransport?: boolean;
 }) {
   const [pickedRepId, setRepId] = useState(kind && reps.length === 1 ? reps[0].id : "");
   const repId = fixedRepId ?? pickedRepId;
@@ -963,56 +966,58 @@ function NewDispatchDialog({
             <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
           </div>
         </div>
-        <div className="grid grid-cols-3 gap-3">
-          <div>
-            <Label className="text-xs">Vehicle</Label>
-            <Select value={vehicleId} onValueChange={setVehicleId}>
-              <SelectTrigger>
-                <SelectValue placeholder="—" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">— None —</SelectItem>
-                {vehicles.map((v) => (
-                  <SelectItem key={v.id} value={v.id}>
-                    {v.plate_number}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+        {!hideTransport && (
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <Label className="text-xs">Vehicle</Label>
+              <Select value={vehicleId} onValueChange={setVehicleId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="—" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">— None —</SelectItem>
+                  {vehicles.map((v) => (
+                    <SelectItem key={v.id} value={v.id}>
+                      {v.plate_number}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Driver</Label>
+              <Select value={driverId} onValueChange={setDriverId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="—" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">— None —</SelectItem>
+                  {drivers.map((d) => (
+                    <SelectItem key={d.id} value={d.id}>
+                      {d.full_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Route</Label>
+              <Select value={routeId} onValueChange={setRouteId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="—" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">— None —</SelectItem>
+                  {routes.map((r) => (
+                    <SelectItem key={r.id} value={r.id}>
+                      {r.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
-          <div>
-            <Label className="text-xs">Driver</Label>
-            <Select value={driverId} onValueChange={setDriverId}>
-              <SelectTrigger>
-                <SelectValue placeholder="—" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">— None —</SelectItem>
-                {drivers.map((d) => (
-                  <SelectItem key={d.id} value={d.id}>
-                    {d.full_name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label className="text-xs">Route</Label>
-            <Select value={routeId} onValueChange={setRouteId}>
-              <SelectTrigger>
-                <SelectValue placeholder="—" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">— None —</SelectItem>
-                {routes.map((r) => (
-                  <SelectItem key={r.id} value={r.id}>
-                    {r.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
+        )}
 
         <div>
           <Label>Products (warehouse stock shown in brackets)</Label>
@@ -1499,6 +1504,7 @@ export function MarketerPostDialog({
                 <NewDispatchDialog
                   key={marketer.id}
                   embedded
+                  hideTransport
                   kind="rep"
                   fixedRepId={marketer.id}
                   factoryId={factoryId}
