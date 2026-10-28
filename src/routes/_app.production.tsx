@@ -65,7 +65,12 @@ import { money, num } from "@/lib/format";
 import { toast } from "sonner";
 import { generateProductionSlipPdf } from "@/lib/pdf";
 import { logAudit } from "@/lib/audit";
-import { useUnitsOfMeasure, UNIT_OPTIONS as UNIT_OPTIONS_FALLBACK, packUnitOf } from "@/lib/units";
+import {
+  useUnitsOfMeasure,
+  UNIT_OPTIONS as UNIT_OPTIONS_FALLBACK,
+  packUnitOf,
+  defaultUnitFor,
+} from "@/lib/units";
 import { QuickAddProductDialog, ADD_NEW_ITEM } from "@/components/shared/quick-add-item";
 import { SHIFT_LABEL, addDays, localDay, suggestedEntry, type Shift } from "@/lib/production-shift";
 import { PmJugsFromQc } from "@/components/qc/jug-handover";
@@ -701,11 +706,17 @@ function DailyProductionSheet({
   const [date, setDate] = useState(suggested.date);
   const [shift, setShift] = useState<Shift>(suggested.shift);
   // The sheet starts empty; the manager adds a row per product produced, each
-  // counted in the unit picked beside it (Packs by default).
+  // counted in the unit picked beside it (Packs for Bottle Water, otherwise
+  // the product's own unit -- bags of Sachet Water, pieces of Dispenser/Jug
+  // Water).
   const unitsOfMeasure = useUnitsOfMeasure();
   const unitChoices = unitsOfMeasure.data ?? UNIT_OPTIONS_FALLBACK;
   const packUnit = packUnitOf(unitChoices);
   const unitOptions = [...new Set([packUnit, ...unitChoices])];
+  const defaultUnitOf = (productId: string) => {
+    const p = products.find((x) => x.id === productId);
+    return p ? defaultUnitFor(p, packUnit) : packUnit;
+  };
   type SheetRow = { key: number; productId: string; qty: number; unit: string };
   const [rows, setRows] = useState<SheetRow[]>([]);
   const [nextKey, setNextKey] = useState(1);
@@ -776,7 +787,7 @@ function DailyProductionSheet({
     .filter((r) => r.productId && r.qty > 0)
     .map((r) => ({
       qty: r.qty,
-      unit: r.unit || packUnit,
+      unit: r.unit || defaultUnitOf(r.productId),
       p: products.find((x) => x.id === r.productId),
     }))
     .filter((l): l is { qty: number; unit: string; p: Product } => !!l.p);
@@ -898,7 +909,7 @@ function DailyProductionSheet({
                       onValueChange={(v) =>
                         v === ADD_NEW_ITEM
                           ? setAddingFor(row.key)
-                          : update(row.key, { productId: v })
+                          : update(row.key, { productId: v, unit: "" })
                       }
                     >
                       <SelectTrigger>
@@ -931,14 +942,16 @@ function DailyProductionSheet({
                   </TableCell>
                   <TableCell>
                     <Select
-                      value={row.unit || packUnit}
+                      value={row.unit || defaultUnitOf(row.productId)}
                       onValueChange={(v) => update(row.key, { unit: v })}
                     >
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {unitOptions.map((u) => (
+                        {[
+                          ...new Set([row.unit || defaultUnitOf(row.productId), ...unitOptions]),
+                        ].map((u) => (
                           <SelectItem key={u} value={u}>
                             {u}
                           </SelectItem>
@@ -1052,7 +1065,10 @@ function ProductionForm({
   const [unitPicked, setUnit] = useState(
     editing ? (editing.packaging_unit ?? editing.unit ?? "") : "",
   );
-  const unit = unitPicked || packUnit;
+  // Packs for Bottle Water, otherwise the product's own unit (bags of Sachet
+  // Water, pieces of Dispenser/Jug Water).
+  const chosenProduct = products.find((p) => p.id === productId);
+  const unit = unitPicked || (chosenProduct ? defaultUnitFor(chosenProduct, packUnit) : packUnit);
   const unitOptions = [...new Set([unit, packUnit, ...unitChoices])];
   // Production doesn't enter damage — the Warehouse records it when it accepts
   // a release. Editing an older batch re-sends the damage it was recorded with
@@ -1276,6 +1292,8 @@ function ProductionForm({
                 return;
               }
               setProductId(v);
+              // Back to the new product's own default unit.
+              setUnit("");
             }}
             disabled={!!requestId || !!editing?.production_requests}
           >
@@ -1297,7 +1315,10 @@ function ProductionForm({
             open={addingProduct}
             onOpenChange={setAddingProduct}
             factoryId={factoryId}
-            onCreated={(id) => setProductId(id)}
+            onCreated={(id) => {
+              setProductId(id);
+              setUnit("");
+            }}
           />
         </div>
         <div className="grid grid-cols-2 gap-3">

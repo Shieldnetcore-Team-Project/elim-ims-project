@@ -28,6 +28,11 @@ export const UNIT_OPTIONS = [
 export const packUnitOf = (units: string[]) =>
   units.find((u) => /^packs?$/i.test(u.trim())) ?? "Pack";
 export const isBottleWater = (name: string) => /bottle water$/i.test(name.trim());
+// The unit a product is counted in by default when recording or posting it:
+// packs for Bottle Water, otherwise the product's own unit (Sachet Water in
+// bags, Dispenser/Jug Water in pieces).
+export const defaultUnitFor = (product: { name: string; unit: string }, packUnit: string) =>
+  isBottleWater(product.name) ? packUnit : product.unit || packUnit;
 // Only Sachet Water is restocked straight into the Warehouse. Bottle Water and
 // Dispenser/Jug Water come from Production (releases), returned dispensers
 // from marketers (marketer returns), and empty jugs are Store raw material
