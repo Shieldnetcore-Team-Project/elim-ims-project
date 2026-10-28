@@ -17,8 +17,9 @@ export const FINISHED_PRODUCT_NAMES = [
   "75cl Bottle Water",
   "1Ltr Bottle Water",
   "1.5Ltr Bottle Water",
-  "Dispenser Water",
-  "Jug + Water",
+  // Dispenser water and jug water are one product, kept in new and old jugs.
+  "Dispenser/Jug Water (New Jug)",
+  "Dispenser/Jug Water (Old Jug)",
   "Empty Jug",
   "Sachet Water",
 ] as const;
@@ -37,12 +38,12 @@ export const defaultPriceFor = (name: string) =>
   DEFAULT_PRICE[name.trim() as (typeof FINISHED_PRODUCT_NAMES)[number]];
 
 // The three product categories, and which one each listed product goes in.
-export const WATER_CATEGORIES = ["Bottle Water", "Dispenser Water", "Sachet Water"] as const;
+export const WATER_CATEGORIES = ["Bottle Water", "Dispenser/Jug Water", "Sachet Water"] as const;
 
 export function categoryForProduct(name: string): (typeof WATER_CATEGORIES)[number] | undefined {
   const n = name.trim().toLowerCase();
   if (n.includes("sachet") || n.includes("satchet")) return "Sachet Water";
-  if (n.includes("dispenser") || n.includes("jug")) return "Dispenser Water";
+  if (n.includes("dispenser") || n.includes("jug")) return "Dispenser/Jug Water";
   if (n.includes("bottle")) return "Bottle Water";
   return undefined;
 }

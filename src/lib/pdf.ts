@@ -1103,6 +1103,135 @@ export async function generateDispatchSlipPdf(
   }
 }
 
+export type WarehouseReportRow = {
+  product_name: string;
+  opening: number;
+  qty_in: number;
+  qty_out: number;
+  gift: number;
+  returned: number;
+  sold: number;
+  empty_jug_sold: number;
+  balance: number;
+};
+
+// "WAREHOUSE: PRODUCTS REPORT FROM .. TO .." in the factory's own layout:
+// letterhead centred at the top (logo, address, phone / email, website),
+// then one row per product (warehouse_products_report).
+export async function generateWarehouseProductsReportPdf(
+  opts: {
+    company: {
+      name: string;
+      address?: string | null;
+      phone?: string | null;
+      email?: string | null;
+      website?: string | null;
+      logo_url?: string | null;
+    };
+    from: string;
+    to: string;
+    rows: WarehouseReportRow[];
+  },
+  action: PdfAction = "download",
+) {
+  const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "landscape" });
+  const W = doc.internal.pageSize.getWidth();
+  const center = W / 2;
+  const logo = await resolveLogo(opts.company.logo_url);
+
+  let y = 24;
+  if (logo) {
+    const ratio = Math.min(150 / logo.width, 70 / logo.height, 1);
+    const w = logo.width * ratio;
+    const h = logo.height * ratio;
+    doc.addImage(logo.dataUrl, "PNG", center - w / 2, y, w, h);
+    y += h + 14;
+  } else {
+    doc.setFont("times", "bold");
+    doc.setFontSize(16);
+    doc.text(opts.company.name, center, y + 10, { align: "center" });
+    y += 26;
+  }
+  doc.setFont("times", "bold");
+  doc.setFontSize(10);
+  const lines = [
+    opts.company.address,
+    [
+      opts.company.phone && `Tel: ${opts.company.phone}`,
+      opts.company.email && `Email: ${opts.company.email}`,
+    ]
+      .filter(Boolean)
+      .join(", "),
+    opts.company.website && `Website: ${opts.company.website}`,
+  ].filter(Boolean) as string[];
+  lines.forEach((ln) => {
+    (doc.splitTextToSize(ln, W - 80) as string[]).forEach((part) => {
+      doc.text(part, center, y, { align: "center" });
+      y += 13;
+    });
+  });
+
+  y += 16;
+  doc.setFontSize(12);
+  doc.text(`WAREHOUSE: PRODUCTS REPORT FROM ${opts.from} TO ${opts.to}`, center, y, {
+    align: "center",
+  });
+  y += 12;
+
+  const n = (v: number) => (v ? v.toLocaleString() : "0");
+  autoTable(doc, {
+    startY: y,
+    margin: { left: 30, right: 30 },
+    head: [
+      [
+        "S/N",
+        "Product",
+        "Opening",
+        "Quantity In",
+        "Total",
+        "Quantity Out",
+        "Gift/Sample",
+        "Quantity Returned",
+        "Quantity Sold",
+        "Empty Jug Sold",
+        "Balance",
+      ],
+    ],
+    body: opts.rows.map((r, i) => [
+      String(i + 1),
+      r.product_name,
+      n(r.opening),
+      n(r.qty_in),
+      n(r.opening + r.qty_in),
+      n(r.qty_out),
+      n(r.gift),
+      n(r.returned),
+      n(r.sold),
+      r.empty_jug_sold ? r.empty_jug_sold.toLocaleString() : "",
+      n(r.balance),
+    ]),
+    theme: "grid",
+    styles: {
+      font: "times",
+      fontStyle: "bold",
+      fontSize: 10,
+      textColor: [0, 0, 0],
+      lineColor: [0, 0, 0],
+      lineWidth: 0.6,
+      cellPadding: 3,
+    },
+    headStyles: { fillColor: [31, 119, 180], textColor: [255, 255, 255], fontSize: 11 },
+  });
+
+  const name = `warehouse-products-report-${opts.from}-to-${opts.to}`;
+  if (action === "download") {
+    doc.save(`${name}.pdf`);
+  } else {
+    if (action === "print") doc.autoPrint();
+    window.open(doc.output("bloburl"), "_blank");
+  }
+}
+
 export async function generatePurchaseOrderPdf(
   opts: {
     company: {

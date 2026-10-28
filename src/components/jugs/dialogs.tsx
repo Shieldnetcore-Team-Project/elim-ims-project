@@ -593,9 +593,9 @@ export function RowDetailDialog({
             {row.rep_name} · {row.container_name} · {formatDay(row.report_date)}
           </DialogTitle>
           <DialogDescription>
-            Opening {num(row.opening)} + Loaded {num(row.loaded)} = {num(row.total)}; − Jug + Water{" "}
-            {num(row.jug_water_sold)} − Empties sold {num(row.empties_sold)} = Expected{" "}
-            {num(row.expected_empties)}; − Received {num(row.received)} − Written off{" "}
+            Opening {num(row.opening)} + Loaded {num(row.loaded)} = {num(row.total)}; −
+            Dispenser/Jug Water {num(row.jug_water_sold)} − Empties sold {num(row.empties_sold)} =
+            Expected {num(row.expected_empties)}; − Received {num(row.received)} − Written off{" "}
             {num(row.written_off)} = Outstanding {num(row.outstanding)}.
           </DialogDescription>
         </DialogHeader>
@@ -801,8 +801,9 @@ export function JugSetupPanel({
         <CardHeader>
           <CardTitle>Products that carry a jug</CardTitle>
           <p className="text-sm text-muted-foreground">
-            Refill: the customer swaps an empty, so the marketer still owes the jug. Jug + Water:
-            the customer keeps it. Empty jug: sold as an empty, its price is the Empties Cost.
+            Refill: the customer swaps an empty, so the marketer still owes the jug. Dispenser/Jug
+            Water: the customer keeps it. Empty jug: sold as an empty, its price is the Empties
+            Cost.
           </p>
         </CardHeader>
         <CardContent className="overflow-x-auto">

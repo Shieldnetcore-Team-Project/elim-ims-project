@@ -49,7 +49,7 @@ export type JugRow = {
 
 // The formulas the server applies, for a consistency check on screen:
 //   Total = Opening + Loaded
-//   Expected Empties = Total - Jug + Water Sold - Empties Sold
+//   Expected Empties = Total - Dispenser/Jug Water Sold - Empties Sold
 //   Outstanding = Expected Empties - Received - Written off
 // Returned (a claim) is deliberately not in any of them -- only the
 // Warehouse's verified count (Received) settles jugs.

@@ -110,7 +110,7 @@ const COLUMNS: (ReportColumn & { align?: "right" })[] = [
   { key: "opening", label: "Opening", align: "right" },
   { key: "loaded", label: "Loaded", align: "right" },
   { key: "total", label: "Total", align: "right" },
-  { key: "jug_water_sold", label: "Jug + Water Sold", align: "right" },
+  { key: "jug_water_sold", label: "Dispenser/Jug Water Sold", align: "right" },
   { key: "returned", label: "Returned", align: "right" },
   { key: "expected_empties", label: "Expected", align: "right" },
   { key: "received", label: "Received", align: "right" },
@@ -288,7 +288,7 @@ function JugAccountabilityPage() {
           summary: [
             ["Marketers / outlets", new Set(rows.map((r) => r.sales_rep_id)).size],
             ["Jugs loaded", num(totals.loaded)],
-            ["Jug + Water sold", num(totals.jug_water_sold)],
+            ["Dispenser/Jug Water sold", num(totals.jug_water_sold)],
             ["Empties expected", num(totals.expected_empties)],
             ["Empties received", num(totals.received)],
             [`Outstanding at end of ${formatDay(lastDay)}`, num(outstandingNow)],
@@ -311,7 +311,7 @@ function JugAccountabilityPage() {
           Dispenser Production &amp; Jug Accountability
         </h1>
         <p className="text-sm text-muted-foreground">
-          Opening + Loaded = Total; Total − Jug + Water sold = Expected; Expected − Received
+          Opening + Loaded = Total; Total − Dispenser/Jug Water sold = Expected; Expected − Received
           (Warehouse-verified) = Outstanding, carried to the next day&apos;s Opening. Empty jugs
           sold and approved write-offs also reduce Expected / Outstanding — click a row to see them.
         </p>
@@ -425,7 +425,7 @@ function JugAccountabilityPage() {
           icon={ShoppingCart}
           label="Sold"
           value={num(sumOv("sold_with_water") + sumOv("empties_sold"))}
-          hint={`${num(sumOv("sold_with_water"))} Jug + Water · ${num(sumOv("empties_sold"))} empties · ${num(sumOv("refills_sold"))} refills (swaps)`}
+          hint={`${num(sumOv("sold_with_water"))} Dispenser/Jug Water · ${num(sumOv("empties_sold"))} empties · ${num(sumOv("refills_sold"))} refills (swaps)`}
         />
         <Stat
           icon={CheckCircle2}
@@ -505,7 +505,7 @@ function JugAccountabilityPage() {
                     <TableHead className="text-right">Opening</TableHead>
                     <TableHead className="text-right">Loaded</TableHead>
                     <TableHead className="text-right">Total</TableHead>
-                    <TableHead className="text-right">Jug + Water Sold</TableHead>
+                    <TableHead className="text-right">Dispenser/Jug Water Sold</TableHead>
                     <TableHead className="text-right">Returned</TableHead>
                     <TableHead className="text-right">Expected</TableHead>
                     <TableHead className="text-right">Received</TableHead>
@@ -754,7 +754,7 @@ function JugsPanel({
                 ["Empty in Warehouse", o.empty_in_warehouse, "Ready for filling"],
                 ["Filled in Warehouse", o.filled_in_warehouse, "Finished goods available"],
                 ["With marketers", o.with_marketers, `${num(o.full_with_marketers)} still full`],
-                ["With customers", o.with_customers, "Jug + Water / empties sold"],
+                ["With customers", o.with_customers, "Dispenser/Jug Water / empties sold"],
                 ["Written off", o.written_off_total, "Lost or damaged"],
               ] as [string, number, string][]
             ).map(([label, v, hint]) => (

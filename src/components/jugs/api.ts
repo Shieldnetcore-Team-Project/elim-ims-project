@@ -105,7 +105,7 @@ export const SOURCE_LABEL: Record<string, string> = {
 
 export const ROLE_LABEL: Record<JugRole, string> = {
   refill: "Refill (customer swaps an empty)",
-  with_water: "Jug + Water (customer keeps the jug)",
+  with_water: "Dispenser/Jug Water (customer keeps the jug)",
   empty: "Empty jug (sold for a price)",
 };
 

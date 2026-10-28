@@ -37,6 +37,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { WarehousePostMenu } from "@/components/warehouse/post-menu";
 import { ReleasesToAccept } from "@/components/warehouse/releases-to-accept";
 import { WarehouseRecentActivity } from "@/components/warehouse/recent-activity";
+import { RestockButton } from "@/components/warehouse/restock-dialog";
+import { WarehouseProductsReportButton } from "@/components/warehouse/products-report";
 import { FINISHED_PRODUCT_NAMES } from "@/components/shared/product-name-select";
 
 export const Route = createFileRoute("/_app/inventory")({
@@ -218,6 +220,10 @@ function InventoryOverviewPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {factoryId && <WarehousePostMenu factoryId={factoryId} />}
+          {factoryId && <RestockButton factoryId={factoryId} />}
+          {factoryId && canSeeFinishedGoods && (
+            <WarehouseProductsReportButton factoryId={factoryId} />
+          )}
           <Badge variant="outline" className="h-9 gap-2 px-3 text-sm">
             <FactoryIcon className="h-4 w-4 text-primary" /> {factoryLabel.name}
           </Badge>
