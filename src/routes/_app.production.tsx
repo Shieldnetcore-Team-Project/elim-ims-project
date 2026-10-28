@@ -59,6 +59,8 @@ import {
   Loader2,
   AlertTriangle,
   ClipboardList,
+  Moon,
+  Sun,
   Trash2,
 } from "lucide-react";
 import { money, num } from "@/lib/format";
@@ -221,12 +223,15 @@ function ProductionPage() {
   // A batch whose goods were already released can't simply be cancelled; this
   // holds it while the user decides whether to reverse those releases first.
   const [releasedBlock, setReleasedBlock] = useState<ProductionRow | null>(null);
-  const write = canWrite("production");
+  // Recording and releasing go together: whoever may release a batch may
+  // record one (production create, submit or edit).
+  const write = canWrite("production") || can("production", "submit") || can("production", "edit");
   const cancel = canCancel("production");
   const allowPrint = canPrint("production");
   const allowExport = canExport("production");
   const [formOpen, setFormOpen] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [sheetPreset, setSheetPreset] = useState<{ date: string; shift: Shift } | undefined>();
   const [editing, setEditing] = useState<ProductionRow | null>(null);
 
   const products = useQuery({
@@ -402,7 +407,37 @@ function ProductionPage() {
         </div>
         {write && (
           <div className="flex flex-wrap items-center gap-2">
-            <Dialog open={sheetOpen} onOpenChange={setSheetOpen}>
+            {/* By shift: last night's output is entered in the morning, the
+                day's output during the day or before close of business. */}
+            <Button
+              variant="outline"
+              className="gap-2"
+              disabled={factory.isLoading || !factoryId}
+              onClick={() => {
+                setSheetPreset({ date: addDays(localDay(), -1), shift: "night" });
+                setSheetOpen(true);
+              }}
+            >
+              <Moon className="h-4 w-4" /> Last night&apos;s batch
+            </Button>
+            <Button
+              variant="outline"
+              className="gap-2"
+              disabled={factory.isLoading || !factoryId}
+              onClick={() => {
+                setSheetPreset({ date: localDay(), shift: "day" });
+                setSheetOpen(true);
+              }}
+            >
+              <Sun className="h-4 w-4" /> Today&apos;s day batch
+            </Button>
+            <Dialog
+              open={sheetOpen}
+              onOpenChange={(v) => {
+                setSheetOpen(v);
+                if (!v) setSheetPreset(undefined);
+              }}
+            >
               <DialogTrigger asChild>
                 <Button className="gap-2" disabled={factory.isLoading || !factoryId}>
                   <ClipboardList className="h-4 w-4" /> Daily Production Sheet
@@ -410,11 +445,14 @@ function ProductionPage() {
               </DialogTrigger>
               {sheetOpen && factoryId && (
                 <DailyProductionSheet
+                  key={sheetPreset ? `${sheetPreset.date}-${sheetPreset.shift}` : "auto"}
                   factoryId={factoryId}
                   products={products.data ?? []}
                   recorded={list.data ?? []}
+                  preset={sheetPreset}
                   onDone={() => {
                     setSheetOpen(false);
+                    setSheetPreset(undefined);
                     invalidateAll();
                   }}
                 />
@@ -695,14 +733,18 @@ function DailyProductionSheet({
   factoryId,
   products,
   recorded,
+  preset,
   onDone,
 }: {
   factoryId: string;
   products: Product[];
   recorded: ProductionRow[];
+  // Opened from "Last night's batch" / "Today's day batch": that date and
+  // shift; otherwise the likely one for the time of day.
+  preset?: { date: string; shift: Shift };
   onDone: () => void;
 }) {
-  const [suggested] = useState(suggestedEntry);
+  const [suggested] = useState(() => preset ?? suggestedEntry());
   const [date, setDate] = useState(suggested.date);
   const [shift, setShift] = useState<Shift>(suggested.shift);
   // The sheet starts empty; the manager adds a row per product produced, each
