@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { usePermissions } from "@/lib/permissions";
 import { num } from "@/lib/format";
+import { fromProduction } from "@/lib/units";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -25,10 +26,6 @@ import {
 } from "@/components/ui/select";
 
 type RestockProduct = { id: string; name: string; unit: string; current_stock: number };
-
-// Bottle Water and Dispenser/Jug Water reach the Warehouse only as production
-// releases, so they aren't offered here (warehouse_restock refuses them too).
-const fromProduction = (name: string) => /bottle water|^dispenser/i.test(name.trim());
 
 // Warehouse → Restock: stock that doesn't come through Production (Sachet
 // Water) is added straight to the Warehouse (warehouse_restock).

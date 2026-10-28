@@ -28,6 +28,10 @@ export const UNIT_OPTIONS = [
 export const packUnitOf = (units: string[]) =>
   units.find((u) => /^packs?$/i.test(u.trim())) ?? "Pack";
 export const isBottleWater = (name: string) => /bottle water$/i.test(name.trim());
+// Bottle Water and Dispenser/Jug Water reach the Warehouse only as production
+// releases; anything else (Sachet Water) can be restocked directly
+// (warehouse_restock refuses these too).
+export const fromProduction = (name: string) => /bottle water|^dispenser/i.test(name.trim());
 
 // Packaging categories that only ever come in these two units. Matched
 // against the admin-defined `material_categories.name` (case-insensitive),

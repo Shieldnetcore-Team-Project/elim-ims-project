@@ -64,6 +64,8 @@ import { generateStockCardPdf } from "@/lib/pdf";
 import { ADJUSTMENT_REASONS } from "@/lib/adjustment-reasons";
 import { WarehousePostMenu } from "@/components/warehouse/post-menu";
 import { ReleasesToAccept } from "@/components/warehouse/releases-to-accept";
+import { RestockButton } from "@/components/warehouse/restock-dialog";
+import { fromProduction } from "@/lib/units";
 import { ProductForm } from "@/components/products/product-form";
 
 export const Route = createFileRoute("/_app/finished-goods")({
@@ -430,6 +432,7 @@ function FinishedGoodsPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {factoryId && <WarehousePostMenu factoryId={factoryId} />}
+          {factoryId && <RestockButton factoryId={factoryId} />}
           {write && (
             <Dialog
               open={formOpen}
@@ -814,6 +817,13 @@ function AdjustDialog({
   const [otherDetail, setOtherDetail] = useState("");
   const delta = type === "adjusted" ? newQuantity - oldQuantity : -Math.abs(damagedQuantity);
   const reason = reasonCategory === "Other" ? otherDetail.trim() : reasonCategory;
+  // Adding stock of a product that doesn't come from Production (Sachet
+  // Water) is a restock: it goes in at once (warehouse_restock), no approval.
+  // Taking stock off, damage, and Bottle / Dispenser Water still go for
+  // approval.
+  const { data: factoryId } = useFactoryId();
+  const qc = useQueryClient();
+  const isRestock = type === "adjusted" && delta > 0 && !fromProduction(product.name);
 
   const submit = useMutation({
     mutationFn: async () => {
@@ -824,6 +834,21 @@ function AdjustDialog({
             : "Enter a non-zero quantity",
         );
       if (!reason) throw new Error("Describe the reason for this adjustment");
+      if (isRestock) {
+        const { error } = await supabase.rpc(
+          "warehouse_restock" as never,
+          {
+            payload: {
+              factory_id: factoryId,
+              product_id: product.id,
+              quantity: delta,
+              notes: reason,
+            },
+          } as never,
+        );
+        if (error) throw error;
+        return;
+      }
       const { error } = await supabase.rpc("request_stock_adjustment", {
         payload: {
           entity_type: "finished_good",
@@ -836,7 +861,18 @@ function AdjustDialog({
       if (error) throw error;
     },
     onSuccess: () => {
-      toast.success("Submitted for approval");
+      if (isRestock) {
+        toast.success(`${num(delta)} ${product.unit} added to ${product.name}`);
+        for (const key of [
+          "finished-goods",
+          "inventory-overview-products",
+          "products-active",
+          "dist-products",
+          "restock-products",
+          "warehouse-products-report",
+        ])
+          qc.invalidateQueries({ queryKey: [key] });
+      } else toast.success("Submitted for approval");
       onDone();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -911,8 +947,9 @@ function AdjustDialog({
           </div>
         )}
         <p className="text-xs text-muted-foreground">
-          Requires a second person's approval — this submits a request instead of adjusting stock
-          immediately.
+          {isRestock
+            ? "Adds the stock at once — no approval needed to restock this product."
+            : "Requires a second person's approval — this submits a request instead of adjusting stock immediately."}
         </p>
       </div>
       <DialogFooter>
@@ -920,7 +957,7 @@ function AdjustDialog({
           disabled={submit.isPending || delta === 0 || !reason}
           onClick={() => submit.mutate()}
         >
-          {submit.isPending ? "Submitting…" : "Submit for approval"}
+          {submit.isPending ? "Saving…" : isRestock ? "Add to stock" : "Submit for approval"}
         </Button>
       </DialogFooter>
     </DialogContent>
