@@ -21,7 +21,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { money, num } from "@/lib/format";
-import { isLowStock } from "@/lib/metrics";
+import { isLowStock, stockValue } from "@/lib/metrics";
 import {
   Boxes,
   Package,
@@ -37,6 +37,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { WarehousePostMenu } from "@/components/warehouse/post-menu";
 import { ReleasesToAccept } from "@/components/warehouse/releases-to-accept";
 import { WarehouseRecentActivity } from "@/components/warehouse/recent-activity";
+import { FINISHED_PRODUCT_NAMES } from "@/components/shared/product-name-select";
 
 export const Route = createFileRoute("/_app/inventory")({
   head: () => ({
@@ -146,7 +147,17 @@ function InventoryOverviewPage() {
         .eq("product_type", "finished")
         .order("name");
       if (error) throw error;
-      return (data ?? []) as unknown as ProductRow[];
+      // The factory's product list first, in its order (35cl ... Sachet
+      // Water), then anything else alphabetically.
+      const rank = (name: string) => {
+        const i = (FINISHED_PRODUCT_NAMES as readonly string[]).findIndex(
+          (n) => n.toLowerCase() === name.trim().toLowerCase(),
+        );
+        return i < 0 ? FINISHED_PRODUCT_NAMES.length : i;
+      };
+      return ((data ?? []) as unknown as ProductRow[]).sort(
+        (a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name),
+      );
     },
   });
 
@@ -191,7 +202,7 @@ function InventoryOverviewPage() {
     return {
       productCount: prods.length,
       lowStock: prods.filter((p) => isLow(Number(p.current_stock), p.reorder_level)).length,
-      value: prods.reduce((s, p) => s + Number(p.current_stock) * Number(p.cost_price), 0),
+      value: prods.reduce((s, p) => s + stockValue(p), 0),
     };
   }, [products.data]);
 
@@ -265,12 +276,19 @@ function InventoryOverviewPage() {
         )}
       </div>
 
-      {factoryId && <ReleasesToAccept factoryId={factoryId} alwaysShow />}
-
-      <Tabs defaultValue="products">
-        <TabsList>
-          {canSeeFinishedGoods && <TabsTrigger value="products">Finished Products</TabsTrigger>}
+      {/* Releases from Production waiting for the Warehouse, and the finished
+          products on hand, each on its own tab. */}
+      <Tabs defaultValue="releases">
+        <TabsList className="h-auto flex-wrap">
+          <TabsTrigger value="releases">Production Releases to Accept</TabsTrigger>
+          {canSeeFinishedGoods && (
+            <TabsTrigger value="products">Finished Products — {factoryLabel.name}</TabsTrigger>
+          )}
         </TabsList>
+
+        <TabsContent value="releases">
+          {factoryId && <ReleasesToAccept factoryId={factoryId} alwaysShow />}
+        </TabsContent>
 
         {canSeeFinishedGoods && (
           <TabsContent value="products">

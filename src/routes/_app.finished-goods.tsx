@@ -37,7 +37,7 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { money, num } from "@/lib/format";
-import { isLowStock } from "@/lib/metrics";
+import { isLowStock, stockValue } from "@/lib/metrics";
 import { toast } from "sonner";
 import { requestDelete } from "@/lib/request-delete";
 import { RequestDeleteDialog } from "@/components/shared/request-delete-dialog";
@@ -375,10 +375,7 @@ function FinishedGoodsPage() {
 
   const summary = {
     totalSkus: filteredList.length,
-    totalValue: filteredList.reduce(
-      (s, p) => s + Number(p.current_stock) * Number(p.cost_price),
-      0,
-    ),
+    totalValue: filteredList.reduce((s, p) => s + stockValue(p), 0),
     lowStock: filteredList.filter((p) => isLowStock(p.current_stock, p.reorder_level)).length,
   };
 
@@ -405,7 +402,7 @@ function FinishedGoodsPage() {
       unit: p.unit,
       current_stock: Number(p.current_stock),
       unit_cost: Number(p.cost_price),
-      total_value: Number(p.current_stock) * Number(p.cost_price),
+      total_value: stockValue(p),
       reorder_level: p.reorder_level,
       extra: [
         ["Category", p.product_categories?.name || "—"],

@@ -32,6 +32,16 @@ export const isLowStock = (stock: unknown, reorder: unknown) =>
   Number(stock) <= Number(reorder ?? 0);
 export const isCriticalStock = (stock: unknown, reorder: unknown) =>
   Number(stock) <= Number(reorder ?? 0) * 0.5;
+// What a product's stock is worth: at its cost price when one is set (Settings
+// → Products, or an approved Costing sheet), else at its selling price, so
+// stock with no cost entered yet isn't valued at nothing.
+export const stockValue = (p: {
+  current_stock: unknown;
+  cost_price: unknown;
+  unit_price: unknown;
+}) =>
+  Number(p.current_stock) *
+  (Number(p.cost_price) > 0 ? Number(p.cost_price) : Number(p.unit_price));
 
 // ---------- money ----------
 // Expenses and payroll only hit the books once approved; pending, rejected,
