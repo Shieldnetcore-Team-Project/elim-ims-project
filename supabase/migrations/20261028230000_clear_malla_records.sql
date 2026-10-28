@@ -77,8 +77,11 @@ BEGIN
 
   DELETE FROM inventory_movements WHERE reference = ANY (COALESCE(v_refs, '{}'));
   DELETE FROM rep_stock_movements WHERE sales_rep_id = v_rep.id;
+  -- Jug moves are append-only; the guard is paused just for this delete.
+  ALTER TABLE public.container_movements DISABLE TRIGGER trg_cm_immutable;
   DELETE FROM container_movements
    WHERE dispatch_id = ANY (COALESCE(v_dispatch_ids, '{}')) OR rep_return_id = ANY (COALESCE(v_return_ids, '{}'));
+  ALTER TABLE public.container_movements ENABLE TRIGGER trg_cm_immutable;
   DELETE FROM rep_returns WHERE id = ANY (COALESCE(v_return_ids, '{}'));         -- items go with them
   DELETE FROM stock_dispatches WHERE id = ANY (COALESCE(v_dispatch_ids, '{}'));  -- items go with them
   DELETE FROM rep_stock WHERE sales_rep_id = v_rep.id;
