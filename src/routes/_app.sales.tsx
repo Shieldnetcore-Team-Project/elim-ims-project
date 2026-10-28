@@ -1324,9 +1324,12 @@ export function PosDialog({
   presetSalesRepId,
   editingSale,
   defaultDiscountType,
+  rollReceipt,
 }: {
   factoryId: string;
   onDone: () => void;
+  // Warehouse posting: the preview is laid out for the slim 80mm POS roll.
+  rollReceipt?: boolean;
   // Warehouse → Distributors opens with the per-pack discount selected.
   defaultDiscountType?: "amount" | "percent" | "per_pack";
   // Set from the Retail Outlet page so the sale comes off the outlet's stock
@@ -1755,6 +1758,7 @@ export function PosDialog({
         is_pr: isPr,
       },
       "preview",
+      rollReceipt ? "roll" : "a4",
     );
   };
 

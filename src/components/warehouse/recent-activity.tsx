@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/table";
 
 type Activity = {
-  kind: "received" | "refused" | "marketer" | "retail" | "distributor";
+  kind: "received" | "refused" | "marketer" | "retail" | "distributor" | "sale";
   reference: string;
   at: string;
   party: string | null;
@@ -37,6 +37,7 @@ const KIND: Record<
   marketer: { label: "Posted to Marketer", variant: "secondary" },
   retail: { label: "Posted to Retail Shop", variant: "secondary" },
   distributor: { label: "Posted to Distributor", variant: "secondary" },
+  sale: { label: "Sold from Warehouse", variant: "outline" },
 };
 
 // What has moved through the Warehouse lately, newest first: releases received
@@ -125,7 +126,7 @@ export function WarehouseRecentActivity({ factoryId }: { factoryId: string }) {
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right">
-                    {(a.kind === "marketer" || a.kind === "retail" || a.kind === "distributor") && (
+                    {a.kind !== "received" && a.kind !== "refused" && (
                       <Button
                         variant="ghost"
                         size="icon"

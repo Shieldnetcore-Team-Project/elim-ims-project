@@ -120,15 +120,22 @@ export async function drawLogoHeader(
   return baseTop + h + 10;
 }
 
-// A4 page (printed on a standard office printer, not an 80mm thermal roll)
-// so the receipt fills the printout instead of appearing tiny in a corner.
-export async function generateInvoicePdf(data: InvoiceData, action: PdfAction = "download") {
+// A4 page by default (printed on a standard office printer) so the receipt
+// fills the printout instead of appearing tiny in a corner. paper "roll" lays
+// the same receipt out on the Warehouse's slim 80mm POS roll: logo and
+// address centred at the top, the page only as long as the content.
+export async function generateInvoicePdf(
+  data: InvoiceData,
+  action: PdfAction = "download",
+  paper: "a4" | "roll" = "a4",
+) {
   const currency = data.currency ?? "NGN";
   const cur = (n: number) => pdfMoney(n, currency);
   const logo = await resolveLogo(data.company.logo_url);
+  const roll = paper === "roll";
 
-  const W = 595; // A4 width in pt
-  const M = 40;
+  const W = roll ? 226 : 595; // 80mm roll / A4 width in pt
+  const M = roll ? 10 : 40;
   const contentW = W - M * 2;
   const center = W / 2;
 
@@ -136,8 +143,8 @@ export async function generateInvoicePdf(data: InvoiceData, action: PdfAction = 
     let y = M;
 
     if (logo) {
-      const maxW = 90,
-        maxH = 50;
+      const maxW = roll ? 70 : 90,
+        maxH = roll ? 40 : 50;
       const ratio = Math.min(maxW / logo.width, maxH / logo.height, 1);
       const w = logo.width * ratio,
         h = logo.height * ratio;
@@ -261,7 +268,10 @@ export async function generateInvoicePdf(data: InvoiceData, action: PdfAction = 
 
   // Fill a full A4 page — only grow taller than A4 for an unusually long cart
   // that wouldn't fit, rather than ever clipping content.
-  const doc = new jsPDF({ unit: "pt", format: [W, Math.max(A4_H, finalY + M)] });
+  const doc = new jsPDF({
+    unit: "pt",
+    format: [W, roll ? finalY + M : Math.max(A4_H, finalY + M)],
+  });
   draw(doc);
 
   if (action === "download") {

@@ -111,12 +111,11 @@ export function WarehousePostMenu({ factoryId }: { factoryId: string }) {
             factoryId={factoryId}
             presetCustomerId={distributorId}
             defaultDiscountType="per_pack"
+            rollReceipt
             onDone={done}
           />
         )}
-        {target === "chairmans-gift" && (
-          <ChairmansGiftDialog factoryId={factoryId} onDone={done} />
-        )}
+        {target === "chairmans-gift" && <ChairmansGiftDialog factoryId={factoryId} onDone={done} />}
         {target === "outlet" && (
           <PostToHolderDialog factoryId={factoryId} kind="outlet" onDone={done} />
         )}
