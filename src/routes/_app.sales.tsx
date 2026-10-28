@@ -119,6 +119,9 @@ type SaleRow = {
   created_by: string | null;
   rejected_reason: string | null;
   sales_person: string | null;
+  // Posted from the Warehouse to a distributor: Accounts confirms it
+  // (Accountant → Postings), not this page.
+  is_warehouse_posting?: boolean;
   // Only fetched for search matching — not rendered as a column.
   sale_items?: { products: { name: string } | null }[];
 };
@@ -207,7 +210,7 @@ function SalesPage() {
       const { data, error } = await supabase
         .from("sales")
         .select(
-          "id,invoice_number,sale_date,customer_id,customer_name,grand_total,amount_paid,balance,credit_applied,payment_method,created_at,is_pr,status,created_by,rejected_reason,sales_person,sale_items(products(name))",
+          "id,invoice_number,sale_date,customer_id,customer_name,grand_total,amount_paid,balance,credit_applied,payment_method,created_at,is_pr,status,created_by,rejected_reason,sales_person,is_warehouse_posting,sale_items(products(name))",
         )
         .eq("factory_id", factoryId!)
         // Super admins can also read soft-deleted sales (Admin → Deleted
@@ -574,26 +577,40 @@ function SalesPage() {
                     </TableCell>
                     <TableCell>
                       <div className="flex justify-end gap-1">
-                        {s.status === "pending_approval" && approve && !isSelf && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            title="Approve & post"
-                            onClick={() => setApproveTarget(s)}
+                        {s.status === "pending_approval" && s.is_warehouse_posting && (
+                          <span
+                            className="self-center whitespace-nowrap text-xs text-muted-foreground"
+                            title="Posted from the Warehouse — Accounts confirms it and prints the receipt"
                           >
-                            <Check className="h-4 w-4 text-success" />
-                          </Button>
+                            Accounts to confirm
+                          </span>
                         )}
-                        {s.status === "pending_approval" && reject && !isSelf && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            title="Reject"
-                            onClick={() => setRejectTarget(s)}
-                          >
-                            <X className="h-4 w-4 text-destructive" />
-                          </Button>
-                        )}
+                        {s.status === "pending_approval" &&
+                          !s.is_warehouse_posting &&
+                          approve &&
+                          !isSelf && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title="Approve & post"
+                              onClick={() => setApproveTarget(s)}
+                            >
+                              <Check className="h-4 w-4 text-success" />
+                            </Button>
+                          )}
+                        {s.status === "pending_approval" &&
+                          !s.is_warehouse_posting &&
+                          reject &&
+                          !isSelf && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title="Reject"
+                              onClick={() => setRejectTarget(s)}
+                            >
+                              <X className="h-4 w-4 text-destructive" />
+                            </Button>
+                          )}
                         {s.status === "pending_approval" && cancel && (
                           <Button
                             variant="ghost"
@@ -1703,7 +1720,9 @@ export function PosDialog({
           ? `${res.invoice_number} updated — awaiting manager approval`
           : res.status === "posted"
             ? `${res.invoice_number} recorded`
-            : `${res.invoice_number} submitted — awaiting manager approval`,
+            : warehousePosting
+              ? `${res.invoice_number} sent to Accounts for confirmation`
+              : `${res.invoice_number} submitted — awaiting manager approval`,
       );
       logAudit({
         action: editingSale ? "edit" : "sale",

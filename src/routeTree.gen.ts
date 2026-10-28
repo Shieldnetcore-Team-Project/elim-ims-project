@@ -33,7 +33,7 @@ import { Route as AppFinanceRouteImport } from './routes/_app.finance'
 import { Route as AppFinishedGoodsRouteImport } from './routes/_app.finished-goods'
 import { Route as AppInventoryRouteImport } from './routes/_app.inventory'
 import { Route as AppJugAccountabilityRouteImport } from './routes/_app.jug-accountability'
-import { Route as AppLogisticsRouteImport } from './routes/_app.logistics'
+import { Route as AppMaintenanceRouteImport } from './routes/_app.maintenance'
 import { Route as AppMarketerAccountsRouteImport } from './routes/_app.marketer-accounts'
 import { Route as AppMarketerPerformanceRouteImport } from './routes/_app.marketer-performance'
 import { Route as AppPayrollRouteImport } from './routes/_app.payroll'
@@ -182,9 +182,9 @@ const AppJugAccountabilityRoute = AppJugAccountabilityRouteImport.update({
   path: '/jug-accountability',
   getParentRoute: () => AppRoute,
 } as any)
-const AppLogisticsRoute = AppLogisticsRouteImport.update({
-  id: '/logistics',
-  path: '/logistics',
+const AppMaintenanceRoute = AppMaintenanceRouteImport.update({
+  id: '/maintenance',
+  path: '/maintenance',
   getParentRoute: () => AppRoute,
 } as any)
 const AppMarketerAccountsRoute = AppMarketerAccountsRouteImport.update({
@@ -355,7 +355,7 @@ export interface FileRoutesByFullPath {
   '/finished-goods': typeof AppFinishedGoodsRoute
   '/inventory': typeof AppInventoryRoute
   '/jug-accountability': typeof AppJugAccountabilityRoute
-  '/logistics': typeof AppLogisticsRoute
+  '/maintenance': typeof AppMaintenanceRoute
   '/marketer-accounts': typeof AppMarketerAccountsRoute
   '/marketer-performance': typeof AppMarketerPerformanceRoute
   '/payroll': typeof AppPayrollRoute
@@ -408,7 +408,7 @@ export interface FileRoutesByTo {
   '/finished-goods': typeof AppFinishedGoodsRoute
   '/inventory': typeof AppInventoryRoute
   '/jug-accountability': typeof AppJugAccountabilityRoute
-  '/logistics': typeof AppLogisticsRoute
+  '/maintenance': typeof AppMaintenanceRoute
   '/marketer-accounts': typeof AppMarketerAccountsRoute
   '/marketer-performance': typeof AppMarketerPerformanceRoute
   '/payroll': typeof AppPayrollRoute
@@ -464,7 +464,7 @@ export interface FileRoutesById {
   '/_app/finished-goods': typeof AppFinishedGoodsRoute
   '/_app/inventory': typeof AppInventoryRoute
   '/_app/jug-accountability': typeof AppJugAccountabilityRoute
-  '/_app/logistics': typeof AppLogisticsRoute
+  '/_app/maintenance': typeof AppMaintenanceRoute
   '/_app/marketer-accounts': typeof AppMarketerAccountsRoute
   '/_app/marketer-performance': typeof AppMarketerPerformanceRoute
   '/_app/payroll': typeof AppPayrollRoute
@@ -520,7 +520,7 @@ export interface FileRouteTypes {
     | '/finished-goods'
     | '/inventory'
     | '/jug-accountability'
-    | '/logistics'
+    | '/maintenance'
     | '/marketer-accounts'
     | '/marketer-performance'
     | '/payroll'
@@ -573,7 +573,7 @@ export interface FileRouteTypes {
     | '/finished-goods'
     | '/inventory'
     | '/jug-accountability'
-    | '/logistics'
+    | '/maintenance'
     | '/marketer-accounts'
     | '/marketer-performance'
     | '/payroll'
@@ -628,7 +628,7 @@ export interface FileRouteTypes {
     | '/_app/finished-goods'
     | '/_app/inventory'
     | '/_app/jug-accountability'
-    | '/_app/logistics'
+    | '/_app/maintenance'
     | '/_app/marketer-accounts'
     | '/_app/marketer-performance'
     | '/_app/payroll'
@@ -835,11 +835,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppJugAccountabilityRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/logistics': {
-      id: '/_app/logistics'
-      path: '/logistics'
-      fullPath: '/logistics'
-      preLoaderRoute: typeof AppLogisticsRouteImport
+    '/_app/maintenance': {
+      id: '/_app/maintenance'
+      path: '/maintenance'
+      fullPath: '/maintenance'
+      preLoaderRoute: typeof AppMaintenanceRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/marketer-accounts': {
@@ -1079,7 +1079,7 @@ interface AppRouteChildren {
   AppFinishedGoodsRoute: typeof AppFinishedGoodsRoute
   AppInventoryRoute: typeof AppInventoryRoute
   AppJugAccountabilityRoute: typeof AppJugAccountabilityRoute
-  AppLogisticsRoute: typeof AppLogisticsRoute
+  AppMaintenanceRoute: typeof AppMaintenanceRoute
   AppMarketerAccountsRoute: typeof AppMarketerAccountsRoute
   AppMarketerPerformanceRoute: typeof AppMarketerPerformanceRoute
   AppPayrollRoute: typeof AppPayrollRoute
@@ -1129,7 +1129,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppFinishedGoodsRoute: AppFinishedGoodsRoute,
   AppInventoryRoute: AppInventoryRoute,
   AppJugAccountabilityRoute: AppJugAccountabilityRoute,
-  AppLogisticsRoute: AppLogisticsRoute,
+  AppMaintenanceRoute: AppMaintenanceRoute,
   AppMarketerAccountsRoute: AppMarketerAccountsRoute,
   AppMarketerPerformanceRoute: AppMarketerPerformanceRoute,
   AppPayrollRoute: AppPayrollRoute,

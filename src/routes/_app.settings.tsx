@@ -191,6 +191,7 @@ export function SettingsPage() {
       </div>
 
       <PersonalSettingsCard />
+      {isAdmin && <ConnectedDatabaseCard />}
 
       <Card className="rounded-2xl">
         <CardHeader>
@@ -338,6 +339,31 @@ export function SettingsPage() {
         </>
       )}
     </div>
+  );
+}
+
+// Which Supabase project this build of the app reads and writes. The SQL
+// Editor must be opened on the same project, or changes made there never
+// reach the app (and records posted in the app aren't found there).
+function ConnectedDatabaseCard() {
+  const url = (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? "";
+  const ref = url.replace(/^https?:\/\//, "").split(".")[0] || "not set";
+  return (
+    <Card className="rounded-2xl">
+      <CardHeader>
+        <CardTitle>Connected database</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-1 text-sm">
+        <p>
+          This app is connected to Supabase project{" "}
+          <span className="font-mono font-semibold">{ref}</span>
+        </p>
+        <p className="text-muted-foreground">
+          Run SQL only in this project&apos;s SQL Editor (the project reference shows in the
+          Supabase dashboard address bar). Changes made in another project never reach this app.
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 

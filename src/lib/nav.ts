@@ -6,10 +6,10 @@ import {
   Wallet,
   Users,
   Truck,
+  Wrench,
   UserCog,
   FileBarChart,
   Calculator,
-  PackageCheck,
   CheckSquare,
   HandCoins,
   FileStack,
@@ -281,15 +281,10 @@ export const nav: { section: string; items: NavItem[] }[] = [
     ],
   },
   {
-    section: "Logistics",
-    items: [
-      {
-        title: "Vehicles, Drivers & Deliveries",
-        url: "/logistics",
-        icon: PackageCheck,
-        module: "logistics",
-      },
-    ],
+    // Replaces Logistics (2026-10-28); keeps the 'logistics' permission key
+    // so existing grants carry over.
+    section: "Maintenance",
+    items: [{ title: "Maintenance", url: "/maintenance", icon: Wrench, module: "logistics" }],
   },
   {
     section: "Reports",

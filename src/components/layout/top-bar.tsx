@@ -31,19 +31,28 @@ function NotificationsBell() {
   const qc = useQueryClient();
   const { items: pendingItems, total: pendingTotal } = usePendingAttention();
 
+  // Only what still waits on this user (my_open_notifications): a
+  // notification leaves the list once it is attended to -- opened from here,
+  // cleared, or, for an adjustment awaiting approval, once that adjustment
+  // has been approved or rejected by anyone.
   const notifications = useQuery({
     queryKey: ["notifications", factoryId],
     enabled: !!factoryId,
-    refetchInterval: 60_000,
+    refetchInterval: 30_000,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("notifications")
-        .select("id,title,body,read,created_at")
-        .eq("factory_id", factoryId!)
-        .order("created_at", { ascending: false })
-        .limit(20);
+      const { data, error } = await supabase.rpc(
+        "my_open_notifications" as never,
+        { p_factory: factoryId, p_limit: 30 } as never,
+      );
       if (error) throw error;
-      return data ?? [];
+      return (
+        (data ?? []) as unknown as {
+          id: string;
+          title: string;
+          body: string | null;
+          created_at: string;
+        }[]
+      ).map((n) => ({ ...n, read: false }));
     },
   });
 
@@ -96,13 +105,14 @@ function NotificationsBell() {
   const unreadCount = (notifications.data ?? []).filter((n) => !n.read).length;
   const badgeCount = unreadCount + pendingTotal;
 
-  const markAllRead = async () => {
-    const unreadIds = (notifications.data ?? []).filter((n) => !n.read).map((n) => n.id);
-    if (unreadIds.length === 0) return;
-    const { error } = await supabase
-      .from("notifications")
-      .update({ read: true })
-      .in("id", unreadIds);
+  // Attended: opened from the bell, or "Clear all". Shared notifications
+  // clear only for this user.
+  const markRead = async (ids: string[]) => {
+    if (ids.length === 0) return;
+    const { error } = await supabase.rpc(
+      "mark_notifications_read" as never,
+      { p_ids: ids } as never,
+    );
     if (error) {
       toast.error(error.message);
       return;
@@ -111,11 +121,7 @@ function NotificationsBell() {
   };
 
   return (
-    <DropdownMenu
-      onOpenChange={(open) => {
-        if (open) markAllRead();
-      }}
-    >
+    <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="icon" className="relative" aria-label="Notifications">
           <Bell className="h-4 w-4" />
@@ -136,7 +142,11 @@ function NotificationsBell() {
             <div className="space-y-1 p-1">
               {pendingItems.map((item) => (
                 <DropdownMenuItem key={item.key} asChild>
-                  <Link to={item.to} className="flex items-center justify-between gap-2 text-sm">
+                  <Link
+                    to={item.to}
+                    search={item.search as never}
+                    className="flex items-center justify-between gap-2 text-sm"
+                  >
                     <span>{item.label}</span>
                     <Badge variant="destructive" className="shrink-0">
                       {item.count}
@@ -148,10 +158,24 @@ function NotificationsBell() {
             <DropdownMenuSeparator />
           </>
         )}
-        <DropdownMenuLabel>Notifications</DropdownMenuLabel>
+        <div className="flex items-center justify-between pr-1">
+          <DropdownMenuLabel>Notifications</DropdownMenuLabel>
+          {(notifications.data?.length ?? 0) > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={() => void markRead((notifications.data ?? []).map((n) => n.id))}
+            >
+              Clear all
+            </Button>
+          )}
+        </div>
         <DropdownMenuSeparator />
         {(notifications.data?.length ?? 0) === 0 ? (
-          <p className="px-2 py-6 text-center text-sm text-muted-foreground">No notifications.</p>
+          <p className="px-2 py-6 text-center text-sm text-muted-foreground">
+            You&apos;re all caught up.
+          </p>
         ) : (
           <ScrollArea className="h-80">
             <div className="space-y-1 p-1">
@@ -173,14 +197,20 @@ function NotificationsBell() {
                 // With somewhere to act on it, the notification opens that page.
                 return link ? (
                   <DropdownMenuItem key={n.id} asChild className={`${tone} block cursor-pointer`}>
-                    <Link to={link.to} search={link.search}>
+                    <Link to={link.to} search={link.search} onClick={() => void markRead([n.id])}>
                       {content}
                     </Link>
                   </DropdownMenuItem>
                 ) : (
-                  <div key={n.id} className={tone}>
+                  <button
+                    key={n.id}
+                    type="button"
+                    className={`${tone} block w-full text-left`}
+                    title="Mark as done"
+                    onClick={() => void markRead([n.id])}
+                  >
                     {content}
-                  </div>
+                  </button>
                 );
               })}
             </div>

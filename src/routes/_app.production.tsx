@@ -59,8 +59,6 @@ import {
   Loader2,
   AlertTriangle,
   ClipboardList,
-  Moon,
-  Sun,
   Trash2,
 } from "lucide-react";
 import { money, num } from "@/lib/format";
@@ -74,9 +72,10 @@ import {
   defaultUnitFor,
 } from "@/lib/units";
 import { QuickAddProductDialog, ADD_NEW_ITEM } from "@/components/shared/quick-add-item";
-import { SHIFT_LABEL, addDays, localDay, suggestedEntry, type Shift } from "@/lib/production-shift";
+import { SHIFT_LABEL, localDay, suggestedEntry, type Shift } from "@/lib/production-shift";
 import { PmJugsFromQc } from "@/components/qc/jug-handover";
 import { PmBottlesFromQc } from "@/components/preform/pm-bottles";
+import { ProductionMaterialsReport } from "@/components/production/materials-report";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export const Route = createFileRoute("/_app/production")({
@@ -231,7 +230,6 @@ function ProductionPage() {
   const allowExport = canExport("production");
   const [formOpen, setFormOpen] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [sheetPreset, setSheetPreset] = useState<{ date: string; shift: Shift } | undefined>();
   const [editing, setEditing] = useState<ProductionRow | null>(null);
 
   const products = useQuery({
@@ -407,35 +405,10 @@ function ProductionPage() {
         </div>
         {write && (
           <div className="flex flex-wrap items-center gap-2">
-            {/* By shift: last night's output is entered in the morning, the
-                day's output during the day or before close of business. */}
-            <Button
-              variant="outline"
-              className="gap-2"
-              disabled={factory.isLoading || !factoryId}
-              onClick={() => {
-                setSheetPreset({ date: addDays(localDay(), -1), shift: "night" });
-                setSheetOpen(true);
-              }}
-            >
-              <Moon className="h-4 w-4" /> Last night&apos;s batch
-            </Button>
-            <Button
-              variant="outline"
-              className="gap-2"
-              disabled={factory.isLoading || !factoryId}
-              onClick={() => {
-                setSheetPreset({ date: localDay(), shift: "day" });
-                setSheetOpen(true);
-              }}
-            >
-              <Sun className="h-4 w-4" /> Today&apos;s day batch
-            </Button>
             <Dialog
               open={sheetOpen}
               onOpenChange={(v) => {
                 setSheetOpen(v);
-                if (!v) setSheetPreset(undefined);
               }}
             >
               <DialogTrigger asChild>
@@ -445,14 +418,11 @@ function ProductionPage() {
               </DialogTrigger>
               {sheetOpen && factoryId && (
                 <DailyProductionSheet
-                  key={sheetPreset ? `${sheetPreset.date}-${sheetPreset.shift}` : "auto"}
                   factoryId={factoryId}
                   products={products.data ?? []}
                   recorded={list.data ?? []}
-                  preset={sheetPreset}
                   onDone={() => {
                     setSheetOpen(false);
-                    setSheetPreset(undefined);
                     invalidateAll();
                   }}
                 />
@@ -515,17 +485,21 @@ function ProductionPage() {
       {/* Good bottles QC issues to PM have their own tab, apart from what
           Production records and releases. */}
       <Tabs defaultValue="production" className="space-y-6">
-        {canSeeBottles && (
-          <TabsList>
-            <TabsTrigger value="production">Production</TabsTrigger>
-            <TabsTrigger value="good-bottles">Good bottles from QC</TabsTrigger>
-          </TabsList>
-        )}
+        <TabsList className="h-auto flex-wrap">
+          <TabsTrigger value="production">Production</TabsTrigger>
+          {canSeeBottles && <TabsTrigger value="good-bottles">Good bottles from QC</TabsTrigger>}
+          <TabsTrigger value="materials">Process Material</TabsTrigger>
+        </TabsList>
         {canSeeBottles && (
           <TabsContent value="good-bottles">
             {factoryId && <PmBottlesFromQc factoryId={factoryId} showEmpty />}
           </TabsContent>
         )}
+        {/* The Production Manager's raw-material register (Opening, Qty In,
+            Used, Damages, Replaced, Balance). */}
+        <TabsContent value="materials">
+          {factoryId && <ProductionMaterialsReport factoryId={factoryId} />}
+        </TabsContent>
         <TabsContent value="production" className="space-y-6">
           {factoryId && <PmJugsFromQc factoryId={factoryId} />}
 
@@ -733,18 +707,14 @@ function DailyProductionSheet({
   factoryId,
   products,
   recorded,
-  preset,
   onDone,
 }: {
   factoryId: string;
   products: Product[];
   recorded: ProductionRow[];
-  // Opened from "Last night's batch" / "Today's day batch": that date and
-  // shift; otherwise the likely one for the time of day.
-  preset?: { date: string; shift: Shift };
   onDone: () => void;
 }) {
-  const [suggested] = useState(() => preset ?? suggestedEntry());
+  const [suggested] = useState(suggestedEntry);
   const [date, setDate] = useState(suggested.date);
   const [shift, setShift] = useState<Shift>(suggested.shift);
   // The sheet starts empty; the manager adds a row per product produced, each
@@ -882,30 +852,6 @@ function DailyProductionSheet({
         <DialogTitle>Daily Production Sheet</DialogTitle>
       </DialogHeader>
       <div className="grid max-h-[75vh] gap-3 overflow-y-auto pr-1">
-        <div className="flex flex-wrap gap-2">
-          <Button
-            type="button"
-            size="sm"
-            variant={date === addDays(today, -1) && shift === "night" ? "default" : "outline"}
-            onClick={() => {
-              setDate(addDays(today, -1));
-              setShift("night");
-            }}
-          >
-            Last night&apos;s batch
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant={date === today && shift === "day" ? "default" : "outline"}
-            onClick={() => {
-              setDate(today);
-              setShift("day");
-            }}
-          >
-            Today&apos;s day batch
-          </Button>
-        </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label>Production date</Label>
@@ -1254,32 +1200,6 @@ function ProductionForm({
         <DialogTitle>{editing ? "Update Production" : "New Production"}</DialogTitle>
       </DialogHeader>
       <div className="grid gap-3 max-h-[75vh] overflow-y-auto pr-1">
-        {!editing && (
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              size="sm"
-              variant={date === addDays(today, -1) && shift === "night" ? "default" : "outline"}
-              onClick={() => {
-                setDate(addDays(today, -1));
-                setShift("night");
-              }}
-            >
-              Last night&apos;s batch
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant={date === today && shift === "day" ? "default" : "outline"}
-              onClick={() => {
-                setDate(today);
-                setShift("day");
-              }}
-            >
-              Today&apos;s day batch
-            </Button>
-          </div>
-        )}
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label>Production date</Label>

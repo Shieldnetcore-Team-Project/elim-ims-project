@@ -6,6 +6,10 @@ import { usePermissions } from "@/lib/permissions";
 import { useRealtimeInvalidate } from "@/lib/realtime";
 import { logAudit } from "@/lib/audit";
 import { money } from "@/lib/format";
+import { useFactorySettings } from "@/lib/use-factory";
+import { printSaleInvoice } from "@/lib/invoice";
+import { printDispatchSlip } from "@/lib/dispatch-slip";
+import { Link } from "@tanstack/react-router";
 import { RemittanceDialog, type Rep } from "@/routes/_app.distribution";
 import { CustomerPaymentDialog } from "./customer-payment-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -36,7 +40,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { CheckCircle2, HandCoins, Loader2, Search } from "lucide-react";
+import { CheckCircle2, HandCoins, Loader2, Printer, Search, X } from "lucide-react";
 
 export type Posting = {
   kind: "marketer" | "retail" | "distributor" | "chairmans_gift";
@@ -69,11 +73,16 @@ const statusVariant = (s: string): "default" | "secondary" | "outline" | "destru
   return "secondary";
 };
 
-// Every Warehouse posting -- to a marketer, the Company Retail Shop or a
-// distributor -- lands here for Accounting to assess and enter payment
-// against (accounting_postings). A marketer's or the shop's payment is a
-// remittance to their account; a distributor's is a receipt on the invoice.
-// A chairman's gift is assessed for the record only: there is no payment.
+// Warehouse postings to marketers and distributors land here for Accounts to
+// confirm, print the receipt and enter payment against (accounting_postings).
+//   distributor  the sale waits here (not on the Sales page): Confirm posts it
+//                (confirm_warehouse_posting) or Reject sends it back; payment
+//                is a receipt on the invoice
+//   marketer     Confirm marks the dispatch checked (assess_posting) and
+//                prints its slip; payment is a remittance to the account
+// Postings to the Company Retail Shop are settled on Retail cash-up instead
+// (what was posted, sold, left and the money handed over), so they aren't
+// listed here. A chairman's gift is reviewed for the record only.
 export function PostingsTab({ factoryId, currency }: { factoryId: string; currency: string }) {
   const qc = useQueryClient();
   const perms = usePermissions();
@@ -81,6 +90,14 @@ export function PostingsTab({ factoryId, currency }: { factoryId: string; curren
     perms.canWrite("payments") || perms.canWrite("debts") || perms.canPost("distribution");
   const canPayInvoice = perms.canWrite("payments") || perms.canWrite("debts");
   const canRemit = perms.canPost("distribution");
+  // confirm_warehouse_posting / reject_warehouse_posting: finance + payments
+  // or debts write.
+  const canConfirmSale = canPayInvoice;
+  const settings = useFactorySettings(factoryId);
+  const printReceipt = (p: Posting) =>
+    p.posting_kind === "sale"
+      ? printSaleInvoice(p.posting_id, settings.data, "print")
+      : printDispatchSlip({ id: p.posting_id }, settings.data, "print");
 
   const [kind, setKind] = useState<"all" | Posting["kind"]>("all");
   const [state, setState] = useState<"to_assess" | "assessed" | "all">("to_assess");
@@ -89,8 +106,15 @@ export function PostingsTab({ factoryId, currency }: { factoryId: string; curren
   const [paying, setPaying] = useState<Posting | null>(null);
 
   useRealtimeInvalidate(
-    ["stock_dispatches", "sales", "payments_received", "rep_remittances", "chairmans_gifts"],
-    [["acct-postings"]],
+    [
+      "stock_dispatches",
+      "sales",
+      "payments_received",
+      "rep_remittances",
+      "chairmans_gifts",
+      "posting_assessments",
+    ],
+    [["acct-postings"], ["pending-attention"]],
   );
 
   const postings = useQuery({
@@ -101,8 +125,12 @@ export function PostingsTab({ factoryId, currency }: { factoryId: string; curren
         { p_factory: factoryId, p_limit: 500 } as never,
       );
       if (error) throw error;
-      return (data ?? []) as unknown as Posting[];
+      // The shop's postings are settled on Retail cash-up.
+      return ((data ?? []) as unknown as Posting[]).filter((p) => p.kind !== "retail");
     },
+    // Realtime refreshes this the moment something changes; this only catches
+    // an event the browser missed.
+    refetchInterval: 30_000,
   });
 
   // Marketers and the shop, for the remittance dialog's picker. Readable with
@@ -122,13 +150,19 @@ export function PostingsTab({ factoryId, currency }: { factoryId: string; curren
   });
 
   const all = useMemo(() => postings.data ?? [], [postings.data]);
-  const toAssess = all.filter((p) => !p.assessed_at && p.status !== "reversed");
+  // Still waiting on Accounts: a distributor sale not yet confirmed, or any
+  // other posting not yet checked.
+  const waiting = (p: Posting) =>
+    p.posting_kind === "sale"
+      ? p.status === "pending_approval"
+      : !p.assessed_at && p.status !== "reversed";
+  const toAssess = all.filter(waiting);
   const shown = useMemo(() => {
     const key = q.trim().toLowerCase();
     return all.filter(
       (p) =>
         (kind === "all" || p.kind === kind) &&
-        (state === "all" || (state === "assessed" ? !!p.assessed_at : !p.assessed_at)) &&
+        (state === "all" || (state === "assessed" ? !waiting(p) : waiting(p))) &&
         (!key ||
           p.reference.toLowerCase().includes(key) ||
           p.party.toLowerCase().includes(key) ||
@@ -144,7 +178,10 @@ export function PostingsTab({ factoryId, currency }: { factoryId: string; curren
         : canRemit && p.status === "posted";
   const payHint = (p: Posting) => {
     if (p.posting_kind === "gift") return "Chairman's gift — nothing to pay, record only";
-    if (p.posting_kind === "sale" && p.status !== "posted") return "Awaiting sale approval";
+    if (p.posting_kind === "sale" && p.status === "pending_approval")
+      return "Confirm the sale first";
+    if (p.posting_kind === "sale" && p.status !== "posted")
+      return `Sale ${p.status.replace(/_/g, " ")}`;
     if (p.posting_kind === "sale" && Number(p.balance ?? 0) <= 0) return "Fully paid";
     if (p.status === "reversed") return "Dispatch reversed";
     return "You don't have the right to record this payment";
@@ -153,9 +190,9 @@ export function PostingsTab({ factoryId, currency }: { factoryId: string; curren
   return (
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-3">
-        <Stat label="To assess" value={String(toAssess.length)} warn={toAssess.length > 0} />
+        <Stat label="To confirm" value={String(toAssess.length)} warn={toAssess.length > 0} />
         <Stat
-          label="Value to assess"
+          label="Value to confirm"
           value={money(
             toAssess.reduce((t, p) => t + Number(p.value), 0),
             currency,
@@ -177,8 +214,13 @@ export function PostingsTab({ factoryId, currency }: { factoryId: string; curren
           <div>
             <CardTitle>Postings from the Warehouse</CardTitle>
             <p className="text-sm text-muted-foreground">
-              Goods posted to marketers, the Company Retail Shop and distributors. Assess each one,
-              then enter the payment against it. Chairman's gifts are assessed for the record only.
+              Goods posted to marketers and distributors. Confirm each one and print its receipt,
+              then enter the payment against it. Chairman's gifts are reviewed for the record only.
+              Postings to the Company Retail Shop are on{" "}
+              <Link to="/accountant" search={{ tab: "retail-cashup" }} className="underline">
+                Retail cash-up
+              </Link>
+              .
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -187,8 +229,8 @@ export function PostingsTab({ factoryId, currency }: { factoryId: string; curren
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="to_assess">To assess</SelectItem>
-                <SelectItem value="assessed">Assessed</SelectItem>
+                <SelectItem value="to_assess">To confirm</SelectItem>
+                <SelectItem value="assessed">Confirmed</SelectItem>
                 <SelectItem value="all">All</SelectItem>
               </SelectContent>
             </Select>
@@ -199,7 +241,6 @@ export function PostingsTab({ factoryId, currency }: { factoryId: string; curren
               <SelectContent>
                 <SelectItem value="all">All postings</SelectItem>
                 <SelectItem value="marketer">Marketers</SelectItem>
-                <SelectItem value="retail">Retail shop</SelectItem>
                 <SelectItem value="distributor">Distributors</SelectItem>
                 <SelectItem value="chairmans_gift">Chairman's gifts</SelectItem>
               </SelectContent>
@@ -260,21 +301,35 @@ export function PostingsTab({ factoryId, currency }: { factoryId: string; curren
                     {p.assessed_at ? (
                       <span title={p.assessment_remarks ?? undefined}>
                         <Badge variant="secondary" className="gap-1">
-                          <CheckCircle2 className="h-3 w-3" /> Assessed
+                          <CheckCircle2 className="h-3 w-3" />{" "}
+                          {p.posting_kind === "gift" ? "Reviewed" : "Confirmed"}
                         </Badge>
                         <div className="mt-1 text-muted-foreground">
                           {p.assessed_by ?? "—"} · {new Date(p.assessed_at).toLocaleDateString()}
                         </div>
                       </span>
                     ) : (
-                      <Badge variant="outline">To assess</Badge>
+                      <Badge variant="outline">To confirm</Badge>
                     )}
                   </TableCell>
                   <TableCell>
                     <div className="flex justify-end gap-1">
-                      {canAssess && !p.assessed_at && (
+                      {(p.posting_kind === "sale" && p.status === "pending_approval"
+                        ? canConfirmSale
+                        : canAssess && !p.assessed_at && p.status !== "reversed") && (
                         <Button size="sm" variant="outline" onClick={() => setAssessing(p)}>
-                          Assess
+                          {p.posting_kind === "gift" ? "Review" : "Confirm"}
+                        </Button>
+                      )}
+                      {p.posting_kind !== "gift" && (
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          title="Print receipt"
+                          aria-label="Print receipt"
+                          onClick={() => void printReceipt(p)}
+                        >
+                          <Printer className="h-4 w-4" />
                         </Button>
                       )}
                       <Button
@@ -298,7 +353,7 @@ export function PostingsTab({ factoryId, currency }: { factoryId: string; curren
                       : postings.isError
                         ? "Postings aren't available yet."
                         : state === "to_assess"
-                          ? "Nothing waiting to be assessed."
+                          ? "Nothing waiting to be confirmed."
                           : "No postings."}
                   </TableCell>
                 </TableRow>
@@ -317,9 +372,16 @@ export function PostingsTab({ factoryId, currency }: { factoryId: string; curren
             onDone={(payNext) => {
               const p = assessing;
               setAssessing(null);
-              if (payNext && payable(p)) setPaying(p);
+              // A confirmed sale is posted now, so it can take payment.
+              const next = p.posting_kind === "sale" ? { ...p, status: "posted" } : p;
+              if (payNext && payable(next)) setPaying(next);
             }}
-            canPay={payable(assessing)}
+            onPrint={() => printReceipt(assessing)}
+            canPay={
+              assessing.posting_kind === "sale" && assessing.status === "pending_approval"
+                ? canPayInvoice && Number(assessing.value) > Number(assessing.paid ?? 0)
+                : payable(assessing)
+            }
           />
         )}
       </Dialog>
@@ -355,24 +417,45 @@ export function PostingsTab({ factoryId, currency }: { factoryId: string; curren
   );
 }
 
+// Confirm a posting. A distributor sale still pending is posted now
+// (confirm_warehouse_posting) or rejected with a reason; any other posting is
+// marked checked (assess_posting). Either way the receipt can print straight
+// after, and payment can follow.
 function AssessDialog({
   posting: p,
   currency,
   factoryId,
   canPay,
+  onPrint,
   onDone,
 }: {
   posting: Posting;
   currency: string;
   factoryId: string;
   canPay: boolean;
+  onPrint: () => void;
   onDone: (payNext: boolean) => void;
 }) {
   const qc = useQueryClient();
   const [remarks, setRemarks] = useState("");
+  const [print, setPrint] = useState(p.posting_kind !== "gift");
+  const pendingSale = p.posting_kind === "sale" && p.status === "pending_approval";
+
+  const refresh = () => {
+    for (const key of ["acct-postings", "pending-attention", "sales-list", "acct-sales"])
+      qc.invalidateQueries({ queryKey: [key] });
+  };
 
   const assess = useMutation({
     mutationFn: async (payNext: boolean) => {
+      if (pendingSale) {
+        const { error } = await supabase.rpc(
+          "confirm_warehouse_posting" as never,
+          { p_id: p.posting_id, p_comment: remarks || null } as never,
+        );
+        if (error) throw error;
+        return { id: p.posting_id, payNext };
+      }
       const { data, error } = await supabase.rpc(
         "assess_posting" as never,
         { p_kind: p.posting_kind, p_id: p.posting_id, p_remarks: remarks || null } as never,
@@ -381,18 +464,47 @@ function AssessDialog({
       return { id: data as unknown as string, payNext };
     },
     onSuccess: ({ id, payNext }) => {
-      toast.success(`${p.reference} assessed`);
-      logAudit({ action: "update", entity: "posting_assessments", entityId: id, factoryId });
-      qc.invalidateQueries({ queryKey: ["acct-postings"] });
+      toast.success(
+        pendingSale ? `${p.reference} confirmed and posted` : `${p.reference} confirmed`,
+      );
+      logAudit({
+        action: pendingSale ? "approve" : "update",
+        entity: pendingSale ? "sales" : "posting_assessments",
+        entityId: id,
+        factoryId,
+      });
+      refresh();
+      if (print) onPrint();
       onDone(payNext);
     },
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const reject = useMutation({
+    mutationFn: async () => {
+      if (!remarks.trim()) throw new Error("Write the reason for rejecting it in Remarks");
+      const { error } = await supabase.rpc(
+        "reject_warehouse_posting" as never,
+        { p_id: p.posting_id, p_reason: remarks.trim() } as never,
+      );
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success(`${p.reference} rejected — sent back to the Warehouse`);
+      logAudit({ action: "reject", entity: "sales", entityId: p.posting_id, factoryId });
+      refresh();
+      onDone(false);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const busy = assess.isPending || reject.isPending;
+
   return (
     <DialogContent className="max-w-md">
       <DialogHeader>
-        <DialogTitle>Assess {p.reference}</DialogTitle>
+        <DialogTitle>
+          {p.posting_kind === "gift" ? "Review" : "Confirm"} {p.reference}
+        </DialogTitle>
       </DialogHeader>
       <div className="grid gap-3 text-sm">
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
@@ -417,19 +529,41 @@ function AssessDialog({
           <dt className="text-muted-foreground">Status</dt>
           <dd className="capitalize">{p.status.replace(/_/g, " ")}</dd>
         </dl>
+        {pendingSale && (
+          <p className="rounded-md border bg-muted/40 p-2 text-xs text-muted-foreground">
+            Confirming posts the sale: the goods leave Warehouse stock and the invoice goes on the
+            distributor's account.
+          </p>
+        )}
         <div>
-          <Label>Remarks (optional)</Label>
+          <Label>{pendingSale ? "Remarks (required to reject)" : "Remarks (optional)"}</Label>
           <Textarea value={remarks} onChange={(e) => setRemarks(e.target.value)} />
         </div>
+        {p.posting_kind !== "gift" && (
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={print} onChange={(e) => setPrint(e.target.checked)} />
+            Print the receipt after confirming
+          </label>
+        )}
       </div>
       <DialogFooter className="gap-2">
-        <Button variant="outline" disabled={assess.isPending} onClick={() => assess.mutate(false)}>
-          {p.posting_kind === "gift" ? "Review & record" : "Mark assessed"}
+        {pendingSale && (
+          <Button
+            variant="outline"
+            className="gap-1 text-destructive"
+            disabled={busy}
+            onClick={() => reject.mutate()}
+          >
+            <X className="h-4 w-4" /> Reject
+          </Button>
+        )}
+        <Button variant="outline" disabled={busy} onClick={() => assess.mutate(false)}>
+          {p.posting_kind === "gift" ? "Review & record" : "Confirm"}
         </Button>
         {canPay && (
-          <Button disabled={assess.isPending} onClick={() => assess.mutate(true)}>
+          <Button disabled={busy} onClick={() => assess.mutate(true)}>
             {assess.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Assess &amp; enter payment
+            Confirm &amp; enter payment
           </Button>
         )}
       </DialogFooter>

@@ -30,7 +30,9 @@ import {
   Calculator,
   ClipboardList,
   ShoppingCart,
+  Wrench,
 } from "lucide-react";
+import { db as maintenanceDb } from "@/components/maintenance/shared";
 
 export const Route = createFileRoute("/_app/approvals")({
   head: () => ({
@@ -150,14 +152,25 @@ function ApprovalsPage() {
     queryKey: ["approvals-sales"],
     enabled: canApprove("sales"),
     queryFn: async () => {
-      const { data, error } = await supabase
+      // Warehouse postings to distributors are confirmed by Accounts
+      // (Accountant → Postings), not here.
+      const { data, error } = await (supabase as any)
         .from("sales")
         .select("id,invoice_number,customer_name,grand_total,sale_date,created_by")
         .eq("status", "pending_approval")
+        .eq("is_warehouse_posting", false)
         .order("sale_date", { ascending: false })
         .limit(50);
       if (error) throw error;
-      return isSuperAdmin ? (data ?? []) : (data ?? []).filter((s) => s.created_by !== uid);
+      const rows = (data ?? []) as {
+        id: string;
+        invoice_number: string;
+        customer_name: string | null;
+        grand_total: number;
+        sale_date: string;
+        created_by: string | null;
+      }[];
+      return isSuperAdmin ? rows : rows.filter((s) => s.created_by !== uid);
     },
   });
 
@@ -245,6 +258,37 @@ function ApprovalsPage() {
         .limit(50);
       if (error) throw error;
       return (data ?? []).filter((r: any) => r.submitted_by !== uid) as any[];
+    },
+  });
+
+  // Maintenance: parts waiting to be issued, and maintenance/purchase requests.
+  // decide_maintenance_issue()/decide_maintenance_request() exempt a
+  // super_admin from the self-approval block, so their own rows stay listed.
+  const maintenance = useQuery({
+    queryKey: ["approvals-maintenance", uid, isSuperAdmin],
+    enabled: canApprove("logistics"),
+    queryFn: async () => {
+      const [issues, requests] = await Promise.all([
+        maintenanceDb
+          .from("maintenance_issue_requests")
+          .select("id,issue_number,quantity,kind,requested_by,maintenance_parts(name,unit)")
+          .eq("status", "pending_approval")
+          .order("created_at")
+          .limit(50),
+        maintenanceDb
+          .from("maintenance_requests")
+          .select("id,request_number,title,estimated_cost,requested_by")
+          .eq("status", "pending_approval")
+          .order("created_at")
+          .limit(50),
+      ]);
+      if (issues.error) throw issues.error;
+      if (requests.error) throw requests.error;
+      const mine = (r: { requested_by: string | null }) => !isSuperAdmin && r.requested_by === uid;
+      return {
+        issues: (issues.data ?? []).filter((r: any) => !mine(r)) as any[],
+        requests: (requests.data ?? []).filter((r: any) => !mine(r)) as any[],
+      };
     },
   });
 
@@ -484,6 +528,34 @@ function ApprovalsPage() {
                     r.products?.name ?? "—",
                     `${r.quantity_delta} ${r.products?.unit ?? ""}`,
                     r.reason ?? "—",
+                  ],
+                })),
+              ]}
+            />
+          )}
+          {canApprove("logistics") && (
+            <QueueCard
+              icon={Wrench}
+              title="Maintenance"
+              to="/maintenance"
+              empty="No maintenance issues or requests pending."
+              rows={[
+                ...(maintenance.data?.issues ?? []).map((r: any) => ({
+                  key: r.id,
+                  cells: [
+                    r.issue_number,
+                    r.kind === "adjustment" ? "Stock adjustment" : "Issue parts",
+                    r.maintenance_parts?.name ?? "—",
+                    `${r.quantity} ${r.maintenance_parts?.unit ?? ""}`,
+                  ],
+                })),
+                ...(maintenance.data?.requests ?? []).map((r: any) => ({
+                  key: r.id,
+                  cells: [
+                    r.request_number,
+                    "Request",
+                    r.title,
+                    r.estimated_cost != null ? money(Number(r.estimated_cost)) : "—",
                   ],
                 })),
               ]}

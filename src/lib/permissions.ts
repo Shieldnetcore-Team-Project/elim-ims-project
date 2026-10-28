@@ -152,7 +152,7 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   "audit-logs": "Audit Logs",
   settings: "Settings",
   costing: "Costing",
-  logistics: "Logistics",
+  logistics: "Maintenance",
   distribution: "Distribution (Sales Reps)",
   approvals: "Approvals",
   "goods-receiving": "Quality Control (Goods Receiving)",

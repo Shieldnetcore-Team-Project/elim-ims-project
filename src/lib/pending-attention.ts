@@ -39,22 +39,28 @@ function useCount(
       return count ?? 0;
     },
     staleTime: 15_000,
+    // Realtime clears a count the moment it is attended to; this only
+    // catches an event the browser missed (e.g. a dropped connection).
+    refetchInterval: 30_000,
   });
 }
 
 export function usePendingAttention() {
-  const { canApprove, canConfirm, canSubmit } = usePermissions();
+  const { canApprove, canConfirm, canSubmit, canView } = usePermissions();
   const { data: uid } = useCurrentUserId();
   // approve_sale()/reject_sale() exempt an admin (super_admin) from the
   // self-approval block every other approver role is still under -- mirror
   // that here instead of hiding an admin's own sale from their own count.
   const isSuperAdmin = useIsSuperAdmin().data ?? false;
 
+  // Warehouse postings to distributors are confirmed by Accounts, not on the
+  // Sales (Retail) queue (warehousePostings below).
   const sales = useCount("sales", canApprove("sales"), uid, () => {
-    const q = supabase
+    const q = (supabase as any)
       .from("sales")
       .select("id", { count: "exact", head: true })
-      .eq("status", "pending_approval");
+      .eq("status", "pending_approval")
+      .eq("is_warehouse_posting", false);
     return isSuperAdmin ? q : q.neq("created_by", uid ?? "");
   });
   const expenses = useCount("expenses", canApprove("expenses"), uid, () =>
@@ -170,6 +176,28 @@ export function usePendingAttention() {
       .neq("submitted_by", uid ?? ""),
   );
 
+  const warehousePostings = useCount("warehouse-postings", canView("finance"), uid, async () => {
+    const { data, error } = await supabase.rpc("warehouse_postings_to_confirm" as never);
+    return { count: (data as unknown as number | null) ?? 0, error };
+  });
+
+  // Maintenance (permission key 'logistics'): parts issues and requests
+  // waiting on an approver other than whoever raised them.
+  const maintenanceIssues = useCount("maintenance-issues", canApprove("logistics"), uid, () =>
+    (supabase as any)
+      .from("maintenance_issue_requests")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "pending_approval")
+      .neq("requested_by", uid ?? ""),
+  );
+  const maintenanceRequests = useCount("maintenance-requests", canApprove("logistics"), uid, () =>
+    (supabase as any)
+      .from("maintenance_requests")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "pending_approval")
+      .neq("requested_by", uid ?? ""),
+  );
+
   const customerAdjustments = useCount("customer-adjustments", canApprove("customers"), uid, () =>
     (supabase as any)
       .from("customer_account_adjustments")
@@ -191,15 +219,30 @@ export function usePendingAttention() {
       "goods_receipts",
       "qc_store_receipts",
       "production",
+      "production_releases",
+      "posting_assessments",
+      "delete_requests",
       "costing_sheets",
       "production_requests",
       "staff_deductions",
       "staff_loans",
+      "notifications",
+      "notification_reads",
+      "maintenance_issue_requests",
+      "maintenance_requests",
     ],
-    [["pending-attention"]],
+    // The bell's notification list too: an approval done anywhere clears
+    // its notification straight away.
+    [["pending-attention"], ["notifications"]],
   );
 
-  const results: { key: string; label: string; to: string; query: typeof expenses }[] = [
+  const results: {
+    key: string;
+    label: string;
+    to: string;
+    search?: Record<string, string>;
+    query: typeof expenses;
+  }[] = [
     {
       key: "customer-adjustments",
       label: "Customer account adjustments pending",
@@ -207,6 +250,13 @@ export function usePendingAttention() {
       query: customerAdjustments,
     },
     { key: "sales", label: "Sales awaiting approval", to: "/sales", query: sales },
+    {
+      key: "warehouse-postings",
+      label: "Warehouse postings for Accounts to confirm",
+      to: "/accountant",
+      search: { tab: "postings" },
+      query: warehousePostings,
+    },
     { key: "expenses", label: "Expenses awaiting approval", to: "/expenses", query: expenses },
     { key: "debts", label: "Debt write-offs pending", to: "/cash-ledger", query: debts },
     { key: "payroll", label: "Payroll runs awaiting approval", to: "/payroll", query: payroll },
@@ -267,6 +317,18 @@ export function usePendingAttention() {
       query: staffDeductions,
     },
     {
+      key: "maintenance-issues",
+      label: "Maintenance parts issues awaiting approval",
+      to: "/maintenance",
+      query: maintenanceIssues,
+    },
+    {
+      key: "maintenance-requests",
+      label: "Maintenance requests awaiting approval",
+      to: "/maintenance",
+      query: maintenanceRequests,
+    },
+    {
       key: "staff-loans",
       label: "Staff loans awaiting approval",
       to: "/employees",
@@ -275,7 +337,13 @@ export function usePendingAttention() {
   ];
 
   const items = results
-    .map((r) => ({ key: r.key, label: r.label, to: r.to, count: r.query.data ?? 0 }))
+    .map((r) => ({
+      key: r.key,
+      label: r.label,
+      to: r.to,
+      search: r.search,
+      count: r.query.data ?? 0,
+    }))
     .filter((i) => i.count > 0);
 
   const byUrl = new Map<string, number>();

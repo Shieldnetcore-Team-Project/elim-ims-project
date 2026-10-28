@@ -736,6 +736,9 @@ export function RetailCashUpTab({ factoryId, currency }: { factoryId: string; cu
               <TableRow>
                 <TableHead>Day</TableHead>
                 <TableHead>Outlet</TableHead>
+                <TableHead className="text-right">Posted to shop</TableHead>
+                <TableHead className="text-right">Sold</TableHead>
+                <TableHead className="text-right">Left</TableHead>
                 <TableHead className="text-right">Sales</TableHead>
                 <TableHead className="text-right">Cash + transfer expected</TableHead>
                 <TableHead className="text-right">Declared</TableHead>
@@ -756,6 +759,9 @@ export function RetailCashUpTab({ factoryId, currency }: { factoryId: string; cu
                   <TableRow key={r.id}>
                     <TableCell className="whitespace-nowrap">{fmtDay(r.close_date)}</TableCell>
                     <TableCell>{outletName(r.sales_rep_id)}</TableCell>
+                    <TableCell className="text-right">{num(r.figures.stock.received)}</TableCell>
+                    <TableCell className="text-right">{num(r.figures.stock.sold)}</TableCell>
+                    <TableCell className="text-right">{num(r.figures.stock.closing)}</TableCell>
                     <TableCell className="text-right">{fmt(r.figures.money.sales_value)}</TableCell>
                     <TableCell className="text-right">{fmt(expected)}</TableCell>
                     <TableCell className={`text-right ${diffClass(declared - expected)}`}>
@@ -784,7 +790,7 @@ export function RetailCashUpTab({ factoryId, currency }: { factoryId: string; cu
               })}
               {rows.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">
+                  <TableCell colSpan={12} className="py-8 text-center text-muted-foreground">
                     No day has been submitted by the retail outlet yet. Use “View day” to see a
                     day’s live figures.
                   </TableCell>
