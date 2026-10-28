@@ -135,95 +135,98 @@ export async function generateInvoicePdf(
   const roll = paper === "roll";
 
   const W = roll ? 226 : 595; // 80mm roll / A4 width in pt
-  const M = roll ? 10 : 40;
+  const M = roll ? 8 : 40;
   const contentW = W - M * 2;
   const center = W / 2;
+  // The slim POS roll prints small: bigger type and logo there (k), so it
+  // reads like a till receipt.
+  const k = roll ? 1.45 : 1;
+  const fz = (n: number) => n * k;
 
   const draw = (doc: jsPDF): number => {
     let y = M;
+    const centred = (text: string, gap: number) => {
+      (doc.splitTextToSize(text, contentW) as string[]).forEach((ln) => {
+        doc.text(ln, center, y, { align: "center" });
+        y += fz(gap);
+      });
+    };
+    const left = (text: string, gap: number) => {
+      (doc.splitTextToSize(text, contentW) as string[]).forEach((ln) => {
+        doc.text(ln, M, y);
+        y += fz(gap);
+      });
+    };
 
     if (logo) {
-      const maxW = roll ? 70 : 90,
-        maxH = roll ? 40 : 50;
+      const maxW = roll ? 150 : 90,
+        maxH = roll ? 75 : 50;
       const ratio = Math.min(maxW / logo.width, maxH / logo.height, 1);
       const w = logo.width * ratio,
         h = logo.height * ratio;
       doc.addImage(logo.dataUrl, "PNG", center - w / 2, y, w, h);
-      y += h + 6;
+      y += h + 8;
     }
 
     // The logo already names the company; the name line is only a fallback
     // for when there is no logo to show.
     if (!logo) {
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(12);
-      doc.text(data.company.name || "Company", center, y, { align: "center" });
-      y += 14;
+      doc.setFontSize(fz(12));
+      centred(data.company.name || "Company", 14);
     }
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(8);
-    if (data.company.address) {
-      doc.text(data.company.address, center, y, { align: "center" });
-      y += 11;
-    }
+    doc.setFontSize(fz(8));
+    if (data.company.address) centred(data.company.address, 11);
     const contact = [data.company.phone, data.company.email].filter(Boolean).join(" · ");
-    if (contact) {
-      doc.text(contact, center, y, { align: "center" });
-      y += 11;
-    }
+    if (contact) centred(contact, 11);
 
     y += 4;
     doc.setLineDashPattern([2, 1], 0);
     doc.line(M, y, W - M, y);
-    y += 12;
+    y += fz(12);
     doc.setLineDashPattern([], 0);
 
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(10);
-    doc.text(data.is_pr ? "PR — COMPLIMENTARY (NO CHARGE)" : "SALES RECEIPT", center, y, {
-      align: "center",
-    });
-    y += 14;
+    doc.setFontSize(fz(10));
+    centred(data.is_pr ? "PR — COMPLIMENTARY (NO CHARGE)" : "SALES RECEIPT", 14);
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(8);
-    doc.text(`Invoice: ${data.invoice_number}`, M, y);
-    y += 11;
-    doc.text(`Date: ${data.sale_date}`, M, y);
-    y += 11;
+    doc.setFontSize(fz(8));
+    left(`Invoice: ${data.invoice_number}`, 11);
+    left(`Date: ${data.sale_date}`, 11);
 
     doc.line(M, y, W - M, y);
-    y += 12;
+    y += fz(12);
 
-    doc.text(`Customer: ${data.customer.name || "Walk-in"}`, M, y);
-    y += 11;
-    if (data.customer.phone) {
-      doc.text(`Phone: ${data.customer.phone}`, M, y);
-      y += 11;
-    }
+    left(`Customer: ${data.customer.name || "Walk-in"}`, 11);
+    if (data.customer.phone) left(`Phone: ${data.customer.phone}`, 11);
 
     doc.line(M, y, W - M, y);
-    y += 12;
+    y += fz(12);
 
     data.items.forEach((it) => {
-      const nameLines: string[] = doc.splitTextToSize(it.name, contentW);
-      nameLines.forEach((ln) => {
-        doc.text(ln, M, y);
-        y += 10;
-      });
-      doc.text(`${it.quantity} ${it.unit} x ${cur(it.unit_price)}`, M, y);
-      doc.text(cur(it.line_total), W - M, y, { align: "right" });
-      y += 12;
+      doc.setFont("helvetica", roll ? "bold" : "normal");
+      left(it.name, 10);
+      doc.setFont("helvetica", "normal");
+      const qty = `${it.quantity} ${it.unit} x ${cur(it.unit_price)}`;
+      const value = cur(it.line_total);
+      doc.text(qty, M, y);
+      // Too long for one line on the roll: the value goes under it.
+      if (doc.getTextWidth(qty) + doc.getTextWidth(value) + 8 > contentW) y += fz(11);
+      doc.text(value, W - M, y, { align: "right" });
+      y += fz(12);
     });
 
     doc.line(M, y, W - M, y);
-    y += 12;
+    y += fz(12);
 
     const row = (label: string, value: string, bold = false, size = 8) => {
       doc.setFont("helvetica", bold ? "bold" : "normal");
-      doc.setFontSize(size);
+      doc.setFontSize(fz(size));
       doc.text(label, M, y);
+      if (doc.getTextWidth(label) + doc.getTextWidth(value) + 8 > contentW) y += fz(size + 3);
       doc.text(value, W - M, y, { align: "right" });
-      y += bold ? 16 : 12;
+      y += fz(bold ? 16 : 12);
     };
     if (data.is_pr) {
       row("Value of goods issued", cur(data.subtotal));
@@ -238,26 +241,16 @@ export async function generateInvoicePdf(
     }
 
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(8);
+    doc.setFontSize(fz(8));
     doc.line(M, y, W - M, y);
-    y += 12;
+    y += fz(12);
 
-    if (data.sales_person) {
-      doc.text(`Sales person: ${data.sales_person}`, M, y);
-      y += 11;
-    }
-    if (data.remarks) {
-      const remarkLines: string[] = doc.splitTextToSize(`Remarks: ${data.remarks}`, contentW);
-      remarkLines.forEach((ln) => {
-        doc.text(ln, M, y);
-        y += 10;
-      });
-    }
+    if (data.sales_person) left(`Sales person: ${data.sales_person}`, 11);
+    if (data.remarks) left(`Remarks: ${data.remarks}`, 10);
 
     y += 6;
     doc.setFont("helvetica", "bold");
-    doc.text("Thank you for your patronage!", center, y, { align: "center" });
-    y += 14;
+    centred("Thank you for your patronage!", 14);
 
     return y;
   };
@@ -1010,51 +1003,51 @@ export async function generateDispatchSlipPdf(
   const holderLabel = opts.holder.kind === "outlet" ? "Retail Shop" : "Marketer";
 
   const W = 226; // 80mm roll in pt
-  const M = 10;
+  const M = 8;
   const contentW = W - M * 2;
   const center = W / 2;
 
   const draw = (doc: jsPDF): number => {
     let y = M;
-    const centred = (text: string, size: number, bold = false, gap = 10) => {
+    const centred = (text: string, size: number, bold = false) => {
       doc.setFont("helvetica", bold ? "bold" : "normal");
       doc.setFontSize(size);
       (doc.splitTextToSize(text, contentW) as string[]).forEach((ln) => {
         doc.text(ln, center, y, { align: "center" });
-        y += gap;
+        y += size + 4;
       });
     };
-    const left = (text: string, size = 8, bold = false) => {
+    const left = (text: string, size = 11, bold = false) => {
       doc.setFont("helvetica", bold ? "bold" : "normal");
       doc.setFontSize(size);
       (doc.splitTextToSize(text, contentW) as string[]).forEach((ln) => {
         doc.text(ln, M, y);
-        y += 10;
+        y += size + 4;
       });
     };
     const rule = () => {
       doc.setLineDashPattern([2, 1], 0);
       doc.line(M, y, W - M, y);
       doc.setLineDashPattern([], 0);
-      y += 10;
+      y += 14;
     };
 
-    // Header, centred.
+    // Header, centred: logo, company, address, phone.
     if (logo) {
-      const ratio = Math.min(70 / logo.width, 40 / logo.height, 1);
+      const ratio = Math.min(150 / logo.width, 75 / logo.height, 1);
       const w = logo.width * ratio;
       const h = logo.height * ratio;
       doc.addImage(logo.dataUrl, "PNG", center - w / 2, y, w, h);
-      y += h + 8;
+      y += h + 12;
     }
-    centred(opts.company.name || "Company", 10, true, 12);
-    if (opts.company.address) centred(opts.company.address, 7, false, 9);
+    centred(opts.company.name || "Company", 14, true);
+    if (opts.company.address) centred(opts.company.address, 10);
     const contact = [opts.company.phone, opts.company.email].filter(Boolean).join(" · ");
-    if (contact) centred(contact, 7, false, 9);
+    if (contact) centred(contact, 10);
     y += 2;
     rule();
 
-    centred("STOCK POSTING", 10, true, 12);
+    centred("STOCK POSTING", 14, true);
     left(`No: ${opts.dispatch_number}`);
     left(`Date: ${opts.dispatch_date}`);
     left(`Status: ${opts.status.replace(/_/g, " ").toUpperCase()}`);
@@ -1062,41 +1055,45 @@ export async function generateDispatchSlipPdf(
 
     left(
       `${holderLabel}: ${opts.holder.name}${opts.holder.code ? ` (${opts.holder.code})` : ""}`,
-      8,
+      12,
       true,
     );
     rule();
 
     // Lines: product name, then "qty unit x price" and the value on the right.
     opts.items.forEach((it) => {
-      left(it.name, 8, true);
+      left(it.name, 12, true);
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(8);
-      doc.text(`${it.quantity.toLocaleString()} ${it.unit} x ${cur(it.unit_price)}`, M, y);
-      doc.text(cur(it.line_value), W - M, y, { align: "right" });
-      y += 12;
+      doc.setFontSize(11);
+      const qty = `${it.quantity.toLocaleString()} ${it.unit} x ${cur(it.unit_price)}`;
+      const value = cur(it.line_value);
+      doc.text(qty, M, y);
+      // Too long for one line on the roll: the value goes under it.
+      if (doc.getTextWidth(qty) + doc.getTextWidth(value) + 8 > contentW) y += 15;
+      doc.text(value, W - M, y, { align: "right" });
+      y += 18;
     });
     rule();
 
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(10);
+    doc.setFontSize(14);
     doc.text("TOTAL", M, y);
     doc.text(cur(opts.total_value), W - M, y, { align: "right" });
-    y += 14;
+    y += 20;
     rule();
 
     if (opts.posted_by) left(`Posted by: ${opts.posted_by}`);
     if (opts.notes) left(`Notes: ${opts.notes}`);
 
     // Signatures, one under the other.
+    y += 26;
+    doc.line(M, y, W - M, y);
+    y += 12;
+    left("Warehouse (issued by) / Date", 10);
     y += 22;
     doc.line(M, y, W - M, y);
-    y += 10;
-    left("Warehouse (issued by) / Date", 7);
-    y += 18;
-    doc.line(M, y, W - M, y);
-    y += 10;
-    left(`${holderLabel} (received by) / Date`, 7);
+    y += 12;
+    left(`${holderLabel} (received by) / Date`, 10);
     return y + 4;
   };
 

@@ -15,7 +15,7 @@ import {
   isLowStock,
   sum,
 } from "@/lib/metrics";
-import { postedSalesRows } from "@/lib/metric-queries";
+import { postedSalesRows, goodsSoldValue } from "@/lib/metric-queries";
 import { FinanceOverview } from "@/components/dashboards/finance-overview";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -126,6 +126,8 @@ function AdminDashboard({ factoryId }: { factoryId: string }) {
     [
       "sales",
       "production",
+      "production_releases",
+      "stock_dispatches",
       "raw_materials",
       "products",
       "debts",
@@ -152,22 +154,19 @@ function AdminDashboard({ factoryId }: { factoryId: string }) {
     ],
   );
 
-  // Approved (posted), non-deleted, non-PR invoices by sale date — the same
-  // set the Sales page treats as real revenue.
+  // Goods sold out of the Warehouse: postings to marketers / the retail shop
+  // plus sales from Warehouse stock (approved or awaiting approval) --
+  // goodsSoldValue. The approved-only revenue figure stays on the Sales and
+  // Finance pages.
   const totalSales = useQuery({
     queryKey: ["total-sales-month", factoryId],
     enabled: !!factoryId,
-    queryFn: async () =>
-      sum(await postedSalesRows(factoryId, "grand_total", monthStartDay), (r) => r.grand_total),
+    queryFn: () => goodsSoldValue(factoryId, monthStartDay),
   });
   const salesToday = useQuery({
     queryKey: ["sales-today", factoryId],
     enabled: !!factoryId,
-    queryFn: async () =>
-      sum(
-        await postedSalesRows(factoryId, "grand_total", todayDay, todayDay),
-        (r) => r.grand_total,
-      ),
+    queryFn: () => goodsSoldValue(factoryId, todayDay, todayDay),
   });
   // Units reported by production runs dated today (cancelled/rejected runs
   // don't count).
@@ -280,7 +279,12 @@ function AdminDashboard({ factoryId }: { factoryId: string }) {
     queryKey: ["recent-activity", factoryId],
     enabled: !!factoryId,
     queryFn: async () => {
-      const [sales, production, expenses] = await Promise.all([
+      // Each source is read on its own: one the user may not read (a
+      // Warehouse user has no sales / expenses rights) is skipped instead of
+      // emptying the whole card. The Warehouse feed (warehouse_recent_activity)
+      // adds releases received, postings to marketers / the retail shop, and
+      // sales out of Warehouse stock.
+      const [sales, production, expenses, warehouse] = await Promise.allSettled([
         supabase
           .from("sales")
           .select("id,invoice_number,customer_name,grand_total,created_at")
@@ -303,10 +307,13 @@ function AdminDashboard({ factoryId }: { factoryId: string }) {
           .in("status", COUNTED_STATUSES)
           .order("created_at", { ascending: false })
           .limit(5),
+        supabase.rpc(
+          "warehouse_recent_activity" as never,
+          { p_factory: factoryId, p_limit: 8 } as never,
+        ),
       ]);
-      if (sales.error) throw sales.error;
-      if (production.error) throw production.error;
-      if (expenses.error) throw expenses.error;
+      const rows = (r: PromiseSettledResult<{ data: unknown; error: unknown }>) =>
+        r.status === "fulfilled" && !r.value.error ? ((r.value.data ?? []) as any[]) : [];
       type Item = {
         id: string;
         icon: React.ElementType;
@@ -314,22 +321,41 @@ function AdminDashboard({ factoryId }: { factoryId: string }) {
         detail: string;
         at: string;
       };
+      const WAREHOUSE_LABEL: Record<string, string> = {
+        received: "Received from Production",
+        refused: "Refused to Production",
+        marketer: "Posted to Marketer",
+        retail: "Posted to Retail Shop",
+        distributor: "Posted to Distributor",
+        sale: "Sold from Warehouse",
+      };
+      const warehouseRows = rows(warehouse as never);
+      const warehouseRefs = new Set(warehouseRows.map((w: any) => w.reference));
       const items: Item[] = [
-        ...(sales.data ?? []).map((s: any) => ({
-          id: `sale-${s.id}`,
-          icon: ShoppingCart,
-          label: `Sale ${s.invoice_number}`,
-          detail: `${s.customer_name ?? "Walk-in"} · ${money(Number(s.grand_total))}`,
-          at: s.created_at,
+        ...warehouseRows.map((w: any) => ({
+          id: `wh-${w.kind}-${w.reference}`,
+          icon: w.kind === "received" || w.kind === "refused" ? PackageCheck : Truck,
+          label: `${WAREHOUSE_LABEL[w.kind] ?? w.kind} · ${w.reference}`,
+          detail: [w.party, w.items].filter(Boolean).join(" · "),
+          at: w.at,
         })),
-        ...(production.data ?? []).map((p: any) => ({
+        ...rows(sales as never)
+          .filter((s: any) => !warehouseRefs.has(s.invoice_number))
+          .map((s: any) => ({
+            id: `sale-${s.id}`,
+            icon: ShoppingCart,
+            label: `Sale ${s.invoice_number}`,
+            detail: `${s.customer_name ?? "Walk-in"} · ${money(Number(s.grand_total))}`,
+            at: s.created_at,
+          })),
+        ...rows(production as never).map((p: any) => ({
           id: `prod-${p.id}`,
           icon: FactoryIcon,
           label: `Produced ${p.products?.name ?? ""}`,
           detail: `${num(Number(p.quantity_produced))} ${p.unit ?? ""}`,
           at: p.created_at,
         })),
-        ...(expenses.data ?? []).map((e: any) => ({
+        ...rows(expenses as never).map((e: any) => ({
           id: `exp-${e.id}`,
           icon: Receipt,
           label: e.description || "Expense",

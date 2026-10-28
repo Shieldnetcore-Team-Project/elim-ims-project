@@ -19,10 +19,13 @@ type Rep = { id: string; code: string | null; name: string; kind: string };
 //                                belongs to a marketer's account, or went to
 //                                a registered customer (distributor)
 //   anything else                the plain sales receipt (walk-in, retail shop)
+// paper "roll": the Warehouse's slim POS printer -- always the receipt layout
+// on an 80mm roll, never the A4 distributor invoice.
 export async function printSaleInvoice(
   saleId: string,
   settings: Settings,
   action: "download" | "print",
+  paper: "a4" | "roll" = "a4",
 ) {
   const { data, error } = await supabase
     .from("sales")
@@ -70,7 +73,7 @@ export async function printSaleInvoice(
   } | null;
   const isDistributor = !!customer?.registered;
 
-  if (marketer || (isDistributor && seller?.kind !== "outlet")) {
+  if (paper === "a4" && (marketer || (isDistributor && seller?.kind !== "outlet"))) {
     // ID shown: the marketer's when the goods came from their stock, else the
     // distributor's own; a walk-in on a marketer's account shows the marketer.
     const partyIsDistributor = isDistributor && seller?.kind !== "rep";
@@ -126,5 +129,6 @@ export async function printSaleInvoice(
       is_pr: s.is_pr,
     },
     action,
+    paper,
   );
 }

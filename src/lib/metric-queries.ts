@@ -76,6 +76,50 @@ export function postedSalesRows(
   });
 }
 
+// Value of goods sold out of the Warehouse between two days, as the
+// dashboard's sales cards show it: postings to marketers and the retail shop
+// (live, at their posting value) plus sales straight from Warehouse stock
+// (distributors, walk-in) that are approved or awaiting approval. Sales a
+// marketer or the retail shop makes from what was posted to them are left
+// out -- that stock was counted when it was posted.
+export async function goodsSoldValue(
+  factoryId: string,
+  fromDay: string,
+  toDay?: string,
+): Promise<number> {
+  const [postings, sales] = await Promise.all([
+    fetchAll<any>((a, b) => {
+      let q: any = supabase
+        .from("stock_dispatches")
+        .select("total_value")
+        .eq("factory_id", factoryId)
+        .eq("status", "posted")
+        .gte("dispatch_date", fromDay)
+        .order("id")
+        .range(a, b);
+      if (toDay) q = q.lte("dispatch_date", toDay);
+      return q;
+    }),
+    fetchAll<any>((a, b) => {
+      let q: any = supabase
+        .from("sales")
+        .select("grand_total")
+        .eq("factory_id", factoryId)
+        .in("status", ["posted", "pending_approval"])
+        .is("deleted_at", null)
+        .is("sales_rep_id", null)
+        .eq("is_pr", false)
+        .gte("sale_date", fromDay)
+        .order("id")
+        .range(a, b);
+      if (toDay) q = q.lte("sale_date", toDay);
+      return q;
+    }),
+  ]);
+  const add = (rows: any[], k: string) => rows.reduce((t, r) => t + Number(r[k] ?? 0), 0);
+  return add(postings, "total_value") + add(sales, "grand_total");
+}
+
 // Money received from customers (register payments, debt repayments, advances).
 export function paymentRows(factoryId: string, fromDay: string, toDay: string) {
   return fetchAll<PaymentRow>(

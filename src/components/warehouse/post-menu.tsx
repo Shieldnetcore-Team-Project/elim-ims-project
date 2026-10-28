@@ -111,7 +111,7 @@ export function WarehousePostMenu({ factoryId }: { factoryId: string }) {
             factoryId={factoryId}
             presetCustomerId={distributorId}
             defaultDiscountType="per_pack"
-            rollReceipt
+            warehousePosting
             onDone={done}
           />
         )}

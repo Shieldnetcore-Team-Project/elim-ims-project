@@ -81,7 +81,7 @@ export function WarehouseRecentActivity({ factoryId }: { factoryId: string }) {
       toast.error(error?.message ?? "Invoice not found");
       return;
     }
-    await printSaleInvoice(data.id, settings.data, "print");
+    await printSaleInvoice(data.id, settings.data, "print", "roll");
   };
 
   return (

@@ -1324,12 +1324,13 @@ export function PosDialog({
   presetSalesRepId,
   editingSale,
   defaultDiscountType,
-  rollReceipt,
+  warehousePosting,
 }: {
   factoryId: string;
   onDone: () => void;
-  // Warehouse posting: the preview is laid out for the slim 80mm POS roll.
-  rollReceipt?: boolean;
+  // Warehouse → Post → Distributors: no VAT and no PR on a posting, and the
+  // preview is laid out for the slim 80mm POS roll.
+  warehousePosting?: boolean;
   // Warehouse → Distributors opens with the per-pack discount selected.
   defaultDiscountType?: "amount" | "percent" | "per_pack";
   // Set from the Retail Outlet page so the sale comes off the outlet's stock
@@ -1425,7 +1426,9 @@ export function PosDialog({
   // payment against the posting (Accountant → Postings).
   const { canSeeMoney } = usePermissions();
   const moneyMode = canSeeMoney || retailMode;
-  const [applyVat, setApplyVat] = useState(editingSale ? editingSale.vat > 0 : !presetSalesRepId);
+  const [applyVat, setApplyVat] = useState(
+    editingSale ? editingSale.vat > 0 : !presetSalesRepId && !warehousePosting,
+  );
   const [isPr, setIsPr] = useState(editingSale?.is_pr ?? false);
   const [payments, setPayments] = useState<PaymentLine[]>(() => {
     if (editingSale?.pending_payments?.length) return editingSale.pending_payments;
@@ -1758,7 +1761,7 @@ export function PosDialog({
         is_pr: isPr,
       },
       "preview",
-      rollReceipt ? "roll" : "a4",
+      warehousePosting ? "roll" : "a4",
     );
   };
 
@@ -1984,7 +1987,7 @@ export function PosDialog({
               </p>
             )}
           </div>
-          {!retailMode && (
+          {!retailMode && !warehousePosting && (
             <>
               <label className="flex items-center gap-2 text-sm">
                 <Checkbox
@@ -2082,10 +2085,12 @@ export function PosDialog({
                   </span>
                   <span>-{money(totals.discount)}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span>VAT {applyVat ? `(${vatRate}%)` : "(not applied)"}</span>
-                  <span>{money(totals.vat)}</span>
-                </div>
+                {!warehousePosting && (
+                  <div className="flex justify-between">
+                    <span>VAT {applyVat ? `(${vatRate}%)` : "(not applied)"}</span>
+                    <span>{money(totals.vat)}</span>
+                  </div>
+                )}
               </>
             )}
             <div className="flex justify-between text-base font-semibold pt-1 border-t">
