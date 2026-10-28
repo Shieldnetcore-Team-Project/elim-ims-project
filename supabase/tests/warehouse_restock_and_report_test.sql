@@ -1,6 +1,7 @@
 -- ============================================================================
 -- Acceptance tests: Warehouse restock and products report
--- (20261028130000_warehouse_restock_and_products_report.sql)
+-- (20261028130000_warehouse_restock_and_products_report.sql,
+-- 20261028170000_restock_sachet_only.sql)
 --
 -- Runs against a database with every migration applied and Supabase's auth
 -- stubbed so auth.uid() reads the 'test.uid' setting -- see
@@ -27,7 +28,7 @@ CREATE OR REPLACE FUNCTION pg_temp.check(p_ok boolean, p_msg text) RETURNS void 
 BEGIN IF p_ok IS NOT TRUE THEN RAISE EXCEPTION 'ASSERTION FAILED: %', p_msg; END IF; END;
 $$;
 
--- @@ Test 1: restock Sachet Water; Bottle Water refused
+-- @@ Test 1: restock Sachet Water; Bottle Water and empty jugs refused
 DO $$
 DECLARE f uuid := 'f6000000-0000-0000-0000-000000000001'; ok boolean := false; r jsonb;
 BEGIN
@@ -36,9 +37,15 @@ BEGIN
   PERFORM pg_temp.check((r->>'stock')::numeric = 5723, 'sachet 62 + 5661');
   BEGIN
     PERFORM public.warehouse_restock(jsonb_build_object('factory_id', f, 'product_id', 'b6000000-0000-0000-0000-000000000001', 'quantity', 10));
-  EXCEPTION WHEN OTHERS THEN ok := SQLERRM LIKE '%comes from Production%';
+  EXCEPTION WHEN OTHERS THEN ok := SQLERRM LIKE '%Only Sachet Water%';
   END;
   PERFORM pg_temp.check(ok, 'bottle water refused');
+  ok := false;
+  BEGIN
+    PERFORM public.warehouse_restock(jsonb_build_object('factory_id', f, 'product_id', 'b6000000-0000-0000-0000-000000000004', 'quantity', 5));
+  EXCEPTION WHEN OTHERS THEN ok := SQLERRM LIKE '%Only Sachet Water%';
+  END;
+  PERFORM pg_temp.check(ok, 'empty jugs refused (Store raw material)');
 END $$;
 
 -- @@ Test 2: report columns add up like the factory sheet

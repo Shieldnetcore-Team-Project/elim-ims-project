@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { usePermissions } from "@/lib/permissions";
 import { num } from "@/lib/format";
-import { fromProduction } from "@/lib/units";
+import { isRestockable } from "@/lib/units";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -27,8 +27,8 @@ import {
 
 type RestockProduct = { id: string; name: string; unit: string; current_stock: number };
 
-// Warehouse → Restock: stock that doesn't come through Production (Sachet
-// Water) is added straight to the Warehouse (warehouse_restock).
+// Warehouse → Restock: Sachet Water is added straight to the Warehouse
+// (warehouse_restock) -- the only product restocked this way.
 export function RestockButton({ factoryId }: { factoryId: string }) {
   const { canCreate } = usePermissions();
   const [open, setOpen] = useState(false);
@@ -45,7 +45,16 @@ export function RestockButton({ factoryId }: { factoryId: string }) {
   );
 }
 
-function RestockDialog({ factoryId, onDone }: { factoryId: string; onDone: () => void }) {
+// productId opens it on one product (the restock icon on a stock row).
+export function RestockDialog({
+  factoryId,
+  productId: initialProductId,
+  onDone,
+}: {
+  factoryId: string;
+  productId?: string;
+  onDone: () => void;
+}) {
   const qc = useQueryClient();
   const products = useQuery({
     queryKey: ["restock-products", factoryId],
@@ -58,12 +67,12 @@ function RestockDialog({ factoryId, onDone }: { factoryId: string; onDone: () =>
         .eq("product_type", "finished")
         .order("name");
       if (error) throw error;
-      return ((data ?? []) as RestockProduct[]).filter((p) => !fromProduction(p.name));
+      return ((data ?? []) as RestockProduct[]).filter((p) => isRestockable(p.name));
     },
   });
   const list = products.data ?? [];
   const sachet = list.find((p) => /sachet/i.test(p.name));
-  const [productId, setProductId] = useState("");
+  const [productId, setProductId] = useState(initialProductId ?? "");
   const chosen = productId || sachet?.id || "";
   const product = list.find((p) => p.id === chosen);
   const [qty, setQty] = useState(0);
@@ -111,8 +120,9 @@ function RestockDialog({ factoryId, onDone }: { factoryId: string; onDone: () =>
         <DialogTitle>Restock the Warehouse</DialogTitle>
       </DialogHeader>
       <p className="text-sm text-muted-foreground">
-        For stock that doesn&apos;t come through Production, such as Sachet Water. It is added to
-        the Warehouse at once. Bottle Water and Dispenser/Jug Water come in as Production Releases.
+        Sachet Water received into the Warehouse is added at once. Bottle Water and Dispenser/Jug
+        Water come in as Production Releases, unsold dispensers as marketer returns, and empty jugs
+        through the Store.
       </p>
       <div className="grid gap-3">
         <div>

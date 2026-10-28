@@ -20,7 +20,6 @@ export const FINISHED_PRODUCT_NAMES = [
   // Dispenser water and jug water are one product, kept in new and old jugs.
   "Dispenser/Jug Water (New Jug)",
   "Dispenser/Jug Water (Old Jug)",
-  "Empty Jug",
   "Sachet Water",
 ] as const;
 

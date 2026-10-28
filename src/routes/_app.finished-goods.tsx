@@ -46,6 +46,7 @@ import {
   PackageX,
   PackageCheck,
   PackagePlus,
+  PackageOpen,
   PackageMinus,
   History,
   Printer,
@@ -64,8 +65,8 @@ import { generateStockCardPdf } from "@/lib/pdf";
 import { ADJUSTMENT_REASONS } from "@/lib/adjustment-reasons";
 import { WarehousePostMenu } from "@/components/warehouse/post-menu";
 import { ReleasesToAccept } from "@/components/warehouse/releases-to-accept";
-import { RestockButton } from "@/components/warehouse/restock-dialog";
-import { fromProduction } from "@/lib/units";
+import { RestockDialog } from "@/components/warehouse/restock-dialog";
+import { isRestockable } from "@/lib/units";
 import { ProductForm } from "@/components/products/product-form";
 
 export const Route = createFileRoute("/_app/finished-goods")({
@@ -155,6 +156,8 @@ function FinishedGoodsPage() {
   const qc = useQueryClient();
   const { canWrite, canSubmit, canApprove, canPost, canCancel } = usePermissions();
   const write = canWrite("finished-goods");
+  // warehouse_restock needs finished-goods:create, the same right as write.
+  const canRestock = write;
   const submit = canSubmit("finished-goods");
   const approve = canApprove("finished-goods");
   const post = canPost("finished-goods");
@@ -187,6 +190,7 @@ function FinishedGoodsPage() {
   );
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
+  const [restockTarget, setRestockTarget] = useState<Product | null>(null);
   const [q, setQ] = useState("");
   const [adjustTarget, setAdjustTarget] = useState<{
     product: Product;
@@ -432,7 +436,6 @@ function FinishedGoodsPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {factoryId && <WarehousePostMenu factoryId={factoryId} />}
-          {factoryId && <RestockButton factoryId={factoryId} />}
           {write && (
             <Dialog
               open={formOpen}
@@ -540,6 +543,18 @@ function FinishedGoodsPage() {
                     <TableCell className="text-right">{money(Number(p.cost_price))}</TableCell>
                     <TableCell>
                       <div className="flex justify-end gap-1">
+                        {/* Restock: Sachet Water only, added straight away. */}
+                        {canRestock && isRestockable(p.name) && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Restock"
+                            aria-label="Restock"
+                            onClick={() => setRestockTarget(p)}
+                          >
+                            <PackageOpen className="h-4 w-4" />
+                          </Button>
+                        )}
                         {write && (
                           <Button
                             variant="ghost"
@@ -781,6 +796,15 @@ function FinishedGoodsPage() {
       <Dialog open={!!historyTarget} onOpenChange={(v) => !v && setHistoryTarget(null)}>
         {historyTarget && <HistoryDialog product={historyTarget} />}
       </Dialog>
+      <Dialog open={!!restockTarget} onOpenChange={(v) => !v && setRestockTarget(null)}>
+        {restockTarget && factoryId && (
+          <RestockDialog
+            factoryId={factoryId}
+            productId={restockTarget.id}
+            onDone={() => setRestockTarget(null)}
+          />
+        )}
+      </Dialog>
       <Dialog open={!!packagingTarget} onOpenChange={(v) => !v && setPackagingTarget(null)}>
         {packagingTarget && (
           <PackagingDialog
@@ -817,13 +841,12 @@ function AdjustDialog({
   const [otherDetail, setOtherDetail] = useState("");
   const delta = type === "adjusted" ? newQuantity - oldQuantity : -Math.abs(damagedQuantity);
   const reason = reasonCategory === "Other" ? otherDetail.trim() : reasonCategory;
-  // Adding stock of a product that doesn't come from Production (Sachet
-  // Water) is a restock: it goes in at once (warehouse_restock), no approval.
-  // Taking stock off, damage, and Bottle / Dispenser Water still go for
-  // approval.
+  // Adding Sachet Water is a restock: it goes in at once (warehouse_restock),
+  // no approval. Taking stock off, damage, and every other product still go
+  // for approval.
   const { data: factoryId } = useFactoryId();
   const qc = useQueryClient();
-  const isRestock = type === "adjusted" && delta > 0 && !fromProduction(product.name);
+  const isRestock = type === "adjusted" && delta > 0 && isRestockable(product.name);
 
   const submit = useMutation({
     mutationFn: async () => {

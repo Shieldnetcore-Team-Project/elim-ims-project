@@ -9,9 +9,11 @@
 --   * the category "Dispenser Water" is renamed "Dispenser/Jug Water";
 --   * the product "Dispenser Water" becomes "Dispenser/Jug Water (Old Jug)"
 --     -- it keeps its stock, price and every record;
---   * the product "Jug + Water" becomes "Dispenser/Jug Water (New Jug)";
---     where there is none, it is created (0 stock, same unit, price and
---     category as the Old Jug one);
+--   * the product "Jug + Water" (the dispenser, filled new jugs) becomes
+--     "Dispenser/Jug Water (New Jug)", keeping its stock and records; where
+--     there is none, it is created (0 stock, same unit, price and category
+--     as the Old Jug one). New empty jugs are received by the Store and
+--     posted to QC, filled, and released to the Warehouse as this product;
 --   * jug tracking: each is linked to its jug type (container "Old Jug" /
 --     "New Jug", one jug per unit), replacing any other jug link it had, so
 --     a sale or posting moves the right kind of jug.
