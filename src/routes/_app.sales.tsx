@@ -1,7 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useRouterState } from "@tanstack/react-router";
 import { RequireAccess } from "@/components/layout/require-access";
 import { SectionTabs } from "@/components/layout/section-tabs";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useFactoryId, useFactorySettings } from "@/lib/use-factory";
@@ -54,6 +54,8 @@ import {
   PiggyBank,
   Pencil,
   Search,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import { money, num } from "@/lib/format";
 import { toast } from "sonner";
@@ -71,7 +73,7 @@ import { QuickAddProductDialog, ADD_NEW_ITEM } from "@/components/shared/quick-a
 
 export const Route = createFileRoute("/_app/sales")({
   head: () => ({
-    meta: [{ title: "Sales & POS — Elim Table Water" }, { name: "robots", content: "noindex" }],
+    meta: [{ title: "POS — Elim Table Water" }, { name: "robots", content: "noindex" }],
   }),
   component: () => (
     <>
@@ -160,6 +162,10 @@ const saleStatusBadge = (s: string): "default" | "secondary" | "outline" | "dest
 
 function SalesPage() {
   const { data: factoryId } = useFactoryId();
+  // The same page is Retail → POS and Warehouse → Orders; the menu it was
+  // opened from (as for the tab bar) decides which sales it lists.
+  const openedFrom = useRouterState({ select: (st) => st.location.state?.section });
+  const warehouseView = openedFrom === "Warehouse";
   const settings = useFactorySettings(factoryId);
   const qc = useQueryClient();
   // Other users' approvals, payments and advances move a customer's account —
@@ -196,6 +202,8 @@ function SalesPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [editingSale, setEditingSale] = useState<EditingSaleData | null>(null);
   const [loadingEditId, setLoadingEditId] = useState<string | null>(null);
+  // Customers whose invoices are opened under their summary row.
+  const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
 
   const currentUser = useQuery({
     queryKey: ["current-user-id"],
@@ -203,11 +211,33 @@ function SalesPage() {
     staleTime: Infinity,
   });
 
-  const sales = useQuery({
-    queryKey: ["sales-list", factoryId],
+  // POS (Retail) shows the Retail Shop's sales only (user, 2026-10-29) -- the
+  // shop is the outlet (sales_reps kind 'outlet') whose stock it sells from.
+  // Warehouse → Orders shows the Warehouse's own sales and postings (no
+  // marketer or outlet): never the shop's.
+  const outlets = useQuery({
+    queryKey: ["pos-outlets", factoryId],
     enabled: !!factoryId,
     queryFn: async () => {
       const { data, error } = await supabase
+        .from("sales_reps")
+        .select("id,status")
+        .eq("factory_id", factoryId!)
+        .eq("kind", "outlet");
+      if (error) throw error;
+      return (data ?? []) as { id: string; status: string }[];
+    },
+  });
+  const outletIds = (outlets.data ?? []).map((o) => o.id);
+  // New Sale here sells from the shop, as on the Retail Outlet page.
+  const shopId = (outlets.data?.find((o) => o.status === "active") ?? outlets.data?.[0])?.id;
+
+  const sales = useQuery({
+    queryKey: ["sales-list", factoryId, warehouseView ? "warehouse" : outletIds.join(",")],
+    enabled: !!factoryId && (warehouseView || outlets.isSuccess),
+    queryFn: async () => {
+      if (!warehouseView && outletIds.length === 0) return [] as SaleRow[];
+      let query = supabase
         .from("sales")
         .select(
           "id,invoice_number,sale_date,customer_id,customer_name,grand_total,amount_paid,balance,credit_applied,payment_method,created_at,is_pr,status,created_by,rejected_reason,sales_person,is_warehouse_posting,sale_items(products(name))",
@@ -215,9 +245,9 @@ function SalesPage() {
         .eq("factory_id", factoryId!)
         // Super admins can also read soft-deleted sales (Admin → Deleted
         // Sales); they don't belong in the live list.
-        .is("deleted_at", null)
-        .order("created_at", { ascending: false })
-        .limit(200);
+        .is("deleted_at", null);
+      query = warehouseView ? query.is("sales_rep_id", null) : query.in("sales_rep_id", outletIds);
+      const { data, error } = await query.order("created_at", { ascending: false }).limit(200);
       if (error) throw error;
       return (data ?? []) as unknown as SaleRow[];
     },
@@ -408,14 +438,222 @@ function SalesPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  // One invoice's row: as the list always showed it. Inside a customer's
+  // group (nested) it is indented under the customer's summary row.
+  const saleRow = (s: SaleRow, nested = false) => {
+    const status = salePaymentStatus(s);
+    const isSelf = s.created_by === currentUser.data && !isSuperAdmin;
+    // Every transaction gets a delete button for anyone holding
+    // sales:delete — admin or not, any status. It only requests
+    // the deletion (with a required reason); nothing is actually
+    // removed until an admin approves it (request_delete /
+    // approve_delete), and approve_delete() already knows how to
+    // reverse a posted sale's stock/debt/customer effects, so
+    // there's no status this could leave in a bad state.
+    const canDeleteRow = canRequestDelete;
+    return (
+      <TableRow key={s.id} className={nested ? "bg-muted/30" : undefined}>
+        <TableCell className={`font-mono text-xs ${nested ? "pl-8" : ""}`}>
+          {s.invoice_number}
+        </TableCell>
+        <TableCell className="whitespace-nowrap">
+          {new Date(s.created_at).toLocaleString()}
+          {/* sale_date is a business/backdating field, separate
+                from when the record was actually entered — flag it
+                only when it doesn't match, instead of always
+                showing two dates for the common case. */}
+          {s.sale_date !== new Date(s.created_at).toLocaleDateString("en-CA") && (
+            <div className="text-xs text-muted-foreground">Recorded for {s.sale_date}</div>
+          )}
+        </TableCell>
+        <TableCell>
+          {s.customer_id && canSeeMoney ? (
+            <button
+              type="button"
+              className="text-left font-medium text-primary hover:underline"
+              title="View this customer's products & transactions"
+              onClick={() =>
+                setHistoryTarget({
+                  id: s.customer_id!,
+                  name: s.customer_name ?? "Customer",
+                })
+              }
+            >
+              {s.customer_name ?? "Customer"}
+            </button>
+          ) : (
+            (s.customer_name ?? "Walk-in")
+          )}
+        </TableCell>
+        <TableCell className="text-right">{money(Number(s.grand_total))}</TableCell>
+        {canSeeMoney && (
+          <>
+            <TableCell className="text-right">{money(Number(s.amount_paid))}</TableCell>
+            <TableCell className="text-right">
+              <span className={Number(s.balance) > 0 ? "text-destructive font-medium" : ""}>
+                {money(Number(s.balance))}
+              </span>
+            </TableCell>
+            <TableCell>
+              <Badge variant={status.variant} className={s.is_pr ? "text-warning" : "capitalize"}>
+                {status.label}
+              </Badge>
+            </TableCell>
+          </>
+        )}
+        <TableCell>
+          <Badge variant={saleStatusBadge(s.status)} className="capitalize">
+            {s.status.replace(/_/g, " ")}
+          </Badge>
+          {s.status === "rejected" && s.rejected_reason && (
+            <div
+              className="mt-1 max-w-[160px] truncate text-xs text-muted-foreground"
+              title={s.rejected_reason}
+            >
+              {s.rejected_reason}
+            </div>
+          )}
+        </TableCell>
+        <TableCell>
+          <div className="flex justify-end gap-1">
+            {s.status === "pending_approval" && s.is_warehouse_posting && (
+              <span
+                className="self-center whitespace-nowrap text-xs text-muted-foreground"
+                title="Posted from the Warehouse — Accounts confirms it and prints the receipt"
+              >
+                Accounts to confirm
+              </span>
+            )}
+            {s.status === "pending_approval" && !s.is_warehouse_posting && approve && !isSelf && (
+              <Button
+                variant="ghost"
+                size="icon"
+                title="Approve & post"
+                onClick={() => setApproveTarget(s)}
+              >
+                <Check className="h-4 w-4 text-success" />
+              </Button>
+            )}
+            {s.status === "pending_approval" && !s.is_warehouse_posting && reject && !isSelf && (
+              <Button variant="ghost" size="icon" title="Reject" onClick={() => setRejectTarget(s)}>
+                <X className="h-4 w-4 text-destructive" />
+              </Button>
+            )}
+            {s.status === "pending_approval" && cancel && (
+              <Button variant="ghost" size="icon" title="Cancel" onClick={() => setCancelTarget(s)}>
+                <Ban className="h-4 w-4 text-muted-foreground" />
+              </Button>
+            )}
+            {canSeeMoney && s.status === "posted" && Number(s.balance) > 0 && (
+              <Button variant="outline" size="sm" className="gap-1" onClick={() => setPayTarget(s)}>
+                <HandCoins className="h-4 w-4" /> Receive
+              </Button>
+            )}
+            {write && s.customer_id && (
+              <Button
+                variant="ghost"
+                size="icon"
+                title={`Add products to ${s.customer_name ?? "this customer"}'s account`}
+                onClick={() => {
+                  setPresetCustomerId(s.customer_id!);
+                  setPosOpen(true);
+                }}
+              >
+                <ShoppingCart className="h-4 w-4" />
+              </Button>
+            )}
+            {canSeeMoney && s.customer_id && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="gap-1"
+                onClick={() =>
+                  setHistoryTarget({
+                    id: s.customer_id!,
+                    name: s.customer_name ?? "Customer",
+                  })
+                }
+              >
+                <History className="h-4 w-4" /> History
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1"
+              onClick={() => openInvoice(s.id, "print")}
+            >
+              <Printer className="h-4 w-4" /> Print
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1"
+              onClick={() => openInvoice(s.id, "download")}
+            >
+              <FileDown className="h-4 w-4" /> PDF
+            </Button>
+            {s.status === "pending_approval" && canEditSale && (
+              <Button
+                variant="ghost"
+                size="icon"
+                title="Edit"
+                disabled={loadingEditId === s.id}
+                onClick={() => openEditSale(s.id)}
+              >
+                <Pencil className="h-4 w-4" />
+              </Button>
+            )}
+            {canDeleteRow && (
+              <Button
+                variant="ghost"
+                size="icon"
+                title="Request deletion"
+                onClick={() => setDeleteTarget(s)}
+              >
+                <Trash2 className="h-4 w-4 text-destructive" />
+              </Button>
+            )}
+          </div>
+        </TableCell>
+      </TableRow>
+    );
+  };
+
+  // One row per customer (user, 2026-10-29: "transactions of the same
+  // customer should not show multiple times; all are in the history"): the
+  // customer's invoices in this list added up -- count, total, paid, balance,
+  // the latest time -- with History, a combined Print / PDF and the cart.
+  // Clicking the row opens their invoices underneath, each with its own
+  // actions (Receive, Edit, Delete...). Walk-ins (no customer) stay one row
+  // per sale, as before.
+  type SaleGroup = { key: string; sales: SaleRow[] };
+  const groups: SaleGroup[] = [];
+  {
+    const byKey = new Map<string, SaleGroup>();
+    for (const s of filteredSales) {
+      const key = s.customer_id ? `c:${s.customer_id}` : `s:${s.id}`;
+      let g = byKey.get(key);
+      if (!g) {
+        g = { key, sales: [] };
+        byKey.set(key, g);
+        groups.push(g);
+      }
+      g.sales.push(s);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Sales & POS</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            {warehouseView ? "Orders" : "POS"}
+          </h1>
           <p className="text-sm text-muted-foreground">
-            Create invoices — a manager must approve each sale before it decrements stock and counts
-            toward the customer's balance.
+            {warehouseView
+              ? "The Warehouse's sales and postings to customers. The Retail Shop's sales are on Retail → POS."
+              : "The Retail Shop's sales. Warehouse postings and marketers' sales are on their own pages."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -441,6 +679,7 @@ function SalesPage() {
                 <PosDialog
                   factoryId={factoryId}
                   presetCustomerId={presetCustomerId}
+                  presetSalesRepId={warehouseView ? undefined : shopId}
                   onDone={() => {
                     setPosOpen(false);
                     setPresetCustomerId(undefined);
@@ -496,209 +735,145 @@ function SalesPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredSales.map((s) => {
-                const status = salePaymentStatus(s);
-                const isSelf = s.created_by === currentUser.data && !isSuperAdmin;
-                // Every transaction gets a delete button for anyone holding
-                // sales:delete — admin or not, any status. It only requests
-                // the deletion (with a required reason); nothing is actually
-                // removed until an admin approves it (request_delete /
-                // approve_delete), and approve_delete() already knows how to
-                // reverse a posted sale's stock/debt/customer effects, so
-                // there's no status this could leave in a bad state.
-                const canDeleteRow = canRequestDelete;
+              {groups.map((g) => {
+                if (g.sales.length === 1) return saleRow(g.sales[0]);
+                const first = g.sales[0];
+                const open = openGroups.has(g.key);
+                const sum = (f: "grand_total" | "amount_paid" | "balance") =>
+                  g.sales.reduce((t, x) => t + Number(x[f]), 0);
+                const total = sum("grand_total");
+                const paidSum = sum("amount_paid");
+                const balanceSum = sum("balance");
+                const pending = g.sales.filter((x) => x.status === "pending_approval").length;
+                const statuses = [...new Set(g.sales.map((x) => x.status))];
                 return (
-                  <TableRow key={s.id}>
-                    <TableCell className="font-mono text-xs">{s.invoice_number}</TableCell>
-                    <TableCell className="whitespace-nowrap">
-                      {new Date(s.created_at).toLocaleString()}
-                      {/* sale_date is a business/backdating field, separate
-                          from when the record was actually entered — flag it
-                          only when it doesn't match, instead of always
-                          showing two dates for the common case. */}
-                      {s.sale_date !== new Date(s.created_at).toLocaleDateString("en-CA") && (
-                        <div className="text-xs text-muted-foreground">
-                          Recorded for {s.sale_date}
-                        </div>
+                  <Fragment key={g.key}>
+                    <TableRow
+                      className="cursor-pointer"
+                      onClick={() =>
+                        setOpenGroups((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(g.key)) next.delete(g.key);
+                          else next.add(g.key);
+                          return next;
+                        })
+                      }
+                    >
+                      <TableCell className="whitespace-nowrap text-xs">
+                        {open ? (
+                          <ChevronDown className="mr-1 inline h-4 w-4" />
+                        ) : (
+                          <ChevronRight className="mr-1 inline h-4 w-4" />
+                        )}
+                        {g.sales.length} invoices
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        {new Date(first.created_at).toLocaleString()}
+                        <div className="text-xs text-muted-foreground">latest</div>
+                      </TableCell>
+                      <TableCell className="font-medium">
+                        {first.customer_name ?? "Customer"}
+                      </TableCell>
+                      <TableCell className="text-right">{money(total)}</TableCell>
+                      {canSeeMoney && (
+                        <>
+                          <TableCell className="text-right">{money(paidSum)}</TableCell>
+                          <TableCell className="text-right">
+                            <span className={balanceSum > 0 ? "text-destructive font-medium" : ""}>
+                              {money(balanceSum)}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            <Badge
+                              variant={
+                                balanceSum <= 0
+                                  ? "secondary"
+                                  : paidSum > 0
+                                    ? "outline"
+                                    : "destructive"
+                              }
+                            >
+                              {balanceSum <= 0 ? "Paid" : paidSum > 0 ? "Part paid" : "Unpaid"}
+                            </Badge>
+                          </TableCell>
+                        </>
                       )}
-                    </TableCell>
-                    <TableCell>
-                      {s.customer_id && canSeeMoney ? (
-                        <button
-                          type="button"
-                          className="text-left font-medium text-primary hover:underline"
-                          title="View this customer's products & transactions"
-                          onClick={() =>
-                            setHistoryTarget({
-                              id: s.customer_id!,
-                              name: s.customer_name ?? "Customer",
-                            })
-                          }
-                        >
-                          {s.customer_name ?? "Customer"}
-                        </button>
-                      ) : (
-                        (s.customer_name ?? "Walk-in")
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">{money(Number(s.grand_total))}</TableCell>
-                    {canSeeMoney && (
-                      <>
-                        <TableCell className="text-right">{money(Number(s.amount_paid))}</TableCell>
-                        <TableCell className="text-right">
-                          <span
-                            className={Number(s.balance) > 0 ? "text-destructive font-medium" : ""}
-                          >
-                            {money(Number(s.balance))}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <Badge
-                            variant={status.variant}
-                            className={s.is_pr ? "text-warning" : "capitalize"}
-                          >
-                            {status.label}
+                      <TableCell>
+                        {statuses.length === 1 ? (
+                          <Badge variant={saleStatusBadge(statuses[0])} className="capitalize">
+                            {statuses[0].replace(/_/g, " ")}
                           </Badge>
-                        </TableCell>
-                      </>
-                    )}
-                    <TableCell>
-                      <Badge variant={saleStatusBadge(s.status)} className="capitalize">
-                        {s.status.replace(/_/g, " ")}
-                      </Badge>
-                      {s.status === "rejected" && s.rejected_reason && (
-                        <div
-                          className="mt-1 max-w-[160px] truncate text-xs text-muted-foreground"
-                          title={s.rejected_reason}
-                        >
-                          {s.rejected_reason}
-                        </div>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex justify-end gap-1">
-                        {s.status === "pending_approval" && s.is_warehouse_posting && (
-                          <span
-                            className="self-center whitespace-nowrap text-xs text-muted-foreground"
-                            title="Posted from the Warehouse — Accounts confirms it and prints the receipt"
-                          >
-                            Accounts to confirm
+                        ) : (
+                          <span className="text-xs text-muted-foreground">
+                            {pending ? `${pending} pending` : "Mixed"}
                           </span>
                         )}
-                        {s.status === "pending_approval" &&
-                          !s.is_warehouse_posting &&
-                          approve &&
-                          !isSelf && (
+                      </TableCell>
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        <div className="flex justify-end gap-1">
+                          {write && first.customer_id && (
                             <Button
                               variant="ghost"
                               size="icon"
-                              title="Approve & post"
-                              onClick={() => setApproveTarget(s)}
+                              title={`Add products to ${first.customer_name ?? "this customer"}'s account`}
+                              onClick={() => {
+                                setPresetCustomerId(first.customer_id!);
+                                setPosOpen(true);
+                              }}
                             >
-                              <Check className="h-4 w-4 text-success" />
+                              <ShoppingCart className="h-4 w-4" />
                             </Button>
                           )}
-                        {s.status === "pending_approval" &&
-                          !s.is_warehouse_posting &&
-                          reject &&
-                          !isSelf && (
+                          {canSeeMoney && first.customer_id && (
                             <Button
                               variant="ghost"
-                              size="icon"
-                              title="Reject"
-                              onClick={() => setRejectTarget(s)}
+                              size="sm"
+                              className="gap-1"
+                              onClick={() =>
+                                setHistoryTarget({
+                                  id: first.customer_id!,
+                                  name: first.customer_name ?? "Customer",
+                                })
+                              }
                             >
-                              <X className="h-4 w-4 text-destructive" />
+                              <History className="h-4 w-4" /> History
                             </Button>
                           )}
-                        {s.status === "pending_approval" && cancel && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            title="Cancel"
-                            onClick={() => setCancelTarget(s)}
-                          >
-                            <Ban className="h-4 w-4 text-muted-foreground" />
-                          </Button>
-                        )}
-                        {canSeeMoney && s.status === "posted" && Number(s.balance) > 0 && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="gap-1"
-                            onClick={() => setPayTarget(s)}
-                          >
-                            <HandCoins className="h-4 w-4" /> Receive
-                          </Button>
-                        )}
-                        {write && s.customer_id && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            title={`Add products to ${s.customer_name ?? "this customer"}'s account`}
-                            onClick={() => {
-                              setPresetCustomerId(s.customer_id!);
-                              setPosOpen(true);
-                            }}
-                          >
-                            <ShoppingCart className="h-4 w-4" />
-                          </Button>
-                        )}
-                        {canSeeMoney && s.customer_id && (
                           <Button
                             variant="ghost"
                             size="sm"
                             className="gap-1"
+                            title="One invoice for all of these"
                             onClick={() =>
-                              setHistoryTarget({
-                                id: s.customer_id!,
-                                name: s.customer_name ?? "Customer",
-                              })
+                              printSaleInvoice(
+                                g.sales.map((x) => x.id),
+                                settings.data,
+                                "print",
+                              )
                             }
                           >
-                            <History className="h-4 w-4" /> History
+                            <Printer className="h-4 w-4" /> Print
                           </Button>
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="gap-1"
-                          onClick={() => openInvoice(s.id, "print")}
-                        >
-                          <Printer className="h-4 w-4" /> Print
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="gap-1"
-                          onClick={() => openInvoice(s.id, "download")}
-                        >
-                          <FileDown className="h-4 w-4" /> PDF
-                        </Button>
-                        {s.status === "pending_approval" && canEditSale && (
                           <Button
                             variant="ghost"
-                            size="icon"
-                            title="Edit"
-                            disabled={loadingEditId === s.id}
-                            onClick={() => openEditSale(s.id)}
+                            size="sm"
+                            className="gap-1"
+                            title="One invoice for all of these"
+                            onClick={() =>
+                              printSaleInvoice(
+                                g.sales.map((x) => x.id),
+                                settings.data,
+                                "download",
+                              )
+                            }
                           >
-                            <Pencil className="h-4 w-4" />
+                            <FileDown className="h-4 w-4" /> PDF
                           </Button>
-                        )}
-                        {canDeleteRow && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            title="Request deletion"
-                            onClick={() => setDeleteTarget(s)}
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                    {open && g.sales.map((x) => saleRow(x, true))}
+                  </Fragment>
                 );
               })}
               {filteredSales.length === 0 && (
@@ -1644,7 +1819,9 @@ export function PosDialog({
           product_id: p.id,
           name: p.name,
           unit: p.unit,
-          quantity: 1,
+          // Starts empty: the user types the quantity straight in. A line
+          // left empty is not sold (sellableCart).
+          quantity: 0,
           unit_price: Number(p.unit_price),
           stock: avail,
         },
@@ -2106,9 +2283,10 @@ export function PosDialog({
                   </span>
                   <span>-{money(totals.discount)}</span>
                 </div>
-                {!warehousePosting && (
+                {/* VAT shows only when it is applied -- no "VAT (not applied) ₦0.00" line. */}
+                {!warehousePosting && applyVat && (
                   <div className="flex justify-between">
-                    <span>VAT {applyVat ? `(${vatRate}%)` : "(not applied)"}</span>
+                    <span>VAT ({vatRate}%)</span>
                     <span>{money(totals.vat)}</span>
                   </div>
                 )}

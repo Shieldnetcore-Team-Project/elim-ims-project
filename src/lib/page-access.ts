@@ -71,7 +71,7 @@ export const pagesOfEntry = (title: string) => PAGES.filter((p) => p.entry === t
 // show as before. Applied once, right after the account is created or
 // approved (apply_default_page_access,
 // supabase/migrations/20261022120000_new_user_department_pages.sql).
-const SALES_PAGES = ["Retail › Sales & POS"];
+const SALES_PAGES = ["Retail › POS"];
 const INVENTORY_PAGES = ["Warehouse › Stock", "Store › Raw Materials"];
 const FINANCE_PAGES = ["Finance Overview"];
 const PRODUCTION_PAGES = ["Production › Production"];

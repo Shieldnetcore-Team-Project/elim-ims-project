@@ -3305,6 +3305,7 @@ function RepCustomersCard({
   const [owingOnly, setOwingOnly] = useState(false);
   const [paying, setPaying] = useState<CustomerRow | null>(null);
   const [adding, setAdding] = useState(false);
+  const [selling, setSelling] = useState<CustomerRow | null>(null);
 
   const invoices = useQuery({
     queryKey: ["dist-rep-customers", repId, from, to],
@@ -3496,7 +3497,7 @@ function RepCustomersCard({
               <TableHead className="text-right">Overdue</TableHead>
               <TableHead className="text-right">Collected by rep</TableHead>
               <TableHead>Last purchase</TableHead>
-              {canCollect && <TableHead className="w-32" />}
+              {canCollect && <TableHead className="w-56" />}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -3565,9 +3566,14 @@ function RepCustomersCard({
                     {canCollect && (
                       <TableCell onClick={(e) => e.stopPropagation()}>
                         {c.customerId && (
-                          <Button size="sm" variant="outline" onClick={() => setPaying(c)}>
-                            Record payment
-                          </Button>
+                          <div className="flex justify-end gap-1">
+                            <Button size="sm" variant="outline" onClick={() => setSelling(c)}>
+                              Record sale
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={() => setPaying(c)}>
+                              Record payment
+                            </Button>
+                          </div>
                         )}
                       </TableCell>
                     )}
@@ -3585,6 +3591,7 @@ function RepCustomersCard({
                               ` (last ${new Date(c.account.last_collection).toLocaleDateString()})`}
                           </p>
                         )}
+                        {c.customerId && <CustomerPaymentsList customerId={c.customerId} />}
                         {c.invoices.length === 0 ? (
                           <p className="text-sm text-muted-foreground">
                             No invoices in this period.
@@ -3683,6 +3690,18 @@ function RepCustomersCard({
           />
         )}
       </Dialog>
+      <Dialog open={!!selling} onOpenChange={(v) => !v && setSelling(null)}>
+        {selling?.customerId && (
+          <RecordCustomerSaleDialog
+            factoryId={factoryId}
+            repId={repId}
+            repName={repName}
+            customerId={selling.customerId}
+            customerName={selling.name}
+            onDone={() => setSelling(null)}
+          />
+        )}
+      </Dialog>
       <Dialog open={adding} onOpenChange={setAdding}>
         {adding && (
           <AddMarketerCustomerDialog
@@ -3694,6 +3713,324 @@ function RepCustomersCard({
         )}
       </Dialog>
     </Card>
+  );
+}
+
+// Every payment on one customer's account, newest first (at the sale, later
+// collections, from any page) -- shown when the customer is opened, above
+// their invoices, so the whole history sits under the marketer.
+function CustomerPaymentsList({ customerId }: { customerId: string }) {
+  const payments = useQuery({
+    queryKey: ["dist-rep-customer-payments", customerId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("payments_received")
+        .select("id,receipt_number,payment_date,amount,payment_method,status,sales(invoice_number)")
+        .eq("customer_id", customerId)
+        .order("payment_date", { ascending: false })
+        .limit(200);
+      if (error) throw error;
+      return (data ?? []) as unknown as {
+        id: string;
+        receipt_number: string;
+        payment_date: string;
+        amount: number;
+        payment_method: string;
+        status: string;
+        sales: { invoice_number: string } | null;
+      }[];
+    },
+  });
+  const rows = payments.data ?? [];
+  if (!rows.length) return null;
+  const live = rows.filter((r) => !["reversed", "rejected", "cancelled"].includes(r.status));
+  return (
+    <div className="mb-3">
+      <p className="mb-1 text-xs font-semibold">
+        Payments ({live.length}) · {money(live.reduce((t, r) => t + Number(r.amount), 0))}
+      </p>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Date</TableHead>
+            <TableHead>Receipt</TableHead>
+            <TableHead>Invoice</TableHead>
+            <TableHead>Method</TableHead>
+            <TableHead className="text-right">Amount</TableHead>
+            <TableHead>Status</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((r) => (
+            <TableRow key={r.id}>
+              <TableCell className="whitespace-nowrap">
+                {new Date(r.payment_date).toLocaleDateString()}
+              </TableCell>
+              <TableCell className="font-mono text-xs">{r.receipt_number}</TableCell>
+              <TableCell className="font-mono text-xs">
+                {r.sales?.invoice_number ?? "on account"}
+              </TableCell>
+              <TableCell className="capitalize">{r.payment_method.replace(/_/g, " ")}</TableCell>
+              <TableCell className="text-right">{money(Number(r.amount))}</TableCell>
+              <TableCell className="capitalize">{r.status.replace(/_/g, " ")}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
+// "Record sale" on a marketer's customer: what the customer took from the
+// marketer's van -- products, packs, price and discount per pack -- and
+// anything paid there and then. Posted at once (record_marketer_customer_sale):
+// out of the van stock, receipted, the rest owed on the marketer's account.
+// Later payments: "Record payment", as many times as needed.
+function RecordCustomerSaleDialog({
+  factoryId,
+  repId,
+  repName,
+  customerId,
+  customerName,
+  onDone,
+}: {
+  factoryId: string;
+  repId: string;
+  repName: string;
+  customerId: string;
+  customerName: string;
+  onDone: () => void;
+}) {
+  const qc = useQueryClient();
+  const today = new Date().toISOString().slice(0, 10);
+  type Line = { product_id: string; quantity: number; price: number; discount: number };
+  const [lines, setLines] = useState<Line[]>([
+    { product_id: "", quantity: 0, price: 0, discount: 0 },
+  ]);
+  const [date, setDate] = useState(today);
+  const [paid, setPaid] = useState(0);
+  const [method, setMethod] = useState<(typeof COLLECT_METHODS)[number]>("cash");
+  const [remarks, setRemarks] = useState("");
+
+  const van = useQuery({
+    queryKey: ["dist-rep-stock", repId, "sale-form"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("rep_stock")
+        .select("product_id,quantity,products(name,unit,unit_price)")
+        .eq("sales_rep_id", repId)
+        .gt("quantity", 0);
+      if (error) throw error;
+      return (data ?? []) as unknown as {
+        product_id: string;
+        quantity: number;
+        products: { name: string; unit: string; unit_price: number } | null;
+      }[];
+    },
+  });
+  const stockOf = (id: string) => van.data?.find((v) => v.product_id === id);
+  const setLine = (i: number, patch: Partial<Line>) =>
+    setLines((ls) => ls.map((l, k) => (k === i ? { ...l, ...patch } : l)));
+  const lineTotal = (l: Line) => Math.max(l.quantity * (l.price - l.discount), 0);
+  const total = lines.reduce((t, l) => t + lineTotal(l), 0);
+  const clean = lines.filter((l) => l.product_id && l.quantity > 0);
+  const problem = lines.find(
+    (l) =>
+      l.product_id &&
+      (l.quantity > Number(stockOf(l.product_id)?.quantity ?? 0) || l.discount > l.price),
+  );
+
+  const save = useMutation({
+    mutationFn: async () => {
+      if (clean.length === 0) throw new Error("Add at least one product with its packs");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- RPC newer than the generated types
+      const { data, error } = await (supabase as any).rpc("record_marketer_customer_sale", {
+        payload: {
+          sales_rep_id: repId,
+          customer_id: customerId,
+          sale_date: date,
+          remarks: remarks.trim() || null,
+          items: clean.map((l) => ({
+            product_id: l.product_id,
+            quantity: l.quantity,
+            unit_price: l.price,
+            discount: l.discount,
+          })),
+          payment: paid > 0 ? { amount: paid, method } : null,
+        },
+      });
+      if (error) throw error;
+      return data as { invoice_number: string; balance: number };
+    },
+    onSuccess: (res) => {
+      toast.success(
+        `${res.invoice_number} recorded for ${customerName} — owes ${money(Number(res.balance ?? 0))}`,
+      );
+      for (const key of [
+        "dist-rep-customers",
+        "dist-rep-customer-accounts",
+        "dist-rep-customer-payments",
+        "dist-rep-stock",
+        "dist-account",
+        "acct-sales",
+        "acct-payments",
+        "party-sheets",
+      ])
+        qc.invalidateQueries({ queryKey: [key] });
+      onDone();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return (
+    <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+      <DialogHeader>
+        <DialogTitle>
+          Sale to {customerName} — from {repName}
+        </DialogTitle>
+      </DialogHeader>
+      <p className="text-sm text-muted-foreground">
+        What {customerName} took from {repName}&apos;s stock. It is posted at once: out of {repName}
+        &apos;s van stock, and anything not paid now is owed on {repName}&apos;s account.
+      </p>
+      <div className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="min-w-48">Product</TableHead>
+              <TableHead className="w-24">Packs</TableHead>
+              <TableHead className="w-32">Price per pack</TableHead>
+              <TableHead className="w-32">Discount per pack</TableHead>
+              <TableHead className="text-right">Amount</TableHead>
+              <TableHead className="w-8" />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {lines.map((l, i) => {
+              const st = stockOf(l.product_id);
+              return (
+                <TableRow key={i}>
+                  <TableCell>
+                    <Select
+                      value={l.product_id}
+                      onValueChange={(v) =>
+                        setLine(i, {
+                          product_id: v,
+                          price: Number(stockOf(v)?.products?.unit_price ?? 0),
+                        })
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue
+                          placeholder={van.isLoading ? "Loading…" : "Pick from van stock…"}
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(van.data ?? []).map((v) => (
+                          <SelectItem key={v.product_id} value={v.product_id}>
+                            {v.products?.name ?? "Product"} ({num(Number(v.quantity))} on hand)
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {st && l.quantity > Number(st.quantity) && (
+                      <p className="mt-1 text-xs text-destructive">
+                        Only {num(Number(st.quantity))} on hand
+                      </p>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <MoneyInput
+                      value={l.quantity}
+                      onChange={(v) => setLine(i, { quantity: v })}
+                      groupThousands={false}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <MoneyInput value={l.price} onChange={(v) => setLine(i, { price: v })} />
+                  </TableCell>
+                  <TableCell>
+                    <MoneyInput value={l.discount} onChange={(v) => setLine(i, { discount: v })} />
+                    {l.discount > l.price && (
+                      <p className="mt-1 text-xs text-destructive">More than the price</p>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right font-medium">{money(lineTotal(l))}</TableCell>
+                  <TableCell>
+                    {lines.length > 1 && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setLines((ls) => ls.filter((_, k) => k !== i))}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </div>
+      <Button
+        variant="outline"
+        size="sm"
+        className="w-fit gap-2"
+        onClick={() =>
+          setLines((ls) => [...ls, { product_id: "", quantity: 0, price: 0, discount: 0 }])
+        }
+      >
+        <Plus className="h-4 w-4" /> Add product
+      </Button>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <Label>Date</Label>
+          <Input type="date" value={date} max={today} onChange={(e) => setDate(e.target.value)} />
+        </div>
+        <div>
+          <Label>Remarks (optional)</Label>
+          <Input value={remarks} onChange={(e) => setRemarks(e.target.value)} />
+        </div>
+        <div>
+          <Label>Paid now (optional)</Label>
+          <MoneyInput value={paid} onChange={setPaid} />
+        </div>
+        <div>
+          <Label>Method</Label>
+          <Select value={method} onValueChange={(v) => setMethod(v as typeof method)}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {COLLECT_METHODS.map((m) => (
+                <SelectItem key={m} value={m} className="capitalize">
+                  {m}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-x-3 gap-y-1 rounded-lg border p-3 text-sm">
+        <span className="text-muted-foreground">Total</span>
+        <span className="text-right font-medium">{money(total)}</span>
+        <span className="text-muted-foreground">Paid now</span>
+        <span className="text-right">{money(paid)}</span>
+        <span className="text-muted-foreground">
+          {paid > total ? "Kept as advance" : "Owed on account"}
+        </span>
+        <span className="text-right font-medium">{money(Math.abs(total - paid))}</span>
+      </div>
+      <DialogFooter>
+        <Button
+          disabled={save.isPending || clean.length === 0 || !!problem}
+          onClick={() => save.mutate()}
+        >
+          {save.isPending ? "Saving…" : "Record sale"}
+        </Button>
+      </DialogFooter>
+    </DialogContent>
   );
 }
 
@@ -3917,6 +4254,7 @@ function CollectPaymentDialog({
       );
       qc.invalidateQueries({ queryKey: ["dist-rep-customers"] });
       qc.invalidateQueries({ queryKey: ["dist-rep-customer-accounts"] });
+      qc.invalidateQueries({ queryKey: ["dist-rep-customer-payments"] });
       qc.invalidateQueries({ queryKey: ["dist-account"] });
       qc.invalidateQueries({ queryKey: ["credit-sales"] });
       onDone();

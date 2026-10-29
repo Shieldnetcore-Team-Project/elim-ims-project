@@ -82,6 +82,9 @@ export const MoneyInput = React.forwardRef<
         value={display}
         onFocus={(e) => {
           setFocused(true);
+          // Clicking in selects the figure, so typing replaces it -- no "1"
+          // or old amount to delete first.
+          if (!e.currentTarget.readOnly) e.currentTarget.select();
           onFocus?.(e);
         }}
         onBlur={(e) => {

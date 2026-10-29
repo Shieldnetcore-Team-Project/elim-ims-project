@@ -77,7 +77,7 @@ test("routes the menu does not list are left to their module", () => {
 
 test("a new account gets only its department's pages", () => {
   const sales = defaultPageAccess("Sales", "production");
-  assert.deepEqual(sales?.granted, ["Retail › Sales & POS"]);
+  assert.deepEqual(sales?.granted, ["Retail › POS"]);
   assert.equal(sales!.granted.length + sales!.blocked.length, PAGES.length);
   assert.ok(sales!.blocked.includes("Dashboard"));
   assert.ok(sales!.blocked.includes("Retail › Retail Outlet"));

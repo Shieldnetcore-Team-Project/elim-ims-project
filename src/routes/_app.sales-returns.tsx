@@ -42,6 +42,7 @@ import { toast } from "sonner";
 import { logAudit } from "@/lib/audit";
 import { QuickAddProductDialog, ADD_NEW_ITEM } from "@/components/shared/quick-add-item";
 import { ReturnsTab, type Rep } from "@/routes/_app.distribution";
+import { RetailReturnDialog } from "@/components/retail/retail-return-dialog";
 import {
   startOfDay,
   endOfDay,
@@ -152,6 +153,10 @@ function SalesReturnsPage() {
   const cancelPerm = canCancel("sales-returns");
   const qc = useQueryClient();
   const [formOpen, setFormOpen] = useState(false);
+  // Retail Shop customer returns (record_retail_return): sales-returns
+  // submit or sales write.
+  const canRetailReturn = canSubmit("sales-returns") || perms.canWrite("sales");
+  const [retailOpen, setRetailOpen] = useState(false);
   const [inspectTarget, setInspectTarget] = useState<ReturnRow | null>(null);
   const [detailTarget, setDetailTarget] = useState<ReturnRow | null>(null);
   const [cancelTarget, setCancelTarget] = useState<ReturnRow | null>(null);
@@ -291,16 +296,35 @@ function SalesReturnsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Sales Returns</h1>
           <p className="text-sm text-muted-foreground">
-            Returned goods must be inspected before any of it goes back into sellable stock — only
-            the accepted portion posts, and only after someone other than the receiver inspects it.
+            A customer who bought from the Retail Shop brings goods back: log it against their sale
+            with Customer return — the goods go straight back into the shop&apos;s stock, and the
+            money comes off what they owe or is kept as their credit / refunded.
           </p>
         </div>
-        {submitPerm && (
-          <Button className="gap-2" onClick={() => setFormOpen(true)}>
-            <Plus className="h-4 w-4" /> Log Return
-          </Button>
-        )}
+        <div className="flex flex-wrap gap-2">
+          {canRetailReturn && (
+            <Button className="gap-2" onClick={() => setRetailOpen(true)}>
+              <Undo2 className="h-4 w-4" /> Customer return
+            </Button>
+          )}
+          {submitPerm && (
+            <Button
+              variant="outline"
+              className="gap-2"
+              title="A marketer's return, or a return to the Warehouse (inspected before it goes back into stock)"
+              onClick={() => setFormOpen(true)}
+            >
+              <Plus className="h-4 w-4" /> Other return
+            </Button>
+          )}
+        </div>
       </div>
+
+      <Dialog open={retailOpen} onOpenChange={setRetailOpen}>
+        {retailOpen && factoryId && (
+          <RetailReturnDialog factoryId={factoryId} onDone={() => setRetailOpen(false)} />
+        )}
+      </Dialog>
 
       <Card className="rounded-2xl">
         <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">

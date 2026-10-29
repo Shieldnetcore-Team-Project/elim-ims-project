@@ -24,7 +24,7 @@ import { FINISHED_PRODUCT_NAMES } from "@/components/shared/product-name-select"
 type PriceRow = ProductFormProduct;
 
 // Costing → Product Prices: the selling price of every finished product.
-// Sales & POS and postings fill the unit price in from here, so the sales
+// POS and postings fill the unit price in from here, so the sales
 // person only enters the quantity. Prices are edited in place and saved
 // together (set_product_prices); Add product / the pencil open the product
 // form for everything else about a product.
@@ -135,9 +135,8 @@ export function ProductPricesCard({ factoryId }: { factoryId: string }) {
             <Tag className="h-4 w-4" /> Product Prices
           </CardTitle>
           <p className="mt-1 text-sm text-muted-foreground">
-            The selling price of each product. Sales &amp; POS fills the unit price in from this
-            list — the sales person only enters the quantity, and the total is worked out
-            automatically.
+            The selling price of each product. POS fills the unit price in from this list — the
+            sales person only enters the quantity, and the total is worked out automatically.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">

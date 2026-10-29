@@ -92,8 +92,8 @@ export const nav: { section: string; items: NavItem[] }[] = [
         icon: ShoppingCart,
         modules: ["sales", "sales-returns"],
         tabs: [
+          { label: "POS", module: "sales", url: "/sales" },
           { label: "Retail Outlet", module: "sales", url: "/retail-outlet" },
-          { label: "Sales & POS", module: "sales", url: "/sales" },
           { label: "Sales Returns", module: "sales-returns", url: "/sales-returns" },
         ],
       },

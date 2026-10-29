@@ -69,6 +69,7 @@ type Movement = {
   quantity_after: number | null;
   reference: string | null;
   reason: string | null;
+  user_id: string | null;
   products: { name: string; unit: string } | null;
 };
 type SaleRow = {
@@ -156,6 +157,24 @@ function RetailOutletPage() {
     },
   });
 
+  // Every finished product type, so Stocks in Retail lists each one -- also
+  // those the Warehouse hasn't posted to the shop (0).
+  const finished = useQuery({
+    queryKey: ["outlet-finished-products", factoryId],
+    enabled: !!factoryId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("products")
+        .select("id,name,unit,unit_price")
+        .eq("factory_id", factoryId!)
+        .eq("product_type", "finished")
+        .eq("active", true);
+      // Not readable for everyone: then the list shows what the shop touched.
+      if (error) return [];
+      return (data ?? []) as { id: string; name: string; unit: string; unit_price: number }[];
+    },
+  });
+
   const from = periodStart(period);
   const movements = useQuery({
     queryKey: ["outlet-movements", outletId, period],
@@ -164,7 +183,7 @@ function RetailOutletPage() {
       let q = supabase
         .from("rep_stock_movements")
         .select(
-          "id,created_at,movement_type,product_id,quantity,quantity_after,reference,reason,products(name,unit)",
+          "id,created_at,movement_type,product_id,quantity,quantity_after,reference,reason,user_id,products(name,unit)",
         )
         .eq("sales_rep_id", outletId)
         .order("created_at", { ascending: false })
@@ -207,16 +226,19 @@ function RetailOutletPage() {
         sold: number;
         returned: number;
         remaining: number;
+        // The shop has held it (a stock row) -- an empty shelf is then "Out".
+        held: boolean;
       }
     >();
     const row = (id: string, name: string, unit: string, price = 0) => {
       let r = rows.get(id);
       if (!r) {
-        r = { name, unit, price, received: 0, sold: 0, returned: 0, remaining: 0 };
+        r = { name, unit, price, received: 0, sold: 0, returned: 0, remaining: 0, held: false };
         rows.set(id, r);
       }
       return r;
     };
+    for (const f of finished.data ?? []) row(f.id, f.name, f.unit, Number(f.unit_price ?? 0));
     for (const s of stock.data ?? []) {
       const r = row(
         s.product_id,
@@ -225,6 +247,7 @@ function RetailOutletPage() {
         Number(s.products?.unit_price ?? 0),
       );
       r.remaining = Number(s.quantity);
+      r.held = true;
     }
     for (const m of movements.data ?? []) {
       const r = row(m.product_id, m.products?.name ?? "—", m.products?.unit ?? "");
@@ -243,7 +266,63 @@ function RetailOutletPage() {
     return [...rows.entries()]
       .map(([id, r]) => ({ id, ...r }))
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [stock.data, movements.data]);
+  }, [finished.data, stock.data, movements.data]);
+
+  // Each Warehouse posting to the shop in the period, from the shop's own
+  // stock ledger (dispatch_in lines, one reference per posting): when, who
+  // posted it and what was on it. A posting the Warehouse reversed has
+  // 'reversal' lines under the same reference.
+  const postings = useMemo(() => {
+    const byRef = new Map<
+      string,
+      {
+        reference: string;
+        at: string;
+        userId: string | null;
+        items: { name: string; unit: string; qty: number }[];
+        reversed: boolean;
+      }
+    >();
+    for (const m of movements.data ?? []) {
+      if (m.movement_type !== "dispatch_in") continue;
+      const ref = m.reference ?? m.id;
+      const p = byRef.get(ref) ?? {
+        reference: ref,
+        at: m.created_at,
+        userId: m.user_id,
+        items: [],
+        reversed: false,
+      };
+      if (m.created_at < p.at) p.at = m.created_at;
+      p.items.push({
+        name: m.products?.name ?? "—",
+        unit: m.products?.unit ?? "",
+        qty: Number(m.quantity),
+      });
+      byRef.set(ref, p);
+    }
+    for (const m of movements.data ?? [])
+      if (
+        m.movement_type === "reversal" &&
+        Number(m.quantity) < 0 &&
+        m.reference &&
+        byRef.has(m.reference)
+      )
+        byRef.get(m.reference)!.reversed = true;
+    return [...byRef.values()].sort((a, b) => (a.at < b.at ? 1 : -1));
+  }, [movements.data]);
+  const posterIds = [...new Set(postings.map((p) => p.userId).filter(Boolean))] as string[];
+  const posters = useQuery({
+    queryKey: ["outlet-posters", posterIds.join(",")],
+    enabled: posterIds.length > 0,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("profiles")
+        .select("id,full_name,email")
+        .in("id", posterIds);
+      return new Map((data ?? []).map((p) => [p.id, p.full_name || p.email || "—"]));
+    },
+  });
 
   const unitsOnHand = byProduct.reduce((t, r) => t + r.remaining, 0);
   const stockValue = byProduct.reduce((t, r) => t + r.remaining * r.price, 0);
@@ -361,14 +440,20 @@ function RetailOutletPage() {
 
       <Card className="rounded-2xl">
         <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
-          <CardTitle>Stock by product</CardTitle>
+          <div>
+            <CardTitle>Stocks in Retail</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Every product: what the Warehouse posted to the shop ({periodLabel}), what was sold
+              and returned, and what is in the shop now.
+            </p>
+          </div>
           <ReportActions
             size="sm"
-            title="Retail outlet — stock by product"
+            title="Stocks in Retail"
             fileName="retail-outlet-stock"
             columns={[
               { key: "product", label: "Product" },
-              { key: "received", label: "Received" },
+              { key: "received", label: "Posted by Warehouse" },
               { key: "sold", label: "Sold" },
               { key: "returned", label: "Returned / damaged" },
               { key: "remaining", label: "Remaining now" },
@@ -376,7 +461,7 @@ function RetailOutletPage() {
             ]}
             rows={byProduct.map((r) => ({
               product: r.name,
-              received: num(r.received),
+              received: `${num(r.received)} ${r.unit}`,
               sold: num(r.sold),
               returned: num(r.returned),
               remaining: `${num(r.remaining)} ${r.unit}`,
@@ -390,7 +475,7 @@ function RetailOutletPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Product</TableHead>
-                <TableHead className="text-right">Received</TableHead>
+                <TableHead className="text-right">Posted by Warehouse</TableHead>
                 <TableHead className="text-right">Sold</TableHead>
                 <TableHead className="text-right">Returned / damaged</TableHead>
                 <TableHead className="text-right">Remaining now</TableHead>
@@ -401,12 +486,14 @@ function RetailOutletPage() {
               {byProduct.map((r) => (
                 <TableRow key={r.id}>
                   <TableCell className="font-medium">{r.name}</TableCell>
-                  <TableCell className="text-right">{num(r.received)}</TableCell>
+                  <TableCell className="text-right">
+                    {num(r.received)} {r.unit}
+                  </TableCell>
                   <TableCell className="text-right">{num(r.sold)}</TableCell>
                   <TableCell className="text-right">{num(r.returned)}</TableCell>
                   <TableCell className="text-right font-semibold">
                     {num(r.remaining)} {r.unit}
-                    {r.remaining <= 0 && (
+                    {r.remaining <= 0 && r.held && (
                       <Badge variant="destructive" className="ml-2">
                         Out
                       </Badge>
@@ -433,6 +520,70 @@ function RetailOutletPage() {
       )}
 
       <div className="grid gap-4 lg:grid-cols-2">
+        <Card className="rounded-2xl">
+          <CardHeader>
+            <CardTitle>Postings from Warehouse</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Every posting the Warehouse sent to the shop ({periodLabel}): when, who posted it and
+              what was on it.
+            </p>
+          </CardHeader>
+          <CardContent className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>When</TableHead>
+                  <TableHead>Posting</TableHead>
+                  <TableHead>Posted by</TableHead>
+                  <TableHead>Products</TableHead>
+                  <TableHead className="text-right">Packs</TableHead>
+                  <TableHead>Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {postings.map((p) => (
+                  <TableRow
+                    key={p.reference}
+                    className={p.reversed ? "text-muted-foreground" : undefined}
+                  >
+                    <TableCell className="whitespace-nowrap">
+                      {new Date(p.at).toLocaleString()}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">{p.reference}</TableCell>
+                    <TableCell>{(p.userId && posters.data?.get(p.userId)) || "—"}</TableCell>
+                    <TableCell className="text-sm">
+                      {p.items.map((it, i) => (
+                        <div key={i}>
+                          {it.name} × {num(it.qty)} {it.unit}
+                        </div>
+                      ))}
+                    </TableCell>
+                    <TableCell className="text-right font-medium">
+                      {num(p.items.reduce((t, it) => t + it.qty, 0))}
+                    </TableCell>
+                    <TableCell>
+                      {p.reversed ? (
+                        <Badge variant="destructive">Reversed</Badge>
+                      ) : (
+                        <Badge variant="secondary">Posted</Badge>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {postings.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={6} className="py-6 text-center text-muted-foreground">
+                      {movements.isLoading
+                        ? "Loading…"
+                        : `No postings from the Warehouse ${periodLabel}.`}
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+
         <Card className="rounded-2xl">
           <CardHeader>
             <CardTitle>Stock activity</CardTitle>
