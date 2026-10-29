@@ -5,6 +5,7 @@ import { Fragment, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useFactoryId, useFactorySettings } from "@/lib/use-factory";
+import { PrintCopiesButton } from "@/components/shared/print-copies-button";
 import { printDispatchSlip } from "@/lib/dispatch-slip";
 import { printSaleInvoice } from "@/lib/invoice";
 import { generateReceiptPdf } from "@/lib/pdf";
@@ -671,15 +672,11 @@ function DispatchesTab({
                     <Button variant="ghost" size="icon" title="View" onClick={() => setDetail(d)}>
                       <Eye className="h-4 w-4" />
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      title="Print"
-                      aria-label="Print"
-                      onClick={() => printDispatchSlip({ id: d.id }, settings.data, "print")}
-                    >
-                      <Printer className="h-4 w-4" />
-                    </Button>
+                    <PrintCopiesButton
+                      onPrint={(copies) =>
+                        printDispatchSlip({ id: d.id }, settings.data, "print", copies)
+                      }
+                    />
                     {d.status === "posted" && canReverse && (
                       <Button
                         variant="ghost"
@@ -1594,15 +1591,11 @@ function MarketerPostingsCard({
                   )}
                 </TableCell>
                 <TableCell className="whitespace-nowrap text-right">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    title="Print"
-                    aria-label="Print"
-                    onClick={() => printDispatchSlip({ id: d.id }, settings.data, "print")}
-                  >
-                    <Printer className="h-4 w-4" />
-                  </Button>
+                  <PrintCopiesButton
+                    onPrint={(copies) =>
+                      printDispatchSlip({ id: d.id }, settings.data, "print", copies)
+                    }
+                  />
                   {d.status === "posted" && canCorrect && (
                     <Button
                       variant="ghost"

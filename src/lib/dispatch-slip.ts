@@ -12,6 +12,7 @@ export async function printDispatchSlip(
   ref: { id: string } | { number: string },
   settings: Settings,
   action: "download" | "print",
+  copies = 1,
 ) {
   let q = supabase
     .from("stock_dispatches")
@@ -81,5 +82,6 @@ export async function printDispatchSlip(
       currency: settings?.currency ?? "NGN",
     },
     action,
+    copies,
   );
 }

@@ -159,7 +159,18 @@ export type RollReceipt = {
   file_name: string;
 };
 
-export async function generateRollReceiptPdf(r: RollReceipt, action: PdfAction = "print") {
+export async function generateRollReceiptPdf(
+  r: RollReceipt,
+  action: PdfAction = "print",
+  copies = 1,
+) {
+  // Printing goes straight to the printer as a plain page (dark, uncut,
+  // every copy the same); the PDF below is for download / preview.
+  if (action === "print") {
+    const { printRollReceipt } = await import("@/lib/roll-receipt-print");
+    await printRollReceipt(r, copies);
+    return;
+  }
   const logo = await resolveLogo(r.company.logo_url);
   const W = ROLL_W;
   const M = ROLL_M;
@@ -292,12 +303,15 @@ export async function generateRollReceiptPdf(r: RollReceipt, action: PdfAction =
   const finalY = draw(scratch);
   const doc = new jsPDF({ unit: "pt", format: [W, finalY + M] });
   draw(doc);
-  if (action === "download") {
-    doc.save(`${r.file_name}.pdf`);
-  } else {
-    if (action === "print") doc.autoPrint();
-    window.open(doc.output("bloburl"), "_blank");
+  // Copies are identical pages of the same size in one document, printed as
+  // one copy: each comes out exactly like a single print (the print dialog's
+  // own copies count shrank them).
+  for (let i = 1; i < Math.max(1, Math.floor(copies)); i++) {
+    doc.addPage([W, finalY + M]);
+    draw(doc);
   }
+  if (action === "download") doc.save(`${r.file_name}.pdf`);
+  else window.open(doc.output("bloburl"), "_blank");
 }
 
 // A4 page by default (printed on a standard office printer) so the receipt
@@ -307,6 +321,8 @@ export async function generateInvoicePdf(
   data: InvoiceData,
   action: PdfAction = "download",
   paper: "a4" | "roll" = "a4",
+  // Slim receipt only: identical pages in one print (generateRollReceiptPdf).
+  copies = 1,
 ) {
   if (paper === "roll") {
     const paid = Number(data.amount_paid ?? 0);
@@ -339,6 +355,7 @@ export async function generateInvoicePdf(
         file_name: data.invoice_number,
       },
       action,
+      copies,
     );
     return;
   }
@@ -1203,6 +1220,7 @@ export async function generateDispatchSlipPdf(
     currency?: string;
   },
   action: PdfAction = "download",
+  copies = 1,
 ) {
   await generateRollReceiptPdf(
     {
@@ -1228,6 +1246,7 @@ export async function generateDispatchSlipPdf(
       file_name: opts.dispatch_number,
     },
     action,
+    copies,
   );
 }
 

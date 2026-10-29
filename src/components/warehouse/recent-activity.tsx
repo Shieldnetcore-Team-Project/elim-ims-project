@@ -1,13 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
-import { Printer } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useRealtimeInvalidate } from "@/lib/realtime";
 import { useFactorySettings } from "@/lib/use-factory";
 import { printDispatchSlip } from "@/lib/dispatch-slip";
 import { printSaleInvoice } from "@/lib/invoice";
+import { PrintCopiesButton } from "@/components/shared/print-copies-button";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -66,9 +65,9 @@ export function WarehouseRecentActivity({ factoryId }: { factoryId: string }) {
   const settings = useFactorySettings(factoryId);
   // Postings print their slip; a distributor posting is a sale, so it prints
   // its invoice.
-  const print = async (a: Activity) => {
+  const print = async (a: Activity, copies: number) => {
     if (a.kind === "marketer" || a.kind === "retail") {
-      await printDispatchSlip({ number: a.reference }, settings.data, "print");
+      await printDispatchSlip({ number: a.reference }, settings.data, "print", copies);
       return;
     }
     const { data, error } = await supabase
@@ -81,7 +80,7 @@ export function WarehouseRecentActivity({ factoryId }: { factoryId: string }) {
       toast.error(error?.message ?? "Invoice not found");
       return;
     }
-    await printSaleInvoice(data.id, settings.data, "print", "roll");
+    await printSaleInvoice(data.id, settings.data, "print", "roll", copies);
   };
 
   return (
@@ -127,15 +126,7 @@ export function WarehouseRecentActivity({ factoryId }: { factoryId: string }) {
                   </TableCell>
                   <TableCell className="text-right">
                     {a.kind !== "received" && a.kind !== "refused" && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        title="Print"
-                        aria-label="Print"
-                        onClick={() => void print(a)}
-                      >
-                        <Printer className="h-4 w-4" />
-                      </Button>
+                      <PrintCopiesButton onPrint={(copies) => print(a, copies)} />
                     )}
                   </TableCell>
                 </TableRow>

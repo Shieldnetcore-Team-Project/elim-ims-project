@@ -26,6 +26,8 @@ export async function printSaleInvoice(
   settings: Settings,
   action: "download" | "print",
   paper: "a4" | "roll" = "a4",
+  // Slim receipt only: identical pages in one print.
+  copies = 1,
 ) {
   const { data, error } = await supabase
     .from("sales")
@@ -144,5 +146,6 @@ export async function printSaleInvoice(
     },
     action,
     paper,
+    copies,
   );
 }
