@@ -158,14 +158,13 @@ function CorrectDispatchForm({
     mutationFn: async () => {
       const clean = lines.filter((l) => l.product_id && l.quantity > 0);
       if (clean.length === 0) throw new Error("Add at least one product line");
-      if (!reason.trim()) throw new Error("Say what was wrong");
       const { data, error } = await supabase.rpc(
         "correct_stock_dispatch" as never,
         {
           p_id: dispatch.id,
           payload: {
             dispatch_date: date,
-            reason: reason.trim(),
+            reason: reason.trim() || undefined,
             items: clean.map((l) => ({ product_id: l.product_id, quantity: l.quantity })),
           },
         } as never,
@@ -257,7 +256,7 @@ function CorrectDispatchForm({
           </Button>
         </div>
         <div>
-          <Label className="text-xs">What was wrong</Label>
+          <Label className="text-xs">What was wrong (optional)</Label>
           <Input
             value={reason}
             onChange={(e) => setReason(e.target.value)}
@@ -266,7 +265,7 @@ function CorrectDispatchForm({
         </div>
       </div>
       <DialogFooter>
-        <Button onClick={() => run.mutate()} disabled={run.isPending || !reason.trim()}>
+        <Button onClick={() => run.mutate()} disabled={run.isPending}>
           {run.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           Repost corrected
         </Button>
@@ -384,13 +383,12 @@ function CorrectForm({
     mutationFn: async () => {
       const clean = lines.filter((l) => l.product_id && l.quantity > 0);
       if (clean.length === 0) throw new Error("Add at least one product line");
-      if (!reason.trim()) throw new Error("Say what was wrong");
       const { data, error } = await supabase.rpc(
         "correct_warehouse_posting" as never,
         {
           p_id: sale.id,
           payload: {
-            reason: reason.trim(),
+            reason: reason.trim() || undefined,
             discount,
             items: clean.map((l) => ({
               product_id: l.product_id,
@@ -507,7 +505,7 @@ function CorrectForm({
           </div>
         </div>
         <div>
-          <Label className="text-xs">What was wrong</Label>
+          <Label className="text-xs">What was wrong (optional)</Label>
           <Input
             value={reason}
             onChange={(e) => setReason(e.target.value)}
@@ -516,7 +514,7 @@ function CorrectForm({
         </div>
       </div>
       <DialogFooter>
-        <Button onClick={() => run.mutate()} disabled={run.isPending || !reason.trim()}>
+        <Button onClick={() => run.mutate()} disabled={run.isPending}>
           {run.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           Repost corrected
         </Button>

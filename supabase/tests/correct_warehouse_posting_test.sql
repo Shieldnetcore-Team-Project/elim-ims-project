@@ -58,28 +58,27 @@ BEGIN
                         format('account: credit %s owing %s', cust.credit_balance, cust.outstanding_balance));
 END $$;
 
--- @@ Test 2: refused without a reason, for more than is in stock (nothing changes), and for walk-ins
+-- @@ Test 2: no reason needed; refused for more than is in stock (nothing changes), and for walk-ins
 DO $$
-DECLARE v jsonb; e text; w jsonb;
+DECLARE v jsonb; c jsonb; e text; w jsonb;
   f uuid := (SELECT id FROM factories WHERE code = 'water');
   p50 uuid := '7e000000-0000-0000-0000-000000000001';
 BEGIN
   v := public.create_sale(jsonb_build_object('factory_id', f, 'customer_id', '7f000000-0000-0000-0000-000000000001',
          'customer_name', 'WHC Distributor',
          'items', jsonb_build_array(jsonb_build_object('product_id', p50, 'quantity', 10, 'unit_price', 2650))));
-  BEGIN
-    PERFORM public.correct_warehouse_posting((v->>'sale_id')::uuid, jsonb_build_object('reason', ' ',
-      'items', jsonb_build_array(jsonb_build_object('product_id', p50, 'quantity', 5))));
-  EXCEPTION WHEN OTHERS THEN e := SQLERRM; END;
-  PERFORM pg_temp.check(e LIKE '%what was wrong%', 'reason: ' || COALESCE(e, 'none'));
+  -- Just change the quantity and repost, no reason: 10 -> 12.
+  c := public.correct_warehouse_posting((v->>'sale_id')::uuid, jsonb_build_object(
+         'items', jsonb_build_array(jsonb_build_object('product_id', p50, 'quantity', 12, 'unit_price', 2650))));
+  PERFORM pg_temp.check(c->>'status' = 'posted' AND pg_temp.stock(p50) = 68, 'no-reason repost: ' || c::text);
+  v := c;
 
-  e := NULL;
   BEGIN
     PERFORM public.correct_warehouse_posting((v->>'sale_id')::uuid, jsonb_build_object('reason', 'more',
       'items', jsonb_build_array(jsonb_build_object('product_id', p50, 'quantity', 5000))));
   EXCEPTION WHEN OTHERS THEN e := SQLERRM; END;
   PERFORM pg_temp.check(e LIKE '%Insufficient stock%', 'stock: ' || COALESCE(e, 'none'));
-  PERFORM pg_temp.check(pg_temp.stock(p50) = 70 AND (SELECT deleted_at IS NULL FROM sales WHERE id = (v->>'sale_id')::uuid),
+  PERFORM pg_temp.check(pg_temp.stock(p50) = 68 AND (SELECT deleted_at IS NULL FROM sales WHERE id = (v->>'sale_id')::uuid),
                         'nothing changed after a refusal');
 
   w := public.create_sale(jsonb_build_object('factory_id', f, 'customer_name', 'Walk In',

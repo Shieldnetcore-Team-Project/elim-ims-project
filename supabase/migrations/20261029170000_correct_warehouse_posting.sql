@@ -16,19 +16,19 @@
 --      advance it used) returned to the distributor's credit, compensating
 --      ledger rows; the sale is soft-deleted;
 --   2. a new posting to the same distributor with the corrected lines is made
---      through create_sale, so it is posted at once (stock out, debt,
---      ledger) and the distributor's credit -- including what they had paid
---      on the old one -- is applied to it automatically.
+--      through create_sale and posted at once -- never waiting for approval
+--      (stock out, debt, ledger) -- and the distributor's credit, including
+--      what they had paid on the old one, is applied to it automatically.
 -- Only the difference has to be possible: the old goods go back first, then
 -- the corrected ones come out. If anything fails (not enough stock, credit
 -- limit) nothing changes.
 --
 -- Who: whoever can post (sales write, as create_sale). Only a posted
--- Warehouse posting to a distributor; a reason is required. The new posting
+-- Warehouse posting to a distributor; a reason is optional. The new posting
 -- goes to Accounts to confirm like any other; the old one drops off their
 -- list. Audited.
 -- payload: { items: [{product_id, quantity, unit_price?}], discount?,
---            sale_date?, reason }
+--            sale_date?, reason? }
 -- ============================================================================
 
 CREATE OR REPLACE FUNCTION public._reverse_posted_sale(p_sale uuid, p_reason text)
@@ -134,7 +134,8 @@ BEGIN
     RAISE EXCEPTION '% is %, not posted -- only a posted one is corrected here', v_old.invoice_number,
       replace(v_old.status::text, '_', ' ');
   END IF;
-  IF v_reason IS NULL THEN RAISE EXCEPTION 'Say what was wrong'; END IF;
+  -- The reason is optional: the Warehouse just changes the lines and reposts.
+  v_reason := COALESCE(v_reason, 'figures corrected');
   IF v_items IS NULL OR jsonb_array_length(v_items) = 0 THEN RAISE EXCEPTION 'Add at least one product line'; END IF;
 
   PERFORM public._reverse_posted_sale(p_id, 'Corrected: ' || v_reason);
@@ -152,6 +153,14 @@ BEGIN
     'sales_person', v_old.sales_person,
     'remarks', 'Correction of ' || v_old.invoice_number || ': ' || v_reason,
     'items', v_items));
+
+  -- The corrected posting never waits for approval: posted now even where
+  -- create_sale still leaves Warehouse postings pending (20261029140000 not
+  -- yet applied), so Warehouse stock follows the correction at once.
+  IF v_new->>'status' = 'pending_approval' THEN
+    PERFORM public._post_sale((v_new->>'sale_id')::uuid, 'Corrected Warehouse posting - posted at once');
+    v_new := v_new || jsonb_build_object('status', 'posted');
+  END IF;
 
   INSERT INTO audit_logs(user_id, factory_id, action, entity, entity_id, old_value, new_value)
   VALUES (v_uid, v_old.factory_id, 'correct_warehouse_posting', 'sales', p_id::text,
