@@ -3,11 +3,13 @@ import autoTable from "jspdf-autotable";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { drawLogoHeader, pdfMoney, type PdfAction } from "./pdf";
+import { fetchSaleLines } from "./invoice";
 import type { Database } from "@/integrations/supabase/types";
 
 type Settings = Database["public"]["Tables"]["settings"]["Row"] | null | undefined;
 
 type Sale = {
+  id: string;
   invoice_number: string;
   sale_date: string;
   customer_name: string | null;
@@ -41,7 +43,7 @@ export async function printMonthlySales(
     let q = supabase
       .from("sales")
       .select(
-        "invoice_number,sale_date,customer_name,grand_total,amount_paid,balance,sale_items(quantity,line_total,products(name,unit))",
+        "id,invoice_number,sale_date,customer_name,grand_total,amount_paid,balance,sale_items(quantity,line_total,products(name,unit))",
       )
       .eq("factory_id", factoryId)
       .is("deleted_at", null)
@@ -68,6 +70,21 @@ export async function printMonthlySales(
   if (sales.length === 0) {
     toast.info("No posted sales in that month.");
     return;
+  }
+  // Product names through sale_invoice_lines() (see fetchSaleLines), 1000 sales
+  // per call.
+  for (let i = 0; i < sales.length; i += 1000) {
+    const chunk = sales.slice(i, i + 1000);
+    const lines = await fetchSaleLines(chunk.map((s) => s.id));
+    for (const s of chunk) {
+      const own = lines?.get(s.id);
+      if (own)
+        s.sale_items = own.map((l) => ({
+          quantity: l.quantity,
+          line_total: l.line_total,
+          products: { name: l.name, unit: l.unit },
+        }));
+    }
   }
 
   const currency = settings?.currency ?? "NGN";

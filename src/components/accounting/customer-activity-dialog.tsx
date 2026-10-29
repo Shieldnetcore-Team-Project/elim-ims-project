@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { money } from "@/lib/format";
-import { printSaleInvoice } from "@/lib/invoice";
+import { fetchSaleLines, printSaleInvoice } from "@/lib/invoice";
 import { printMonthlySales } from "@/lib/monthly-sales-pdf";
 import type { Database } from "@/integrations/supabase/types";
 import { Badge } from "@/components/ui/badge";
@@ -101,7 +101,22 @@ export function CustomerActivityDialog({
         : q.in("id", saleIds);
       const { data, error } = await q.order("created_at", { ascending: false }).limit(500);
       if (error) throw error;
-      return (data ?? []) as unknown as Sale[];
+      const rows = (data ?? []) as unknown as Sale[];
+      // Product names through sale_invoice_lines() (see fetchSaleLines).
+      const lines = await fetchSaleLines(rows.map((s) => s.id));
+      return rows.map((s) => {
+        const own = lines?.get(s.id);
+        return own
+          ? {
+              ...s,
+              sale_items: own.map((l) => ({
+                quantity: l.quantity,
+                unit_price: l.unit_price,
+                products: { name: l.name, unit: l.unit },
+              })),
+            }
+          : s;
+      });
     },
   });
 

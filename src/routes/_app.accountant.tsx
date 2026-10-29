@@ -8,7 +8,7 @@ import { usePermissions, type ModuleKey } from "@/lib/permissions";
 import { useRealtimeInvalidate } from "@/lib/realtime";
 import { KPI } from "@/lib/dashboard-kit";
 import { money } from "@/lib/format";
-import { printSaleInvoice } from "@/lib/invoice";
+import { fetchSaleLines, printSaleInvoice } from "@/lib/invoice";
 import { printMonthlySales } from "@/lib/monthly-sales-pdf";
 import { generateReceiptPdf } from "@/lib/pdf";
 import { AccountsTab, type Rep } from "@/routes/_app.distribution";
@@ -266,7 +266,22 @@ function AccountantPage() {
         .order("created_at", { ascending: false })
         .limit(200);
       if (error) throw error;
-      return (data ?? []) as unknown as SaleRow[];
+      const rows = (data ?? []) as unknown as SaleRow[];
+      // Product names through sale_invoice_lines(): an accountant without
+      // finished-goods rights can't read products directly.
+      const lines = await fetchSaleLines(rows.map((s) => s.id));
+      return rows.map((s) => {
+        const own = lines?.get(s.id);
+        return own
+          ? {
+              ...s,
+              sale_items: own.map((l) => ({
+                quantity: l.quantity,
+                products: { name: l.name, unit: l.unit },
+              })),
+            }
+          : s;
+      });
     },
   });
 

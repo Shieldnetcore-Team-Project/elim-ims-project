@@ -11,6 +11,45 @@ const db = supabase as any;
 
 type Rep = { id: string; code: string | null; name: string; kind: string };
 
+export type SaleLine = {
+  name: string;
+  quantity: number;
+  unit: string;
+  unit_price: number;
+  line_total: number;
+};
+
+// The product lines of the given sales, by sale id, read through
+// sale_invoice_lines() -- products and sale_items are readable only with
+// finished-goods / sales rights, which an accountant may not hold, so a plain
+// select came back without product lines. Null when the function can't be
+// used (no sales/finance rights); callers then fall back to their own select.
+export async function fetchSaleLines(saleIds: string[]): Promise<Map<string, SaleLine[]> | null> {
+  if (saleIds.length === 0) return new Map();
+  const { data, error } = await db.rpc("sale_invoice_lines", { p_sales: saleIds });
+  if (error) return null;
+  const out = new Map<string, SaleLine[]>();
+  for (const r of (data ?? []) as {
+    sale_id: string;
+    product_name: string;
+    unit: string;
+    quantity: number;
+    unit_price: number;
+    line_total: number;
+  }[]) {
+    const list = out.get(r.sale_id) ?? [];
+    list.push({
+      name: r.product_name,
+      quantity: Number(r.quantity),
+      unit: r.unit,
+      unit_price: Number(r.unit_price),
+      line_total: Number(r.line_total),
+    });
+    out.set(r.sale_id, list);
+  }
+  return out;
+}
+
 // Loads a saved sale with its line items and prints/downloads its invoice.
 // Shared by every page that prints a sale so they all produce the same
 // document:
@@ -60,16 +99,18 @@ export async function printSaleInvoice(
     unit_price: number;
     line_total: number;
   }[] = [];
+  const fetched = await fetchSaleLines(sales.map((x) => x.id));
   for (const sale of sales) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const it of (sale.sale_items ?? []) as any[]) {
-      const line = {
-        name: it.products?.name ?? "-",
-        quantity: Number(it.quantity),
-        unit: it.products?.unit ?? "",
-        unit_price: Number(it.unit_price),
-        line_total: Number(it.line_total),
-      };
+    const own = ((sale.sale_items ?? []) as any[]).map((it) => ({
+      name: it.products?.name ?? "-",
+      quantity: Number(it.quantity),
+      unit: it.products?.unit ?? "",
+      unit_price: Number(it.unit_price),
+      line_total: Number(it.line_total),
+    }));
+    for (const it of fetched?.get(sale.id) ?? own) {
+      const line = { ...it };
       const same = lines.find((l) => l.name === line.name && l.unit_price === line.unit_price);
       if (same) {
         same.quantity += line.quantity;
