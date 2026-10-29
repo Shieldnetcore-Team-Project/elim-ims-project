@@ -3304,6 +3304,7 @@ function RepCustomersCard({
   const [open, setOpen] = useState<string | null>(null);
   const [owingOnly, setOwingOnly] = useState(false);
   const [paying, setPaying] = useState<CustomerRow | null>(null);
+  const [adding, setAdding] = useState(false);
 
   const invoices = useQuery({
     queryKey: ["dist-rep-customers", repId, from, to],
@@ -3458,6 +3459,11 @@ function RepCustomersCard({
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {canCollect && (
+            <Button size="sm" className="gap-2" onClick={() => setAdding(true)}>
+              <Plus className="h-4 w-4" /> Add customer
+            </Button>
+          )}
           <Button
             variant={owingOnly ? "default" : "outline"}
             size="sm"
@@ -3504,7 +3510,7 @@ function RepCustomersCard({
                     ? "Loading…"
                     : owingOnly
                       ? "None of this marketer's customers owes anything."
-                      : "No customers yet. Assign customers to this marketer on the Customers page."}
+                      : `No customers yet. Use "Add customer" to put ${repName}'s customers here.`}
                 </TableCell>
               </TableRow>
             )}
@@ -3677,7 +3683,183 @@ function RepCustomersCard({
           />
         )}
       </Dialog>
+      <Dialog open={adding} onOpenChange={setAdding}>
+        {adding && (
+          <AddMarketerCustomerDialog
+            factoryId={factoryId}
+            repId={repId}
+            repName={repName}
+            onDone={() => setAdding(false)}
+          />
+        )}
+      </Dialog>
     </Card>
+  );
+}
+
+// "Add customer" on a marketer's customers: a new customer created already
+// under the marketer, or an existing one moved under them
+// (add_marketer_customer). Then their payments are recorded right here.
+function AddMarketerCustomerDialog({
+  factoryId,
+  repId,
+  repName,
+  onDone,
+}: {
+  factoryId: string;
+  repId: string;
+  repName: string;
+  onDone: () => void;
+}) {
+  const qc = useQueryClient();
+  const [mode, setMode] = useState<"new" | "existing">("new");
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [address, setAddress] = useState("");
+  const [search, setSearch] = useState("");
+  const [picked, setPicked] = useState<{ id: string; name: string } | null>(null);
+
+  const existing = useQuery({
+    queryKey: ["dist-add-customer-list", factoryId],
+    enabled: mode === "existing",
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("customers")
+        .select("id,name,phone,sales_rep_id")
+        .eq("factory_id", factoryId)
+        .is("removed_at", null)
+        .order("name")
+        .limit(1000);
+      if (error) throw error;
+      return (data ?? []) as {
+        id: string;
+        name: string;
+        phone: string | null;
+        sales_rep_id: string | null;
+      }[];
+    },
+  });
+  const q = search.trim().toLowerCase();
+  const matches = (existing.data ?? [])
+    .filter((c) => c.sales_rep_id !== repId)
+    .filter((c) => !q || c.name.toLowerCase().includes(q) || (c.phone ?? "").includes(q))
+    .slice(0, 50);
+
+  const save = useMutation({
+    mutationFn: async () => {
+      if (mode === "new" && !name.trim()) throw new Error("Enter the customer's name");
+      if (mode === "existing" && !picked) throw new Error("Pick the customer");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- RPC newer than the generated types
+      const { data, error } = await (supabase as any).rpc("add_marketer_customer", {
+        p_rep: repId,
+        p_customer: mode === "existing" ? picked!.id : null,
+        p_name: mode === "new" ? name.trim() : null,
+        p_phone: mode === "new" ? phone.trim() || null : null,
+        p_address: mode === "new" ? address.trim() || null : null,
+      });
+      if (error) throw error;
+      return data as { name: string };
+    },
+    onSuccess: (res) => {
+      toast.success(`${res?.name ?? "Customer"} added to ${repName}'s customers`);
+      for (const key of [
+        "dist-rep-customer-accounts",
+        "dist-rep-customers",
+        "dist-add-customer-list",
+        "customers",
+      ])
+        qc.invalidateQueries({ queryKey: [key] });
+      onDone();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return (
+    <DialogContent className="max-w-md">
+      <DialogHeader>
+        <DialogTitle>Add a customer to {repName}</DialogTitle>
+      </DialogHeader>
+      <div className="flex gap-1">
+        <Button
+          size="sm"
+          variant={mode === "new" ? "default" : "outline"}
+          onClick={() => setMode("new")}
+        >
+          New customer
+        </Button>
+        <Button
+          size="sm"
+          variant={mode === "existing" ? "default" : "outline"}
+          onClick={() => setMode("existing")}
+        >
+          Existing customer
+        </Button>
+      </div>
+      {mode === "new" ? (
+        <div className="grid gap-3">
+          <div>
+            <Label>Name</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+          </div>
+          <div>
+            <Label>Phone (optional)</Label>
+            <Input value={phone} onChange={(e) => setPhone(e.target.value)} />
+          </div>
+          <div>
+            <Label>Address (optional)</Label>
+            <Input value={address} onChange={(e) => setAddress(e.target.value)} />
+          </div>
+        </div>
+      ) : (
+        <div className="grid gap-2">
+          <Input
+            placeholder="Search name or phone…"
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPicked(null);
+            }}
+            autoFocus
+          />
+          <div className="max-h-64 overflow-y-auto rounded-md border">
+            {matches.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-muted ${
+                  picked?.id === c.id ? "bg-muted font-medium" : ""
+                }`}
+                onClick={() => setPicked({ id: c.id, name: c.name })}
+              >
+                <span>{c.name}</span>
+                <span className="text-xs text-muted-foreground">
+                  {c.phone ?? ""}
+                  {c.sales_rep_id ? " · another marketer's" : ""}
+                </span>
+              </button>
+            ))}
+            {matches.length === 0 && (
+              <p className="p-3 text-sm text-muted-foreground">
+                {existing.isLoading ? "Loading…" : "No matching customer."}
+              </p>
+            )}
+          </div>
+          {picked && (
+            <p className="text-xs text-muted-foreground">
+              {picked.name} will be moved under {repName}.
+            </p>
+          )}
+        </div>
+      )}
+      <DialogFooter>
+        <Button
+          disabled={save.isPending || (mode === "new" ? !name.trim() : !picked)}
+          onClick={() => save.mutate()}
+        >
+          {save.isPending ? "Saving…" : "Add customer"}
+        </Button>
+      </DialogFooter>
+    </DialogContent>
   );
 }
 
