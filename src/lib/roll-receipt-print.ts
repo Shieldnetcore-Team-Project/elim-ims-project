@@ -94,7 +94,8 @@ body {
   margin-top: 4mm; padding-bottom: 6mm; text-align: center;
   font-size: 7pt; font-weight: 700; letter-spacing: 0.5px;
 }
-/* A receipt never splits across two pages (two cuts). */
+/* Each copy on its own page; a receipt never splits across two pages. */
+.receipt + .receipt { break-before: page; page-break-before: always; }
 .receipt { break-inside: avoid; page-break-inside: avoid; }
 .logo { display: block; max-width: 48mm; max-height: 18mm; margin: 0 auto 2mm; }
 .c { text-align: center; }
@@ -124,19 +125,13 @@ td, th { padding: 0.4mm 0; vertical-align: top; word-break: break-word; }
 .totals .strong td { font-size: 10pt; }
 `;
 
-// Each copy is its own print job. A receipt printer always cuts at the end of
-// a job, but many are set to cut only once per job however many pages it
-// has -- copies sent as pages of one job came out joined. One job per copy
-// means one cut per copy, with no printer setting to change; the print
-// window opens once per copy.
+// All copies in one print, one after the other, each on its own page and
+// ending with a "cut here" line: one Print gives every copy, cut apart by
+// hand (the user's choice, 2026-10-29, over one print window per copy).
 export async function printRollReceipt(r: RollReceipt, copies = 1) {
   const logo = r.company.logo_url || FALLBACK_LOGO_URL;
   const n = Math.max(1, Math.floor(copies));
-  for (let i = 0; i < n; i++) await printOne(r, logo);
-}
-
-async function printOne(r: RollReceipt, logo: string) {
-  const html = `<!doctype html><html><head><meta charset="utf-8" /><title>${esc(r.file_name)}</title><style>${STYLE}</style></head><body>${receiptHtml(r, logo)}</body></html>`;
+  const html = `<!doctype html><html><head><meta charset="utf-8" /><title>${esc(r.file_name)}</title><style>${STYLE}</style></head><body>${Array.from({ length: n }, () => receiptHtml(r, logo)).join("")}</body></html>`;
 
   const frame = document.createElement("iframe");
   frame.setAttribute("aria-hidden", "true");
@@ -174,7 +169,7 @@ async function printOne(r: RollReceipt, logo: string) {
   size.textContent = `@page { size: 80mm ${pageMm}mm; }`;
   doc.head.appendChild(size);
 
-  // Wait for this print window to close before sending the next copy.
+  // Remove the frame once the print window has closed.
   const win = frame.contentWindow!;
   const closed = new Promise<void>((res) => {
     win.addEventListener("afterprint", () => res(), { once: true });

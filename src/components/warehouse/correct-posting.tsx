@@ -114,15 +114,9 @@ export function CorrectDispatchPostingDialog({
       dispatch={dispatch.data}
       products={products.data ?? []}
       onDone={() => {
-        for (const key of [
-          "warehouse-activity",
-          "acct-postings",
-          "finished-goods",
-          "dist-dispatches",
-          "dist-rep-stock",
-          "dist-account",
-        ])
-          qc.invalidateQueries({ queryKey: [key] });
+        // Every figure on screen follows the correction at once (stock
+        // cards, lists, totals) -- no page refresh.
+        void qc.invalidateQueries();
         onDone();
       }}
     />
@@ -337,8 +331,8 @@ export function CorrectDistributorPostingDialog({
       sale={sale.data}
       products={products.data ?? []}
       onDone={() => {
-        for (const key of ["warehouse-activity", "acct-postings", "finished-goods", "sales-list"])
-          qc.invalidateQueries({ queryKey: [key] });
+        // Every figure on screen follows the correction at once -- no refresh.
+        void qc.invalidateQueries();
         onDone();
       }}
     />
