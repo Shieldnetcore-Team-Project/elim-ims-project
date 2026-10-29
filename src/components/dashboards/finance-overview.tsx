@@ -23,6 +23,7 @@ import {
 import { exportCsv } from "@/lib/export";
 import { CustomerAccountsCard } from "@/components/dashboards/customer-accounts";
 import { MonthlySalesCard } from "@/components/dashboards/monthly-sales";
+import { PartySheetsCard } from "@/components/dashboards/party-sheets";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -683,7 +684,10 @@ export function FinanceOverview({ factoryId }: { factoryId: string }) {
         </TabsContent>
 
         <TabsContent value="monthly-sales">
-          <MonthlySalesCard factoryId={factoryId} />
+          <div className="space-y-6">
+            <MonthlySalesCard factoryId={factoryId} />
+            <PartySheetsCard factoryId={factoryId} />
+          </div>
         </TabsContent>
       </Tabs>
     </div>

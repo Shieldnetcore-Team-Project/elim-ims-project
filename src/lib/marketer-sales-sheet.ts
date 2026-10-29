@@ -1,4 +1,4 @@
-import { format, parseISO } from "date-fns";
+import { addDays, format, parseISO } from "date-fns";
 import type { ReportColumn } from "./export";
 
 // Marketer daily sales sheet — the month-by-day sheet the office keeps per
@@ -125,4 +125,79 @@ export async function fetchMarketerSheets(
     }),
   );
   return sheets.filter((s) => keepEmpty || s.totals.total !== 0 || s.totals.recovery !== 0);
+}
+
+// ---------------------------------------------------------------------------
+// Every party's sheet (Finance overview → Monthly accumulated sales): the same
+// sheet for each marketer, the retail shop, each distributor, and walk-ins /
+// other customers as one party, from monthly_party_sheet() -- which uses the
+// same figures as marketer_daily_accountability().
+
+export type PartyKind = "marketer" | "retail" | "distributor" | "other";
+
+export const PARTY_KINDS: { kind: PartyKind; label: string; idLabel: string }[] = [
+  { kind: "marketer", label: "Marketers", idLabel: "Marketer ID" },
+  { kind: "retail", label: "Retail", idLabel: "Outlet ID" },
+  { kind: "distributor", label: "Distributors", idLabel: "Distributor ID" },
+  { kind: "other", label: "Walk-in & other customers", idLabel: "ID" },
+];
+
+export type PartySheet = MarketerSheet & { kind: PartyKind };
+
+type PartyDayRow = {
+  party_kind: PartyKind;
+  party_id: string | null;
+  party_code: string | null;
+  party_name: string;
+  day: string;
+  total: number;
+  credit: number;
+  recovery: number;
+};
+
+// Sorted by kind (marketers, retail, distributors, others), then name. Each
+// sheet runs over every day from..to; buildSheetRows drops quiet Sundays.
+export async function fetchPartySheets(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- RPC newer than the generated types
+  db: any,
+  factoryId: string,
+  from: string,
+  to: string,
+): Promise<PartySheet[]> {
+  const { data, error } = await db.rpc("monthly_party_sheet", {
+    p_factory: factoryId,
+    p_from: from,
+    p_to: to,
+  });
+  if (error) throw error;
+  const days: string[] = [];
+  for (let d = parseISO(from); format(d, "yyyy-MM-dd") <= to; d = addDays(d, 1))
+    days.push(format(d, "yyyy-MM-dd"));
+  const parties = new Map<string, { row: PartyDayRow; byDay: Map<string, PartyDayRow> }>();
+  for (const r of (data ?? []) as PartyDayRow[]) {
+    const key = `${r.party_kind}:${r.party_id ?? ""}`;
+    if (!parties.has(key)) parties.set(key, { row: r, byDay: new Map() });
+    parties.get(key)!.byDay.set(String(r.day).slice(0, 10), r);
+  }
+  const order = PARTY_KINDS.map((k) => k.kind);
+  return [...parties.entries()]
+    .map(([key, { row, byDay }]) => {
+      const rows = buildSheetRows(
+        days.map((day) => ({
+          day,
+          sales_value: Number(byDay.get(day)?.total ?? 0),
+          credit_sales: Number(byDay.get(day)?.credit ?? 0),
+          debt_collections: Number(byDay.get(day)?.recovery ?? 0),
+        })),
+      );
+      return {
+        repId: key,
+        kind: row.party_kind,
+        code: row.party_code,
+        name: row.party_name,
+        rows,
+        totals: sheetTotals(rows),
+      };
+    })
+    .sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind) || a.name.localeCompare(b.name));
 }

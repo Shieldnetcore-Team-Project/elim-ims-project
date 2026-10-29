@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { money } from "@/lib/format";
 import { printSaleInvoice } from "@/lib/invoice";
+import { printMonthlySales } from "@/lib/monthly-sales-pdf";
 import type { Database } from "@/integrations/supabase/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,7 +22,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Printer } from "lucide-react";
+import { FileText, Printer } from "lucide-react";
 
 type Settings = Database["public"]["Tables"]["settings"]["Row"] | null | undefined;
 
@@ -161,6 +162,24 @@ export function CustomerActivityDialog({
                 onClick={() => setRange("all")}
               >
                 All history
+              </Button>
+            )}
+            {customer && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-2"
+                title="Print this customer's sales for the whole month"
+                onClick={() =>
+                  printMonthlySales(factoryId, day.slice(0, 7), settings, "print", customer)
+                }
+              >
+                <FileText className="h-4 w-4" />
+                {new Date(day).toLocaleDateString("en-GB", {
+                  month: "short",
+                  year: "numeric",
+                })}{" "}
+                statement
               </Button>
             )}
           </div>

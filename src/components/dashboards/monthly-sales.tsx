@@ -11,7 +11,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { FileDown, FileSpreadsheet } from "lucide-react";
+import { FileDown, FileSpreadsheet, FileText, Printer } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -31,6 +31,8 @@ import {
 } from "@/components/ui/table";
 import { exportCsv, exportExcel, type ReportColumn } from "@/lib/export";
 import { money } from "@/lib/format";
+import { generateReportPdf, pdfMoney } from "@/lib/pdf";
+import { useFactorySettings } from "@/lib/use-factory";
 import { postedSalesRows } from "@/lib/metric-queries";
 import { useRealtimeInvalidate } from "@/lib/realtime";
 import {
@@ -75,6 +77,7 @@ export function MonthlySalesCard({ factoryId }: { factoryId: string }) {
   const [year, setYear] = useState(thisYear);
   const [periodKey, setPeriodKey] = useState<(typeof PERIODS)[number]["key"]>("year");
   const period = PERIODS.find((p) => p.key === periodKey) ?? PERIODS[0];
+  const settings = useFactorySettings(factoryId);
   useRealtimeInvalidate(["sales"], [["monthly-sales"]]);
 
   const monthly = useQuery({
@@ -129,6 +132,32 @@ export function MonthlySalesCard({ factoryId }: { factoryId: string }) {
   ];
   const fileName = `monthly-accumulated-sales-${year}${period.key === "year" ? "" : `-${period.key}`}`;
 
+  // PDF: the same table as CSV/Excel with money as "NGN 1,234.00" (the PDF
+  // fonts have no ₦), the period and headline figures under the title.
+  const printPdf = (action: "print" | "download") => {
+    const currency = settings.data?.currency ?? "NGN";
+    const cash = (n: number) => pdfMoney(Number(n), currency);
+    generateReportPdf(
+      `Monthly Accumulated Sales ${year}${period.key === "year" ? "" : ` - ${period.label}`}`,
+      COLUMNS,
+      exportRows().map((r) => ({
+        ...r,
+        revenue: cash(r.revenue),
+        accumulated: cash(r.accumulated),
+      })),
+      action,
+      { name: settings.data?.company_name, logo_url: settings.data?.logo_url },
+      [
+        "Approved sales only (excludes PR and deleted sales), by sale date.",
+        "Accumulated is the running total from January.",
+        `Approved sales: ${invoices}   Sales revenue: ${cash(revenue)}   Accumulated: ${cash(last?.accumulated ?? 0)}`,
+        ...(best
+          ? [`Best month: ${MONTH_NAMES[monthIndex(best.key)]} (${cash(best.revenue)})`]
+          : []),
+      ],
+    );
+  };
+
   return (
     <Card className="rounded-2xl">
       <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3">
@@ -181,6 +210,24 @@ export function MonthlySalesCard({ factoryId }: { factoryId: string }) {
             onClick={() => exportExcel(fileName, COLUMNS, exportRows())}
           >
             <FileSpreadsheet className="h-4 w-4" /> Excel
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            disabled={rows.length === 0}
+            onClick={() => printPdf("download")}
+          >
+            <FileText className="h-4 w-4" /> PDF
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            disabled={rows.length === 0}
+            onClick={() => printPdf("print")}
+          >
+            <Printer className="h-4 w-4" /> Print
           </Button>
         </div>
       </CardHeader>

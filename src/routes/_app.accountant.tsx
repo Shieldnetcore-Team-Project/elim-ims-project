@@ -9,6 +9,7 @@ import { useRealtimeInvalidate } from "@/lib/realtime";
 import { KPI } from "@/lib/dashboard-kit";
 import { money } from "@/lib/format";
 import { printSaleInvoice } from "@/lib/invoice";
+import { printMonthlySales } from "@/lib/monthly-sales-pdf";
 import { generateReceiptPdf } from "@/lib/pdf";
 import { AccountsTab, type Rep } from "@/routes/_app.distribution";
 import { PostingsTab } from "@/components/accounting/postings-tab";
@@ -217,6 +218,8 @@ function AccountantPage() {
   const { can } = perms;
   const [q, setQ] = useState("");
   const [viewing, setViewing] = useState<InvoiceGroup | null>(null);
+  // Monthly accumulated sales PDF: "YYYY-MM", this month by default.
+  const [month, setMonth] = useState(() => startOfToday().slice(0, 7));
   const { tab = "activity" } = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
   const setTab = (v: string) =>
@@ -566,8 +569,35 @@ function AccountantPage() {
 
         <TabsContent value="invoices">
           <Card className="rounded-2xl">
-            <CardHeader>
+            <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
               <CardTitle>Invoices</CardTitle>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm text-muted-foreground">Monthly sales</span>
+                <Input
+                  type="month"
+                  className="w-40"
+                  value={month}
+                  onChange={(e) => setMonth(e.target.value)}
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  disabled={!month}
+                  onClick={() => printMonthlySales(factoryId, month, settings.data, "print")}
+                >
+                  <Printer className="h-4 w-4" /> Print
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  disabled={!month}
+                  onClick={() => printMonthlySales(factoryId, month, settings.data, "download")}
+                >
+                  <Download className="h-4 w-4" /> PDF
+                </Button>
+              </div>
             </CardHeader>
             <CardContent className="overflow-x-auto">
               <Table>

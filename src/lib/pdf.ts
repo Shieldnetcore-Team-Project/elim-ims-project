@@ -1,7 +1,7 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { money } from "./format";
-import { sheetDayLabel } from "./marketer-sales-sheet";
+import { PARTY_KINDS, sheetDayLabel, sheetTotals } from "./marketer-sales-sheet";
 
 export type InvoiceItem = {
   name: string;
@@ -1930,9 +1930,15 @@ export async function generateItemsSoldPdf(
 export async function generateMarketerSheetPdf(
   opts: {
     company: { name?: string | null; logo_url?: string | null };
-    sheets: import("./marketer-sales-sheet").MarketerSheet[];
+    sheets: (import("./marketer-sales-sheet").MarketerSheet & {
+      kind?: import("./marketer-sales-sheet").PartyKind;
+    })[];
     periodLabel: string;
     printedBy?: string | null;
+    // Every-party print (Finance overview): a first page with one line per
+    // party, a subtotal per group (marketers, retail, ...) and a grand total.
+    summary?: boolean;
+    fileName?: string;
   },
   action: PdfAction = "download",
 ) {
@@ -1941,24 +1947,90 @@ export async function generateMarketerSheetPdf(
   const logo = await resolveLogo(opts.company.logo_url);
   const num = (v: number) =>
     v === 0 ? "-" : new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(v);
+  const drawLogo = () => {
+    if (!logo) return 40;
+    const ratio = Math.min(130 / logo.width, 60 / logo.height, 1);
+    const w = logo.width * ratio,
+      h = logo.height * ratio;
+    doc.addImage(logo.dataUrl, "PNG", pageW / 2 - w / 2, 24, w, h);
+    return 24 + h + 22;
+  };
+  const sheetStyles = {
+    theme: "grid" as const,
+    styles: {
+      font: "helvetica",
+      fontSize: 9,
+      lineColor: [0, 0, 0] as [number, number, number],
+      lineWidth: 0.5,
+      textColor: [0, 0, 0] as [number, number, number],
+      halign: "right" as const,
+    },
+    headStyles: {
+      fillColor: [255, 255, 255] as [number, number, number],
+      fontStyle: "bold" as const,
+      valign: "bottom" as const,
+    },
+    margin: { left: 36, right: 36 },
+  };
+
+  if (opts.summary) {
+    const y = drawLogo();
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(14);
+    doc.text(`MONTHLY PERFORMANCE  (${opts.periodLabel})`, pageW / 2, y, { align: "center" });
+    const figures = (t: Omit<import("./marketer-sales-sheet").SheetRow, "day">) => [
+      num(t.total),
+      num(t.credit),
+      num(t.cash),
+      num(t.recovery),
+      num(t.remitted),
+    ];
+    const body: string[][] = [];
+    const bold = new Set<number>();
+    for (const k of PARTY_KINDS) {
+      const group = opts.sheets.filter((s) => s.kind === k.kind);
+      if (group.length === 0) continue;
+      bold.add(body.length);
+      body.push([k.label.toUpperCase(), "", "", "", "", ""]);
+      for (const s of group)
+        body.push([s.code ? `${s.name} (${s.code})` : s.name, ...figures(s.totals)]);
+      bold.add(body.length);
+      body.push([
+        `TOTAL ${k.label.toUpperCase()}`,
+        ...figures(sheetTotals(group.map((s) => ({ day: "", ...s.totals })))),
+      ]);
+    }
+    bold.add(body.length);
+    body.push([
+      "GRAND TOTAL",
+      ...figures(sheetTotals(opts.sheets.map((s) => ({ day: "", ...s.totals })))),
+    ]);
+    autoTable(doc, {
+      ...sheetStyles,
+      startY: y + 10,
+      head: [
+        ["NAME", "TOTAL SALES", "CREDIT SALES", "CASH SALES", "Recovery", "TOTAL CASH REMITTED"],
+      ],
+      body,
+      columnStyles: { 0: { cellWidth: 170 } },
+      didParseCell: (d) => {
+        if (d.column.index === 0) d.cell.styles.halign = "left";
+        if (d.section === "body" && bold.has(d.row.index)) d.cell.styles.fontStyle = "bold";
+      },
+    });
+  }
 
   opts.sheets.forEach((s, idx) => {
-    if (idx > 0) doc.addPage();
-    let y = 40;
-    if (logo) {
-      const ratio = Math.min(130 / logo.width, 60 / logo.height, 1);
-      const w = logo.width * ratio,
-        h = logo.height * ratio;
-      doc.addImage(logo.dataUrl, "PNG", pageW / 2 - w / 2, 24, w, h);
-      y = 24 + h + 22;
-    }
+    if (idx > 0 || opts.summary) doc.addPage();
+    let y = drawLogo();
     doc.setFont("helvetica", "bold");
     doc.setFontSize(14);
     doc.text(`${s.name.toUpperCase()}  (${opts.periodLabel})`, pageW / 2, y, { align: "center" });
     if (s.code) {
       doc.setFont("helvetica", "normal");
       doc.setFontSize(9);
-      doc.text(`Marketer ID: ${s.code}`, pageW / 2, y + 13, { align: "center" });
+      const idLabel = PARTY_KINDS.find((k) => k.kind === s.kind)?.idLabel ?? "Marketer ID";
+      doc.text(`${idLabel}: ${s.code}`, pageW / 2, y + 13, { align: "center" });
       y += 13;
     }
     autoTable(doc, {
@@ -2026,7 +2098,9 @@ export async function generateMarketerSheetPdf(
   }
 
   if (action === "download") {
-    doc.save(`marketer-sales-sheet-${opts.periodLabel.replace(/[^\w-]+/g, "-")}.pdf`);
+    doc.save(
+      `${opts.fileName ?? "marketer-sales-sheet"}-${opts.periodLabel.replace(/[^\w-]+/g, "-")}.pdf`,
+    );
   } else {
     if (action === "print") doc.autoPrint();
     window.open(doc.output("bloburl"), "_blank");
