@@ -85,16 +85,15 @@ const bottleCl = (name: string) => {
   return ltr ? Number(ltr[1]) * 100 : 9999;
 };
 
-// Qty Used is everything used, good and damaged together; Damages is the part
-// of it that was spoiled (20261029200000). Good = Used - Damages.
+// Qty Used is everything used, the damaged included; Damages is the part of
+// it that was spoiled (20261029200000).
 const balanceOf = (l: Omit<Line, "key" | "material_id">) =>
   l.opening + l.qty_in - l.qty_used + l.replaced;
-const goodOf = (l: { qty_used: number; damages: number }) => Number(l.qty_used) - Number(l.damages);
 
 // Production → Process Material: the Production Manager's register of the raw
 // materials she works with (as the factory's paper "All Process Material"):
-// Opening, Qty In, Total, Qty Used (good + damaged), Damages, Good, Balance
-// per material, added with "Add New Process Material" and corrected with Edit.
+// Opening, Qty In, Total, Qty Used, Damages, Balance per material, added with
+// "Add New Process Material" and corrected with Edit.
 export function ProductionMaterialsReport({ factoryId }: { factoryId: string }) {
   const qc = useQueryClient();
   const { can } = usePermissions();
@@ -144,7 +143,6 @@ export function ProductionMaterialsReport({ factoryId }: { factoryId: string }) 
         { key: "total", label: "Total" },
         { key: "qty_used", label: "Qty Used" },
         { key: "damages", label: "Damages" },
-        { key: "good", label: "Good" },
         { key: "balance", label: "Balance" },
         { key: "at", label: "Date/Time" },
       ],
@@ -156,7 +154,6 @@ export function ProductionMaterialsReport({ factoryId }: { factoryId: string }) 
         total: num(Number(r.total)),
         qty_used: num(Number(r.qty_used)),
         damages: num(Number(r.damages)),
-        good: num(goodOf(r)),
         balance: num(Number(r.balance)),
         at: new Date(r.created_at).toLocaleString(),
       })),
@@ -231,7 +228,6 @@ export function ProductionMaterialsReport({ factoryId }: { factoryId: string }) 
                   <TableHead className="text-right">Total</TableHead>
                   <TableHead className="text-right">Qty Used</TableHead>
                   <TableHead className="text-right">Damages</TableHead>
-                  <TableHead className="text-right">Good</TableHead>
                   <TableHead className="text-right">Balance</TableHead>
                   <TableHead>Date/Time</TableHead>
                   {canEdit && <TableHead>Actions</TableHead>}
@@ -247,7 +243,6 @@ export function ProductionMaterialsReport({ factoryId }: { factoryId: string }) 
                     <TableCell className="text-right">{num(Number(r.total))}</TableCell>
                     <TableCell className="text-right">{num(Number(r.qty_used))}</TableCell>
                     <TableCell className="text-right">{num(Number(r.damages))}</TableCell>
-                    <TableCell className="text-right">{num(goodOf(r))}</TableCell>
                     <TableCell className="text-right font-semibold">
                       {num(Number(r.balance))}
                     </TableCell>
@@ -272,7 +267,7 @@ export function ProductionMaterialsReport({ factoryId }: { factoryId: string }) 
                 {shown.length === 0 && (
                   <TableRow>
                     <TableCell
-                      colSpan={canEdit ? 11 : 10}
+                      colSpan={canEdit ? 10 : 9}
                       className="py-8 text-center text-muted-foreground"
                     >
                       {rows.isLoading
@@ -404,9 +399,8 @@ function AddReportDialog({ factoryId, onDone }: { factoryId: string; onDone: () 
       </div>
       <p className="text-xs text-muted-foreground">
         Opening starts from the material&apos;s last balance. For blown bottles from QC, Qty In
-        starts with the bottles you received from QC since the last entry. Qty Used is everything
-        used, good and damaged together; enter the damaged ones in Damages. Good = Qty Used −
-        Damages; Balance = Opening + Qty In − Qty Used.
+        starts with the bottles you received from QC since the last entry. Qty Used includes the
+        damaged ones; enter how many were damaged in Damages. Balance = Opening + Qty In − Qty Used.
       </p>
       <div className="overflow-x-auto">
         <Table>
@@ -415,9 +409,8 @@ function AddReportDialog({ factoryId, onDone }: { factoryId: string; onDone: () 
               <TableHead className="min-w-48">Material</TableHead>
               <TableHead>Opening</TableHead>
               <TableHead>Qty In</TableHead>
-              <TableHead>Qty Used (good + damaged)</TableHead>
+              <TableHead>Qty Used</TableHead>
               <TableHead>Damages</TableHead>
-              <TableHead className="text-right">Good</TableHead>
               <TableHead className="text-right">Balance</TableHead>
               <TableHead />
             </TableRow>
@@ -425,7 +418,6 @@ function AddReportDialog({ factoryId, onDone }: { factoryId: string; onDone: () 
           <TableBody>
             {lines.map((l) => {
               const bal = balanceOf(l);
-              const good = goodOf(l);
               return (
                 <TableRow key={l.key}>
                   <TableCell>
@@ -500,9 +492,6 @@ function AddReportDialog({ factoryId, onDone }: { factoryId: string; onDone: () 
                       />
                     </TableCell>
                   ))}
-                  <TableCell className={`text-right ${good < 0 ? "text-destructive" : ""}`}>
-                    {num(good)}
-                  </TableCell>
                   <TableCell
                     className={`text-right font-semibold ${bal < 0 ? "text-destructive" : ""}`}
                   >
@@ -523,7 +512,7 @@ function AddReportDialog({ factoryId, onDone }: { factoryId: string; onDone: () 
             })}
             {lines.length === 0 && (
               <TableRow>
-                <TableCell colSpan={8} className="py-6 text-center text-muted-foreground">
+                <TableCell colSpan={7} className="py-6 text-center text-muted-foreground">
                   Click Add material for each material.
                 </TableCell>
               </TableRow>
@@ -592,28 +581,19 @@ function EditReportDialog({ row, onDone }: { row: ReportRow; onDone: () => void 
       </DialogHeader>
       <p className="text-sm text-muted-foreground">
         Opening {num(vals.opening)} + Qty In {num(vals.qty_in)} = {num(vals.opening + vals.qty_in)}{" "}
-        {row.unit ?? ""}. Enter everything used (good and damaged together), then how many of those
-        were damaged.
+        {row.unit ?? ""}. Enter the quantity used (the damaged included) and how many were
+        damaged.
       </p>
       <div className="grid grid-cols-2 gap-3">
-        {field("qty_used", "Total used (good + damaged)")}
-        {field("damages", "Of which damaged")}
+        {field("qty_used", "Qty Used")}
+        {field("damages", "Damages")}
       </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="rounded-xl border p-3">
-          <div className="text-xs uppercase text-muted-foreground">Good</div>
-          <div className={`text-2xl font-semibold ${goodOf(vals) < 0 ? "text-destructive" : ""}`}>
-            {num(goodOf(vals))} {row.unit ?? ""}
-          </div>
-          <div className="text-xs text-muted-foreground">Total used − Damaged</div>
+      <div className="rounded-xl border p-3">
+        <div className="text-xs uppercase text-muted-foreground">Expected balance</div>
+        <div className={`text-2xl font-semibold ${bal < 0 ? "text-destructive" : ""}`}>
+          {num(bal)} {row.unit ?? ""}
         </div>
-        <div className="rounded-xl border p-3">
-          <div className="text-xs uppercase text-muted-foreground">Expected balance</div>
-          <div className={`text-2xl font-semibold ${bal < 0 ? "text-destructive" : ""}`}>
-            {num(bal)} {row.unit ?? ""}
-          </div>
-          <div className="text-xs text-muted-foreground">Opening + Qty In − Total used</div>
-        </div>
+        <div className="text-xs text-muted-foreground">Opening + Qty In − Qty Used</div>
       </div>
       <details className="text-sm">
         <summary className="cursor-pointer text-muted-foreground">
