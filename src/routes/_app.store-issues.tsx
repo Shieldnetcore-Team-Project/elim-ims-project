@@ -38,7 +38,8 @@ import { num } from "@/lib/format";
 // newest first, read from the raw-material ledger:
 //   * Issue Stock -> Production / Quality Control (issued_to_department,
 //     20261020160000), with QC's confirmation (qc_store_receipts,
-//     20261023160000);
+//     20261023160000), or to the Lugbe / Jos sites (20261029100000; who
+//     collected it is in the reason);
 //   * Issue preforms -> Preform Blowing ('transferred' lines, reference
 //     PFI-..., with the operator and their answer on preform_issues);
 //   * older issues made before departments were recorded.
@@ -57,13 +58,17 @@ export const Route = createFileRoute("/_app/store-issues")({
   ),
 });
 
-type Department = "production" | "quality_control" | "preform_blowing" | "other";
+type Department = "production" | "quality_control" | "preform_blowing" | "lugbe" | "jos" | "other";
 const DEPARTMENT_LABEL: Record<Department, string> = {
   production: "Production",
   quality_control: "Quality Control",
   preform_blowing: "Preform Blowing",
+  lugbe: "Lugbe",
+  jos: "Jos",
   other: "Other / not recorded",
 };
+// Recorded on the issue itself (issued_to_department).
+const RECORDED: string[] = ["production", "quality_control", "lugbe", "jos"];
 
 type MaterialInfo = {
   name: string;
@@ -160,8 +165,8 @@ function StoreIssuesPage() {
   const rows = (movements.data ?? []).map((m) => {
     const preform = m.reference ? preformIssues.data?.get(m.reference) : undefined;
     const department: Department =
-      m.issued_to_department === "production" || m.issued_to_department === "quality_control"
-        ? m.issued_to_department
+      m.issued_to_department && RECORDED.includes(m.issued_to_department)
+        ? (m.issued_to_department as Department)
         : m.movement_type === "transferred" && m.reference?.startsWith("PFI-")
           ? "preform_blowing"
           : m.movement_type === "used_for_production"

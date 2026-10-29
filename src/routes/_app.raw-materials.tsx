@@ -1966,11 +1966,16 @@ function RequestPurchaseDialog({ material, onDone }: { material: Material; onDon
   );
 }
 
-type IssueDepartment = "production" | "quality_control";
+type IssueDepartment = "production" | "quality_control" | "lugbe" | "jos";
 const ISSUE_DEPARTMENT_LABEL: Record<IssueDepartment, string> = {
   production: "Production Manager",
   quality_control: "Quality Control",
+  lugbe: "Lugbe",
+  jos: "Jos",
 };
+// Other sites (20261029100000): no user on the system to pick; whoever
+// collected it is typed in, and it is a general issue.
+const ISSUE_SITES: IssueDepartment[] = ["lugbe", "jos"];
 
 function IssueDialog({ material, onDone }: { material: Material; onDone: () => void }) {
   const { data: factoryId } = useFactoryId();
@@ -2000,9 +2005,13 @@ function IssueDialog({ material, onDone }: { material: Material; onDone: () => v
   const [purpose, setPurpose] = useState<"production" | "general">("production");
   const pickIssueTo = (v: string) => {
     setIssueTo(v);
-    // QC takes stock for testing, not for production use.
-    setPurpose(v.startsWith("quality_control") ? "general" : "production");
+    // QC takes stock for testing and other sites get a general issue, not
+    // production use here.
+    const d = v.split(":")[0] as IssueDepartment;
+    setPurpose(d === "quality_control" || ISSUE_SITES.includes(d) ? "general" : "production");
   };
+  const toSite = !!toDept && ISSUE_SITES.includes(toDept);
+  const [collectedBy, setCollectedBy] = useState("");
   const [reason, setReason] = useState("");
   const [reference, setReference] = useState("");
 
@@ -2041,6 +2050,7 @@ function IssueDialog({ material, onDone }: { material: Material; onDone: () => v
           purpose,
           issued_to_department: toDept,
           issued_to_user: toUser || null,
+          collected_by: toSite ? collectedBy.trim() || null : null,
           reason: reason || null,
           reference: reference || null,
         } as any,
@@ -2080,6 +2090,14 @@ function IssueDialog({ material, onDone }: { material: Material; onDone: () => v
               <SelectValue placeholder="Who receives the stock?" />
             </SelectTrigger>
             <SelectContent>
+              <SelectGroup>
+                <SelectLabel>Other sites</SelectLabel>
+                {ISSUE_SITES.map((d) => (
+                  <SelectItem key={d} value={`${d}:`}>
+                    {ISSUE_DEPARTMENT_LABEL[d]}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
               {(["production", "quality_control"] as IssueDepartment[]).map((d) => {
                 const people = (recipients.data ?? []).filter((r) => r.department === d);
                 return (
@@ -2099,9 +2117,23 @@ function IssueDialog({ material, onDone }: { material: Material; onDone: () => v
             </SelectContent>
           </Select>
         </div>
+        {toSite && (
+          <div>
+            <Label>Collected by</Label>
+            <Input
+              value={collectedBy}
+              onChange={(e) => setCollectedBy(e.target.value)}
+              placeholder="Driver / staff who took it"
+            />
+          </div>
+        )}
         <div>
           <Label>Purpose</Label>
-          <Select value={purpose} onValueChange={(v) => setPurpose(v as typeof purpose)}>
+          <Select
+            value={purpose}
+            onValueChange={(v) => setPurpose(v as typeof purpose)}
+            disabled={toSite}
+          >
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
