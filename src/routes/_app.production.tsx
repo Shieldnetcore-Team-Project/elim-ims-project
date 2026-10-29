@@ -1,7 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { RequireAccess } from "@/components/layout/require-access";
 import { SectionTabs } from "@/components/layout/section-tabs";
-import { ProductionHall, ReleaseBatchButton } from "@/components/production/production-hall";
+import {
+  HallStockSummary,
+  ProductionHall,
+  ReleaseBatchButton,
+} from "@/components/production/production-hall";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -481,6 +485,8 @@ function ProductionPage() {
           </div>
         )}
       </div>
+
+      {factoryId && <HallStockSummary factoryId={factoryId} />}
 
       {/* Good bottles QC issues to PM have their own tab, apart from what
           Production records and releases. */}

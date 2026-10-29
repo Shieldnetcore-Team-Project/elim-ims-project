@@ -106,6 +106,80 @@ function useHallStock(factoryId: string) {
   });
 }
 
+// Top of the Production page: what is available in the hall right now, one
+// tile per product (only products with stock there), each with Release.
+export function HallStockSummary({ factoryId }: { factoryId: string }) {
+  const qc = useQueryClient();
+  const canRelease = useCanRelease();
+  const hall = useHallStock(factoryId);
+  const [releaseFor, setReleaseFor] = useState<HallRow | null>(null);
+  useRealtimeInvalidate(["production", "production_releases"], [["production-hall"]]);
+  const rows = (hall.data ?? []).filter((r) => Number(r.in_hall) > 0);
+  return (
+    <Card className="rounded-2xl">
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Warehouse className="h-4 w-4" /> Available in the production hall
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {rows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            {hall.isLoading
+              ? "Loading…"
+              : hall.isError
+                ? (hall.error as Error).message
+                : "Nothing in the hall right now — record a batch to add stock."}
+          </p>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {rows.map((r) => (
+              <div key={r.product_id} className="rounded-xl border p-3">
+                <div className="text-xs text-muted-foreground">{r.product_name}</div>
+                <div className="text-xl font-semibold">
+                  {num(Number(r.in_hall))}{" "}
+                  <span className="text-sm font-normal text-muted-foreground">{r.unit}</span>
+                </div>
+                <div className="mt-1 flex items-center justify-between gap-2">
+                  <span className="text-[11px] text-muted-foreground">
+                    {Number(r.awaiting_warehouse) > 0
+                      ? `${num(Number(r.awaiting_warehouse))} awaiting Warehouse`
+                      : "Ready to release"}
+                  </span>
+                  {canRelease && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 gap-1"
+                      onClick={() => setReleaseFor(r)}
+                    >
+                      <ArrowRightLeft className="h-3.5 w-3.5" /> Release
+                    </Button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+      <Dialog open={!!releaseFor} onOpenChange={(v) => !v && setReleaseFor(null)}>
+        {releaseFor && (
+          <ReleaseDialog
+            factoryId={factoryId}
+            row={releaseFor}
+            onDone={() => {
+              setReleaseFor(null);
+              qc.invalidateQueries({ queryKey: ["production-hall"] });
+              qc.invalidateQueries({ queryKey: ["production-releases"] });
+              qc.invalidateQueries({ queryKey: ["production-report"] });
+            }}
+          />
+        )}
+      </Dialog>
+    </Card>
+  );
+}
+
 // "Release" on a batch row of the Production page: releases that product from
 // the hall (up to what is in the hall now, which may span several batches).
 export function ReleaseBatchButton({

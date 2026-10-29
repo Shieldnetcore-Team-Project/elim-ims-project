@@ -23,7 +23,9 @@ import { MoneyInput } from "@/components/ui/money-input";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -52,16 +54,22 @@ type ReportRow = {
   created_by_name: string | null;
   created_at: string;
 };
+// kind 'bottle': a blown bottle QC sends to the PM (20261029110000) -- her
+// raw material for Bottle Water; received_since = bottles received from QC
+// after its last line, the Qty In a new line starts with.
 type MaterialOption = {
   material_id: string;
   material_name: string;
   unit: string;
   last_balance: number;
   detail: string | null;
+  kind: "material" | "bottle";
+  received_since: number;
 };
 type Line = {
   key: number;
   material_id: string;
+  kind?: "material" | "bottle";
   opening: number;
   qty_in: number;
   qty_used: number;
@@ -341,7 +349,9 @@ function AddReportDialog({ factoryId, onDone }: { factoryId: string; onDone: () 
           payload: {
             factory_id: factoryId,
             report_date: date,
-            lines: lines.map(({ key: _key, ...l }) => l),
+            lines: lines.map(({ key: _key, kind, material_id, ...l }) =>
+              kind === "bottle" ? { ...l, product_id: material_id } : { ...l, material_id },
+            ),
           },
         } as never,
       );
@@ -370,8 +380,9 @@ function AddReportDialog({ factoryId, onDone }: { factoryId: string; onDone: () 
         />
       </div>
       <p className="text-xs text-muted-foreground">
-        Opening starts from the material&apos;s last balance. Balance = Opening + Qty In − Qty Used
-        − Damages.
+        Opening starts from the material&apos;s last balance. For blown bottles from QC, Qty In
+        starts with the bottles you received from QC since the last entry. Balance = Opening + Qty
+        In − Qty Used − Damages.
       </p>
       <div className="overflow-x-auto">
         <Table>
@@ -396,23 +407,47 @@ function AddReportDialog({ factoryId, onDone }: { factoryId: string; onDone: () 
                       value={l.material_id}
                       onValueChange={(v) => {
                         const o = opts.find((x) => x.material_id === v);
-                        update(l.key, { material_id: v, opening: Number(o?.last_balance ?? 0) });
+                        update(l.key, {
+                          material_id: v,
+                          kind: o?.kind ?? "material",
+                          opening: Number(o?.last_balance ?? 0),
+                          // Bottles received from QC since the last entry.
+                          qty_in: Number(o?.received_since ?? 0),
+                        });
                       }}
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Select material…" />
                       </SelectTrigger>
                       <SelectContent>
-                        {opts
-                          .filter(
-                            (o) => o.material_id === l.material_id || !taken.has(o.material_id),
-                          )
-                          .map((o) => (
-                            <SelectItem key={o.material_id} value={o.material_id}>
-                              {o.material_name}
-                              {o.detail ? ` (${o.detail})` : ""} · {o.unit}
-                            </SelectItem>
-                          ))}
+                        {(
+                          [
+                            ["bottle", "Blown bottles from QC"],
+                            ["material", "Store raw materials"],
+                          ] as const
+                        ).map(([kind, label]) => {
+                          const group = opts.filter(
+                            (o) =>
+                              o.kind === kind &&
+                              (o.material_id === l.material_id || !taken.has(o.material_id)),
+                          );
+                          return group.length === 0 ? null : (
+                            <SelectGroup key={kind}>
+                              <SelectLabel>{label}</SelectLabel>
+                              {group.map((o) => (
+                                <SelectItem key={o.material_id} value={o.material_id}>
+                                  {o.material_name}
+                                  {o.kind === "bottle" && o.received_since > 0
+                                    ? ` (${num(Number(o.received_since))} received)`
+                                    : o.detail && o.kind !== "bottle"
+                                      ? ` (${o.detail})`
+                                      : ""}{" "}
+                                  · {o.unit}
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          );
+                        })}
                         {opts.length === 0 && (
                           <div className="px-2 py-3 text-sm text-muted-foreground">
                             {options.isLoading
@@ -531,9 +566,7 @@ function EditReportDialog({ row, onDone }: { row: ReportRow; onDone: () => void 
         <div className={`text-2xl font-semibold ${bal < 0 ? "text-destructive" : ""}`}>
           {num(bal)} {row.unit ?? ""}
         </div>
-        <div className="text-xs text-muted-foreground">
-          Opening + Qty In − Produced − Damaged
-        </div>
+        <div className="text-xs text-muted-foreground">Opening + Qty In − Produced − Damaged</div>
       </div>
       <details className="text-sm">
         <summary className="cursor-pointer text-muted-foreground">
