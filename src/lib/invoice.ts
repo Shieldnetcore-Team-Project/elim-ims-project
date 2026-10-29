@@ -21,33 +21,84 @@ type Rep = { id: string; code: string | null; name: string; kind: string };
 //   anything else                the plain sales receipt (walk-in, retail shop)
 // paper "roll": the Warehouse's slim POS printer -- always the receipt layout
 // on an 80mm roll, never the A4 distributor invoice.
+// Several sale ids print as ONE combined invoice (the Accountant's daily
+// invoice for a marketer/distributor who takes supplies many times a day):
+// lines for the same product at the same price are added together, totals are
+// summed and the remarks list every invoice number covered. The layout and
+// the party come from the earliest sale.
 export async function printSaleInvoice(
-  saleId: string,
+  saleId: string | string[],
   settings: Settings,
   action: "download" | "print",
   paper: "a4" | "roll" = "a4",
   // Slim receipt only: identical pages in one print.
   copies = 1,
 ) {
+  const ids = Array.isArray(saleId) ? saleId : [saleId];
   const { data, error } = await supabase
     .from("sales")
     .select("*, sale_items(quantity,unit_price,line_total,products(name,unit))")
-    .eq("id", saleId)
-    .single();
+    .in("id", ids);
   if (error) {
     toast.error(error.message);
     return;
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const s = data as any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const lines = (s.sale_items ?? []).map((it: any) => ({
-    name: it.products?.name ?? "-",
-    quantity: Number(it.quantity),
-    unit: it.products?.unit ?? "",
-    unit_price: Number(it.unit_price),
-    line_total: Number(it.line_total),
-  }));
+  const sales = ((data ?? []) as any[]).sort((a, b) =>
+    String(a.created_at ?? a.sale_date).localeCompare(String(b.created_at ?? b.sale_date)),
+  );
+  if (sales.length === 0) {
+    toast.error("Invoice not found");
+    return;
+  }
+  const s = sales[0];
+  const combined = sales.length > 1;
+  const lines: {
+    name: string;
+    quantity: number;
+    unit: string;
+    unit_price: number;
+    line_total: number;
+  }[] = [];
+  for (const sale of sales) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const it of (sale.sale_items ?? []) as any[]) {
+      const line = {
+        name: it.products?.name ?? "-",
+        quantity: Number(it.quantity),
+        unit: it.products?.unit ?? "",
+        unit_price: Number(it.unit_price),
+        line_total: Number(it.line_total),
+      };
+      const same = lines.find((l) => l.name === line.name && l.unit_price === line.unit_price);
+      if (same) {
+        same.quantity += line.quantity;
+        same.line_total += line.line_total;
+      } else lines.push(line);
+    }
+  }
+  const sum = (f: string) => sales.reduce((t, x) => t + Number(x[f] ?? 0), 0);
+  const totals = {
+    subtotal: sum("subtotal"),
+    discount: sum("discount"),
+    vat: sum("vat"),
+    grand_total: sum("grand_total"),
+    amount_paid: sum("amount_paid"),
+    balance: sum("balance"),
+  };
+  const remarks =
+    [
+      combined
+        ? `Combined invoice for ${String(s.sale_date).slice(0, 10)} covering ${sales.length} invoices: ${sales
+            .map((x) => x.invoice_number)
+            .join(", ")}`
+        : null,
+      ...new Set(sales.map((x) => x.remarks as string | null).filter(Boolean)),
+    ]
+      .filter(Boolean)
+      .join(". ") || null;
+  // A combined invoice is for the day, so it prints the date only.
+  const issuedAt = combined ? String(s.sale_date).slice(0, 10) : (s.created_at ?? s.sale_date);
   const company = {
     name: settings?.company_name ?? "Elim Table Water",
     address: settings?.address,
@@ -60,7 +111,7 @@ export async function printSaleInvoice(
   // Who the sale belongs to, read through sale_invoice_party() so an
   // accountant without distribution/customers/logistics rights still gets
   // the right layout.
-  const { data: party, error: partyError } = await db.rpc("sale_invoice_party", { p_sale: saleId });
+  const { data: party, error: partyError } = await db.rpc("sale_invoice_party", { p_sale: s.id });
   if (partyError) {
     toast.error(partyError.message);
     return;
@@ -88,7 +139,7 @@ export async function printSaleInvoice(
       {
         company: { ...company, website: settings?.website ?? null },
         invoice_number: s.invoice_number,
-        issued_at: s.created_at ?? s.sale_date,
+        issued_at: issuedAt,
         customer: {
           name: s.customer_name,
           phone: s.customer_phone,
@@ -98,14 +149,9 @@ export async function printSaleInvoice(
         party_label: partyIsDistributor ? null : (marketer?.name ?? null),
         delivery_method: delivery,
         items: lines,
-        subtotal: Number(s.subtotal),
-        discount: Number(s.discount),
-        vat: Number(s.vat),
+        ...totals,
         vat_rate: settings?.vat_rate ?? null,
-        grand_total: Number(s.grand_total),
-        amount_paid: Number(s.amount_paid),
-        balance: Number(s.balance),
-        remarks: s.remarks,
+        remarks,
         is_pr: s.is_pr,
       },
       action,
@@ -130,18 +176,13 @@ export async function printSaleInvoice(
       company,
       invoice_number: s.invoice_number,
       sale_date: s.sale_date,
-      issued_at: s.created_at ?? null,
+      issued_at: combined ? null : (s.created_at ?? null),
       sales_person: poster,
       customer: { name: s.customer_name, phone: s.customer_phone, address: s.customer_address },
       items: lines,
-      subtotal: Number(s.subtotal),
-      discount: Number(s.discount),
-      vat: Number(s.vat),
-      grand_total: Number(s.grand_total),
-      amount_paid: Number(s.amount_paid),
-      balance: Number(s.balance),
+      ...totals,
       currency: settings?.currency ?? "NGN",
-      remarks: s.remarks,
+      remarks,
       is_pr: s.is_pr,
     },
     action,

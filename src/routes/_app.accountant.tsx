@@ -77,7 +77,75 @@ type SaleRow = {
   balance: number;
   status: string;
   is_pr: boolean;
+  sale_items: { quantity: number; products: { name: string; unit: string } | null }[] | null;
 };
+
+// One customer's invoices for one day. Marketers and distributors take
+// supplies many times a day, so the accountant sees -- and prints -- them as
+// a single invoice (printSaleInvoice merges the lines). Walk-ins are never
+// merged with each other, nor are PR or differently-statused invoices.
+type InvoiceGroup = {
+  key: string;
+  date: string;
+  customer: string;
+  ids: string[];
+  numbers: string[];
+  products: string;
+  total: number;
+  paid: number;
+  balance: number;
+  status: string;
+  is_pr: boolean;
+};
+
+function groupInvoices(sales: SaleRow[]): InvoiceGroup[] {
+  const groups = new Map<string, InvoiceGroup & { qty: Map<string, number> }>();
+  for (const s of sales) {
+    const name = s.customer_name?.trim();
+    const key = [
+      s.sale_date.slice(0, 10),
+      name ? name.toLowerCase() : `walk-in-${s.id}`,
+      s.status,
+      s.is_pr,
+    ].join("|");
+    let g = groups.get(key);
+    if (!g) {
+      g = {
+        key,
+        date: s.sale_date,
+        customer: name || "Walk-in",
+        ids: [],
+        numbers: [],
+        products: "",
+        total: 0,
+        paid: 0,
+        balance: 0,
+        status: s.status,
+        is_pr: s.is_pr,
+        qty: new Map(),
+      };
+      groups.set(key, g);
+    }
+    g.ids.push(s.id);
+    g.numbers.push(s.invoice_number);
+    g.total += Number(s.grand_total);
+    g.paid += Number(s.amount_paid);
+    g.balance += Number(s.balance);
+    for (const it of s.sale_items ?? []) {
+      const label = [it.products?.name ?? "Item", it.products?.unit].filter(Boolean).join("|");
+      g.qty.set(label, (g.qty.get(label) ?? 0) + Number(it.quantity));
+    }
+  }
+  return [...groups.values()].map(({ qty, ...g }) => ({
+    ...g,
+    products: [...qty]
+      .map(([label, n]) => {
+        const [name, unit] = label.split("|");
+        return `${name} × ${n.toLocaleString()}${unit ? ` ${unit}` : ""}`;
+      })
+      .join(" · "),
+  }));
+}
 
 type PaymentRow = {
   id: string;
@@ -117,6 +185,8 @@ type Activity = {
   kind: "Invoice" | "Payment" | "Expense" | "Payroll";
   reference: string;
   party: string;
+  // Invoices: the products supplied.
+  details?: string;
   amount: number;
   direction: "in" | "out";
   status: string;
@@ -180,7 +250,7 @@ function AccountantPage() {
       const { data, error } = await supabase
         .from("sales")
         .select(
-          "id,invoice_number,sale_date,customer_name,grand_total,amount_paid,balance,status,is_pr",
+          "id,invoice_number,sale_date,customer_name,grand_total,amount_paid,balance,status,is_pr,sale_items(quantity,products(name,unit))",
         )
         .eq("factory_id", factoryId!)
         // Admins can also read soft-deleted sales; they aren't real invoices.
@@ -256,17 +326,20 @@ function AccountantPage() {
     .filter((s) => s.status === "posted" && !s.is_pr)
     .reduce((t, s) => t + Math.max(0, Number(s.balance)), 0);
 
+  const invoiceGroups = useMemo(() => groupInvoices(sales.data ?? []), [sales.data]);
+
   const activity = useMemo<Activity[]>(() => {
     const rows: Activity[] = [
-      ...(sales.data ?? []).map((s) => ({
-        key: `inv-${s.id}`,
-        date: s.sale_date,
+      ...invoiceGroups.map((g) => ({
+        key: `inv-${g.key}`,
+        date: g.date,
         kind: "Invoice" as const,
-        reference: s.invoice_number,
-        party: s.customer_name ?? "Walk-in",
-        amount: Number(s.grand_total),
+        reference: g.numbers.length > 1 ? `${g.numbers.length} invoices` : g.numbers[0],
+        party: g.customer,
+        details: g.products,
+        amount: g.total,
         direction: "in" as const,
-        status: s.status,
+        status: g.status,
       })),
       ...(payments.data ?? []).map((p) => ({
         key: `pay-${p.id}`,
@@ -300,7 +373,7 @@ function AccountantPage() {
       })),
     ];
     return rows.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
-  }, [sales.data, payments.data, expenses.data, payroll.data]);
+  }, [invoiceGroups, payments.data, expenses.data, payroll.data]);
 
   const query = q.trim().toLowerCase();
   const match = (...fields: (string | null | undefined)[]) =>
@@ -425,7 +498,7 @@ function AccountantPage() {
                 </TableHeader>
                 <TableBody>
                   {activity
-                    .filter((a) => match(a.reference, a.party, a.kind))
+                    .filter((a) => match(a.reference, a.party, a.kind, a.details))
                     .slice(0, 300)
                     .map((a) => (
                       <TableRow key={a.key}>
@@ -436,7 +509,12 @@ function AccountantPage() {
                           <Badge variant="outline">{a.kind}</Badge>
                         </TableCell>
                         <TableCell className="font-mono text-xs">{a.reference}</TableCell>
-                        <TableCell>{a.party}</TableCell>
+                        <TableCell>
+                          <div>{a.party}</div>
+                          {a.details && (
+                            <div className="text-xs text-muted-foreground">{a.details}</div>
+                          )}
+                        </TableCell>
                         <TableCell
                           className={`text-right font-medium ${a.direction === "out" ? "text-destructive" : ""}`}
                         >
@@ -493,6 +571,7 @@ function AccountantPage() {
                     <TableHead>Invoice #</TableHead>
                     <TableHead>Date</TableHead>
                     <TableHead>Customer</TableHead>
+                    <TableHead>Products</TableHead>
                     <TableHead className="text-right">Total</TableHead>
                     <TableHead className="text-right">Paid</TableHead>
                     <TableHead className="text-right">Balance</TableHead>
@@ -501,27 +580,32 @@ function AccountantPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(sales.data ?? [])
-                    .filter((s) => match(s.invoice_number, s.customer_name))
-                    .map((s) => (
-                      <TableRow key={s.id}>
-                        <TableCell className="font-mono text-xs">{s.invoice_number}</TableCell>
+                  {invoiceGroups
+                    .filter((g) => match(...g.numbers, g.customer, g.products))
+                    .map((g) => (
+                      <TableRow key={g.key}>
+                        <TableCell className="font-mono text-xs">
+                          {g.numbers.length > 1 ? (
+                            <span title={g.numbers.join("\n")}>{g.numbers.length} invoices</span>
+                          ) : (
+                            g.numbers[0]
+                          )}
+                        </TableCell>
                         <TableCell className="whitespace-nowrap text-xs">
-                          {new Date(s.sale_date).toLocaleDateString()}
+                          {new Date(g.date).toLocaleDateString()}
                         </TableCell>
-                        <TableCell>{s.customer_name ?? "Walk-in"}</TableCell>
-                        <TableCell className="text-right">
-                          {money(s.grand_total, currency)}
+                        <TableCell>{g.customer}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {g.products || "—"}
                         </TableCell>
-                        <TableCell className="text-right">
-                          {money(s.amount_paid, currency)}
-                        </TableCell>
+                        <TableCell className="text-right">{money(g.total, currency)}</TableCell>
+                        <TableCell className="text-right">{money(g.paid, currency)}</TableCell>
                         <TableCell className="text-right font-medium">
-                          {money(s.balance, currency)}
+                          {money(g.balance, currency)}
                         </TableCell>
                         <TableCell>
-                          <Badge variant={statusVariant(s.status)} className="capitalize">
-                            {s.status.replace(/_/g, " ")}
+                          <Badge variant={statusVariant(g.status)} className="capitalize">
+                            {g.status.replace(/_/g, " ")}
                           </Badge>
                         </TableCell>
                         <TableCell>
@@ -529,16 +613,18 @@ function AccountantPage() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              title="Print invoice"
-                              onClick={() => printSaleInvoice(s.id, settings.data, "print")}
+                              title={g.ids.length > 1 ? "Print combined invoice" : "Print invoice"}
+                              onClick={() => printSaleInvoice(g.ids, settings.data, "print")}
                             >
                               <Printer className="h-4 w-4" />
                             </Button>
                             <Button
                               variant="ghost"
                               size="icon"
-                              title="Download invoice"
-                              onClick={() => printSaleInvoice(s.id, settings.data, "download")}
+                              title={
+                                g.ids.length > 1 ? "Download combined invoice" : "Download invoice"
+                              }
+                              onClick={() => printSaleInvoice(g.ids, settings.data, "download")}
                             >
                               <Download className="h-4 w-4" />
                             </Button>
@@ -548,7 +634,7 @@ function AccountantPage() {
                     ))}
                   {(sales.data ?? []).length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center text-sm text-muted-foreground">
+                      <TableCell colSpan={9} className="text-center text-sm text-muted-foreground">
                         No invoices yet.
                       </TableCell>
                     </TableRow>
