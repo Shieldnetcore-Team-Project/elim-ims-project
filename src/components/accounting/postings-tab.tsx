@@ -402,6 +402,7 @@ export function PostingsTab({ factoryId, currency }: { factoryId: string; curren
             customerName={paying.party}
             owed={Number(paying.balance ?? 0)}
             sale={{ id: paying.posting_id, invoice_number: paying.reference }}
+            adjustable={paying.status === "posted"}
             onDone={() => setPaying(null)}
           />
         )}

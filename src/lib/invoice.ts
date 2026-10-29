@@ -17,6 +17,13 @@ export type SaleLine = {
   unit: string;
   unit_price: number;
   line_total: number;
+  item_id?: string;
+  // Given on the line after posting (adjust_sale_lines): per pack (unit_*)
+  // and the line totals (quantity x per pack); line_total is net.
+  unit_discount?: number;
+  unit_surcharge?: number;
+  discount?: number;
+  surcharge?: number;
 };
 
 // The product lines of the given sales, by sale id, read through
@@ -36,6 +43,11 @@ export async function fetchSaleLines(saleIds: string[]): Promise<Map<string, Sal
     quantity: number;
     unit_price: number;
     line_total: number;
+    item_id?: string;
+    discount?: number;
+    surcharge?: number;
+    unit_discount?: number;
+    unit_surcharge?: number;
   }[]) {
     const list = out.get(r.sale_id) ?? [];
     list.push({
@@ -44,6 +56,11 @@ export async function fetchSaleLines(saleIds: string[]): Promise<Map<string, Sal
       unit: r.unit,
       unit_price: Number(r.unit_price),
       line_total: Number(r.line_total),
+      item_id: r.item_id,
+      discount: Number(r.discount ?? 0),
+      surcharge: Number(r.surcharge ?? 0),
+      unit_discount: Number(r.unit_discount ?? 0),
+      unit_surcharge: Number(r.unit_surcharge ?? 0),
     });
     out.set(r.sale_id, list);
   }
@@ -92,17 +109,11 @@ export async function printSaleInvoice(
   }
   const s = sales[0];
   const combined = sales.length > 1;
-  const lines: {
-    name: string;
-    quantity: number;
-    unit: string;
-    unit_price: number;
-    line_total: number;
-  }[] = [];
+  const merged: SaleLine[] = [];
   const fetched = await fetchSaleLines(sales.map((x) => x.id));
   for (const sale of sales) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const own = ((sale.sale_items ?? []) as any[]).map((it) => ({
+    const own: SaleLine[] = ((sale.sale_items ?? []) as any[]).map((it) => ({
       name: it.products?.name ?? "-",
       quantity: Number(it.quantity),
       unit: it.products?.unit ?? "",
@@ -110,14 +121,31 @@ export async function printSaleInvoice(
       line_total: Number(it.line_total),
     }));
     for (const it of fetched?.get(sale.id) ?? own) {
-      const line = { ...it };
-      const same = lines.find((l) => l.name === line.name && l.unit_price === line.unit_price);
+      const line = {
+        ...it,
+        unit_discount: it.unit_discount ?? 0,
+        unit_surcharge: it.unit_surcharge ?? 0,
+      };
+      const same = merged.find(
+        (l) =>
+          l.name === line.name &&
+          l.unit_price === line.unit_price &&
+          l.unit_discount === line.unit_discount &&
+          l.unit_surcharge === line.unit_surcharge,
+      );
       if (same) {
         same.quantity += line.quantity;
         same.line_total += line.line_total;
-      } else lines.push(line);
+      } else merged.push(line);
     }
   }
+  // A line's per-pack discount / surcharge (adjust_sale_lines) is not shown
+  // on the printout (user, 2026-10-29): the unit cost prints as the final
+  // price per pack, so quantity x cost = amount and the totals add up.
+  const lines = merged.map((l) => ({
+    ...l,
+    unit_price: l.unit_price - (l.unit_discount ?? 0) + (l.unit_surcharge ?? 0),
+  }));
   const sum = (f: string) => sales.reduce((t, x) => t + Number(x[f] ?? 0), 0);
   const totals = {
     subtotal: sum("subtotal"),

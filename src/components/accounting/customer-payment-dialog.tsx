@@ -16,15 +16,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2 } from "lucide-react";
+import { Dialog } from "@/components/ui/dialog";
+import { SaleAdjustDialog } from "./sale-adjust-dialog";
+import { Loader2, Percent } from "lucide-react";
 
 const METHODS = ["cash", "transfer", "pos", "card", "cheque"] as const;
 
 // A payment from a distributor (registered customer), entered by Accounting.
 // With `sale` it pays that invoice; without, it settles the customer's oldest
 // debts first and anything more is kept as their advance (record_payment).
+// With a posted `sale`, "Discount / surcharge" adjusts its products first
+// (adjust_sale_lines) and the amount follows the new balance.
 export function CustomerPaymentDialog({
   factoryId,
+  adjustable = true,
   customerId,
   customerName,
   owed,
@@ -36,10 +41,14 @@ export function CustomerPaymentDialog({
   customerName: string;
   owed: number;
   sale?: { id: string; invoice_number: string };
+  // The sale is posted, so its products can take a discount / surcharge.
+  adjustable?: boolean;
   onDone: () => void;
 }) {
   const qc = useQueryClient();
+  const [owedNow, setOwedNow] = useState(owed);
   const [amount, setAmount] = useState(Math.max(owed, 0));
+  const [adjusting, setAdjusting] = useState(false);
   const [method, setMethod] = useState<(typeof METHODS)[number]>("cash");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [remarks, setRemarks] = useState("");
@@ -98,9 +107,20 @@ export function CustomerPaymentDialog({
       <div className="grid gap-3">
         <p className="text-sm text-muted-foreground">
           {sale
-            ? `Against invoice ${sale.invoice_number}, which has ${money(owed)} unpaid.`
+            ? `Against invoice ${sale.invoice_number}, which has ${money(owedNow)} unpaid.`
             : `${customerName} owes ${money(owed)} in total. The payment clears their oldest invoices first; anything more is kept as their advance.`}
         </p>
+        {sale && adjustable && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="w-fit gap-2"
+            onClick={() => setAdjusting(true)}
+          >
+            <Percent className="h-4 w-4" /> Discount / surcharge per product
+          </Button>
+        )}
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label>Amount</Label>
@@ -137,6 +157,23 @@ export function CustomerPaymentDialog({
           Record payment
         </Button>
       </DialogFooter>
+      {sale && (
+        <Dialog open={adjusting} onOpenChange={setAdjusting}>
+          {adjusting && (
+            <SaleAdjustDialog
+              sale={sale}
+              currency="NGN"
+              onDone={(balance) => {
+                setAdjusting(false);
+                if (balance != null) {
+                  setOwedNow(balance);
+                  setAmount(Math.max(balance, 0));
+                }
+              }}
+            />
+          )}
+        </Dialog>
+      )}
     </DialogContent>
   );
 }
