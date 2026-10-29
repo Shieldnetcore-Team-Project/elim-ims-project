@@ -1048,9 +1048,12 @@ function ProductionForm({
   const hall = useHallStock(factoryId);
   const hallOf = (id: string) =>
     Math.max(Number(hall.data?.find((h) => h.product_id === id)?.in_hall ?? 0), 0);
-  // New entries default to the likely batch: in the morning, last night's
-  // (yesterday, night shift); from noon, today's day shift.
-  const [suggested] = useState(suggestedEntry);
+  // A new batch is today's production: today's date, and the shift running
+  // now (night from 6 p.m. to 6 a.m.). An edit keeps its own date and shift.
+  const [suggested] = useState(() => {
+    const hour = new Date().getHours();
+    return { date: localDay(), shift: (hour >= 18 || hour < 6 ? "night" : "day") as Shift };
+  });
   const [date, setDate] = useState(editing?.production_date ?? suggested.date);
   const [shift, setShift] = useState<Shift | "">(editing ? (editing.shift ?? "") : suggested.shift);
   const today = localDay();
