@@ -21,6 +21,8 @@ export type InvoiceData = {
   };
   invoice_number: string;
   sale_date: string;
+  // When it was recorded (date and time on the slim receipt); now if absent.
+  issued_at?: string | null;
   customer: { name?: string | null; phone?: string | null; address?: string | null };
   items: InvoiceItem[];
   subtotal: number;
@@ -120,37 +122,234 @@ export async function drawLogoHeader(
   return baseTop + h + 10;
 }
 
-// The Warehouse's slim POS roll, as its printer driver defines the paper:
-// 80 x 297 mm. Every roll page is exactly this size (taller only for a
-// receipt that would not fit), so the printer never rescales it -- a page cut
-// to the content's length was shrunk to fit, tiny when printing copies. The
-// margins keep text inside the roll's 72mm printable width.
+// The Warehouse's slim POS roll: exactly 80mm wide, as long as the receipt
+// (a fixed 297mm page fed ~20cm of blank roll after every receipt). The
+// margins keep text inside the roll's 72mm printable width, so the printer
+// has nothing to shrink.
 const ROLL_W = 226.77; // 80mm in pt
-const ROLL_H = 841.89; // 297mm in pt
 const ROLL_M = 14;
 
+// The Warehouse's slim receipt, laid out like the factory's own "LOAD ORDER
+// RECEIPT" (user's sample, 2026-10-29): logo, address and phone centred; the
+// long date left and the time right; the title; Trans. ID / Sales Rep. /
+// Marketer/Dist. side by side; "Transaction Details" with Item, Qty,
+// Price(N), Amount(N); Subtotal, Surcharge, Discount, Amount to pay; thanks.
+// Typewriter (Courier) type sized for the 72mm printable width. No QR code.
+export type RollReceipt = {
+  company: {
+    address?: string | null;
+    phone?: string | null;
+    logo_url?: string | null;
+    name?: string;
+  };
+  title: string;
+  at: Date;
+  trans_id: string;
+  sales_rep?: string | null;
+  party_label: string;
+  party: string;
+  items: { name: string; quantity: number; unit_price: number; amount: number }[];
+  subtotal: number;
+  surcharge: number;
+  discount: number;
+  total: number;
+  // Extra lines under the totals, e.g. "Amount paid", "Balance".
+  extra?: [string, number][];
+  note?: string | null;
+  file_name: string;
+};
+
+export async function generateRollReceiptPdf(r: RollReceipt, action: PdfAction = "print") {
+  const logo = await resolveLogo(r.company.logo_url);
+  const W = ROLL_W;
+  const M = ROLL_M;
+  const right = W - M;
+  const contentW = W - M * 2;
+  const center = W / 2;
+  const amt = (n: number) => Math.round(n).toLocaleString("en-US", { maximumFractionDigits: 0 });
+  const naira = (n: number) => `N${amt(n)}`;
+  const day = r.at.getDate();
+  const nth =
+    day % 10 === 1 && day !== 11
+      ? "st"
+      : day % 10 === 2 && day !== 12
+        ? "nd"
+        : day % 10 === 3 && day !== 13
+          ? "rd"
+          : "th";
+  const dateText = `${r.at.toLocaleDateString("en-GB", { weekday: "long" })} ${day}${nth} ${r.at.toLocaleDateString("en-GB", { month: "long", year: "numeric" })}`;
+  const timeText = r.at.toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+
+  const draw = (doc: jsPDF): number => {
+    let y = M;
+    const font = (size: number, bold = false) => {
+      doc.setFont("courier", bold ? "bold" : "normal");
+      doc.setFontSize(size);
+    };
+    const centred = (text: string, size: number, bold = false) => {
+      font(size, bold);
+      (doc.splitTextToSize(text, contentW) as string[]).forEach((ln) => {
+        doc.text(ln, center, y, { align: "center" });
+        y += size + 2;
+      });
+    };
+
+    if (logo) {
+      const ratio = Math.min(130 / logo.width, 48 / logo.height, 1);
+      const w = logo.width * ratio;
+      const h = logo.height * ratio;
+      doc.addImage(logo.dataUrl, "PNG", center - w / 2, y, w, h);
+      y += h + 8;
+    } else if (r.company.name) {
+      centred(r.company.name, 11, true);
+    }
+    if (r.company.address) centred(r.company.address, 7);
+    if (r.company.phone) centred(r.company.phone, 7);
+    y += 8;
+
+    // Date left, time right.
+    font(7.5);
+    doc.text(dateText, M, y);
+    doc.text(timeText, right, y, { align: "right" });
+    y += 18;
+
+    centred(r.title, 12, true);
+    y += 4;
+
+    // Trans. ID / Sales Rep. / Marketer/Dist., side by side.
+    const cols = [
+      { x: M, w: 78, label: "Trans. ID:", value: r.trans_id },
+      { x: M + 80, w: 56, label: "Sales Rep.:", value: r.sales_rep || "—" },
+      { x: M + 138, w: contentW - 138, label: `${r.party_label}:`, value: r.party },
+    ];
+    font(6.5);
+    cols.forEach((c) => doc.text(c.label, c.x, y));
+    y += 9;
+    const values = cols.map((c) => doc.splitTextToSize(c.value, c.w) as string[]);
+    values.forEach((lines, i) => lines.forEach((ln, j) => doc.text(ln, cols[i].x, y + j * 8)));
+    y += Math.max(...values.map((v) => v.length)) * 8 + 10;
+
+    font(7.5);
+    doc.text("Transaction Details", M, y);
+    y += 14;
+
+    // Item | Qty | Price(N) | Amount(N)
+    const qtyX = M + 112;
+    const priceX = M + 152;
+    font(7, true);
+    doc.text("Item", M, y);
+    doc.text("Qty", qtyX, y, { align: "right" });
+    doc.text("Price(N)", priceX, y, { align: "right" });
+    doc.text("Amount(N)", right, y, { align: "right" });
+    y += 3;
+    doc.line(M, y, right, y);
+    y += 10;
+    font(7);
+    for (const it of r.items) {
+      // Room left for a quantity up to "14,424" before the Qty column.
+      const name = doc.splitTextToSize(it.name, qtyX - M - 30) as string[];
+      doc.text(String(it.quantity.toLocaleString("en-US")), qtyX, y, { align: "right" });
+      doc.text(amt(it.unit_price), priceX, y, { align: "right" });
+      doc.text(amt(it.amount), right, y, { align: "right" });
+      name.forEach((ln, j) => doc.text(ln, M, y + j * 9));
+      y += name.length * 9 + 3;
+    }
+    y += 2;
+    doc.setLineDashPattern([2, 1], 0);
+    doc.line(M, y, right, y);
+    doc.setLineDashPattern([], 0);
+    y += 11;
+
+    const total = (label: string, value: string, bold = false) => {
+      font(7.5, bold);
+      doc.text(label, M, y);
+      doc.text(value, right, y, { align: "right" });
+      y += 11;
+    };
+    total("Subtotal", naira(r.subtotal));
+    total("Surcharge", naira(r.surcharge));
+    total("Discount", naira(r.discount));
+    total("Amount to pay", naira(r.total), true);
+    for (const [label, value] of r.extra ?? []) total(label, naira(value));
+    if (r.note) {
+      y += 2;
+      font(6.5);
+      (doc.splitTextToSize(r.note, contentW) as string[]).forEach((ln) => {
+        doc.text(ln, M, y);
+        y += 8;
+      });
+    }
+    y += 10;
+    centred("Thank you for your patronage!", 8, true);
+    return y;
+  };
+
+  const scratch = new jsPDF({ unit: "pt", format: [W, 4000] });
+  const finalY = draw(scratch);
+  const doc = new jsPDF({ unit: "pt", format: [W, finalY + M] });
+  draw(doc);
+  if (action === "download") {
+    doc.save(`${r.file_name}.pdf`);
+  } else {
+    if (action === "print") doc.autoPrint();
+    window.open(doc.output("bloburl"), "_blank");
+  }
+}
+
 // A4 page by default (printed on a standard office printer) so the receipt
-// fills the printout instead of appearing tiny in a corner. paper "roll" lays
-// the same receipt out on the Warehouse's slim 80mm POS roll: logo and
-// address centred at the top, normal till-receipt type.
+// fills the printout instead of appearing tiny in a corner. paper "roll"
+// prints the Warehouse's slim receipt instead (generateRollReceiptPdf).
 export async function generateInvoicePdf(
   data: InvoiceData,
   action: PdfAction = "download",
   paper: "a4" | "roll" = "a4",
 ) {
+  if (paper === "roll") {
+    const paid = Number(data.amount_paid ?? 0);
+    await generateRollReceiptPdf(
+      {
+        company: data.company,
+        title: data.is_pr ? "PR - NO CHARGE" : "LOAD ORDER RECEIPT",
+        at: data.issued_at ? new Date(data.issued_at) : new Date(),
+        trans_id: data.invoice_number,
+        sales_rep: data.sales_person,
+        party_label: "Marketer/Dist.",
+        party: data.customer.name || "Walk-in",
+        items: data.items.map((it) => ({
+          name: it.name,
+          quantity: it.quantity,
+          unit_price: it.unit_price,
+          amount: it.line_total,
+        })),
+        subtotal: data.subtotal,
+        surcharge: data.vat,
+        discount: data.discount,
+        total: data.grand_total,
+        extra:
+          paid > 0 && !data.is_pr
+            ? [
+                ["Amount paid", paid],
+                ["Balance", data.balance],
+              ]
+            : undefined,
+        file_name: data.invoice_number,
+      },
+      action,
+    );
+    return;
+  }
   const currency = data.currency ?? "NGN";
   const cur = (n: number) => pdfMoney(n, currency);
   const logo = await resolveLogo(data.company.logo_url);
-  const roll = paper === "roll";
-
-  const W = roll ? ROLL_W : 595; // 80mm roll / A4 width in pt
-  const M = roll ? ROLL_M : 40;
+  const W = 595; // A4 width in pt
+  const M = 40;
   const contentW = W - M * 2;
   const center = W / 2;
-  // Slightly larger type on the roll (k), like a till receipt: 9pt body,
-  // 11pt totals.
-  const k = roll ? 1.1 : 1;
-  const fz = (n: number) => n * k;
+  const fz = (n: number) => n;
 
   const draw = (doc: jsPDF): number => {
     let y = M;
@@ -168,8 +367,8 @@ export async function generateInvoicePdf(
     };
 
     if (logo) {
-      const maxW = roll ? 110 : 90,
-        maxH = roll ? 50 : 50;
+      const maxW = 90,
+        maxH = 50;
       const ratio = Math.min(maxW / logo.width, maxH / logo.height, 1);
       const w = logo.width * ratio,
         h = logo.height * ratio;
@@ -214,13 +413,12 @@ export async function generateInvoicePdf(
     y += fz(12);
 
     data.items.forEach((it) => {
-      doc.setFont("helvetica", roll ? "bold" : "normal");
-      left(it.name, 10);
       doc.setFont("helvetica", "normal");
+      left(it.name, 10);
       const qty = `${it.quantity} ${it.unit} x ${cur(it.unit_price)}`;
       const value = cur(it.line_total);
       doc.text(qty, M, y);
-      // Too long for one line on the roll: the value goes under it.
+      // Too long for one line: the value goes under it.
       if (doc.getTextWidth(qty) + doc.getTextWidth(value) + 8 > contentW) y += fz(11);
       doc.text(value, W - M, y, { align: "right" });
       y += fz(12);
@@ -268,11 +466,11 @@ export async function generateInvoicePdf(
   const scratch = new jsPDF({ unit: "pt", format: [W, 4000] });
   const finalY = draw(scratch);
 
-  // Fill a full A4 / roll page — only grow taller for an unusually long cart
-  // that wouldn't fit, rather than ever clipping content.
+  // Fill a full A4 page — only grow taller for an unusually long cart that
+  // wouldn't fit, rather than ever clipping content.
   const doc = new jsPDF({
     unit: "pt",
-    format: [W, Math.max(roll ? ROLL_H : A4_H, finalY + M)],
+    format: [W, Math.max(A4_H, finalY + M)],
   });
   draw(doc);
 
@@ -975,10 +1173,8 @@ export async function generateProductionRequestPdf(
 }
 
 // A posting from the Warehouse to a marketer or the Company Retail Shop
-// (stock_dispatches): what went out, to whom, and signatures for both sides.
-// Laid out for the Warehouse's slim 80mm POS roll (ROLL_W x ROLL_H, normal
-// till-receipt type): everything stacked in one narrow column, the logo,
-// company name, address and phone centred at the top.
+// (stock_dispatches), printed as the Warehouse's slim LOAD ORDER RECEIPT
+// (generateRollReceiptPdf), like a posting to a distributor.
 export async function generateDispatchSlipPdf(
   opts: {
     company: {
@@ -990,6 +1186,8 @@ export async function generateDispatchSlipPdf(
     };
     dispatch_number: string;
     dispatch_date: string;
+    // When it was recorded (time on the receipt); the dispatch date if absent.
+    created_at?: string | null;
     holder: { name: string; code?: string | null; kind?: string | null };
     status: string;
     items: {
@@ -1006,117 +1204,31 @@ export async function generateDispatchSlipPdf(
   },
   action: PdfAction = "download",
 ) {
-  const currency = opts.currency ?? "NGN";
-  const cur = (n: number) => pdfMoney(n, currency);
-  const logo = await resolveLogo(opts.company.logo_url);
-  const holderLabel = opts.holder.kind === "outlet" ? "Retail Shop" : "Marketer";
-
-  const W = ROLL_W;
-  const M = ROLL_M;
-  const contentW = W - M * 2;
-  const center = W / 2;
-
-  const draw = (doc: jsPDF): number => {
-    let y = M;
-    const centred = (text: string, size: number, bold = false) => {
-      doc.setFont("helvetica", bold ? "bold" : "normal");
-      doc.setFontSize(size);
-      (doc.splitTextToSize(text, contentW) as string[]).forEach((ln) => {
-        doc.text(ln, center, y, { align: "center" });
-        y += size + 3;
-      });
-    };
-    const left = (text: string, size = 9, bold = false) => {
-      doc.setFont("helvetica", bold ? "bold" : "normal");
-      doc.setFontSize(size);
-      (doc.splitTextToSize(text, contentW) as string[]).forEach((ln) => {
-        doc.text(ln, M, y);
-        y += size + 3;
-      });
-    };
-    const rule = () => {
-      doc.setLineDashPattern([2, 1], 0);
-      doc.line(M, y, W - M, y);
-      doc.setLineDashPattern([], 0);
-      y += 11;
-    };
-
-    // Header, centred: logo, company, address, phone.
-    if (logo) {
-      const ratio = Math.min(110 / logo.width, 50 / logo.height, 1);
-      const w = logo.width * ratio;
-      const h = logo.height * ratio;
-      doc.addImage(logo.dataUrl, "PNG", center - w / 2, y, w, h);
-      y += h + 8;
-    }
-    centred(opts.company.name || "Company", 11, true);
-    if (opts.company.address) centred(opts.company.address, 8);
-    const contact = [opts.company.phone, opts.company.email].filter(Boolean).join(" · ");
-    if (contact) centred(contact, 8);
-    y += 2;
-    rule();
-
-    centred("STOCK POSTING", 11, true);
-    left(`No: ${opts.dispatch_number}`);
-    left(`Date: ${opts.dispatch_date}`);
-    left(`Status: ${opts.status.replace(/_/g, " ").toUpperCase()}`);
-    rule();
-
-    left(
-      `${holderLabel}: ${opts.holder.name}${opts.holder.code ? ` (${opts.holder.code})` : ""}`,
-      9.5,
-      true,
-    );
-    rule();
-
-    // Lines: product name, then "qty unit x price" and the value on the right.
-    opts.items.forEach((it) => {
-      left(it.name, 9.5, true);
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(9);
-      const qty = `${it.quantity.toLocaleString()} ${it.unit} x ${cur(it.unit_price)}`;
-      const value = cur(it.line_value);
-      doc.text(qty, M, y);
-      // Too long for one line on the roll: the value goes under it.
-      if (doc.getTextWidth(qty) + doc.getTextWidth(value) + 8 > contentW) y += 12;
-      doc.text(value, W - M, y, { align: "right" });
-      y += 14;
-    });
-    rule();
-
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
-    doc.text("TOTAL", M, y);
-    doc.text(cur(opts.total_value), W - M, y, { align: "right" });
-    y += 16;
-    rule();
-
-    if (opts.posted_by) left(`Posted by: ${opts.posted_by}`);
-    if (opts.notes) left(`Notes: ${opts.notes}`);
-
-    // Signatures, one under the other.
-    y += 22;
-    doc.line(M, y, W - M, y);
-    y += 10;
-    left("Warehouse (issued by) / Date", 8);
-    y += 18;
-    doc.line(M, y, W - M, y);
-    y += 10;
-    left(`${holderLabel} (received by) / Date`, 8);
-    return y + 4;
-  };
-
-  const scratch = new jsPDF({ unit: "pt", format: [W, 4000] });
-  const finalY = draw(scratch);
-  const doc = new jsPDF({ unit: "pt", format: [W, Math.max(ROLL_H, finalY + M)] });
-  draw(doc);
-
-  if (action === "download") {
-    doc.save(`${opts.dispatch_number}.pdf`);
-  } else {
-    if (action === "print") doc.autoPrint();
-    window.open(doc.output("bloburl"), "_blank");
-  }
+  await generateRollReceiptPdf(
+    {
+      company: opts.company,
+      title: "LOAD ORDER RECEIPT",
+      at: new Date(opts.created_at ?? `${opts.dispatch_date}T12:00:00`),
+      trans_id: opts.dispatch_number,
+      sales_rep: opts.posted_by,
+      party_label: opts.holder.kind === "outlet" ? "Retail Shop" : "Marketer/Dist.",
+      party: opts.holder.name + (opts.holder.code ? ` (${opts.holder.code})` : ""),
+      items: opts.items.map((it) => ({
+        name: it.name,
+        quantity: it.quantity,
+        unit_price: it.unit_price,
+        amount: it.line_value,
+      })),
+      subtotal: opts.total_value,
+      surcharge: 0,
+      discount: 0,
+      total: opts.total_value,
+      note:
+        opts.status === "posted" ? null : `Status: ${opts.status.replace(/_/g, " ").toUpperCase()}`,
+      file_name: opts.dispatch_number,
+    },
+    action,
+  );
 }
 
 export type WarehouseReportRow = {

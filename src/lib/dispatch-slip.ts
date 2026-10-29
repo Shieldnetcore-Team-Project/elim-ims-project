@@ -16,7 +16,7 @@ export async function printDispatchSlip(
   let q = supabase
     .from("stock_dispatches")
     .select(
-      "id,dispatch_number,dispatch_date,status,total_value,notes,created_by,sales_reps(full_name,code,kind),stock_dispatch_items(quantity,unit_price,line_value,products(name,unit))",
+      "id,dispatch_number,dispatch_date,created_at,status,total_value,notes,created_by,sales_reps(full_name,code,kind),stock_dispatch_items(quantity,unit_price,line_value,products(name,unit))",
     );
   q = "id" in ref ? q.eq("id", ref.id) : q.eq("dispatch_number", ref.number);
   const { data, error } = await q.maybeSingle();
@@ -27,6 +27,7 @@ export async function printDispatchSlip(
   const d = data as unknown as {
     dispatch_number: string;
     dispatch_date: string;
+    created_at: string | null;
     status: string;
     total_value: number;
     notes: string | null;
@@ -60,6 +61,7 @@ export async function printDispatchSlip(
       },
       dispatch_number: d.dispatch_number,
       dispatch_date: d.dispatch_date,
+      created_at: d.created_at,
       holder: {
         name: d.sales_reps?.full_name ?? "—",
         code: d.sales_reps?.code,

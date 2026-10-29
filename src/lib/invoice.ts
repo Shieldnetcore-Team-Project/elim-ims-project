@@ -111,11 +111,25 @@ export async function printSaleInvoice(
     return;
   }
 
+  // The slim receipt's "Sales Rep.": the sales person typed in, else whoever
+  // posted it.
+  let poster: string | null = s.sales_person ?? null;
+  if (paper === "roll" && !poster && s.created_by) {
+    const { data: p } = await supabase
+      .from("profiles")
+      .select("full_name,email")
+      .eq("id", s.created_by)
+      .maybeSingle();
+    poster = p?.full_name || p?.email || null;
+  }
+
   await generateInvoicePdf(
     {
       company,
       invoice_number: s.invoice_number,
       sale_date: s.sale_date,
+      issued_at: s.created_at ?? null,
+      sales_person: poster,
       customer: { name: s.customer_name, phone: s.customer_phone, address: s.customer_address },
       items: lines,
       subtotal: Number(s.subtotal),
