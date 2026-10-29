@@ -14,6 +14,7 @@ import { AccountsTab, type Rep } from "@/routes/_app.distribution";
 import { PostingsTab } from "@/components/accounting/postings-tab";
 import { DistributorsTab } from "@/components/accounting/distributors-tab";
 import { RetailCashUpTab } from "@/components/retail/outlet-day-close";
+import { CustomerActivityDialog } from "@/components/accounting/customer-activity-dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -34,6 +35,7 @@ import {
   FileBarChart,
   FileText,
   HandCoins,
+  Eye,
   Printer,
   Receipt,
   Search,
@@ -88,6 +90,7 @@ type InvoiceGroup = {
   key: string;
   date: string;
   customer: string;
+  walkIn: boolean;
   ids: string[];
   numbers: string[];
   products: string;
@@ -114,6 +117,7 @@ function groupInvoices(sales: SaleRow[]): InvoiceGroup[] {
         key,
         date: s.sale_date,
         customer: name || "Walk-in",
+        walkIn: !name,
         ids: [],
         numbers: [],
         products: "",
@@ -212,6 +216,7 @@ function AccountantPage() {
   const perms = usePermissions();
   const { can } = perms;
   const [q, setQ] = useState("");
+  const [viewing, setViewing] = useState<InvoiceGroup | null>(null);
   const { tab = "activity" } = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
   const setTab = (v: string) =>
@@ -613,6 +618,14 @@ function AccountantPage() {
                             <Button
                               variant="ghost"
                               size="icon"
+                              title="View customer's activity"
+                              onClick={() => setViewing(g)}
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
                               title={g.ids.length > 1 ? "Print combined invoice" : "Print invoice"}
                               onClick={() => printSaleInvoice(g.ids, settings.data, "print")}
                             >
@@ -732,6 +745,19 @@ function AccountantPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {viewing && (
+        <CustomerActivityDialog
+          open
+          onOpenChange={(v) => !v && setViewing(null)}
+          factoryId={factoryId}
+          customer={viewing.walkIn ? null : viewing.customer}
+          date={viewing.date}
+          saleIds={viewing.ids}
+          currency={currency}
+          settings={settings.data}
+        />
+      )}
     </div>
   );
 }
