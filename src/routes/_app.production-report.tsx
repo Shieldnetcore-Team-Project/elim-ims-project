@@ -77,6 +77,14 @@ type Release = {
   released_at: string;
   products: { name: string } | null;
 };
+// Unreleased stock cleared from the hall (20261029120000): out of the hall on
+// the day it was cleared, not a release.
+type Clearance = {
+  product_id: string;
+  quantity: number;
+  cleared_at: string;
+  products: { name: string } | null;
+};
 
 const LIVE = ["pending_confirmation", "confirmed", "posted"];
 // Accepted whole by the Warehouse, before releases existed.
@@ -106,6 +114,22 @@ function ProductionReportPage() {
     ["production", "production_releases"],
     [["production-report"], ["production-report-releases"]],
   );
+
+  const clearances = useQuery({
+    queryKey: ["production-report-clearances", factoryId, to],
+    enabled: !!factoryId,
+    queryFn: async () => {
+      const end = new Date(`${shift(to, 1)}T00:00:00`).toISOString();
+      const { data, error } = await supabase
+        .from("production_hall_clearances" as never)
+        .select("product_id,quantity,cleared_at,products(name)")
+        .eq("factory_id", factoryId!)
+        .lt("cleared_at", end);
+      // Before its database update there is nothing to subtract.
+      if (error) return [] as Clearance[];
+      return (data ?? []) as unknown as Clearance[];
+    },
+  });
 
   // Every live batch produced up to the end of the period: earlier ones make
   // up the opening balance. Paged, since the history only grows.
@@ -180,21 +204,24 @@ function ProductionReportPage() {
   const rows = useMemo(() => {
     const byProduct = new Map<
       string,
-      { product: string; opening: number; produced: number; released: number }
+      { product: string; opening: number; produced: number; released: number; cleared: number }
     >();
     const row = (id: string, name: string) => {
       let r = byProduct.get(id);
       if (!r) {
-        r = { product: name, opening: 0, produced: 0, released: 0 };
+        r = { product: name, opening: 0, produced: 0, released: 0, cleared: 0 };
         byProduct.set(id, r);
       }
       return r;
     };
     for (const p of products.data ?? []) row(p.id, p.name);
-    const out = (id: string, name: string, qty: number, day: string) => {
+    const out = (id: string, name: string, qty: number, day: string, cleared = false) => {
       const r = row(id, name);
       if (day < from) r.opening -= qty;
-      else if (day <= to) r.released += qty;
+      else if (day <= to) {
+        if (cleared) r.cleared += qty;
+        else r.released += qty;
+      }
     };
     for (const b of batches.data ?? []) {
       const r = row(b.product_id, b.products?.name ?? "—");
@@ -211,16 +238,25 @@ function ProductionReportPage() {
         Number(rel.quantity),
         localDay(new Date(rel.released_at)),
       );
+    for (const c of clearances.data ?? [])
+      out(
+        c.product_id,
+        c.products?.name ?? "—",
+        Number(c.quantity),
+        localDay(new Date(c.cleared_at)),
+        true,
+      );
     return [...byProduct.values()]
       .map((r) => {
         const total = r.opening + r.produced;
-        return { ...r, total, balance: total - r.released };
+        return { ...r, total, balance: total - r.released - r.cleared };
       })
       .sort((a, b) => a.product.localeCompare(b.product));
-  }, [batches.data, releases.data, products.data, from, to]);
+  }, [batches.data, releases.data, clearances.data, products.data, from, to]);
 
-  const sum = (k: "opening" | "produced" | "total" | "released" | "balance") =>
+  const sum = (k: "opening" | "produced" | "total" | "released" | "cleared" | "balance") =>
     rows.reduce((t, r) => t + r[k], 0);
+  const withCleared = rows.some((r) => r.cleared !== 0);
 
   const print = (action: "print" | "download") =>
     generateProductionStockReportPdf(
@@ -315,6 +351,7 @@ function ProductionReportPage() {
                 <TableHead className="text-right">Produced</TableHead>
                 <TableHead className="text-right">Total</TableHead>
                 <TableHead className="text-right">Released</TableHead>
+                {withCleared && <TableHead className="text-right">Cleared</TableHead>}
                 <TableHead className="text-right">Balance</TableHead>
               </TableRow>
             </TableHeader>
@@ -327,6 +364,7 @@ function ProductionReportPage() {
                   <TableCell className="text-right">{num(r.produced)}</TableCell>
                   <TableCell className="text-right">{num(r.total)}</TableCell>
                   <TableCell className="text-right">{num(r.released)}</TableCell>
+                  {withCleared && <TableCell className="text-right">{num(r.cleared)}</TableCell>}
                   <TableCell
                     className={`text-right font-semibold ${r.balance > 0 ? "text-warning" : ""}`}
                   >
@@ -336,7 +374,10 @@ function ProductionReportPage() {
               ))}
               {rows.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
+                  <TableCell
+                    colSpan={withCleared ? 8 : 7}
+                    className="py-8 text-center text-muted-foreground"
+                  >
                     {batches.isLoading ? "Loading…" : "No products yet."}
                   </TableCell>
                 </TableRow>
@@ -350,6 +391,9 @@ function ProductionReportPage() {
                   <TableCell className="text-right">{num(sum("produced"))}</TableCell>
                   <TableCell className="text-right">{num(sum("total"))}</TableCell>
                   <TableCell className="text-right">{num(sum("released"))}</TableCell>
+                  {withCleared && (
+                    <TableCell className="text-right">{num(sum("cleared"))}</TableCell>
+                  )}
                   <TableCell className="text-right">{num(sum("balance"))}</TableCell>
                 </TableRow>
               </TableFooter>

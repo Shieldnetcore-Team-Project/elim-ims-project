@@ -120,10 +120,19 @@ export async function drawLogoHeader(
   return baseTop + h + 10;
 }
 
+// The Warehouse's slim POS roll, as its printer driver defines the paper:
+// 80 x 297 mm. Every roll page is exactly this size (taller only for a
+// receipt that would not fit), so the printer never rescales it -- a page cut
+// to the content's length was shrunk to fit, tiny when printing copies. The
+// margins keep text inside the roll's 72mm printable width.
+const ROLL_W = 226.77; // 80mm in pt
+const ROLL_H = 841.89; // 297mm in pt
+const ROLL_M = 14;
+
 // A4 page by default (printed on a standard office printer) so the receipt
 // fills the printout instead of appearing tiny in a corner. paper "roll" lays
 // the same receipt out on the Warehouse's slim 80mm POS roll: logo and
-// address centred at the top, the page only as long as the content.
+// address centred at the top, normal till-receipt type.
 export async function generateInvoicePdf(
   data: InvoiceData,
   action: PdfAction = "download",
@@ -134,13 +143,13 @@ export async function generateInvoicePdf(
   const logo = await resolveLogo(data.company.logo_url);
   const roll = paper === "roll";
 
-  const W = roll ? 226 : 595; // 80mm roll / A4 width in pt
-  const M = roll ? 8 : 40;
+  const W = roll ? ROLL_W : 595; // 80mm roll / A4 width in pt
+  const M = roll ? ROLL_M : 40;
   const contentW = W - M * 2;
   const center = W / 2;
-  // The slim POS roll prints small: bigger type and logo there (k), so it
-  // reads like a till receipt.
-  const k = roll ? 1.45 : 1;
+  // Slightly larger type on the roll (k), like a till receipt: 9pt body,
+  // 11pt totals.
+  const k = roll ? 1.1 : 1;
   const fz = (n: number) => n * k;
 
   const draw = (doc: jsPDF): number => {
@@ -159,8 +168,8 @@ export async function generateInvoicePdf(
     };
 
     if (logo) {
-      const maxW = roll ? 150 : 90,
-        maxH = roll ? 75 : 50;
+      const maxW = roll ? 110 : 90,
+        maxH = roll ? 50 : 50;
       const ratio = Math.min(maxW / logo.width, maxH / logo.height, 1);
       const w = logo.width * ratio,
         h = logo.height * ratio;
@@ -259,11 +268,11 @@ export async function generateInvoicePdf(
   const scratch = new jsPDF({ unit: "pt", format: [W, 4000] });
   const finalY = draw(scratch);
 
-  // Fill a full A4 page — only grow taller than A4 for an unusually long cart
+  // Fill a full A4 / roll page — only grow taller for an unusually long cart
   // that wouldn't fit, rather than ever clipping content.
   const doc = new jsPDF({
     unit: "pt",
-    format: [W, roll ? finalY + M : Math.max(A4_H, finalY + M)],
+    format: [W, Math.max(roll ? ROLL_H : A4_H, finalY + M)],
   });
   draw(doc);
 
@@ -967,9 +976,9 @@ export async function generateProductionRequestPdf(
 
 // A posting from the Warehouse to a marketer or the Company Retail Shop
 // (stock_dispatches): what went out, to whom, and signatures for both sides.
-// Laid out for the Warehouse's slim 80mm POS roll: everything stacked in one
-// narrow column, the logo, company name, address and phone centred at the
-// top, and the page only as long as the content.
+// Laid out for the Warehouse's slim 80mm POS roll (ROLL_W x ROLL_H, normal
+// till-receipt type): everything stacked in one narrow column, the logo,
+// company name, address and phone centred at the top.
 export async function generateDispatchSlipPdf(
   opts: {
     company: {
@@ -1002,8 +1011,8 @@ export async function generateDispatchSlipPdf(
   const logo = await resolveLogo(opts.company.logo_url);
   const holderLabel = opts.holder.kind === "outlet" ? "Retail Shop" : "Marketer";
 
-  const W = 226; // 80mm roll in pt
-  const M = 8;
+  const W = ROLL_W;
+  const M = ROLL_M;
   const contentW = W - M * 2;
   const center = W / 2;
 
@@ -1014,40 +1023,40 @@ export async function generateDispatchSlipPdf(
       doc.setFontSize(size);
       (doc.splitTextToSize(text, contentW) as string[]).forEach((ln) => {
         doc.text(ln, center, y, { align: "center" });
-        y += size + 4;
+        y += size + 3;
       });
     };
-    const left = (text: string, size = 11, bold = false) => {
+    const left = (text: string, size = 9, bold = false) => {
       doc.setFont("helvetica", bold ? "bold" : "normal");
       doc.setFontSize(size);
       (doc.splitTextToSize(text, contentW) as string[]).forEach((ln) => {
         doc.text(ln, M, y);
-        y += size + 4;
+        y += size + 3;
       });
     };
     const rule = () => {
       doc.setLineDashPattern([2, 1], 0);
       doc.line(M, y, W - M, y);
       doc.setLineDashPattern([], 0);
-      y += 14;
+      y += 11;
     };
 
     // Header, centred: logo, company, address, phone.
     if (logo) {
-      const ratio = Math.min(150 / logo.width, 75 / logo.height, 1);
+      const ratio = Math.min(110 / logo.width, 50 / logo.height, 1);
       const w = logo.width * ratio;
       const h = logo.height * ratio;
       doc.addImage(logo.dataUrl, "PNG", center - w / 2, y, w, h);
-      y += h + 12;
+      y += h + 8;
     }
-    centred(opts.company.name || "Company", 14, true);
-    if (opts.company.address) centred(opts.company.address, 10);
+    centred(opts.company.name || "Company", 11, true);
+    if (opts.company.address) centred(opts.company.address, 8);
     const contact = [opts.company.phone, opts.company.email].filter(Boolean).join(" · ");
-    if (contact) centred(contact, 10);
+    if (contact) centred(contact, 8);
     y += 2;
     rule();
 
-    centred("STOCK POSTING", 14, true);
+    centred("STOCK POSTING", 11, true);
     left(`No: ${opts.dispatch_number}`);
     left(`Date: ${opts.dispatch_date}`);
     left(`Status: ${opts.status.replace(/_/g, " ").toUpperCase()}`);
@@ -1055,51 +1064,51 @@ export async function generateDispatchSlipPdf(
 
     left(
       `${holderLabel}: ${opts.holder.name}${opts.holder.code ? ` (${opts.holder.code})` : ""}`,
-      12,
+      9.5,
       true,
     );
     rule();
 
     // Lines: product name, then "qty unit x price" and the value on the right.
     opts.items.forEach((it) => {
-      left(it.name, 12, true);
+      left(it.name, 9.5, true);
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(11);
+      doc.setFontSize(9);
       const qty = `${it.quantity.toLocaleString()} ${it.unit} x ${cur(it.unit_price)}`;
       const value = cur(it.line_value);
       doc.text(qty, M, y);
       // Too long for one line on the roll: the value goes under it.
-      if (doc.getTextWidth(qty) + doc.getTextWidth(value) + 8 > contentW) y += 15;
+      if (doc.getTextWidth(qty) + doc.getTextWidth(value) + 8 > contentW) y += 12;
       doc.text(value, W - M, y, { align: "right" });
-      y += 18;
+      y += 14;
     });
     rule();
 
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(14);
+    doc.setFontSize(11);
     doc.text("TOTAL", M, y);
     doc.text(cur(opts.total_value), W - M, y, { align: "right" });
-    y += 20;
+    y += 16;
     rule();
 
     if (opts.posted_by) left(`Posted by: ${opts.posted_by}`);
     if (opts.notes) left(`Notes: ${opts.notes}`);
 
     // Signatures, one under the other.
-    y += 26;
-    doc.line(M, y, W - M, y);
-    y += 12;
-    left("Warehouse (issued by) / Date", 10);
     y += 22;
     doc.line(M, y, W - M, y);
-    y += 12;
-    left(`${holderLabel} (received by) / Date`, 10);
+    y += 10;
+    left("Warehouse (issued by) / Date", 8);
+    y += 18;
+    doc.line(M, y, W - M, y);
+    y += 10;
+    left(`${holderLabel} (received by) / Date`, 8);
     return y + 4;
   };
 
   const scratch = new jsPDF({ unit: "pt", format: [W, 4000] });
   const finalY = draw(scratch);
-  const doc = new jsPDF({ unit: "pt", format: [W, finalY + M] });
+  const doc = new jsPDF({ unit: "pt", format: [W, Math.max(ROLL_H, finalY + M)] });
   draw(doc);
 
   if (action === "download") {
@@ -1587,6 +1596,8 @@ export async function generateProductionStockReportPdf(
       produced: number;
       total: number;
       released: number;
+      // Unreleased stock cleared from the hall (production_hall_clearances).
+      cleared?: number;
       balance: number;
     }[];
   },
@@ -1594,6 +1605,7 @@ export async function generateProductionStockReportPdf(
 ) {
   const doc = new jsPDF({ unit: "pt", format: "a4" });
   const pageW = doc.internal.pageSize.getWidth();
+  const withCleared = opts.rows.some((r) => (r.cleared ?? 0) !== 0);
   let y = await drawLogoHeader(doc, opts.company.logo_url, 40, 140, 60);
   doc.setFont("times", "bold");
   if (opts.company.name) {
@@ -1626,7 +1638,18 @@ export async function generateProductionStockReportPdf(
   const n = (v: number) => String(Math.round(v * 1000) / 1000);
   autoTable(doc, {
     startY: y,
-    head: [["S/N", "Product", "Opening", "Produced", "Total", "Released", "Balance"]],
+    head: [
+      [
+        "S/N",
+        "Product",
+        "Opening",
+        "Produced",
+        "Total",
+        "Released",
+        ...(withCleared ? ["Cleared"] : []),
+        "Balance",
+      ],
+    ],
     body: opts.rows.map((r, i) => [
       String(i + 1),
       r.product,
@@ -1634,6 +1657,7 @@ export async function generateProductionStockReportPdf(
       n(r.produced),
       n(r.total),
       n(r.released),
+      ...(withCleared ? [n(r.cleared ?? 0)] : []),
       n(r.balance),
     ]),
     styles: { font: "times", fontSize: 10, lineColor: [0, 0, 0], lineWidth: 0.5 },

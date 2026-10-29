@@ -1719,7 +1719,9 @@ export function PosDialog({
         editingSale
           ? `${res.invoice_number} updated — awaiting manager approval`
           : res.status === "posted"
-            ? `${res.invoice_number} recorded`
+            ? warehousePosting
+              ? `${res.invoice_number} posted — taken out of stock; Accounts confirms the payment`
+              : `${res.invoice_number} recorded`
             : warehousePosting
               ? `${res.invoice_number} sent to Accounts for confirmation`
               : `${res.invoice_number} submitted — awaiting manager approval`,

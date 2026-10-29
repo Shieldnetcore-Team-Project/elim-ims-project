@@ -53,6 +53,8 @@ type HallRow = {
   released: number;
   awaiting_warehouse: number;
   in_hall: number;
+  // Unreleased stock cleared from the hall (20261029120000).
+  cleared?: number;
 };
 type Release = {
   id: string;
@@ -93,7 +95,8 @@ function useCanRelease() {
   return can("production", "create") || can("production", "submit") || can("production", "edit");
 }
 
-function useHallStock(factoryId: string) {
+// Production's own stock: made and not yet released. Never Warehouse stock.
+export function useHallStock(factoryId: string) {
   return useQuery({
     queryKey: ["production-hall", factoryId],
     queryFn: async () => {
@@ -297,6 +300,7 @@ export function ProductionHall({ factoryId }: { factoryId: string }) {
     (r) => Number(r.produced) > 0 || Number(r.in_hall) !== 0 || Number(r.released) > 0,
   );
   const totalInHall = rows.reduce((t, r) => t + Number(r.in_hall), 0);
+  const withCleared = rows.some((r) => Number(r.cleared ?? 0) > 0);
 
   return (
     <>
@@ -321,6 +325,7 @@ export function ProductionHall({ factoryId }: { factoryId: string }) {
                 <TableHead className="text-right">Produced</TableHead>
                 <TableHead className="text-right">Released</TableHead>
                 <TableHead className="text-right">Awaiting Warehouse</TableHead>
+                {withCleared && <TableHead className="text-right">Cleared</TableHead>}
                 <TableHead className="text-right">In hall now</TableHead>
                 <TableHead></TableHead>
               </TableRow>
@@ -334,6 +339,11 @@ export function ProductionHall({ factoryId }: { factoryId: string }) {
                   <TableCell className="text-right">
                     {Number(r.awaiting_warehouse) > 0 ? num(Number(r.awaiting_warehouse)) : "—"}
                   </TableCell>
+                  {withCleared && (
+                    <TableCell className="text-right">
+                      {Number(r.cleared ?? 0) > 0 ? num(Number(r.cleared)) : "—"}
+                    </TableCell>
+                  )}
                   <TableCell className="text-right font-semibold">
                     {num(Number(r.in_hall))} {r.unit}
                   </TableCell>

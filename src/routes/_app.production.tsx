@@ -5,6 +5,7 @@ import {
   HallStockSummary,
   ProductionHall,
   ReleaseBatchButton,
+  useHallStock,
 } from "@/components/production/production-hall";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -158,7 +159,9 @@ function ProductionFactoryGate() {
   return <ProductionPage />;
 }
 
-type Product = { id: string; name: string; unit: string; current_stock: number };
+// No stock figure here: products.current_stock is the Warehouse's. Production
+// sees only its hall stock (useHallStock).
+type Product = { id: string; name: string; unit: string };
 type ProductionRow = {
   id: string;
   production_number: string;
@@ -242,7 +245,7 @@ function ProductionPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("products")
-        .select("id,name,unit,current_stock")
+        .select("id,name,unit")
         .eq("factory_id", factoryId!)
         .eq("active", true)
         // Production posts finished products only; the empty blown bottles
@@ -1041,6 +1044,10 @@ function ProductionForm({
   const [requestId, setRequestId] = useState("");
   const [productId, setProductId] = useState(editing?.product_id ?? "");
   const [addingProduct, setAddingProduct] = useState(false);
+  // What Production made and still holds (not released to the Warehouse).
+  const hall = useHallStock(factoryId);
+  const hallOf = (id: string) =>
+    Math.max(Number(hall.data?.find((h) => h.product_id === id)?.in_hall ?? 0), 0);
   // New entries default to the likely batch: in the morning, last night's
   // (yesterday, night shift); from noon, today's day shift.
   const [suggested] = useState(suggestedEntry);
@@ -1271,7 +1278,7 @@ function ProductionForm({
             <SelectContent>
               {products.map((p) => (
                 <SelectItem key={p.id} value={p.id}>
-                  {p.name} · stock {num(Number(p.current_stock))} {p.unit}
+                  {p.name} · in hall {num(hallOf(p.id))} {p.unit}
                 </SelectItem>
               ))}
               <SelectItem value={ADD_NEW_ITEM} className="font-medium text-primary">

@@ -21,22 +21,23 @@ BEGIN
   RETURN (v->>'sale_id')::uuid;
 END; $$;
 
--- @@ Accounts confirms a distributor posting: it posts and clears the count
+-- @@ A distributor posting is posted at once; Accounts confirms it later (20261029140000)
 DO $$
-DECLARE v_id uuid := pg_temp.post('d4000000-0000-0000-0000-000000000001', 10);
+DECLARE v_id uuid := pg_temp.post('d4000000-0000-0000-0000-000000000001', 10); n int;
 BEGIN
   PERFORM pg_temp.check((SELECT public.is_warehouse_posting(s) FROM sales s WHERE s.id = v_id), 'is a warehouse posting');
-  PERFORM set_config('test.uid', 'a4000000-0000-0000-0000-000000000001', false);
-  PERFORM pg_temp.check(public.warehouse_postings_to_confirm() = 1, 'one waits on the accountant');
-  PERFORM public.confirm_warehouse_posting(v_id, 'checked');
-  PERFORM pg_temp.check((SELECT status FROM sales WHERE id = v_id) = 'posted', 'posted');
+  PERFORM pg_temp.check((SELECT status FROM sales WHERE id = v_id) = 'posted', 'posted at once');
   PERFORM pg_temp.check((SELECT current_stock FROM products WHERE id = 'b4000000-0000-0000-0000-000000000001') = 90, 'stock 100 - 10');
+  PERFORM set_config('test.uid', 'a4000000-0000-0000-0000-000000000001', false);
+  n := public.warehouse_postings_to_confirm();
+  PERFORM pg_temp.check(n = 1, 'one waits on the accountant: ' || n);
+  PERFORM public.assess_posting('sale', v_id, 'checked');
   PERFORM pg_temp.check(EXISTS (SELECT 1 FROM posting_assessments WHERE posting_kind = 'sale' AND posting_id = v_id), 'marked confirmed');
   PERFORM pg_temp.check(public.warehouse_postings_to_confirm() = 0, 'nothing left to confirm');
 END $$;
 SELECT 'ok' AS result;
 
--- @@ Reject needs a reason; walk-in sales aren't Accounts'
+-- @@ A posted posting can't be rejected (it is reversed by deletion); walk-in sales aren't Accounts'
 DO $$
 DECLARE v_id uuid := pg_temp.post('d4000000-0000-0000-0000-000000000001', 5); w_id uuid := pg_temp.post(NULL, 1); ok boolean := false;
 BEGIN
@@ -44,9 +45,11 @@ BEGIN
   BEGIN PERFORM public.reject_warehouse_posting(v_id, ' ');
   EXCEPTION WHEN OTHERS THEN ok := SQLERRM LIKE '%reason is required%'; END;
   PERFORM pg_temp.check(ok, 'reason required');
-  PERFORM public.reject_warehouse_posting(v_id, 'Wrong price');
-  PERFORM pg_temp.check((SELECT status FROM sales WHERE id = v_id) = 'rejected', 'rejected');
-  PERFORM pg_temp.check((SELECT current_stock FROM products WHERE id = 'b4000000-0000-0000-0000-000000000001') = 90, 'stock untouched');
+  ok := false;
+  BEGIN PERFORM public.reject_warehouse_posting(v_id, 'Wrong price');
+  EXCEPTION WHEN OTHERS THEN ok := SQLERRM LIKE '%posted -> rejected%'; END;
+  PERFORM pg_temp.check(ok, 'posted not rejectable');
+  PERFORM pg_temp.check((SELECT current_stock FROM products WHERE id = 'b4000000-0000-0000-0000-000000000001') = 85, 'stock out at once: 90 - 5, got ' || (SELECT current_stock FROM products WHERE id = 'b4000000-0000-0000-0000-000000000001'));
   PERFORM pg_temp.check(NOT (SELECT public.is_warehouse_posting(s) FROM sales s WHERE s.id = w_id), 'walk-in is not');
   ok := false;
   BEGIN PERFORM public.confirm_warehouse_posting(w_id, NULL);

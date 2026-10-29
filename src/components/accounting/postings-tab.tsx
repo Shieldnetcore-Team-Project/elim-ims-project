@@ -75,14 +75,20 @@ const statusVariant = (s: string): "default" | "secondary" | "outline" | "destru
 
 // Warehouse postings to marketers and distributors land here for Accounts to
 // confirm, print the receipt and enter payment against (accounting_postings).
-//   distributor  the sale waits here (not on the Sales page): Confirm posts it
-//                (confirm_warehouse_posting) or Reject sends it back; payment
-//                is a receipt on the invoice
+//   distributor  posted when the Warehouse saves it, stock out at once
+//                (20261029140000); Confirm marks it checked (assess_posting)
+//                and prints the receipt; payment is a receipt on the invoice,
+//                any time. An older one still pending is posted by Confirm
+//                (confirm_warehouse_posting) or sent back by Reject.
 //   marketer     Confirm marks the dispatch checked (assess_posting) and
 //                prints its slip; payment is a remittance to the account
 // Postings to the Company Retail Shop are settled on Retail cash-up instead
 // (what was posted, sold, left and the money handed over), so they aren't
 // listed here. A chairman's gift is reviewed for the record only.
+// Distributor postings are posted at once from this day; older posted ones
+// were approved on the Sales page and aren't waiting on Accounts.
+const POSTED_AT_ONCE_FROM = new Date("2026-10-29T00:00:00+01:00");
+
 export function PostingsTab({ factoryId, currency }: { factoryId: string; currency: string }) {
   const qc = useQueryClient();
   const perms = usePermissions();
@@ -150,11 +156,13 @@ export function PostingsTab({ factoryId, currency }: { factoryId: string; curren
   });
 
   const all = useMemo(() => postings.data ?? [], [postings.data]);
-  // Still waiting on Accounts: a distributor sale not yet confirmed, or any
-  // other posting not yet checked.
+  // Still waiting on Accounts: any posting not yet confirmed. A distributor
+  // sale is posted (stock out) when the Warehouse saves it (20261029140000);
+  // an older one may still be pending.
   const waiting = (p: Posting) =>
     p.posting_kind === "sale"
-      ? p.status === "pending_approval"
+      ? p.status === "pending_approval" ||
+        (p.status === "posted" && !p.assessed_at && new Date(p.at) >= POSTED_AT_ONCE_FROM)
       : !p.assessed_at && p.status !== "reversed";
   const toAssess = all.filter(waiting);
   const shown = useMemo(() => {
