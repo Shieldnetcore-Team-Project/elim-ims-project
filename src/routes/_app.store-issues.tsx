@@ -189,7 +189,10 @@ function StoreIssuesPage() {
                   : null
         : preform
           ? (PREFORM_STATUS[preform.status] ?? preform.status)
-          : null;
+          : // Lugbe / Jos: no confirmation -- out of the Store when issued.
+            department === "lugbe" || department === "jos"
+            ? "Issued — deducted from Store"
+            : null;
     return {
       ...m,
       quantity: Math.abs(Number(m.quantity)),

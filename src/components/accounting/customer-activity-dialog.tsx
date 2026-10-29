@@ -8,6 +8,7 @@ import { SaleAdjustDialog } from "./sale-adjust-dialog";
 import { money } from "@/lib/format";
 import { fetchSaleLines, printSaleInvoice } from "@/lib/invoice";
 import { printMonthlySales } from "@/lib/monthly-sales-pdf";
+import { generateReceiptPdf } from "@/lib/pdf";
 import type { Database } from "@/integrations/supabase/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -63,6 +64,8 @@ type Payment = {
   amount: number;
   payment_method: string;
   status: string;
+  remarks: string | null;
+  customers: { name: string } | null;
   sales: { invoice_number: string } | null;
 };
 
@@ -168,7 +171,9 @@ export function CustomerActivityDialog({
       ].filter(Boolean);
       const { data, error } = await supabase
         .from("payments_received")
-        .select("id,receipt_number,payment_date,amount,payment_method,status,sales(invoice_number)")
+        .select(
+          "id,receipt_number,payment_date,amount,payment_method,remarks,status,customers(name),sales(invoice_number)",
+        )
         .eq("factory_id", factoryId)
         .or(filters.join(","))
         .order("payment_date", { ascending: false })
@@ -199,6 +204,27 @@ export function CustomerActivityDialog({
     .reduce((t, s) => t + Math.max(Number(s.balance), 0), 0);
   const isBilled = (s: Sale) => s.status === "posted" && !s.is_pr;
   const isOpen = (s: Sale) => isBilled(s) && Number(s.balance) > 0;
+
+  const printReceipt = (p: Payment, action: "download" | "print") =>
+    generateReceiptPdf(
+      {
+        company: {
+          name: settings?.company_name ?? "Elim Table Water",
+          address: settings?.address,
+          phone: settings?.phone,
+          logo_url: settings?.logo_url,
+        },
+        receipt_number: p.receipt_number,
+        payment_date: p.payment_date,
+        customer_name: p.customers?.name ?? customer,
+        invoice_number: p.sales?.invoice_number,
+        amount: Number(p.amount),
+        payment_method: p.payment_method,
+        remarks: p.remarks,
+        currency,
+      },
+      action,
+    );
 
   const inRange = (d: string) => range === "all" || d.slice(0, 10) === day;
   const shownSales = allSales.filter((s) => inRange(s.sale_date));
@@ -405,6 +431,7 @@ export function CustomerActivityDialog({
                 <TableHead>Method</TableHead>
                 <TableHead className="text-right">Amount</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -428,11 +455,31 @@ export function CustomerActivityDialog({
                       {p.status.replace(/_/g, " ")}
                     </Badge>
                   </TableCell>
+                  <TableCell>
+                    <div className="flex justify-end gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title="Print receipt"
+                        onClick={() => printReceipt(p, "print")}
+                      >
+                        <Printer className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title="Download receipt"
+                        onClick={() => printReceipt(p, "download")}
+                      >
+                        <FileText className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </TableCell>
                 </TableRow>
               ))}
               {shownPayments.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-sm text-muted-foreground">
+                  <TableCell colSpan={7} className="text-center text-sm text-muted-foreground">
                     {payments.isLoading ? "Loading…" : "No payments."}
                   </TableCell>
                 </TableRow>

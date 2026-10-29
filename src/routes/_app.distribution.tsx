@@ -2521,7 +2521,7 @@ export function AccountsTab({
         </CardContent>
       </Card>
 
-      {!repId && <p className="text-sm text-muted-foreground">Pick a rep to see their account.</p>}
+      <AllAccountsCard reps={reps} from={from} to={to} selected={repId} onPick={setRepId} />
 
       {repId && (
         <>
@@ -2542,6 +2542,121 @@ export function AccountsTab({
         </>
       )}
     </div>
+  );
+}
+
+// Every marketer's and outlet's account side by side for the period (all time
+// when no dates are picked): what was posted to them, returned, remitted,
+// owed on credit and the balance they owe -- rep_account_summary per rep, the
+// same figures as the account below. Busiest first; a row opens that account.
+function AllAccountsCard({
+  reps,
+  from,
+  to,
+  selected,
+  onPick,
+}: {
+  reps: Rep[];
+  from: string;
+  to: string;
+  selected: string;
+  onPick: (id: string) => void;
+}) {
+  const active = reps.filter((r) => r.status === "active" || r.id === selected);
+  const all = useQuery({
+    queryKey: ["dist-account", "all", active.map((r) => r.id).join(","), from, to],
+    enabled: active.length > 0,
+    queryFn: async () =>
+      Promise.all(
+        active.map(async (r) => {
+          const { data, error } = await supabase.rpc("rep_account_summary", {
+            p_sales_rep_id: r.id,
+            p_from: from || undefined,
+            p_to: to || undefined,
+          });
+          if (error) throw error;
+          return { rep: r, s: data as unknown as AccountSummary };
+        }),
+      ),
+  });
+  const rows = [...(all.data ?? [])].sort(
+    (a, b) =>
+      Number(b.s.goods_out_value) - Number(a.s.goods_out_value) ||
+      a.rep.full_name.localeCompare(b.rep.full_name),
+  );
+  const total = (k: keyof AccountSummary) => rows.reduce((t, r) => t + Number(r.s[k] ?? 0), 0);
+
+  return (
+    <Card className="rounded-2xl">
+      <CardHeader>
+        <CardTitle>All accounts</CardTitle>
+        <p className="text-sm text-muted-foreground">
+          {from || to
+            ? `${from || "start"} to ${to || "today"}`
+            : "All time — pick From / To to narrow it"}
+          . Click a name to open that account.
+        </p>
+      </CardHeader>
+      <CardContent className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Marketer / outlet</TableHead>
+              <TableHead className="text-right">Goods posted</TableHead>
+              <TableHead className="text-right">Returns</TableHead>
+              <TableHead className="text-right">Cash remitted</TableHead>
+              <TableHead className="text-right">Credit outstanding</TableHead>
+              <TableHead className="text-right">Balance owed</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map(({ rep: r, s }) => (
+              <TableRow
+                key={r.id}
+                className={`cursor-pointer ${r.id === selected ? "bg-muted" : ""} ${
+                  Number(s.goods_out_value) === 0 && Number(s.cash_remitted) === 0
+                    ? "text-muted-foreground"
+                    : ""
+                }`}
+                onClick={() => onPick(r.id)}
+              >
+                <TableCell className="font-medium">{repLabel(r)}</TableCell>
+                <TableCell className="text-right">{money(s.goods_out_value)}</TableCell>
+                <TableCell className="text-right">{money(s.accepted_returns_value)}</TableCell>
+                <TableCell className="text-right">{money(s.cash_remitted)}</TableCell>
+                <TableCell className="text-right">{money(s.credit_outstanding)}</TableCell>
+                <TableCell className="text-right font-medium">
+                  {money(s.net_balance_owed)}
+                </TableCell>
+              </TableRow>
+            ))}
+            {rows.length > 0 && (
+              <TableRow className="bg-muted font-bold">
+                <TableCell>Total</TableCell>
+                <TableCell className="text-right">{money(total("goods_out_value"))}</TableCell>
+                <TableCell className="text-right">
+                  {money(total("accepted_returns_value"))}
+                </TableCell>
+                <TableCell className="text-right">{money(total("cash_remitted"))}</TableCell>
+                <TableCell className="text-right">{money(total("credit_outstanding"))}</TableCell>
+                <TableCell className="text-right">{money(total("net_balance_owed"))}</TableCell>
+              </TableRow>
+            )}
+            {rows.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={6} className="py-6 text-center text-muted-foreground">
+                  {all.isLoading
+                    ? "Loading…"
+                    : all.error
+                      ? (all.error as Error).message
+                      : "No marketers or outlets yet."}
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
   );
 }
 

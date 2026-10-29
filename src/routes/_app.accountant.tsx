@@ -161,7 +161,7 @@ type PaymentRow = {
   remarks: string | null;
   status: string;
   customers: { name: string } | null;
-  sales: { invoice_number: string } | null;
+  sales: { invoice_number: string; customer_name: string | null } | null;
 };
 
 type ExpenseRow = {
@@ -195,6 +195,9 @@ type Activity = {
   // The row's actions: invoices view/print, payments print a receipt.
   group?: InvoiceGroup;
   payment?: PaymentRow;
+  // Payments merged into the row (the customer's receipts that day).
+  paid?: number;
+  receipts?: number;
   amount: number;
   direction: "in" | "out";
   status: string;
@@ -295,7 +298,7 @@ function AccountantPage() {
       const { data, error } = await supabase
         .from("payments_received")
         .select(
-          "id,receipt_number,payment_date,amount,payment_method,remarks,status,customers(name),sales(invoice_number)",
+          "id,receipt_number,payment_date,amount,payment_method,remarks,status,customers(name),sales(invoice_number,customer_name)",
         )
         .eq("factory_id", factoryId!)
         .order("payment_date", { ascending: false })
@@ -355,30 +358,85 @@ function AccountantPage() {
   const invoiceGroups = useMemo(() => groupInvoices(sales.data ?? []), [sales.data]);
 
   const activity = useMemo<Activity[]>(() => {
+    // One row per customer per day: their payments that day join their
+    // invoice row (by the invoice paid, else by name), so the customer shows
+    // once and the eye opens everything. Payments with no invoice that day
+    // are still merged per customer per day.
+    const day = (d: string) => d.slice(0, 10);
+    const nameOf = (p: PaymentRow) =>
+      (p.customers?.name ?? p.sales?.customer_name ?? "").trim().toLowerCase();
+    const byNumber = new Map<string, InvoiceGroup>();
+    const byName = new Map<string, InvoiceGroup>();
+    for (const g of invoiceGroups) {
+      for (const n of g.numbers) byNumber.set(n, g);
+      if (!g.walkIn) byName.set(`${day(g.date)}|${g.customer.toLowerCase()}`, g);
+    }
+    const paidTo = new Map<string, PaymentRow[]>();
+    const loose = new Map<string, PaymentRow[]>();
+    for (const p of payments.data ?? []) {
+      const live = !["rejected", "reversed", "cancelled"].includes(p.status);
+      const g =
+        (live && p.sales?.invoice_number && byNumber.get(p.sales.invoice_number)) ||
+        (live && nameOf(p) && byName.get(`${day(p.payment_date)}|${nameOf(p)}`)) ||
+        null;
+      if (g && day(g.date) === day(p.payment_date)) {
+        paidTo.set(g.key, [...(paidTo.get(g.key) ?? []), p]);
+        continue;
+      }
+      const k = nameOf(p) && live ? `${day(p.payment_date)}|${nameOf(p)}` : `id|${p.id}`;
+      loose.set(k, [...(loose.get(k) ?? []), p]);
+    }
+    const sum = (ps: PaymentRow[]) => ps.reduce((t, p) => t + Number(p.amount), 0);
     const rows: Activity[] = [
-      ...invoiceGroups.map((g) => ({
-        key: `inv-${g.key}`,
-        date: g.date,
-        kind: "Invoice" as const,
-        reference: g.numbers.length > 1 ? `${g.numbers.length} invoices` : g.numbers[0],
-        party: g.customer,
-        details: g.products,
-        group: g,
-        amount: g.total,
-        direction: "in" as const,
-        status: g.status,
-      })),
-      ...(payments.data ?? []).map((p) => ({
-        key: `pay-${p.id}`,
-        date: p.payment_date,
-        kind: "Payment" as const,
-        reference: p.receipt_number,
-        party: p.customers?.name ?? "—",
-        amount: Number(p.amount),
-        direction: "in" as const,
-        status: p.status,
-        payment: p,
-      })),
+      ...invoiceGroups.map((g) => {
+        const ps = paidTo.get(g.key) ?? [];
+        return {
+          key: `inv-${g.key}`,
+          date: g.date,
+          kind: "Invoice" as const,
+          reference: g.numbers.length > 1 ? `${g.numbers.length} invoices` : g.numbers[0],
+          party: g.customer,
+          details: g.products,
+          group: g,
+          paid: ps.length ? sum(ps) : undefined,
+          receipts: ps.length || undefined,
+          amount: g.total,
+          direction: "in" as const,
+          status: g.status,
+        };
+      }),
+      ...[...loose.entries()].map(([k, ps]) => {
+        const p = ps[0];
+        const name = p.customers?.name ?? p.sales?.customer_name ?? null;
+        return {
+          key: `pay-${k}`,
+          date: p.payment_date,
+          kind: "Payment" as const,
+          reference: ps.length > 1 ? `${ps.length} receipts` : p.receipt_number,
+          party: name ?? "—",
+          amount: sum(ps),
+          direction: "in" as const,
+          status: p.status,
+          payment: ps.length === 1 ? p : undefined,
+          // The eye opens the customer's activity (by name).
+          group: name
+            ? {
+                key: `pay-${k}`,
+                date: p.payment_date,
+                customer: name,
+                walkIn: false,
+                ids: [],
+                numbers: [],
+                products: "",
+                total: 0,
+                paid: 0,
+                balance: 0,
+                status: p.status,
+                is_pr: false,
+              }
+            : undefined,
+        };
+      }),
       ...(expenses.data ?? []).map((e) => ({
         key: `exp-${e.id}`,
         date: e.expense_date,
@@ -543,6 +601,13 @@ function AccountantPage() {
                           {a.details && (
                             <div className="text-xs text-muted-foreground">{a.details}</div>
                           )}
+                          {a.paid !== undefined && a.group && (
+                            <div className="text-xs text-success">
+                              Paid {money(a.paid, currency)} ({a.receipts}{" "}
+                              {a.receipts === 1 ? "receipt" : "receipts"}) · Balance{" "}
+                              {money(a.group.balance, currency)}
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell
                           className={`text-right font-medium ${a.direction === "out" ? "text-destructive" : ""}`}
@@ -568,34 +633,38 @@ function AccountantPage() {
                                 >
                                   <Eye className="h-4 w-4" />
                                 </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  title={
-                                    a.group.ids.length > 1
-                                      ? "Print combined invoice"
-                                      : "Print invoice"
-                                  }
-                                  onClick={() =>
-                                    printSaleInvoice(a.group!.ids, settings.data, "print")
-                                  }
-                                >
-                                  <Printer className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  title={
-                                    a.group.ids.length > 1
-                                      ? "Download combined invoice"
-                                      : "Download invoice"
-                                  }
-                                  onClick={() =>
-                                    printSaleInvoice(a.group!.ids, settings.data, "download")
-                                  }
-                                >
-                                  <Download className="h-4 w-4" />
-                                </Button>
+                                {a.group.ids.length > 0 && (
+                                  <>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      title={
+                                        a.group.ids.length > 1
+                                          ? "Print combined invoice"
+                                          : "Print invoice"
+                                      }
+                                      onClick={() =>
+                                        printSaleInvoice(a.group!.ids, settings.data, "print")
+                                      }
+                                    >
+                                      <Printer className="h-4 w-4" />
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      title={
+                                        a.group.ids.length > 1
+                                          ? "Download combined invoice"
+                                          : "Download invoice"
+                                      }
+                                      onClick={() =>
+                                        printSaleInvoice(a.group!.ids, settings.data, "download")
+                                      }
+                                    >
+                                      <Download className="h-4 w-4" />
+                                    </Button>
+                                  </>
+                                )}
                               </>
                             )}
                             {a.payment && (

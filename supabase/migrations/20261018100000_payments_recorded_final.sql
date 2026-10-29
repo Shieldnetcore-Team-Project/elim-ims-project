@@ -43,7 +43,8 @@ WITH done AS (
          reviewed_by = COALESCE(reviewed_by, received_by),
          reviewed_at = COALESCE(reviewed_at, now()),
          review_note = COALESCE(review_note, 'Confirmed automatically: payments no longer need a second confirmation')
-   WHERE review_status = 'pending' AND status NOT IN ('rejected','reversed','cancelled')
+   WHERE (review_status = 'pending' OR status = 'pending_confirmation')
+     AND status NOT IN ('rejected','reversed','cancelled')
   RETURNING factory_id, amount
 )
 INSERT INTO public.audit_logs(user_id, factory_id, action, entity, entity_id, old_value, new_value)
