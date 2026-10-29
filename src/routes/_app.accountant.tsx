@@ -192,6 +192,9 @@ type Activity = {
   party: string;
   // Invoices: the products supplied.
   details?: string;
+  // The row's actions: invoices view/print, payments print a receipt.
+  group?: InvoiceGroup;
+  payment?: PaymentRow;
   amount: number;
   direction: "in" | "out";
   status: string;
@@ -360,6 +363,7 @@ function AccountantPage() {
         reference: g.numbers.length > 1 ? `${g.numbers.length} invoices` : g.numbers[0],
         party: g.customer,
         details: g.products,
+        group: g,
         amount: g.total,
         direction: "in" as const,
         status: g.status,
@@ -373,6 +377,7 @@ function AccountantPage() {
         amount: Number(p.amount),
         direction: "in" as const,
         status: p.status,
+        payment: p,
       })),
       ...(expenses.data ?? []).map((e) => ({
         key: `exp-${e.id}`,
@@ -517,6 +522,7 @@ function AccountantPage() {
                     <TableHead>Customer / Details</TableHead>
                     <TableHead className="text-right">Amount</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -549,11 +555,76 @@ function AccountantPage() {
                             {a.status.replace(/_/g, " ")}
                           </Badge>
                         </TableCell>
+                        <TableCell>
+                          {/* Same actions as the Invoices / Payments received tabs. */}
+                          <div className="flex justify-end gap-1">
+                            {a.group && (
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  title="View customer's activity"
+                                  onClick={() => setViewing(a.group!)}
+                                >
+                                  <Eye className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  title={
+                                    a.group.ids.length > 1
+                                      ? "Print combined invoice"
+                                      : "Print invoice"
+                                  }
+                                  onClick={() =>
+                                    printSaleInvoice(a.group!.ids, settings.data, "print")
+                                  }
+                                >
+                                  <Printer className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  title={
+                                    a.group.ids.length > 1
+                                      ? "Download combined invoice"
+                                      : "Download invoice"
+                                  }
+                                  onClick={() =>
+                                    printSaleInvoice(a.group!.ids, settings.data, "download")
+                                  }
+                                >
+                                  <Download className="h-4 w-4" />
+                                </Button>
+                              </>
+                            )}
+                            {a.payment && (
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  title="Print receipt"
+                                  onClick={() => printReceipt(a.payment!, "print")}
+                                >
+                                  <Printer className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  title="Download receipt"
+                                  onClick={() => printReceipt(a.payment!, "download")}
+                                >
+                                  <FileText className="h-4 w-4" />
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        </TableCell>
                       </TableRow>
                     ))}
                   {activity.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center text-sm text-muted-foreground">
+                      <TableCell colSpan={7} className="text-center text-sm text-muted-foreground">
                         No transactions yet.
                       </TableCell>
                     </TableRow>
