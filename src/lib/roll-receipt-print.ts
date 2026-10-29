@@ -74,22 +74,24 @@ function receiptHtml(r: RollReceipt, logo: string) {
 }
 
 const STYLE = `
-@page { margin: 0; }
+/* Side margins keep text off the roll's unprintable edges (the first letter
+   of every line was lost at the very edge); no top/bottom margin, so the
+   browser has no room to print its own date / address header and footer. */
+@page { margin: 0 3mm 0 5mm; }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; background: #fff; }
-/* The printer can't print the first few mm of the roll (the first letter of
-   every line was lost), so the receipt starts 6mm in and is 66mm wide. */
+/* The receipt takes the width the print window gives it (up to the roll's
+   72mm) instead of a fixed width: a fixed 80mm inside the browser's default
+   margins was shrunk to fit -- small text on a long, mostly empty page. */
 body {
-  width: 80mm; padding: 2mm 0 0 6mm;
   font-family: "Courier New", Courier, monospace; font-weight: 700; color: #000;
   font-size: 9pt; line-height: 1.25;
   -webkit-print-color-adjust: exact; print-color-adjust: exact;
 }
-.receipt { width: 66mm; }
-/* After every copy: a cut line and a clear gap, so copies never run
-   together, whether the printer cuts each page or the roll is torn. */
+.receipt { width: 100%; max-width: 72mm; margin: 0 auto; padding-top: 1mm; }
+/* After the receipt: a cut line and a short gap -- no long blank tail. */
 .tear {
-  margin-top: 5mm; padding-bottom: 14mm; text-align: center;
+  margin-top: 4mm; padding-bottom: 6mm; text-align: center;
   font-size: 7pt; font-weight: 700; letter-spacing: 0.5px;
 }
 /* A receipt never splits across two pages (two cuts). */
@@ -138,8 +140,10 @@ async function printOne(r: RollReceipt, logo: string) {
 
   const frame = document.createElement("iframe");
   frame.setAttribute("aria-hidden", "true");
+  // Hidden, but laid out at the roll's printable width (80mm less the side
+  // margins) so the receipt's height is measured as it will print.
   frame.style.cssText =
-    "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden";
+    "position:fixed;left:-200mm;top:0;width:72mm;height:10mm;border:0;visibility:hidden";
   document.body.appendChild(frame);
   const doc = frame.contentDocument!;
   doc.open();
@@ -165,9 +169,9 @@ async function printOne(r: RollReceipt, logo: string) {
   // under it, not after a full default page of blank roll.
   const pxPerMm = 96 / 25.4;
   const receipt = doc.querySelector<HTMLElement>(".receipt");
-  const pageMm = Math.ceil((receipt?.scrollHeight ?? 0) / pxPerMm) + 8;
+  const pageMm = Math.ceil((receipt?.scrollHeight ?? 0) / pxPerMm) + 4;
   const size = doc.createElement("style");
-  size.textContent = `@page { size: 80mm ${pageMm}mm; margin: 0; }`;
+  size.textContent = `@page { size: 80mm ${pageMm}mm; }`;
   doc.head.appendChild(size);
 
   // Wait for this print window to close before sending the next copy.

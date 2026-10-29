@@ -315,7 +315,13 @@ function AddReportDialog({ factoryId, onDone }: { factoryId: string; onDone: () 
         { p_factory: factoryId } as never,
       );
       if (error) throw error;
-      return (data ?? []) as unknown as MaterialOption[];
+      // Before the blown-bottles update (20261029110000) the list has no
+      // kind: every option is a Store raw material.
+      return ((data ?? []) as unknown as MaterialOption[]).map((o) => ({
+        ...o,
+        kind: o.kind ?? "material",
+        received_since: Number(o.received_since ?? 0),
+      }));
     },
   });
   const opts = options.data ?? [];
