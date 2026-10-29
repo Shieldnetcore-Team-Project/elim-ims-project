@@ -581,8 +581,7 @@ function EditReportDialog({ row, onDone }: { row: ReportRow; onDone: () => void 
       </DialogHeader>
       <p className="text-sm text-muted-foreground">
         Opening {num(vals.opening)} + Qty In {num(vals.qty_in)} = {num(vals.opening + vals.qty_in)}{" "}
-        {row.unit ?? ""}. Enter the quantity used (the damaged included) and how many were
-        damaged.
+        {row.unit ?? ""}. Enter the quantity used (the damaged included) and how many were damaged.
       </p>
       <div className="grid grid-cols-2 gap-3">
         {field("qty_used", "Qty Used")}
