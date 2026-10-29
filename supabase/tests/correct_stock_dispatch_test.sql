@@ -90,3 +90,21 @@ BEGIN
   PERFORM pg_temp.check((SELECT carried_dispatch_id FROM rep_returns WHERE id = ret) = (c->>'id')::uuid,
                         'return still carried, into the new posting');
 END $$;
+
+-- @@ Test 4: a posting to the Company Retail Shop is corrected the same way
+DO $$
+DECLARE v jsonb; c jsonb;
+  f uuid := 'f1000000-0000-0000-0000-000000000001'; shop uuid := 'c1000000-0000-0000-0000-000000000009';
+  p50 uuid := 'b1000000-0000-0000-0000-000000000001';
+  before numeric := pg_temp.wh('1');
+BEGIN
+  INSERT INTO sales_reps(id, factory_id, full_name, status, kind)
+  VALUES (shop, f, 'Corr Retail Shop', 'active', 'outlet') ON CONFLICT (id) DO NOTHING;
+  v := public.create_stock_dispatch(jsonb_build_object('factory_id', f, 'sales_rep_id', shop,
+         'items', jsonb_build_array(jsonb_build_object('product_id', p50, 'quantity', 40))));
+  c := public.correct_stock_dispatch((v->>'id')::uuid, jsonb_build_object('reason', 'shop took 25, not 40',
+         'items', jsonb_build_array(jsonb_build_object('product_id', p50, 'quantity', 25))));
+  PERFORM pg_temp.check((SELECT status FROM stock_dispatches WHERE id = (v->>'id')::uuid) = 'reversed', 'old reversed');
+  PERFORM pg_temp.check(pg_temp.wh('1') = before - 25, 'warehouse gave out 25 net');
+  PERFORM pg_temp.check((SELECT quantity FROM rep_stock WHERE sales_rep_id = shop AND product_id = p50) = 25, 'shop holds 25');
+END $$;

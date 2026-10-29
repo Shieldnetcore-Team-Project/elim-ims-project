@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useRealtimeInvalidate } from "@/lib/realtime";
@@ -6,6 +8,13 @@ import { useFactorySettings } from "@/lib/use-factory";
 import { printDispatchSlip } from "@/lib/dispatch-slip";
 import { printSaleInvoice } from "@/lib/invoice";
 import { PrintCopiesButton } from "@/components/shared/print-copies-button";
+import {
+  CorrectDispatchPostingDialog,
+  CorrectDistributorPostingDialog,
+} from "@/components/warehouse/correct-posting";
+import { usePermissions } from "@/lib/permissions";
+import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -63,6 +72,16 @@ export function WarehouseRecentActivity({ factoryId }: { factoryId: string }) {
   });
   const rows = activity.data ?? [];
   const settings = useFactorySettings(factoryId);
+  // Correct and repost a posting: to a distributor (correct_warehouse_posting,
+  // sales write) or to a marketer / the Retail Shop (correct_stock_dispatch,
+  // distribution create).
+  const perms = usePermissions();
+  const canCorrect = (a: Activity) =>
+    a.status === "posted" &&
+    (a.kind === "distributor"
+      ? perms.canWrite("sales")
+      : (a.kind === "marketer" || a.kind === "retail") && perms.can("distribution", "create"));
+  const [correcting, setCorrecting] = useState<Activity | null>(null);
   // Postings print their slip; a distributor posting is a sale, so it prints
   // its invoice.
   const print = async (a: Activity, copies: number) => {
@@ -128,6 +147,17 @@ export function WarehouseRecentActivity({ factoryId }: { factoryId: string }) {
                     {a.kind !== "received" && a.kind !== "refused" && (
                       <PrintCopiesButton onPrint={(copies) => print(a, copies)} />
                     )}
+                    {canCorrect(a) && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title="Correct and repost"
+                        aria-label="Correct and repost"
+                        onClick={() => setCorrecting(a)}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                    )}
                   </TableCell>
                 </TableRow>
               );
@@ -146,6 +176,22 @@ export function WarehouseRecentActivity({ factoryId }: { factoryId: string }) {
           </TableBody>
         </Table>
       </CardContent>
+      <Dialog open={!!correcting} onOpenChange={(v) => !v && setCorrecting(null)}>
+        {correcting?.kind === "distributor" && (
+          <CorrectDistributorPostingDialog
+            factoryId={factoryId}
+            invoiceNumber={correcting.reference}
+            onDone={() => setCorrecting(null)}
+          />
+        )}
+        {(correcting?.kind === "marketer" || correcting?.kind === "retail") && (
+          <CorrectDispatchPostingDialog
+            factoryId={factoryId}
+            dispatchNumber={correcting.reference}
+            onDone={() => setCorrecting(null)}
+          />
+        )}
+      </Dialog>
     </Card>
   );
 }

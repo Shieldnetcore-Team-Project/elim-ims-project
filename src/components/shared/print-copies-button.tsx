@@ -6,9 +6,9 @@ import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 // Printer icon for the Warehouse's slim receipts: asks how many copies (1 by
-// default) and prints them as identical pages of one document, so every copy
-// comes out exactly like a single print. Leave the print window's own
-// copies at 1.
+// default) and sends each as its own print (printRollReceipt), so every copy
+// comes out exactly like a single print and the printer cuts after each.
+// Leave the print window's own copies at 1.
 export function PrintCopiesButton({
   onPrint,
   title = "Print",
@@ -50,6 +50,11 @@ export function PrintCopiesButton({
             autoFocus
             onChange={(e) => setCopies(Number(e.target.value))}
           />
+          {copies > 1 && (
+            <p className="text-[11px] text-muted-foreground">
+              Each copy prints and cuts on its own — click Print in the print window for each.
+            </p>
+          )}
           <Button type="submit" size="sm" className="gap-1">
             <Printer className="h-3.5 w-3.5" /> Print
           </Button>

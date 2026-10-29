@@ -69,6 +69,7 @@ function receiptHtml(r: RollReceipt, logo: string) {
   </table>
   ${r.note ? `<div class="small gap">${esc(r.note)}</div>` : ""}
   <div class="c strong gap">Thank you for your patronage!</div>
+  <div class="tear">- - - - - - - cut here - - - - - - -</div>
 </section>`;
 }
 
@@ -76,25 +77,34 @@ const STYLE = `
 @page { margin: 0; }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; background: #fff; }
+/* The printer can't print the first few mm of the roll (the first letter of
+   every line was lost), so the receipt starts 6mm in and is 66mm wide. */
 body {
-  width: 72mm; padding: 2mm 1mm 4mm;
+  width: 80mm; padding: 2mm 0 0 6mm;
   font-family: "Courier New", Courier, monospace; font-weight: 700; color: #000;
   font-size: 9pt; line-height: 1.25;
   -webkit-print-color-adjust: exact; print-color-adjust: exact;
 }
-.receipt { width: 70mm; }
-.receipt + .receipt { break-before: page; page-break-before: always; }
+.receipt { width: 66mm; }
+/* After every copy: a cut line and a clear gap, so copies never run
+   together, whether the printer cuts each page or the roll is torn. */
+.tear {
+  margin-top: 5mm; padding-bottom: 14mm; text-align: center;
+  font-size: 7pt; font-weight: 700; letter-spacing: 0.5px;
+}
+/* A receipt never splits across two pages (two cuts). */
+.receipt { break-inside: avoid; page-break-inside: avoid; }
 .logo { display: block; max-width: 48mm; max-height: 18mm; margin: 0 auto 2mm; }
 .c { text-align: center; }
 .r { text-align: right; white-space: nowrap; }
 .small { font-size: 8pt; }
 .strong { font-weight: 900; }
 .gap { margin-top: 2.5mm; }
-.split { display: flex; justify-content: space-between; gap: 2mm; font-size: 8pt; }
+.split { display: flex; justify-content: space-between; gap: 2mm; font-size: 7.5pt; }
 h1 { font-size: 13pt; font-weight: 900; text-align: center; margin: 2.5mm 0; letter-spacing: 0.3px; }
 table { width: 100%; border-collapse: collapse; }
 td, th { padding: 0.4mm 0; vertical-align: top; word-break: break-word; }
-.parties { font-size: 7pt; table-layout: fixed; }
+.parties { font-size: 6.5pt; table-layout: fixed; }
 .parties td { padding-right: 1mm; }
 .parties td:nth-child(1) { width: 38%; }
 .parties td:nth-child(2) { width: 26%; }
@@ -112,10 +122,19 @@ td, th { padding: 0.4mm 0; vertical-align: top; word-break: break-word; }
 .totals .strong td { font-size: 10pt; }
 `;
 
+// Each copy is its own print job. A receipt printer always cuts at the end of
+// a job, but many are set to cut only once per job however many pages it
+// has -- copies sent as pages of one job came out joined. One job per copy
+// means one cut per copy, with no printer setting to change; the print
+// window opens once per copy.
 export async function printRollReceipt(r: RollReceipt, copies = 1) {
   const logo = r.company.logo_url || FALLBACK_LOGO_URL;
   const n = Math.max(1, Math.floor(copies));
-  const html = `<!doctype html><html><head><meta charset="utf-8" /><title>${esc(r.file_name)}</title><style>${STYLE}</style></head><body>${Array.from({ length: n }, () => receiptHtml(r, logo)).join("")}</body></html>`;
+  for (let i = 0; i < n; i++) await printOne(r, logo);
+}
+
+async function printOne(r: RollReceipt, logo: string) {
+  const html = `<!doctype html><html><head><meta charset="utf-8" /><title>${esc(r.file_name)}</title><style>${STYLE}</style></head><body>${receiptHtml(r, logo)}</body></html>`;
 
   const frame = document.createElement("iframe");
   frame.setAttribute("aria-hidden", "true");
@@ -142,8 +161,23 @@ export async function printRollReceipt(r: RollReceipt, copies = 1) {
           }),
     ),
   );
-  frame.contentWindow!.focus();
-  frame.contentWindow!.print();
-  // Remove the frame after the print dialog has closed.
-  setTimeout(() => frame.remove(), 60_000);
+  // The page exactly one receipt long (80mm wide), so the cut falls right
+  // under it, not after a full default page of blank roll.
+  const pxPerMm = 96 / 25.4;
+  const receipt = doc.querySelector<HTMLElement>(".receipt");
+  const pageMm = Math.ceil((receipt?.scrollHeight ?? 0) / pxPerMm) + 8;
+  const size = doc.createElement("style");
+  size.textContent = `@page { size: 80mm ${pageMm}mm; margin: 0; }`;
+  doc.head.appendChild(size);
+
+  // Wait for this print window to close before sending the next copy.
+  const win = frame.contentWindow!;
+  const closed = new Promise<void>((res) => {
+    win.addEventListener("afterprint", () => res(), { once: true });
+    setTimeout(res, 120_000);
+  });
+  win.focus();
+  win.print();
+  await closed;
+  frame.remove();
 }
