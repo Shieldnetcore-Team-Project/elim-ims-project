@@ -41,10 +41,11 @@ BEGIN
   -- the next entry starts from that balance
   PERFORM pg_temp.check((SELECT last_balance FROM public.production_material_options(f) WHERE material_id = cap) = 2539,
                         'opening carried forward');
-  -- edit: 500 used, 20 damaged, 5 replaced -> 2539 - 500 - 20 + 5 = 2024
+  -- edit: 500 used in all (20 of them damaged), 5 replaced -> 2539 - 500 + 5 = 2044
+  -- (damaged are part of used, 20261029200000)
   rid := r.id;
   PERFORM public.save_production_material_report(jsonb_build_object('id', rid, 'qty_used', 500, 'damages', 20, 'replaced', 5));
-  PERFORM pg_temp.check((SELECT balance FROM production_material_reports WHERE id = rid) = 2024, 'edited balance 2024');
+  PERFORM pg_temp.check((SELECT balance FROM production_material_reports WHERE id = rid) = 2044, 'edited balance 2044');
   -- can't use more than there is
   BEGIN
     PERFORM public.save_production_material_report(jsonb_build_object('id', rid, 'qty_used', 99999));

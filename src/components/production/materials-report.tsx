@@ -85,13 +85,16 @@ const bottleCl = (name: string) => {
   return ltr ? Number(ltr[1]) * 100 : 9999;
 };
 
+// Qty Used is everything used, good and damaged together; Damages is the part
+// of it that was spoiled (20261029200000). Good = Used - Damages.
 const balanceOf = (l: Omit<Line, "key" | "material_id">) =>
-  l.opening + l.qty_in - l.qty_used - l.damages + l.replaced;
+  l.opening + l.qty_in - l.qty_used + l.replaced;
+const goodOf = (l: { qty_used: number; damages: number }) => Number(l.qty_used) - Number(l.damages);
 
 // Production → Process Material: the Production Manager's register of the raw
 // materials she works with (as the factory's paper "All Process Material"):
-// Opening, Qty In, Total, Qty Used, Damages, Balance per material,
-// added with "Add New Process Material" and corrected with Edit.
+// Opening, Qty In, Total, Qty Used (good + damaged), Damages, Good, Balance
+// per material, added with "Add New Process Material" and corrected with Edit.
 export function ProductionMaterialsReport({ factoryId }: { factoryId: string }) {
   const qc = useQueryClient();
   const { can } = usePermissions();
@@ -141,6 +144,7 @@ export function ProductionMaterialsReport({ factoryId }: { factoryId: string }) 
         { key: "total", label: "Total" },
         { key: "qty_used", label: "Qty Used" },
         { key: "damages", label: "Damages" },
+        { key: "good", label: "Good" },
         { key: "balance", label: "Balance" },
         { key: "at", label: "Date/Time" },
       ],
@@ -152,6 +156,7 @@ export function ProductionMaterialsReport({ factoryId }: { factoryId: string }) 
         total: num(Number(r.total)),
         qty_used: num(Number(r.qty_used)),
         damages: num(Number(r.damages)),
+        good: num(goodOf(r)),
         balance: num(Number(r.balance)),
         at: new Date(r.created_at).toLocaleString(),
       })),
@@ -226,6 +231,7 @@ export function ProductionMaterialsReport({ factoryId }: { factoryId: string }) 
                   <TableHead className="text-right">Total</TableHead>
                   <TableHead className="text-right">Qty Used</TableHead>
                   <TableHead className="text-right">Damages</TableHead>
+                  <TableHead className="text-right">Good</TableHead>
                   <TableHead className="text-right">Balance</TableHead>
                   <TableHead>Date/Time</TableHead>
                   {canEdit && <TableHead>Actions</TableHead>}
@@ -241,6 +247,7 @@ export function ProductionMaterialsReport({ factoryId }: { factoryId: string }) 
                     <TableCell className="text-right">{num(Number(r.total))}</TableCell>
                     <TableCell className="text-right">{num(Number(r.qty_used))}</TableCell>
                     <TableCell className="text-right">{num(Number(r.damages))}</TableCell>
+                    <TableCell className="text-right">{num(goodOf(r))}</TableCell>
                     <TableCell className="text-right font-semibold">
                       {num(Number(r.balance))}
                     </TableCell>
@@ -265,7 +272,7 @@ export function ProductionMaterialsReport({ factoryId }: { factoryId: string }) 
                 {shown.length === 0 && (
                   <TableRow>
                     <TableCell
-                      colSpan={canEdit ? 10 : 9}
+                      colSpan={canEdit ? 11 : 10}
                       className="py-8 text-center text-muted-foreground"
                     >
                       {rows.isLoading
@@ -355,8 +362,10 @@ function AddReportDialog({ factoryId, onDone }: { factoryId: string; onDone: () 
     mutationFn: async () => {
       if (lines.length === 0) throw new Error("Add at least one material");
       if (lines.some((l) => !l.material_id)) throw new Error("Pick a material in every line");
+      if (lines.some((l) => l.damages > l.qty_used))
+        throw new Error("Damaged can't be more than the total Qty Used — it is part of it");
       const bad = lines.find((l) => balanceOf(l) < 0);
-      if (bad) throw new Error("A balance can't go below 0 — check used and damages");
+      if (bad) throw new Error("A balance can't go below 0 — more used than Opening + Qty In");
       const { error } = await supabase.rpc(
         "save_production_material_report" as never,
         {
@@ -395,8 +404,9 @@ function AddReportDialog({ factoryId, onDone }: { factoryId: string; onDone: () 
       </div>
       <p className="text-xs text-muted-foreground">
         Opening starts from the material&apos;s last balance. For blown bottles from QC, Qty In
-        starts with the bottles you received from QC since the last entry. Balance = Opening + Qty
-        In − Qty Used − Damages.
+        starts with the bottles you received from QC since the last entry. Qty Used is everything
+        used, good and damaged together; enter the damaged ones in Damages. Good = Qty Used −
+        Damages; Balance = Opening + Qty In − Qty Used.
       </p>
       <div className="overflow-x-auto">
         <Table>
@@ -405,8 +415,9 @@ function AddReportDialog({ factoryId, onDone }: { factoryId: string; onDone: () 
               <TableHead className="min-w-48">Material</TableHead>
               <TableHead>Opening</TableHead>
               <TableHead>Qty In</TableHead>
-              <TableHead>Qty Used</TableHead>
+              <TableHead>Qty Used (good + damaged)</TableHead>
               <TableHead>Damages</TableHead>
+              <TableHead className="text-right">Good</TableHead>
               <TableHead className="text-right">Balance</TableHead>
               <TableHead />
             </TableRow>
@@ -414,6 +425,7 @@ function AddReportDialog({ factoryId, onDone }: { factoryId: string; onDone: () 
           <TableBody>
             {lines.map((l) => {
               const bal = balanceOf(l);
+              const good = goodOf(l);
               return (
                 <TableRow key={l.key}>
                   <TableCell>
@@ -488,6 +500,9 @@ function AddReportDialog({ factoryId, onDone }: { factoryId: string; onDone: () 
                       />
                     </TableCell>
                   ))}
+                  <TableCell className={`text-right ${good < 0 ? "text-destructive" : ""}`}>
+                    {num(good)}
+                  </TableCell>
                   <TableCell
                     className={`text-right font-semibold ${bal < 0 ? "text-destructive" : ""}`}
                   >
@@ -508,7 +523,7 @@ function AddReportDialog({ factoryId, onDone }: { factoryId: string; onDone: () 
             })}
             {lines.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7} className="py-6 text-center text-muted-foreground">
+                <TableCell colSpan={8} className="py-6 text-center text-muted-foreground">
                   Click Add material for each material.
                 </TableCell>
               </TableRow>
@@ -548,7 +563,10 @@ function EditReportDialog({ row, onDone }: { row: ReportRow; onDone: () => void 
   const bal = balanceOf(vals);
   const save = useMutation({
     mutationFn: async () => {
-      if (bal < 0) throw new Error("The balance can't go below 0 — check used and damages");
+      if (vals.damages > vals.qty_used)
+        throw new Error("Damaged can't be more than the total Qty Used — it is part of it");
+      if (bal < 0)
+        throw new Error("The balance can't go below 0 — more used than Opening + Qty In");
       const { error } = await supabase.rpc(
         "save_production_material_report" as never,
         { payload: { id: row.id, ...vals } } as never,
@@ -574,18 +592,28 @@ function EditReportDialog({ row, onDone }: { row: ReportRow; onDone: () => void 
       </DialogHeader>
       <p className="text-sm text-muted-foreground">
         Opening {num(vals.opening)} + Qty In {num(vals.qty_in)} = {num(vals.opening + vals.qty_in)}{" "}
-        {row.unit ?? ""}. Enter what was produced with it and what was damaged.
+        {row.unit ?? ""}. Enter everything used (good and damaged together), then how many of those
+        were damaged.
       </p>
       <div className="grid grid-cols-2 gap-3">
-        {field("qty_used", "Quantity produced (used)")}
-        {field("damages", "Damaged")}
+        {field("qty_used", "Total used (good + damaged)")}
+        {field("damages", "Of which damaged")}
       </div>
-      <div className="rounded-xl border p-3">
-        <div className="text-xs uppercase text-muted-foreground">Expected balance</div>
-        <div className={`text-2xl font-semibold ${bal < 0 ? "text-destructive" : ""}`}>
-          {num(bal)} {row.unit ?? ""}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-xl border p-3">
+          <div className="text-xs uppercase text-muted-foreground">Good</div>
+          <div className={`text-2xl font-semibold ${goodOf(vals) < 0 ? "text-destructive" : ""}`}>
+            {num(goodOf(vals))} {row.unit ?? ""}
+          </div>
+          <div className="text-xs text-muted-foreground">Total used − Damaged</div>
         </div>
-        <div className="text-xs text-muted-foreground">Opening + Qty In − Produced − Damaged</div>
+        <div className="rounded-xl border p-3">
+          <div className="text-xs uppercase text-muted-foreground">Expected balance</div>
+          <div className={`text-2xl font-semibold ${bal < 0 ? "text-destructive" : ""}`}>
+            {num(bal)} {row.unit ?? ""}
+          </div>
+          <div className="text-xs text-muted-foreground">Opening + Qty In − Total used</div>
+        </div>
       </div>
       <details className="text-sm">
         <summary className="cursor-pointer text-muted-foreground">

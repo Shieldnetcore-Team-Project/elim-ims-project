@@ -59,9 +59,9 @@ BEGIN
                        'qty_used', 1200, 'damages', 30))));
   SELECT * INTO r FROM production_material_reports WHERE product_id = 'bf000000-0000-0000-0000-000000000001';
   PERFORM pg_temp.check(r.material_id IS NULL AND r.material_name = 'PMB 50cl Bottle' AND r.unit = 'Piece'
-                        AND r.balance = 250, 'line saved: ' || row_to_json(r)::text);
+                        AND r.balance = 280, 'line saved: ' || row_to_json(r)::text);
   SELECT * INTO o FROM public.production_material_options(f) WHERE material_id = 'bf000000-0000-0000-0000-000000000001';
-  PERFORM pg_temp.check(o.last_balance = 250 AND o.received_since = 0, 'carried: ' || row_to_json(o)::text);
+  PERFORM pg_temp.check(o.last_balance = 280 AND o.received_since = 0, 'carried: ' || row_to_json(o)::text);
 
   -- A finished product is not a process material.
   BEGIN
@@ -70,4 +70,15 @@ BEGIN
   EXCEPTION WHEN OTHERS THEN e := SQLERRM;
   END;
   PERFORM pg_temp.check(e LIKE '%blown bottle%', 'finished refused: ' || COALESCE(e, 'none'));
+END $$;
+
+-- @@ Test 3: damaged is part of Qty Used -- not more than it (20261029200000)
+DO $$
+DECLARE f uuid := (SELECT id FROM factories WHERE code = 'water'); e text;
+BEGIN
+  BEGIN
+    PERFORM public.save_production_material_report(jsonb_build_object('factory_id', f, 'lines', jsonb_build_array(
+      jsonb_build_object('product_id', 'bf000000-0000-0000-0000-000000000001', 'opening', 280, 'qty_used', 10, 'damages', 20))));
+  EXCEPTION WHEN OTHERS THEN e := SQLERRM; END;
+  PERFORM pg_temp.check(e LIKE '%can''t be more than the total used%', 'damaged > used refused: ' || COALESCE(e, 'none'));
 END $$;
