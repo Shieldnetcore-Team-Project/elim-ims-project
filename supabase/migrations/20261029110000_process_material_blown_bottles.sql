@@ -99,7 +99,9 @@ DECLARE
   v_item_name text; v_item_unit text; v_mat_id uuid; v_prod_id uuid;
   n_open numeric; n_in numeric; n_used numeric; n_dmg numeric; n_rep numeric;
 BEGIN
-  SELECT COALESCE(full_name, email) INTO v_name FROM profiles WHERE id = v_uid;
+  -- Plain assignments only: the Supabase SQL Editor mistakes the other form
+  -- for creating a table and splices RLS statements into the function.
+  v_name := (SELECT COALESCE(full_name, email) FROM profiles WHERE id = v_uid);
   IF v_date > CURRENT_DATE THEN RAISE EXCEPTION 'A report can''t be dated in the future'; END IF;
 
   -- Edit one row.
@@ -108,8 +110,9 @@ BEGIN
             OR public.has_permission(v_uid, 'production'::module_key, 'create'::action_key)) THEN
       RAISE EXCEPTION 'Insufficient permissions';
     END IF;
-    SELECT * INTO v_row FROM production_material_reports WHERE id = (payload->>'id')::uuid FOR UPDATE;
-    IF NOT FOUND THEN RAISE EXCEPTION 'Report line not found'; END IF;
+    PERFORM 1 FROM production_material_reports WHERE id = (payload->>'id')::uuid FOR UPDATE;
+    v_row := (SELECT r FROM production_material_reports r WHERE r.id = (payload->>'id')::uuid);
+    IF v_row.id IS NULL THEN RAISE EXCEPTION 'Report line not found'; END IF;
     n_open := COALESCE(NULLIF(payload->>'opening', '')::numeric, v_row.opening);
     n_in := COALESCE(NULLIF(payload->>'qty_in', '')::numeric, v_row.qty_in);
     n_used := COALESCE(NULLIF(payload->>'qty_used', '')::numeric, v_row.qty_used);
@@ -142,14 +145,14 @@ BEGIN
   FOR v_line IN SELECT * FROM jsonb_array_elements(payload->'lines') LOOP
     v_mat_id := NULL; v_prod_id := NULL;
     IF NULLIF(v_line->>'product_id', '') IS NOT NULL THEN
-      SELECT * INTO v_prod FROM products WHERE id = (v_line->>'product_id')::uuid;
-      IF NOT FOUND OR NOT public._pm_bottle_product(v_prod.id, v_factory) THEN
+      v_prod := (SELECT p FROM products p WHERE p.id = (v_line->>'product_id')::uuid);
+      IF v_prod.id IS NULL OR NOT public._pm_bottle_product(v_prod.id, v_factory) THEN
         RAISE EXCEPTION 'Pick a blown bottle QC sends to Production';
       END IF;
       v_prod_id := v_prod.id; v_item_name := v_prod.name; v_item_unit := v_prod.unit;
     ELSE
-      SELECT * INTO v_mat FROM raw_materials WHERE id = NULLIF(v_line->>'material_id', '')::uuid;
-      IF NOT FOUND OR v_mat.factory_id <> v_factory THEN RAISE EXCEPTION 'Pick a material in every line'; END IF;
+      v_mat := (SELECT m FROM raw_materials m WHERE m.id = NULLIF(v_line->>'material_id', '')::uuid);
+      IF v_mat.id IS NULL OR v_mat.factory_id <> v_factory THEN RAISE EXCEPTION 'Pick a material in every line'; END IF;
       v_mat_id := v_mat.id; v_item_name := v_mat.name; v_item_unit := v_mat.unit;
     END IF;
     n_open := COALESCE(NULLIF(v_line->>'opening', '')::numeric, 0);
