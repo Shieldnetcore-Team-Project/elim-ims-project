@@ -80,7 +80,7 @@ type Row = {
 };
 
 // The bottle types QC blows (Bottle type box on each blowing entry).
-const BOTTLE_SIZES = ["35cl", "50cl", "75cl", "150cl"] as const;
+const BOTTLE_SIZES = ["35cl", "50cl", "75cl", "100cl", "150cl"] as const;
 
 const label = (r: Row) => (r.brand ? `${r.material} (${r.brand})` : r.material);
 const fromStore = (r: Row) => {

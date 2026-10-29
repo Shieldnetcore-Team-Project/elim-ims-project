@@ -77,6 +77,14 @@ type Line = {
   replaced: number;
 };
 
+// A bottle's size in cl from its name ("35cl Bottle", "1.5Ltr Bottle (150cl)").
+const bottleCl = (name: string) => {
+  const cl = /(\d+(?:\.\d+)?)\s*cl\b/i.exec(name);
+  if (cl) return Number(cl[1]);
+  const ltr = /(\d+(?:\.\d+)?)\s*l(?:tr|itre)?\b/i.exec(name);
+  return ltr ? Number(ltr[1]) * 100 : 9999;
+};
+
 const balanceOf = (l: Omit<Line, "key" | "material_id">) =>
   l.opening + l.qty_in - l.qty_used - l.damages + l.replaced;
 
@@ -437,6 +445,11 @@ function AddReportDialog({ factoryId, onDone }: { factoryId: string; onDone: () 
                               o.kind === kind &&
                               (o.material_id === l.material_id || !taken.has(o.material_id)),
                           );
+                          // Bottles smallest first: 35cl, 50cl, 75cl, 1Ltr, 1.5Ltr.
+                          if (kind === "bottle")
+                            group.sort(
+                              (a, b) => bottleCl(a.material_name) - bottleCl(b.material_name),
+                            );
                           return group.length === 0 ? null : (
                             <SelectGroup key={kind}>
                               <SelectLabel>{label}</SelectLabel>
