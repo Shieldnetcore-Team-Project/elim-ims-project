@@ -59,7 +59,7 @@ import {
 import { money, num } from "@/lib/format";
 import { toast } from "sonner";
 import { generateInvoicePdf } from "@/lib/pdf";
-import { printSaleInvoice } from "@/lib/invoice";
+import { printSaleInvoice, REPRINT_LABEL, SALE_SLIP_LABELS } from "@/lib/invoice";
 import { PrintCopiesButton } from "@/components/shared/print-copies-button";
 import { logAudit } from "@/lib/audit";
 import { useRealtimeInvalidate } from "@/lib/realtime";
@@ -125,7 +125,7 @@ type SaleRow = {
   // (Accountant → Postings), not this page.
   is_warehouse_posting?: boolean;
   // Only fetched for search matching — not rendered as a column.
-  sale_items?: { products: { name: string } | null }[];
+  sale_items?: { quantity: number; products: { name: string; unit: string } | null }[];
 };
 type CartItem = {
   product_id: string;
@@ -160,6 +160,31 @@ type EditingSaleData = {
 const saleStatusBadge = (s: string): "default" | "secondary" | "outline" | "destructive" =>
   s === "posted" ? "secondary" : s === "rejected" || s === "cancelled" ? "destructive" : "outline";
 
+// What the customer bought: each product and how many, added up across the
+// sales of a grouped row.
+function ItemsBought({ sales }: { sales: SaleRow[] }) {
+  const byName = new Map<string, { qty: number; unit: string }>();
+  for (const s of sales)
+    for (const it of s.sale_items ?? []) {
+      const name = it.products?.name ?? "—";
+      const r = byName.get(name) ?? { qty: 0, unit: it.products?.unit ?? "" };
+      r.qty += Number(it.quantity);
+      byName.set(name, r);
+    }
+  if (byName.size === 0) return <span className="text-muted-foreground">—</span>;
+  return (
+    <div className="space-y-0.5 text-sm">
+      {[...byName.entries()].map(([name, r]) => (
+        <div key={name} className="whitespace-nowrap">
+          {name} <span className="text-muted-foreground">×</span>{" "}
+          <span className="font-medium">{num(r.qty)}</span>{" "}
+          <span className="text-xs text-muted-foreground">{r.unit}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function SalesPage() {
   const { data: factoryId } = useFactoryId();
   // The same page is Retail → POS and Warehouse → Orders; the menu it was
@@ -177,6 +202,10 @@ function SalesPage() {
   const { canWrite, canApprove, canReject, canCancel, canDelete, canEdit, canSeeMoney } =
     usePermissions();
   const write = canWrite("sales");
+  // The shop's staff take money at the till (PosDialog's retailMode), so on
+  // POS they also see what is paid and owed and receive a payment that was
+  // not taken at the sale (record_payment, 20261030110000).
+  const shopMoney = canSeeMoney || (!warehouseView && write);
   const approve = canApprove("sales");
   const reject = canReject("sales");
   const cancel = canCancel("sales");
@@ -240,7 +269,7 @@ function SalesPage() {
       let query = supabase
         .from("sales")
         .select(
-          "id,invoice_number,sale_date,customer_id,customer_name,grand_total,amount_paid,balance,credit_applied,payment_method,created_at,is_pr,status,created_by,rejected_reason,sales_person,is_warehouse_posting,sale_items(products(name))",
+          "id,invoice_number,sale_date,customer_id,customer_name,grand_total,amount_paid,balance,credit_applied,payment_method,created_at,is_pr,status,created_by,rejected_reason,sales_person,is_warehouse_posting,sale_items(quantity,products(name,unit))",
         )
         .eq("factory_id", factoryId!)
         // Super admins can also read soft-deleted sales (Admin → Deleted
@@ -268,7 +297,7 @@ function SalesPage() {
   // receipt; PDF: the A4 receipt to keep or send.
   const openInvoice = (saleId: string, action: "download" | "print", copies = 1) =>
     action === "print"
-      ? printSaleInvoice(saleId, settings.data, "print", "roll", copies)
+      ? printSaleInvoice(saleId, settings.data, "print", "roll", copies, [REPRINT_LABEL])
       : printSaleInvoice(saleId, settings.data, "download");
 
   // Loads the full detail (including line items) a still-pending sale needs
@@ -489,8 +518,11 @@ function SalesPage() {
             (s.customer_name ?? "Walk-in")
           )}
         </TableCell>
+        <TableCell>
+          <ItemsBought sales={[s]} />
+        </TableCell>
         <TableCell className="text-right">{money(Number(s.grand_total))}</TableCell>
-        {canSeeMoney && (
+        {shopMoney && (
           <>
             <TableCell className="text-right">{money(Number(s.amount_paid))}</TableCell>
             <TableCell className="text-right">
@@ -548,7 +580,7 @@ function SalesPage() {
                 <Ban className="h-4 w-4 text-muted-foreground" />
               </Button>
             )}
-            {canSeeMoney && s.status === "posted" && Number(s.balance) > 0 && (
+            {shopMoney && s.status === "posted" && Number(s.balance) > 0 && (
               <Button variant="outline" size="sm" className="gap-1" onClick={() => setPayTarget(s)}>
                 <HandCoins className="h-4 w-4" /> Receive
               </Button>
@@ -672,8 +704,22 @@ function SalesPage() {
                 if (!v) setPresetCustomerId(undefined);
               }}
             >
+              {/* On POS a sale always sells from the shop's stock: wait until
+                  the shop is known, or the sale would go out as a direct
+                  Warehouse sale and the shop's stock would not go down. */}
               <DialogTrigger asChild>
-                <Button className="gap-2" onClick={() => setPresetCustomerId(undefined)}>
+                <Button
+                  className="gap-2"
+                  disabled={!warehouseView && !shopId}
+                  title={
+                    !warehouseView && !shopId
+                      ? outlets.isLoading
+                        ? "Loading the shop…"
+                        : "No Retail Shop set up"
+                      : undefined
+                  }
+                  onClick={() => setPresetCustomerId(undefined)}
+                >
                   <Plus className="h-4 w-4" /> New Sale
                 </Button>
               </DialogTrigger>
@@ -686,6 +732,12 @@ function SalesPage() {
                     setPosOpen(false);
                     setPresetCustomerId(undefined);
                     qc.invalidateQueries({ queryKey: ["sales-list"] });
+                    // The shop's stock went down: Stocks in Retail and the
+                    // Transaction Summary show it at once.
+                    qc.invalidateQueries({ queryKey: ["outlet-stock"] });
+                    qc.invalidateQueries({ queryKey: ["outlet-movements"] });
+                    qc.invalidateQueries({ queryKey: ["outlet-sales"] });
+                    qc.invalidateQueries({ queryKey: ["retail-summary"] });
                     qc.invalidateQueries({ queryKey: ["customer-account"] });
                     qc.invalidateQueries({ queryKey: ["customer-sales-full"] });
                     qc.invalidateQueries({ queryKey: ["customer-payments-full"] });
@@ -724,8 +776,9 @@ function SalesPage() {
                 <TableHead>Invoice</TableHead>
                 <TableHead>Date &amp; Time</TableHead>
                 <TableHead>Customer</TableHead>
+                <TableHead>Products</TableHead>
                 <TableHead className="text-right">Total</TableHead>
-                {canSeeMoney && (
+                {shopMoney && (
                   <>
                     <TableHead className="text-right">Paid</TableHead>
                     <TableHead className="text-right">Balance</TableHead>
@@ -776,8 +829,11 @@ function SalesPage() {
                       <TableCell className="font-medium">
                         {first.customer_name ?? "Customer"}
                       </TableCell>
+                      <TableCell>
+                        <ItemsBought sales={g.sales} />
+                      </TableCell>
                       <TableCell className="text-right">{money(total)}</TableCell>
-                      {canSeeMoney && (
+                      {shopMoney && (
                         <>
                           <TableCell className="text-right">{money(paidSum)}</TableCell>
                           <TableCell className="text-right">
@@ -850,6 +906,7 @@ function SalesPage() {
                                 "print",
                                 "roll",
                                 copies,
+                                [REPRINT_LABEL],
                               )
                             }
                           />
@@ -877,7 +934,7 @@ function SalesPage() {
               })}
               {filteredSales.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={10} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={11} className="text-center text-muted-foreground py-8">
                     {q.trim() ? "No sales match your search." : "No sales yet."}
                   </TableCell>
                 </TableRow>
@@ -1913,6 +1970,17 @@ export function PosDialog({
           balance: res.balance,
         },
       });
+      // A shop sale prints its two slips at once: the sales rep's and the
+      // customer's -- always exactly two (SALE_SLIP_LABELS).
+      if (retailMode && !editingSale && res.sale_id)
+        void printSaleInvoice(
+          res.sale_id,
+          settings.data,
+          "print",
+          "roll",
+          SALE_SLIP_LABELS.length,
+          SALE_SLIP_LABELS,
+        );
       onDone();
     },
     onError: (e: Error) => toast.error(e.message),

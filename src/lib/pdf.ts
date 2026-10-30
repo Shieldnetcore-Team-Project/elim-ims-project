@@ -38,6 +38,9 @@ export type InvoiceData = {
   // Slim receipt only: a sale from the retail shop is a SALES RECEIPT to a
   // Customer; otherwise LOAD ORDER RECEIPT to a Marketer/Dist.
   retail?: boolean;
+  // Slim receipt only: a footer per copy, e.g. "*** Sales-Rep Copy ***" then
+  // "*** Customer Copy ***"; the last one repeats for any further copies.
+  copy_labels?: string[];
 };
 
 export type PdfAction = "download" | "print" | "preview";
@@ -160,6 +163,8 @@ export type RollReceipt = {
   extra?: [string, number][];
   note?: string | null;
   file_name: string;
+  // A footer per copy (see InvoiceData.copy_labels).
+  copy_labels?: string[];
 };
 
 export async function generateRollReceiptPdf(
@@ -356,6 +361,7 @@ export async function generateInvoicePdf(
               ]
             : undefined,
         file_name: data.invoice_number,
+        copy_labels: data.copy_labels,
       },
       action,
       copies,

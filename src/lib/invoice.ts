@@ -67,6 +67,12 @@ export async function fetchSaleLines(saleIds: string[]): Promise<Map<string, Sal
   return out;
 }
 
+// The Retail Shop's slip footers (user decision 2026-10-30): a sale prints
+// exactly two copies when it is recorded, the sales rep's then the customer's;
+// any print after that is a reprint.
+export const SALE_SLIP_LABELS = ["*** Sales-Rep Copy ***", "*** Customer Copy ***"];
+export const REPRINT_LABEL = "*** Reprint ***";
+
 // Loads a saved sale with its line items and prints/downloads its invoice.
 // Shared by every page that prints a sale so they all produce the same
 // document:
@@ -89,6 +95,8 @@ export async function printSaleInvoice(
   paper: "a4" | "roll" = "a4",
   // Slim receipt only: identical pages in one print.
   copies = 1,
+  // Slim receipt only: a footer per copy ("*** Customer Copy ***", ...).
+  copyLabels?: string[],
 ) {
   const ids = Array.isArray(saleId) ? saleId : [saleId];
   const { data, error } = await supabase
@@ -248,6 +256,7 @@ export async function printSaleInvoice(
       issued_at: combined ? null : (s.created_at ?? null),
       sales_person: poster,
       retail: seller?.kind === "outlet",
+      copy_labels: copyLabels,
       customer: { name: s.customer_name, phone: s.customer_phone, address: s.customer_address },
       items: lines,
       ...totals,

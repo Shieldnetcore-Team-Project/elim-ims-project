@@ -69,7 +69,7 @@ function dateParts(at: Date) {
   };
 }
 
-function receiptHtml(r: RollReceipt, logo: string) {
+function receiptHtml(r: RollReceipt, logo: string, label?: string) {
   const { date, time } = dateParts(r.at);
   const row = (label: string, value: string, bold = false) =>
     `<tr class="${bold ? "strong" : ""}"><td>${esc(label)}</td><td class="r">${esc(value)}</td></tr>`;
@@ -105,6 +105,7 @@ function receiptHtml(r: RollReceipt, logo: string) {
   </table>
   ${r.note ? `<div class="small gap">${esc(r.note)}</div>` : ""}
   <div class="c thanks gap">Thank you for your patronage!</div>
+  ${label ? `<div class="c copy-label gap">${esc(label)}</div>` : ""}
   <div class="tear">- - - - - - - cut here - - - - - - -</div>
 </section>`;
 }
@@ -152,6 +153,7 @@ h1 {
   -webkit-text-stroke: 0.7px #000;
 }
 .thanks { font-size: 10.5pt; font-weight: 900; -webkit-text-stroke: 0.5px #000; }
+.copy-label { font-size: 9.5pt; font-weight: 900; -webkit-text-stroke: 0.4px #000; letter-spacing: 0.3px; }
 table { width: 100%; border-collapse: collapse; }
 td, th { padding: 0.4mm 0; vertical-align: top; word-break: break-word; }
 .parties { font-size: 6.5pt; table-layout: fixed; }
@@ -185,7 +187,13 @@ td, th { padding: 0.4mm 0; vertical-align: top; word-break: break-word; }
 // hand (the user's choice, 2026-10-29, over one print window per copy).
 export async function printRollReceipt(r: RollReceipt, copies = 1) {
   const logo = await cachedLogo(r.company.logo_url || FALLBACK_LOGO_URL);
-  await printRoll(r.file_name, () => receiptHtml(r, logo), copies);
+  // Copy i carries copy_labels[i]; the last label repeats for any more.
+  const labels = r.copy_labels ?? [];
+  await printRoll(
+    r.file_name,
+    (i) => receiptHtml(r, logo, labels[Math.min(i, labels.length - 1)]),
+    copies,
+  );
 }
 
 // A summary on the same roll, in the same type and header as the receipt
@@ -251,13 +259,13 @@ export async function printRollReport(r: RollReport, copies = 1) {
 export const rollDocument = (fileName: string, body: string) =>
   `<!doctype html><html><head><meta charset="utf-8" /><title>${esc(fileName)}</title><style>${STYLE}</style></head><body>${body}</body></html>`;
 export const rollReceiptDocument = (r: RollReceipt, logo = "") =>
-  rollDocument(r.file_name, receiptHtml(r, logo));
+  rollDocument(r.file_name, receiptHtml(r, logo, r.copy_labels?.[0]));
 export const rollReportDocument = (r: RollReport, logo = "") =>
   rollDocument(r.file_name, reportHtml(r, logo));
 
-async function printRoll(fileName: string, copyHtml: () => string, copies: number) {
+async function printRoll(fileName: string, copyHtml: (i: number) => string, copies: number) {
   const n = Math.max(1, Math.floor(copies));
-  const html = rollDocument(fileName, Array.from({ length: n }, copyHtml).join(""));
+  const html = rollDocument(fileName, Array.from({ length: n }, (_, i) => copyHtml(i)).join(""));
 
   const frame = document.createElement("iframe");
   frame.setAttribute("aria-hidden", "true");
