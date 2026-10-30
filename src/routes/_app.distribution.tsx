@@ -2674,7 +2674,88 @@ type RepActivity = {
   saleId?: string;
   method?: string;
   remarks?: string | null;
+  // A posting, return or sale: its products show when the row is clicked.
+  lines?: { kind: "dispatch" | "return" | "sale"; id: string };
 };
+
+type PostingLine = {
+  product_name: string;
+  unit: string;
+  quantity: number;
+  unit_price: number;
+  line_total: number;
+  note: string | null;
+};
+
+// The products on one posting / return / sale, read through
+// rep_posting_lines (accountants can't read products directly).
+function RepTransactionLines({
+  kind,
+  id,
+  showValues,
+}: {
+  kind: "dispatch" | "return" | "sale";
+  id: string;
+  showValues: boolean;
+}) {
+  const lines = useQuery({
+    queryKey: ["rep-posting-lines", kind, id],
+    queryFn: async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- RPC newer than the generated types
+      const { data, error } = await (supabase as any).rpc("rep_posting_lines", {
+        p_kind: kind,
+        p_id: id,
+      });
+      if (error) throw error;
+      return (data ?? []) as PostingLine[];
+    },
+  });
+  if (lines.isLoading)
+    return <div className="py-2 text-xs text-muted-foreground">Loading products…</div>;
+  if (lines.isError)
+    return <div className="py-2 text-xs text-destructive">{(lines.error as Error).message}</div>;
+  const rows = lines.data ?? [];
+  if (rows.length === 0)
+    return <div className="py-2 text-xs text-muted-foreground">No products on it.</div>;
+  const qty = rows.reduce((t, r) => t + Number(r.quantity), 0);
+  const value = rows.reduce((t, r) => t + Number(r.line_total), 0);
+  return (
+    <table className="w-full text-sm">
+      <thead className="text-xs text-muted-foreground">
+        <tr>
+          <th className="py-1 text-left font-medium">Product</th>
+          <th className="py-1 text-right font-medium">Qty</th>
+          {showValues && <th className="py-1 text-right font-medium">Price</th>}
+          {showValues && <th className="py-1 text-right font-medium">Amount</th>}
+          {kind === "return" && <th className="py-1 pl-3 text-left font-medium">Outcome</th>}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r, i) => (
+          <tr key={i} className="border-t border-border/50">
+            <td className="py-1">{r.product_name}</td>
+            <td className="py-1 text-right">
+              {num(Number(r.quantity))}{" "}
+              <span className="text-xs text-muted-foreground">{r.unit}</span>
+            </td>
+            {showValues && <td className="py-1 text-right">{money(Number(r.unit_price))}</td>}
+            {showValues && <td className="py-1 text-right">{money(Number(r.line_total))}</td>}
+            {kind === "return" && (
+              <td className="py-1 pl-3 text-xs text-muted-foreground">{r.note ?? "—"}</td>
+            )}
+          </tr>
+        ))}
+        <tr className="border-t font-medium">
+          <td className="py-1">Total</td>
+          <td className="py-1 text-right">{num(qty)}</td>
+          {showValues && <td />}
+          {showValues && <td className="py-1 text-right">{money(value)}</td>}
+          {kind === "return" && <td />}
+        </tr>
+      </tbody>
+    </table>
+  );
+}
 
 export function RepActivityCard({
   factoryId,
@@ -2755,6 +2836,7 @@ export function RepActivityCard({
           reference: d.dispatch_number,
           status: d.status,
           value: Number(d.total_value ?? 0),
+          lines: { kind: "dispatch" as const, id: d.id },
         })),
         ...(
           (returns.data ?? []) as unknown as {
@@ -2769,6 +2851,7 @@ export function RepActivityCard({
           key: `r-${r.id}`,
           date: r.received_at ?? r.return_date,
           kind: "Return" as const,
+          lines: { kind: "return" as const, id: r.id },
           reference: r.return_number,
           status: r.status,
           value: r.rep_return_items.reduce(
@@ -2784,6 +2867,7 @@ export function RepActivityCard({
           status: s.is_pr ? "PR" : String(s.status),
           value: Number(s.grand_total ?? 0),
           saleId: s.id,
+          lines: { kind: "sale" as const, id: s.id },
         })),
         ...(remits.data ?? []).map((m) => ({
           key: `m-${m.id}`,
@@ -2800,11 +2884,24 @@ export function RepActivityCard({
     },
   });
   const rows = (activity.data ?? []).filter((r) => showValues || r.kind !== "Cash remitted");
+  // Rows opened to show their products.
+  const [open, setOpen] = useState<Set<string>>(new Set());
+  const toggle = (key: string) =>
+    setOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  const cols = showValues ? 6 : 4;
 
   return (
     <Card className="rounded-2xl">
       <CardHeader>
         <CardTitle>All activity</CardTitle>
+        <p className="text-sm text-muted-foreground">
+          Click a posting, return or sale to see the products on it.
+        </p>
       </CardHeader>
       <CardContent>
         <Table containerClassName="max-h-96">
@@ -2820,32 +2917,61 @@ export function RepActivityCard({
           </TableHeader>
           <TableBody>
             {rows.map((r) => (
-              <TableRow key={r.key}>
-                <TableCell className="whitespace-nowrap text-xs">
-                  {new Date(r.date).toLocaleString()}
-                </TableCell>
-                <TableCell>
-                  <Badge variant="outline">{r.kind}</Badge>
-                </TableCell>
-                <TableCell className="font-mono text-xs">{r.reference}</TableCell>
-                <TableCell className="text-xs capitalize">{r.status.replace(/_/g, " ")}</TableCell>
-                {showValues && <TableCell className="text-right">{money(r.value)}</TableCell>}
-                {showValues && (
-                  <TableCell>
-                    {(r.kind === "Sale" || r.kind === "Cash remitted") && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="gap-1"
-                        title={r.kind === "Sale" ? "Print this invoice" : "Print this receipt"}
-                        onClick={() => printVoucher(r)}
-                      >
-                        <Printer className="h-4 w-4" /> Print
-                      </Button>
-                    )}
+              <Fragment key={r.key}>
+                <TableRow
+                  className={r.lines ? "cursor-pointer" : undefined}
+                  onClick={r.lines ? () => toggle(r.key) : undefined}
+                  data-state={open.has(r.key) ? "selected" : undefined}
+                >
+                  <TableCell className="whitespace-nowrap text-xs">
+                    {r.lines &&
+                      (open.has(r.key) ? (
+                        <ChevronDown className="mr-1 inline h-3.5 w-3.5" />
+                      ) : (
+                        <ChevronRight className="mr-1 inline h-3.5 w-3.5" />
+                      ))}
+                    {new Date(r.date).toLocaleString()}
                   </TableCell>
+                  <TableCell>
+                    <Badge variant="outline">{r.kind}</Badge>
+                  </TableCell>
+                  <TableCell className="font-mono text-xs">{r.reference}</TableCell>
+                  <TableCell className="text-xs capitalize">
+                    {r.status.replace(/_/g, " ")}
+                  </TableCell>
+                  {showValues && <TableCell className="text-right">{money(r.value)}</TableCell>}
+                  {showValues && (
+                    <TableCell>
+                      {(r.kind === "Sale" || r.kind === "Cash remitted") && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="gap-1"
+                          title={r.kind === "Sale" ? "Print this invoice" : "Print this receipt"}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            printVoucher(r);
+                          }}
+                        >
+                          <Printer className="h-4 w-4" /> Print
+                        </Button>
+                      )}
+                    </TableCell>
+                  )}
+                </TableRow>
+                {r.lines && open.has(r.key) && (
+                  <TableRow className="bg-muted/30 hover:bg-muted/30">
+                    <TableCell />
+                    <TableCell colSpan={cols - 1}>
+                      <RepTransactionLines
+                        kind={r.lines.kind}
+                        id={r.lines.id}
+                        showValues={showValues}
+                      />
+                    </TableCell>
+                  </TableRow>
                 )}
-              </TableRow>
+              </Fragment>
             ))}
             {rows.length === 0 && (
               <TableRow>
@@ -2911,6 +3037,33 @@ export function RepDetailsDialog({ factoryId, rep }: { factoryId: string; rep: R
   );
 }
 
+// A marketer's van stock with product name, unit and price (rep_van_stock):
+// readable by accountants too, who can't read products directly. Shaped as
+// the rep_stock + products join it replaces.
+type VanStockRow = {
+  product_id: string;
+  quantity: number;
+  products: { name: string; unit: string; unit_price: number } | null;
+};
+async function fetchVanStock(repId: string): Promise<VanStockRow[]> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- RPC newer than the generated types
+  const { data, error } = await (supabase as any).rpc("rep_van_stock", { p_rep: repId });
+  if (error) throw error;
+  return (
+    (data ?? []) as {
+      product_id: string;
+      name: string;
+      unit: string;
+      unit_price: number;
+      quantity: number;
+    }[]
+  ).map((r) => ({
+    product_id: r.product_id,
+    quantity: Number(r.quantity),
+    products: { name: r.name, unit: r.unit, unit_price: Number(r.unit_price) },
+  }));
+}
+
 // One rep's (marketer's) account: balance and reconciliation, the customers/
 // offices under them (RepCustomersCard: what each owes, invoices, collecting
 // payments), and van stock. Used by Distribution → Accounts and by the
@@ -2952,18 +3105,7 @@ export function RepAccountView({
   const vanStock = useQuery({
     queryKey: ["dist-rep-stock", repId, "van-table"],
     enabled: !!repId,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("rep_stock")
-        .select("quantity,products(name,unit,unit_price)")
-        .eq("sales_rep_id", repId)
-        .gt("quantity", 0);
-      if (error) throw error;
-      return (data ?? []) as unknown as {
-        quantity: number;
-        products: { name: string; unit: string; unit_price: number } | null;
-      }[];
-    },
+    queryFn: () => fetchVanStock(repId),
   });
 
   const s = summary.data;
@@ -3812,21 +3954,11 @@ function RecordCustomerSaleDialog({
   const [method, setMethod] = useState<(typeof COLLECT_METHODS)[number]>("cash");
   const [remarks, setRemarks] = useState("");
 
+  // Through rep_van_stock: an accountant can't read products directly, so a
+  // plain join gave no names and no price per pack.
   const van = useQuery({
     queryKey: ["dist-rep-stock", repId, "sale-form"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("rep_stock")
-        .select("product_id,quantity,products(name,unit,unit_price)")
-        .eq("sales_rep_id", repId)
-        .gt("quantity", 0);
-      if (error) throw error;
-      return (data ?? []) as unknown as {
-        product_id: string;
-        quantity: number;
-        products: { name: string; unit: string; unit_price: number } | null;
-      }[];
-    },
+    queryFn: () => fetchVanStock(repId),
   });
   const stockOf = (id: string) => van.data?.find((v) => v.product_id === id);
   const setLine = (i: number, patch: Partial<Line>) =>
