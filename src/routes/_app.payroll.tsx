@@ -41,7 +41,9 @@ import { Plus, Printer, FileDown, Wallet, Check, X, Send, Ban, Undo2 } from "luc
 import { generatePayslipPdf } from "@/lib/pdf";
 
 export const Route = createFileRoute("/_app/payroll")({
-  head: () => ({ meta: [{ title: "Payroll — Elim Table Water" }, { name: "robots", content: "noindex" }] }),
+  head: () => ({
+    meta: [{ title: "Payroll — Elim Table Water" }, { name: "robots", content: "noindex" }],
+  }),
   component: () => (
     <RequireAccess module="payroll">
       <PayrollPage />
@@ -849,7 +851,7 @@ function PayrollForm({
           Basic salary and allowances are pulled from the employee record and recomputed on the
           server — they can't be edited here.
         </p>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div>
             <Label>Basic salary</Label>
             <Input value={money(basic)} disabled />
@@ -863,7 +865,7 @@ function PayrollForm({
             <Input value={money(transport)} disabled />
           </div>
         </div>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div>
             <Label>Meal</Label>
             <Input value={money(meal)} disabled />
@@ -913,7 +915,7 @@ function PayrollForm({
           </div>
         )}
 
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div>
             <Label>PAYE</Label>
             <MoneyInput value={paye} onChange={setPaye} />

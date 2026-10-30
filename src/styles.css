@@ -160,3 +160,34 @@
     -webkit-font-smoothing: antialiased;
   }
 }
+
+/* Cards on phone and desktop (user, 2026-10-30). Card padding (see
+ * components/ui/card.tsx) is 1rem on phones and 1.5rem from 640px up. Long
+ * figures wrap inside the card rather than spilling out of it. */
+:root {
+  --card-pad: 1rem;
+}
+@media (min-width: 640px) {
+  :root {
+    --card-pad: 1.5rem;
+  }
+}
+[data-slot="card"] {
+  overflow-wrap: break-word;
+}
+/* On phones the big headline figures in cards step down a size, so a
+ * ₦-amount fits a half-width card. Unlayered, so it wins over utilities. */
+@media (max-width: 639px) {
+  [data-slot="card"] .text-4xl {
+    font-size: 1.875rem;
+    line-height: 2.25rem;
+  }
+  [data-slot="card"] .text-3xl {
+    font-size: 1.5rem;
+    line-height: 2rem;
+  }
+  [data-slot="card"] .text-2xl {
+    font-size: 1.25rem;
+    line-height: 1.75rem;
+  }
+}

@@ -352,7 +352,7 @@ function RepsTab({ factoryId, reps, perms }: { factoryId: string; reps: Rep[]; p
 
   return (
     <Card className="rounded-2xl">
-      <CardHeader className="flex flex-row items-center justify-between">
+      <CardHeader className="flex flex-row items-center flex-wrap justify-between gap-2">
         <CardTitle>Sales Reps &amp; Retail Outlets</CardTitle>
         {canCreate && (
           <Button
@@ -631,7 +631,7 @@ function DispatchesTab({
 
   return (
     <Card className="rounded-2xl">
-      <CardHeader className="flex flex-row items-center justify-between">
+      <CardHeader className="flex flex-row items-center flex-wrap justify-between gap-2">
         <CardTitle>Dispatches</CardTitle>
         {canCreate && (
           <Button size="sm" className="gap-2" onClick={() => setOpen(true)}>
@@ -1792,7 +1792,7 @@ export function ReturnsTab({
 
   return (
     <Card className="rounded-2xl">
-      <CardHeader className="flex flex-row items-center justify-between">
+      <CardHeader className="flex flex-row items-center flex-wrap justify-between gap-2">
         <CardTitle>{title}</CardTitle>
         {canSubmit && !hideLog && (
           <Button size="sm" className="gap-2" onClick={() => setOpen(true)}>
@@ -2292,7 +2292,7 @@ function RemittancesTab({
 
   return (
     <Card className="rounded-2xl">
-      <CardHeader className="flex flex-row items-center justify-between">
+      <CardHeader className="flex flex-row items-center flex-wrap justify-between gap-2">
         <CardTitle>Remittances</CardTitle>
         {canPost && (
           <Button size="sm" className="gap-2" onClick={() => setOpen(true)}>
@@ -3147,7 +3147,7 @@ export function RepAccountView({
           </div>
 
           <Card className="rounded-2xl">
-            <CardHeader className="flex flex-row items-center justify-between gap-2">
+            <CardHeader className="flex flex-row items-center flex-wrap justify-between gap-2">
               <CardTitle>Account reconciliation</CardTitle>
               <div className="flex gap-2">
                 {canRecordPayment && (

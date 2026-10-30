@@ -1507,7 +1507,7 @@ function DebtsTab({
         ))}
       </div>
       <Card className="rounded-2xl">
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-row items-center flex-wrap justify-between gap-2">
           <CardTitle className="text-base">Unpaid invoices</CardTitle>
           <Button
             variant="outline"
@@ -2001,7 +2001,7 @@ function ReportsTab({
     <div className="space-y-4">
       {access.money && (
         <Card className="rounded-2xl">
-          <CardHeader className="flex flex-row items-start justify-between gap-2">
+          <CardHeader className="flex flex-row items-start flex-wrap justify-between gap-2">
             <div>
               <CardTitle className="text-base">Monthly performance (last 12 months)</CardTitle>
               <p className="text-xs text-muted-foreground">

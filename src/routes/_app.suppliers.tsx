@@ -192,7 +192,7 @@ function SuppliersPage() {
       </div>
 
       <Card className="rounded-2xl">
-        <CardHeader className="flex-row items-center justify-between gap-3">
+        <CardHeader className="flex-row items-center flex-wrap justify-between gap-3">
           <CardTitle>All Suppliers</CardTitle>
           <ReportActions
             size="sm"
@@ -576,7 +576,7 @@ function SupplierDialog({
             placeholder="e.g. PET preforms, caps, labels"
           />
         </div>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div>
             <Label>Bank name</Label>
             <Input value={bankName} onChange={(e) => setBankName(e.target.value)} />

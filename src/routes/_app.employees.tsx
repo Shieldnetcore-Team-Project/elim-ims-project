@@ -335,7 +335,7 @@ function EmployeesPage() {
       </div>
 
       <Card className="rounded-2xl">
-        <CardHeader className="flex-row items-center justify-between gap-3">
+        <CardHeader className="flex-row items-center flex-wrap justify-between gap-3">
           <CardTitle>All Employees</CardTitle>
           <ReportActions
             size="sm"
@@ -629,7 +629,7 @@ function EmployeeForm({
             <Input value={position} onChange={(e) => setPosition(e.target.value)} />
           </div>
         </div>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div>
             <Label>Basic salary</Label>
             <MoneyInput value={basicSalary} onChange={setBasicSalary} />
@@ -643,7 +643,7 @@ function EmployeeForm({
             <MoneyInput value={transport} onChange={setTransport} />
           </div>
         </div>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div>
             <Label>Productivity</Label>
             <MoneyInput value={meal} onChange={setMeal} />

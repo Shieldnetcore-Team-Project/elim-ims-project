@@ -25,7 +25,7 @@ export function FactoryTab() {
         const factory = factories.data?.find((f) => f.code === c.code);
         return (
           <Card key={c.code} className="rounded-2xl">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardHeader className="flex flex-row items-center flex-wrap justify-between gap-2 pb-2">
               <CardTitle className="text-sm font-medium">{factory?.name ?? c.label}</CardTitle>
               <Factory className="h-4 w-4 text-muted-foreground" />
             </CardHeader>

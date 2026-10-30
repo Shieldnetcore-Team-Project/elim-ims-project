@@ -957,7 +957,7 @@ function InspectDialog({ row, onDone }: { row: ReturnRow; onDone: () => void }) 
         <p className="text-sm text-muted-foreground">
           {row.products?.name} · {num(Number(row.quantity_returned))} {row.unit} returned
         </p>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div>
             <Label>Accepted (good)</Label>
             <MoneyInput min={0} step="0.001" value={accepted} onChange={setAccepted} />

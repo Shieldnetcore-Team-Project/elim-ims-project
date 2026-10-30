@@ -254,7 +254,7 @@ function CustomersPage() {
       {factoryId && canSeeMoney && <AccountAdjustmentsCard factoryId={factoryId} />}
 
       <Card className="rounded-2xl">
-        <CardHeader className="flex-row items-center justify-between gap-3">
+        <CardHeader className="flex-row items-center flex-wrap justify-between gap-3">
           <CardTitle>{showRemoved ? "Removed customers" : "All Customers"}</CardTitle>
           <ReportActions
             size="sm"

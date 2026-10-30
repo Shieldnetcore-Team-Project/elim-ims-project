@@ -31,15 +31,22 @@ async function letterhead(doc: jsPDF, company: Company, title: string, lines: st
   doc.text(company.name, 40, top);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
-  if (company.address) doc.text(company.address, 40, top + 12);
-  if (company.phone) doc.text(company.phone, 40, top + 23);
+  // Company address wraps within the left half so it never runs into the
+  // statement details on the right (user, 2026-10-30).
+  const leftW = pageW / 2 - 50;
+  const leftLines: string[] = [
+    ...(company.address ? (doc.splitTextToSize(company.address, leftW) as string[]) : []),
+    ...(company.phone ? [company.phone] : []),
+  ];
+  leftLines.forEach((l, i) => doc.text(l, 40, top + 12 + i * 10));
+  const leftH = leftLines.length * 10;
   doc.setFontSize(13);
   doc.setFont("helvetica", "bold");
   doc.text(title, right, top, { align: "right" });
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
   lines.forEach((l, i) => doc.text(l, right, top + 12 + i * 11, { align: "right" }));
-  return top + 18 + Math.max(lines.length * 11, 23);
+  return top + 18 + Math.max(lines.length * 11, leftH, 23);
 }
 
 function footer(doc: jsPDF) {

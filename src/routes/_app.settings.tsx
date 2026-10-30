@@ -987,7 +987,7 @@ function ProductsCard({ factoryId }: { factoryId: string }) {
 
   return (
     <Card className="rounded-2xl">
-      <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
+      <CardHeader className="flex flex-row items-center flex-wrap justify-between gap-3 space-y-0">
         <CardTitle>Products</CardTitle>
         {write && (
           <Button

@@ -405,9 +405,6 @@ function TransactionSummary({ outletId, outletName, date }: PanelProps) {
         <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
           <div>
             <CardTitle>Product Sales Summary</CardTitle>
-            <p className="text-sm text-muted-foreground">
-              Opening + Qty In − Qty Out + Qty Ret. = In Stock.
-            </p>
           </div>
           {/* On A4, the full table as on screen; the money and payment
               methods go in the heading lines. */}

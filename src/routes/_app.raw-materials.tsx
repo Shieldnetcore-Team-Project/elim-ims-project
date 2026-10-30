@@ -2231,7 +2231,7 @@ function AdjustDialog({ material, onDone }: { material: Material; onDone: () => 
         <DialogTitle>Adjust Stock — {material.name}</DialogTitle>
       </DialogHeader>
       <div className="grid gap-3">
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div>
             <Label>Old quantity</Label>
             <Input type="number" value={oldQuantity} disabled />

@@ -262,7 +262,7 @@ function InfoTab({
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <Card className="rounded-2xl">
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-row items-center flex-wrap justify-between gap-2">
           <CardTitle className="text-base">Details</CardTitle>
           {canEdit && (
             <div className="flex gap-2">

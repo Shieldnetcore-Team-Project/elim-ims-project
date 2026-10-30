@@ -845,7 +845,7 @@ function AccountantPage() {
 
         <TabsContent value="payments">
           <Card className="rounded-2xl">
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader className="flex flex-row items-center flex-wrap justify-between gap-2">
               <CardTitle>Payments received</CardTitle>
               {can("payments") && (
                 <Button asChild size="sm" className="gap-2">

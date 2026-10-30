@@ -39,7 +39,10 @@ import { KeyRound, ShieldAlert, SlidersHorizontal, UserCheck } from "lucide-reac
 
 export const Route = createFileRoute("/_app/permissions")({
   head: () => ({
-    meta: [{ title: "Roles & Permissions — Elim Table Water" }, { name: "robots", content: "noindex" }],
+    meta: [
+      { title: "Roles & Permissions — Elim Table Water" },
+      { name: "robots", content: "noindex" },
+    ],
   }),
   component: () => (
     <RequireAccess module="permissions">
@@ -112,7 +115,7 @@ export function PermissionsPage() {
       )}
 
       <Card className="rounded-2xl">
-        <CardHeader className="flex flex-row items-center justify-between gap-3">
+        <CardHeader className="flex flex-row items-center flex-wrap justify-between gap-3">
           <CardTitle className="flex items-center gap-2">
             <KeyRound className="h-4 w-4" /> Role × Action matrix
           </CardTitle>

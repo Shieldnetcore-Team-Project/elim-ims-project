@@ -300,7 +300,7 @@ function InventoryOverviewPage() {
         {canSeeFinishedGoods && (
           <TabsContent value="products">
             <Card className="rounded-2xl">
-              <CardHeader className="flex-row items-center justify-between gap-3">
+              <CardHeader className="flex-row items-center flex-wrap justify-between gap-3">
                 <CardTitle>Finished Products — {factoryLabel.name}</CardTitle>
                 <div className="flex items-center gap-2">
                   <div className="relative w-full max-w-xs">

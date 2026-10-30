@@ -92,7 +92,7 @@ function QueueCard({
     );
   return (
     <Card className="rounded-2xl">
-      <CardHeader className="flex flex-row items-center justify-between">
+      <CardHeader className="flex flex-row items-center flex-wrap justify-between gap-2">
         <CardTitle className="flex items-center gap-2">
           <Icon className="h-4 w-4" /> {title} <Badge variant="secondary">{rows.length}</Badge>
         </CardTitle>
