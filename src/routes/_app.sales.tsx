@@ -42,7 +42,6 @@ import {
   Plus,
   Trash2,
   FileDown,
-  Printer,
   Eye,
   Receipt as ReceiptIcon,
   HandCoins,
@@ -61,6 +60,7 @@ import { money, num } from "@/lib/format";
 import { toast } from "sonner";
 import { generateInvoicePdf } from "@/lib/pdf";
 import { printSaleInvoice } from "@/lib/invoice";
+import { PrintCopiesButton } from "@/components/shared/print-copies-button";
 import { logAudit } from "@/lib/audit";
 import { useRealtimeInvalidate } from "@/lib/realtime";
 import { salePaymentStatus, salePosition, useCustomerAccount } from "@/lib/customer-account";
@@ -264,8 +264,12 @@ function SalesPage() {
     );
   });
 
-  const openInvoice = (saleId: string, action: "download" | "print") =>
-    printSaleInvoice(saleId, settings.data, action);
+  // Print: the slim 80mm slip on the shop's POS printer, as the Warehouse
+  // receipt; PDF: the A4 receipt to keep or send.
+  const openInvoice = (saleId: string, action: "download" | "print", copies = 1) =>
+    action === "print"
+      ? printSaleInvoice(saleId, settings.data, "print", "roll", copies)
+      : printSaleInvoice(saleId, settings.data, "download");
 
   // Loads the full detail (including line items) a still-pending sale needs
   // to reopen in PosDialog for editing — the list row above only carries the
@@ -577,14 +581,10 @@ function SalesPage() {
                 <History className="h-4 w-4" /> History
               </Button>
             )}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="gap-1"
-              onClick={() => openInvoice(s.id, "print")}
-            >
-              <Printer className="h-4 w-4" /> Print
-            </Button>
+            <PrintCopiesButton
+              title="Print receipt"
+              onPrint={(copies) => openInvoice(s.id, "print", copies)}
+            />
             <Button
               variant="ghost"
               size="sm"
@@ -839,21 +839,18 @@ function SalesPage() {
                               <History className="h-4 w-4" /> History
                             </Button>
                           )}
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="gap-1"
-                            title="One invoice for all of these"
-                            onClick={() =>
+                          <PrintCopiesButton
+                            title="One receipt for all of these"
+                            onPrint={(copies) =>
                               printSaleInvoice(
                                 g.sales.map((x) => x.id),
                                 settings.data,
                                 "print",
+                                "roll",
+                                copies,
                               )
                             }
-                          >
-                            <Printer className="h-4 w-4" /> Print
-                          </Button>
+                          />
                           <Button
                             variant="ghost"
                             size="sm"

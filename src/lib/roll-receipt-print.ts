@@ -156,6 +156,9 @@ td, th { padding: 0.4mm 0; vertical-align: top; word-break: break-word; }
 .totals .strong td { font-size: 10pt; }
 /* Summary prints: the lines under the title, many-column tables, a total row. */
 .info { margin-top: 1mm; font-size: 7.5pt; }
+/* Long names and labels wrap rather than widen the slip past the roll. */
+.info .r { white-space: normal; }
+.receipt div { overflow-wrap: anywhere; }
 .items.dense { font-size: 7pt; }
 .items.dense td:not(:first-child), .items.dense th:not(:first-child) { padding-left: 1mm; }
 .items tfoot td { border-top: 1.5px solid #000; padding-top: 0.8mm; font-weight: 700; }
@@ -228,9 +231,15 @@ export async function printRollReport(r: RollReport, copies = 1) {
   await printRoll(r.file_name, () => reportHtml(r, logo), copies);
 }
 
+// The print page around the copies (exported for checking a slip's layout).
+export const rollDocument = (fileName: string, body: string) =>
+  `<!doctype html><html><head><meta charset="utf-8" /><title>${esc(fileName)}</title><style>${STYLE}</style></head><body>${body}</body></html>`;
+export const rollReportDocument = (r: RollReport, logo = "") =>
+  rollDocument(r.file_name, reportHtml(r, logo));
+
 async function printRoll(fileName: string, copyHtml: () => string, copies: number) {
   const n = Math.max(1, Math.floor(copies));
-  const html = `<!doctype html><html><head><meta charset="utf-8" /><title>${esc(fileName)}</title><style>${STYLE}</style></head><body>${Array.from({ length: n }, copyHtml).join("")}</body></html>`;
+  const html = rollDocument(fileName, Array.from({ length: n }, copyHtml).join(""));
 
   const frame = document.createElement("iframe");
   frame.setAttribute("aria-hidden", "true");

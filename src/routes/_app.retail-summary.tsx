@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/table";
 import { Banknote, CreditCard, RotateCcw, TrendingUp } from "lucide-react";
 import { PrintCopiesButton } from "@/components/shared/print-copies-button";
+import { ReportActions } from "@/components/shared/report-actions";
 
 export const Route = createFileRoute("/_app/retail-summary")({
   head: () => ({
@@ -58,18 +59,20 @@ export const Route = createFileRoute("/_app/retail-summary")({
 //                        method -- the same figures the day close sends to
 //                        Accounts (outlet_day_figures, see
 //                        supabase/migrations/20261029290000_retail_customer_returns.sql).
-//   Posting Log (?tab=log)  every posting on the shop's stock that day
-//                        (Warehouse postings, sales, returns, reversals): who
-//                        posted it and at what time.
+//   Posting Log (?tab=log)  what the Warehouse posted to the shop that day:
+//                        who posted it, at what time, and the products. The
+//                        shop's own sales and returns are not listed.
 // Both read only; nothing here moves stock.
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- RPC newer than the generated types
 const db = supabase as any;
 
 const n = (v: unknown) => Number(v ?? 0);
-// Roll prints write amounts as the Warehouse receipt does: no ₦ sign.
-const amt = (v: number) => Math.round(v).toLocaleString("en-US");
+// Roll prints write numbers as the Warehouse slip does (N104000, 51000): no
+// ₦ sign, no thousands commas -- narrower on the 72mm roll.
+const amt = (v: number) => String(Math.round(v));
 const naira = (v: number) => `N${amt(v)}`;
+const qty = amt;
 
 // Posting log: stands in for postings with no user (system-made).
 const SYSTEM = "__system";
@@ -104,6 +107,7 @@ type ProductFig = {
   product_id: string;
   name: string;
   unit: string;
+  unit_price: number;
   opening: number;
   received: number;
   sold: number;
@@ -139,14 +143,6 @@ type Movement = {
   reason: string | null;
   user_id: string | null;
   products: { name: string; unit: string } | null;
-};
-
-type SaleInfo = {
-  invoice_number: string;
-  grand_total: number;
-  payment_method: string;
-  customer_name: string | null;
-  status: string;
 };
 
 function RetailSummaryPage() {
@@ -189,11 +185,11 @@ function RetailSummaryPage() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">
-            {isLog ? "Posting Log" : "Transaction Summary"}
+            {isLog ? "Postings from the Warehouse" : "Transaction Summary"}
           </h1>
           <p className="text-sm text-muted-foreground">
             {isLog
-              ? "Everything posted on the shop's stock for the day: who posted it and at what time."
+              ? "Products the Warehouse posted to the shop: who posted them, the day and the time."
               : "The shop's day: stock in and out per product, sales, and money by payment method."}
           </p>
         </div>
@@ -256,7 +252,6 @@ function usePrintHeader() {
 type PanelProps = { outletId: string; outletName: string; date: string };
 
 function TransactionSummary({ outletId, outletName, date }: PanelProps) {
-  const { company, printedBy } = usePrintHeader();
   const day = useQuery({
     queryKey: ["retail-summary", outletId, date],
     queryFn: async () => {
@@ -289,6 +284,7 @@ function TransactionSummary({ outletId, outletName, date }: PanelProps) {
           ret: n(p.corrections),
           sold: n(p.sold),
           closing: n(p.closing),
+          price: n(p.unit_price),
           value: n(p.sold_value),
         };
       }),
@@ -413,64 +409,62 @@ function TransactionSummary({ outletId, outletName, date }: PanelProps) {
               Opening + Qty In − Qty Out + Qty Ret. = In Stock.
             </p>
           </div>
-          <PrintCopiesButton
-            title="Print transaction summary"
-            onPrint={(copies) =>
-              printRollReport(
-                {
-                  company,
-                  title: "TRANSACTION SUMMARY",
-                  at: new Date(),
-                  file_name: `retail-transaction-summary-${date}`,
-                  info: [
-                    ["Day", dayLabel],
-                    ["Outlet", outletName],
-                    ["Printed by", printedBy ?? "—"],
-                  ],
-                  sections: [
+          {/* On A4, the full table as on screen; the money and payment
+              methods go in the heading lines. */}
+          <ReportActions
+            size="sm"
+            title="Transaction Summary"
+            fileName={`retail-transaction-summary-${date}`}
+            columns={[
+              { key: "sn", label: "S/N" },
+              { key: "product", label: "Product" },
+              { key: "opening", label: "Opening" },
+              { key: "received", label: "Qty In" },
+              { key: "total", label: "Total" },
+              { key: "out", label: "Qty Out" },
+              { key: "ret", label: "Qty Ret." },
+              { key: "sold", label: "Qty Sold" },
+              { key: "closing", label: "In Stock" },
+              { key: "value", label: "Sales" },
+            ]}
+            rows={[
+              ...rows.map((r, i) => ({
+                sn: i + 1,
+                product: r.name,
+                opening: num(r.opening),
+                received: num(r.received),
+                total: num(r.total),
+                out: num(r.out),
+                ret: num(r.ret),
+                sold: num(r.sold),
+                closing: num(r.closing),
+                value: money(r.value),
+              })),
+              ...(rows.length
+                ? [
                     {
-                      lines: [
-                        ["Total sales", naira(salesValue), true],
-                        ["Collected", naira(collected)],
-                        ["On credit", naira(n(m?.credit_sales))],
-                        ["Refunds", naira(refunds)],
-                      ],
+                      sn: "",
+                      product: "Total",
+                      opening: num(sum("opening")),
+                      received: num(sum("received")),
+                      total: num(sum("total")),
+                      out: num(sum("out")),
+                      ret: num(sum("ret")),
+                      sold: num(sum("sold")),
+                      closing: num(sum("closing")),
+                      value: money(sum("value")),
                     },
-                    {
-                      heading: "Payment Methods Summary",
-                      columns: ["Method", "Amount(N)"],
-                      rows: methods.map((r) => [methodLabel(r.method), amt(r.amount)]),
-                    },
-                    {
-                      heading: "Product Sales Summary",
-                      columns: ["Item", "Open", "In", "Out", "Ret", "Sold", "Left", "Amt(N)"],
-                      rows: rows.map((r) => [
-                        r.name,
-                        amt(r.opening),
-                        amt(r.received),
-                        amt(r.out),
-                        amt(r.ret),
-                        amt(r.sold),
-                        amt(r.closing),
-                        amt(r.value),
-                      ]),
-                      total: [
-                        "Total",
-                        amt(sum("opening")),
-                        amt(sum("received")),
-                        amt(sum("out")),
-                        amt(sum("ret")),
-                        amt(sum("sold")),
-                        amt(sum("closing")),
-                        amt(sum("value")),
-                      ],
-                    },
-                  ],
-                  note: "Open + In - Out + Ret = Left",
-                },
-                copies,
-              )
-            }
+                  ]
+                : []),
+            ]}
+            subtitle={[
+              `${outletName} — ${dayLabel}`,
+              `Total sales: ${money(salesValue)} · Collected: ${money(collected)} · On credit: ${money(n(m?.credit_sales))} · Refunds: ${money(refunds)}`,
+              `Payment methods: ${
+                methods.map((r) => `${methodLabel(r.method)} ${money(r.amount)}`).join(" · ") ||
+                "none"
+              }`,
+            ]}
           />
         </CardHeader>
         <CardContent className="overflow-x-auto">
@@ -544,44 +538,17 @@ function TransactionSummary({ outletId, outletName, date }: PanelProps) {
   );
 }
 
-// One row per posting: the movements that share a reference and type (a
-// Warehouse posting, a sale's invoice, a customer return) are one action by
-// one person.
-type LogEntry = {
-  key: string;
+// One row per Warehouse posting to the shop: its dispatch_in lines share one
+// reference. A posting the Warehouse later reversed has negative 'reversal'
+// lines under the same reference. The shop's own sales and returns are not
+// listed -- only what the Warehouse sent.
+type WarehousePosting = {
+  reference: string;
   at: string;
-  type: string;
-  reference: string | null;
-  reason: string | null;
   userId: string | null;
-  qty: number;
   items: { name: string; unit: string; qty: number }[];
+  reversed: boolean;
 };
-
-const activityLabel = (e: LogEntry) => {
-  if (e.type === "reversal") {
-    if (e.qty < 0) return "Warehouse posting reversed";
-    return e.reason?.startsWith("Customer return") ? "Customer return" : "Sale cancelled";
-  }
-  return (
-    {
-      dispatch_in: "Received from Warehouse",
-      sold: "Sale",
-      returned_out: "Returned to Warehouse",
-      damaged_out: "Damaged",
-      adjustment: "Adjustment",
-    }[e.type] ?? e.type
-  );
-};
-
-const activityVariant = (e: LogEntry): "default" | "secondary" | "destructive" | "outline" =>
-  e.type === "sold"
-    ? "default"
-    : e.type === "dispatch_in"
-      ? "secondary"
-      : e.type === "reversal" || e.type === "damaged_out"
-        ? "destructive"
-        : "outline";
 
 function PostingLog({ outletId, outletName, date }: PanelProps) {
   const { company, printedBy } = usePrintHeader();
@@ -595,6 +562,7 @@ function PostingLog({ outletId, outletName, date }: PanelProps) {
         .from("rep_stock_movements")
         .select("id,created_at,movement_type,quantity,reference,reason,user_id,products(name,unit)")
         .eq("sales_rep_id", outletId)
+        .in("movement_type", ["dispatch_in", "reversal"])
         .gte("created_at", start.toISOString())
         .lt("created_at", end.toISOString())
         .order("created_at", { ascending: false })
@@ -604,36 +572,34 @@ function PostingLog({ outletId, outletName, date }: PanelProps) {
     },
   });
 
-  const entries = useMemo(() => {
-    const byKey = new Map<string, LogEntry>();
+  const postings = useMemo(() => {
+    const byRef = new Map<string, WarehousePosting>();
     for (const m of movements.data ?? []) {
-      const q = Number(m.quantity);
-      // Reversals carry their sign: a reversed posting (out) and a customer
-      // return (in) under one reference are separate actions.
-      const key = `${m.movement_type}|${m.reference ?? m.id}|${m.movement_type === "reversal" && q < 0 ? "-" : ""}`;
-      const e = byKey.get(key) ?? {
-        key,
+      if (m.movement_type !== "dispatch_in") continue;
+      const ref = m.reference ?? m.id;
+      const p = byRef.get(ref) ?? {
+        reference: ref,
         at: m.created_at,
-        type: m.movement_type,
-        reference: m.reference,
-        reason: m.reason,
         userId: m.user_id,
-        qty: 0,
         items: [],
+        reversed: false,
       };
-      if (m.created_at < e.at) e.at = m.created_at;
-      e.qty += q;
-      e.items.push({
+      if (m.created_at < p.at) p.at = m.created_at;
+      p.items.push({
         name: m.products?.name ?? "—",
         unit: m.products?.unit ?? "",
-        qty: Math.abs(q),
+        qty: Number(m.quantity),
       });
-      byKey.set(key, e);
+      byRef.set(ref, p);
     }
-    return [...byKey.values()].sort((a, b) => (a.at < b.at ? 1 : -1));
+    for (const m of movements.data ?? []) {
+      const p = m.reference ? byRef.get(m.reference) : undefined;
+      if (p && m.movement_type === "reversal" && Number(m.quantity) < 0) p.reversed = true;
+    }
+    return [...byRef.values()].sort((a, b) => (a.at < b.at ? 1 : -1));
   }, [movements.data]);
 
-  const userIds = [...new Set(entries.map((e) => e.userId).filter(Boolean))] as string[];
+  const userIds = [...new Set(postings.map((p) => p.userId).filter(Boolean))] as string[];
   const people = useQuery({
     queryKey: ["retail-log-people", userIds.join(",")],
     enabled: userIds.length > 0,
@@ -645,48 +611,44 @@ function PostingLog({ outletId, outletName, date }: PanelProps) {
       return new Map((data ?? []).map((p) => [p.id, p.full_name || p.email || "—"]));
     },
   });
-  const nameOf = (id: string | null) => (id && people.data?.get(id)) || "—";
-  const whoName = (id: string) => (id === SYSTEM ? "System" : nameOf(id));
+  const whoName = (id: string) => (id === SYSTEM ? "System" : people.data?.get(id) || "—");
+  const packs = (p: WarehousePosting) => p.items.reduce((t, it) => t + it.qty, 0);
 
-  // The sale behind each Sale row (its reference is the invoice number).
-  const invoices = entries.filter((e) => e.type === "sold" && e.reference).map((e) => e.reference!);
-  const sales = useQuery({
-    queryKey: ["retail-log", "sales", outletId, date, invoices.join(",")],
-    enabled: invoices.length > 0,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("sales")
-        .select("invoice_number,grand_total,payment_method,customer_name,status")
-        .eq("sales_rep_id", outletId)
-        .in("invoice_number", invoices);
-      if (error) throw error;
-      return new Map(((data ?? []) as SaleInfo[]).map((s) => [s.invoice_number, s]));
-    },
-  });
-  const saleOf = (e: LogEntry) =>
-    e.type === "sold" && e.reference ? sales.data?.get(e.reference) : undefined;
+  const shown = who === "all" ? postings : postings.filter((p) => (p.userId ?? SYSTEM) === who);
 
-  const shown = who === "all" ? entries : entries.filter((e) => (e.userId ?? SYSTEM) === who);
-
-  // Per person: how many postings, how many sales and their value.
+  // Per Warehouse person: how many postings and packs, first and last time.
   const perPerson = useMemo(() => {
     const map = new Map<
       string,
-      { id: string; postings: number; sales: number; value: number; last: string }
+      { id: string; postings: number; packs: number; first: string; last: string }
     >();
-    for (const e of entries) {
-      const id = e.userId ?? SYSTEM;
-      const r = map.get(id) ?? { id, postings: 0, sales: 0, value: 0, last: e.at };
+    for (const p of postings) {
+      if (p.reversed) continue;
+      const id = p.userId ?? SYSTEM;
+      const r = map.get(id) ?? { id, postings: 0, packs: 0, first: p.at, last: p.at };
       r.postings += 1;
-      if (e.type === "sold") {
-        r.sales += 1;
-        r.value += n(sales.data?.get(e.reference ?? "")?.grand_total);
-      }
-      if (e.at > r.last) r.last = e.at;
+      r.packs += packs(p);
+      if (p.at < r.first) r.first = p.at;
+      if (p.at > r.last) r.last = p.at;
       map.set(id, r);
     }
     return [...map.values()].sort((a, b) => b.postings - a.postings);
-  }, [entries, sales.data]);
+  }, [postings]);
+
+  // Per product: what the Warehouse posted to the shop on the day (reversed
+  // postings left out).
+  const perProduct = useMemo(() => {
+    const map = new Map<string, { name: string; unit: string; qty: number }>();
+    for (const p of shown) {
+      if (p.reversed) continue;
+      for (const it of p.items) {
+        const r = map.get(it.name) ?? { name: it.name, unit: it.unit, qty: 0 };
+        r.qty += it.qty;
+        map.set(it.name, r);
+      }
+    }
+    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [shown]);
 
   const dayLabel = new Date(`${date}T00:00:00`).toLocaleDateString(undefined, {
     weekday: "short",
@@ -694,55 +656,93 @@ function PostingLog({ outletId, outletName, date }: PanelProps) {
     month: "short",
     year: "numeric",
   });
+  const none = movements.isLoading
+    ? "Loading…"
+    : "The Warehouse posted nothing to the shop on this day.";
 
   return (
     <>
-      <Card className="rounded-2xl">
-        <CardHeader>
-          <CardTitle>Who posted</CardTitle>
-        </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Posted by</TableHead>
-                <TableHead className="text-right">Postings</TableHead>
-                <TableHead className="text-right">Sales</TableHead>
-                <TableHead className="text-right">Sales value</TableHead>
-                <TableHead className="text-right">Last posting</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {perPerson.map((p) => (
-                <TableRow
-                  key={p.id}
-                  className="cursor-pointer"
-                  onClick={() => setWho(who === p.id ? "all" : p.id)}
-                  data-state={who === p.id ? "selected" : undefined}
-                >
-                  <TableCell className="font-medium">{whoName(p.id)}</TableCell>
-                  <TableCell className="text-right">{num(p.postings)}</TableCell>
-                  <TableCell className="text-right">{num(p.sales)}</TableCell>
-                  <TableCell className="text-right">{money(p.value)}</TableCell>
-                  <TableCell className="text-right">{fmtTime(p.last)}</TableCell>
-                </TableRow>
-              ))}
-              {perPerson.length === 0 && (
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card className="rounded-2xl">
+          <CardHeader>
+            <CardTitle>Who posted from the Warehouse</CardTitle>
+          </CardHeader>
+          <CardContent className="overflow-x-auto">
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={5} className="py-6 text-center text-muted-foreground">
-                    {movements.isLoading ? "Loading…" : "Nothing posted on this day."}
-                  </TableCell>
+                  <TableHead>Posted by</TableHead>
+                  <TableHead className="text-right">Postings</TableHead>
+                  <TableHead className="text-right">Packs</TableHead>
+                  <TableHead className="text-right">First</TableHead>
+                  <TableHead className="text-right">Last</TableHead>
                 </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+              </TableHeader>
+              <TableBody>
+                {perPerson.map((p) => (
+                  <TableRow
+                    key={p.id}
+                    className="cursor-pointer"
+                    onClick={() => setWho(who === p.id ? "all" : p.id)}
+                    data-state={who === p.id ? "selected" : undefined}
+                  >
+                    <TableCell className="font-medium">{whoName(p.id)}</TableCell>
+                    <TableCell className="text-right">{num(p.postings)}</TableCell>
+                    <TableCell className="text-right">{num(p.packs)}</TableCell>
+                    <TableCell className="text-right">{fmtTime(p.first)}</TableCell>
+                    <TableCell className="text-right">{fmtTime(p.last)}</TableCell>
+                  </TableRow>
+                ))}
+                {perPerson.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={5} className="py-6 text-center text-muted-foreground">
+                      {none}
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-2xl">
+          <CardHeader>
+            <CardTitle>Products received</CardTitle>
+          </CardHeader>
+          <CardContent className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Product</TableHead>
+                  <TableHead className="text-right">Qty</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {perProduct.map((r) => (
+                  <TableRow key={r.name}>
+                    <TableCell className="font-medium">{r.name}</TableCell>
+                    <TableCell className="text-right">
+                      {num(r.qty)} {r.unit}
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {perProduct.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={2} className="py-6 text-center text-muted-foreground">
+                      Nothing received.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      </div>
 
       <Card className="rounded-2xl">
         <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
           <div>
-            <CardTitle>Posting log</CardTitle>
+            <CardTitle>Postings from the Warehouse</CardTitle>
             <p className="text-sm text-muted-foreground">
               Latest first. Click a person above to see only their postings.
             </p>
@@ -762,48 +762,33 @@ function PostingLog({ outletId, outletName, date }: PanelProps) {
               </SelectContent>
             </Select>
             <PrintCopiesButton
-              title="Print posting log"
+              title="Print Warehouse postings"
               onPrint={(copies) =>
                 printRollReport(
                   {
                     company,
-                    title: "POSTING LOG",
+                    title: "WAREHOUSE POSTINGS",
                     at: new Date(),
-                    file_name: `retail-posting-log-${date}`,
+                    file_name: `retail-warehouse-postings-${date}`,
                     info: [
                       ["Day", dayLabel],
-                      ["Outlet", outletName],
+                      ["To", outletName],
                       ["Posted by", who === "all" ? "Everyone" : whoName(who)],
                       ["Printed by", printedBy ?? "—"],
                     ],
                     sections: [
-                      {
-                        heading: "Who posted",
-                        columns: ["Name", "Posts", "Sales(N)", "Last"],
-                        rows: perPerson
-                          .filter((p) => who === "all" || p.id === who)
-                          .map((p) => [
-                            whoName(p.id),
-                            amt(p.postings),
-                            amt(p.value),
-                            fmtTime(p.last),
-                          ]),
-                      },
                       // Oldest first on paper, as the day ran.
-                      ...[...shown].reverse().map((e) => {
-                        const s = saleOf(e);
-                        return {
-                          heading: `${fmtTime(e.at)}  ${activityLabel(e)} - ${whoName(e.userId ?? SYSTEM)}${e.reference ? ` (${e.reference})` : ""}`,
-                          columns: ["Item", "Qty"],
-                          rows: e.items.map((it) => [it.name, amt(it.qty)]),
-                          lines: s
-                            ? ([[methodLabel(s.payment_method), naira(n(s.grand_total))]] as [
-                                string,
-                                string,
-                              ][])
-                            : undefined,
-                        };
-                      }),
+                      ...[...shown].reverse().map((p) => ({
+                        heading: `${fmtTime(p.at)}  ${whoName(p.userId ?? SYSTEM)}  (${p.reference})${p.reversed ? " REVERSED" : ""}`,
+                        columns: ["Item", "Qty"],
+                        rows: p.items.map((it) => [it.name, qty(it.qty)]),
+                      })),
+                      {
+                        heading: "Total received",
+                        columns: ["Item", "Qty"],
+                        rows: perProduct.map((r) => [r.name, qty(r.qty)]),
+                        total: ["Total", qty(perProduct.reduce((t, r) => t + r.qty, 0))],
+                      },
                     ],
                   },
                   copies,
@@ -818,55 +803,47 @@ function PostingLog({ outletId, outletName, date }: PanelProps) {
               <TableRow>
                 <TableHead>Time</TableHead>
                 <TableHead>Posted by</TableHead>
-                <TableHead>Activity</TableHead>
+                <TableHead>Posting</TableHead>
                 <TableHead>Products</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
+                <TableHead className="text-right">Packs</TableHead>
+                <TableHead>Status</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {shown.map((e) => {
-                const s = saleOf(e);
-                return (
-                  <TableRow key={e.key}>
-                    <TableCell className="whitespace-nowrap font-medium">{fmtTime(e.at)}</TableCell>
-                    <TableCell>{whoName(e.userId ?? SYSTEM)}</TableCell>
-                    <TableCell>
-                      <Badge variant={activityVariant(e)}>{activityLabel(e)}</Badge>
-                      {e.reference && (
-                        <div className="mt-1 font-mono text-[11px] text-muted-foreground">
-                          {e.reference}
-                        </div>
-                      )}
-                      {s?.customer_name && (
-                        <div className="text-xs text-muted-foreground">{s.customer_name}</div>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-sm">
-                      {e.items.map((it, i) => (
-                        <div key={i}>
-                          {it.name} × {num(it.qty)} {it.unit}
-                        </div>
-                      ))}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap text-right">
-                      {s ? (
-                        <>
-                          <div className="font-medium">{money(n(s.grand_total))}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {methodLabel(s.payment_method)}
-                          </div>
-                        </>
-                      ) : (
-                        "—"
-                      )}
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
+              {shown.map((p) => (
+                <TableRow
+                  key={p.reference}
+                  className={p.reversed ? "text-muted-foreground" : undefined}
+                >
+                  <TableCell className="whitespace-nowrap font-medium">
+                    {fmtTime(p.at)}
+                    <div className="text-xs font-normal text-muted-foreground">
+                      {new Date(p.at).toLocaleDateString()}
+                    </div>
+                  </TableCell>
+                  <TableCell>{whoName(p.userId ?? SYSTEM)}</TableCell>
+                  <TableCell className="font-mono text-xs">{p.reference}</TableCell>
+                  <TableCell className="text-sm">
+                    {p.items.map((it, i) => (
+                      <div key={i}>
+                        {it.name} × {num(it.qty)} {it.unit}
+                      </div>
+                    ))}
+                  </TableCell>
+                  <TableCell className="text-right font-medium">{num(packs(p))}</TableCell>
+                  <TableCell>
+                    {p.reversed ? (
+                      <Badge variant="destructive">Reversed</Badge>
+                    ) : (
+                      <Badge variant="secondary">Received</Badge>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
               {shown.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={5} className="py-6 text-center text-muted-foreground">
-                    {movements.isLoading ? "Loading…" : "Nothing posted on this day."}
+                  <TableCell colSpan={6} className="py-6 text-center text-muted-foreground">
+                    {none}
                   </TableCell>
                 </TableRow>
               )}

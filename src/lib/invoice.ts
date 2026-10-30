@@ -247,6 +247,7 @@ export async function printSaleInvoice(
       sale_date: s.sale_date,
       issued_at: combined ? null : (s.created_at ?? null),
       sales_person: poster,
+      retail: seller?.kind === "outlet",
       customer: { name: s.customer_name, phone: s.customer_phone, address: s.customer_address },
       items: lines,
       ...totals,

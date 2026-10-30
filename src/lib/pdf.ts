@@ -35,6 +35,9 @@ export type InvoiceData = {
   remarks?: string | null;
   sales_person?: string | null;
   is_pr?: boolean;
+  // Slim receipt only: a sale from the retail shop is a SALES RECEIPT to a
+  // Customer; otherwise LOAD ORDER RECEIPT to a Marketer/Dist.
+  retail?: boolean;
 };
 
 export type PdfAction = "download" | "print" | "preview";
@@ -329,11 +332,11 @@ export async function generateInvoicePdf(
     await generateRollReceiptPdf(
       {
         company: data.company,
-        title: data.is_pr ? "PR - NO CHARGE" : "LOAD ORDER RECEIPT",
+        title: data.is_pr ? "PR - NO CHARGE" : data.retail ? "SALES RECEIPT" : "LOAD ORDER RECEIPT",
         at: data.issued_at ? new Date(data.issued_at) : new Date(),
         trans_id: data.invoice_number,
         sales_rep: data.sales_person,
-        party_label: "Marketer/Dist.",
+        party_label: data.retail ? "Customer" : "Marketer/Dist.",
         party: data.customer.name || "Walk-in",
         items: data.items.map((it) => ({
           name: it.name,
