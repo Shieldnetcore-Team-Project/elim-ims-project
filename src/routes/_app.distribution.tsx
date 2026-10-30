@@ -3978,16 +3978,22 @@ function TakeOffCustomerDialog({
   const [reason, setReason] = useState("");
   const save = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase.rpc("reassign_customer_marketer", {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- RPC newer than the generated types
+      const { error } = await (supabase as any).rpc("reassign_customer_marketer", {
         p_customer: customerId,
-        p_rep: null as unknown as string,
+        p_rep: null,
         p_reason: reason.trim(),
       });
       if (error) throw error;
     },
     onSuccess: () => {
       toast.success(`${customerName} taken off ${repName}'s account`);
-      for (const key of ["dist-rep-customers", "dist-rep-customer-accounts", "dist-account", "customers"])
+      for (const key of [
+        "dist-rep-customers",
+        "dist-rep-customer-accounts",
+        "dist-account",
+        "customers",
+      ])
         qc.invalidateQueries({ queryKey: [key] });
       onDone();
     },
@@ -3996,7 +4002,9 @@ function TakeOffCustomerDialog({
   return (
     <DialogContent className="max-w-md">
       <DialogHeader>
-        <DialogTitle>Take {customerName} off {repName}'s account</DialogTitle>
+        <DialogTitle>
+          Take {customerName} off {repName}'s account
+        </DialogTitle>
       </DialogHeader>
       <div className="space-y-3 text-sm">
         <p className="text-muted-foreground">
@@ -4005,8 +4013,8 @@ function TakeOffCustomerDialog({
         </p>
         {owes > 0 && (
           <p className="rounded-md border border-warning/40 bg-warning/10 p-2 text-warning">
-            {customerName} still owes {money(owes)}. That debt stays on {repName}'s account
-            until it is collected.
+            {customerName} still owes {money(owes)}. That debt stays on {repName}'s account until it
+            is collected.
           </p>
         )}
         <div>

@@ -102,6 +102,18 @@ export async function generateMarketerStatementPdf(
     ].filter(Boolean),
   );
 
+  // The marketer's name on the left, above the first table, so the page
+  // reads whose statement it is at a glance (user, 2026-10-30).
+  doc.setFontSize(12);
+  doc.setFont("helvetica", "bold");
+  doc.text(
+    `Marketer: ${st.marketer.name}${st.marketer.code ? ` (${st.marketer.code})` : ""}`,
+    40,
+    y + 4,
+  );
+  doc.setFont("helvetica", "normal");
+  y += 20;
+
   // Money: period next to cumulative.
   const money = (f: (x: Figures) => number) => [cur(f(p)), cur(f(c))];
   y = section(doc, y, "Sales, collections and remittances");
