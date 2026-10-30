@@ -292,10 +292,13 @@ function Landing() {
 
   return (
     <div className="flex min-h-screen flex-col bg-[#071433] text-white">
-      <section className="relative flex-1 overflow-hidden bg-gradient-to-br from-[#0a3a82] via-[#0a3477] to-[#082a63]">
+      {/* The hero fills the screen down to the footer, which stays in view,
+          and the logo, heading and login card sit in its vertical middle
+          (user, 2026-10-30). */}
+      <section className="relative flex flex-1 flex-col overflow-hidden bg-gradient-to-br from-[#0a3a82] via-[#0a3477] to-[#082a63]">
         <HeroWave />
-        <div className="relative mx-auto flex w-full max-w-6xl flex-col px-4 py-8 sm:px-8 lg:py-16">
-          <div className="grid items-start gap-8 pb-16 lg:grid-cols-2 lg:gap-12 lg:pb-28">
+        <div className="relative mx-auto flex w-full max-w-6xl flex-1 flex-col justify-center px-4 py-10 sm:px-8 lg:py-16">
+          <div className="grid items-start gap-8 lg:grid-cols-2 lg:gap-12">
             {/* The logo heads the left column, its top level with the top of
                 the login card (user, 2026-10-30). */}
             <div className="flex flex-col items-center text-center lg:items-start lg:pl-16 lg:text-left">
