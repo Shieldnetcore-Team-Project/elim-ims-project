@@ -58,7 +58,7 @@ BEGIN
 
   FOR v_count IN SELECT * FROM (VALUES
       ('75cl Bottle Water', '^75 ?cl bottle',                            13364::numeric),
-      ('50cl Bottle Water', '^50 ?cl bottle',                              415),
+      ('50cl Bottle Water', '^50 ?cl bottle',                              417),
       ('Sachet Water',      '^(sachet|satchet) water',                     545),
       ('Dispenser Water',   '^dispenser( water$|/jug water \(old jug\))',   93),
       ('35cl Bottle Water', '^35 ?cl bottle',                              760)) AS t(label, pattern, counted)
@@ -85,11 +85,26 @@ BEGIN
      WHERE product_id = v_pid AND reference = 'WAREHOUSE-STOCK-2026-10-30';
     GET DIAGNOSTICS v_relabelled = ROW_COUNT;
 
+    -- Brought forward once. After that, releases, postings and sales move
+    -- the stock: running this again must not reset it to the old figure.
+    IF EXISTS (SELECT 1 FROM inventory_movements
+                WHERE product_id = v_pid AND reference = 'BALANCE-BF-2026-10-30') THEN
+      RAISE NOTICE '%: balance already brought forward -- stock left as it is%', v_name,
+        CASE WHEN v_relabelled > 0 THEN ' (earlier line relabelled as balance brought forward)' ELSE '' END;
+      CONTINUE;
+    END IF;
+
     v_before := (SELECT current_stock FROM products WHERE id = v_pid);
     v_delta := v_count.counted - v_before;
     IF v_delta = 0 THEN
-      RAISE NOTICE '%: already % B/F%', v_name, v_count.counted,
-        CASE WHEN v_relabelled > 0 THEN ' (earlier line relabelled as balance brought forward)' ELSE '' END;
+      -- Already at the figure: still mark when it was brought forward.
+      INSERT INTO inventory_movements(factory_id, product_id, movement_type, quantity, reference, reason, user_id,
+                                      quantity_before, quantity_after)
+      VALUES (v_factory, v_pid, 'opening_balance', 0, 'BALANCE-BF-2026-10-30',
+              format('Balance brought forward from the old system (30 Oct 2026 report): %s %s',
+                     v_count.counted, v_unit),
+              auth.uid(), v_before, v_before);
+      RAISE NOTICE '%: already % B/F', v_name, v_count.counted;
       CONTINUE;
     END IF;
 
@@ -133,7 +148,7 @@ BEGIN
 
   FOR v_count IN SELECT * FROM (VALUES
       ('75cl Bottle Water', '^75 ?cl bottle',                            13364::numeric),
-      ('50cl Bottle Water', '^50 ?cl bottle',                              415),
+      ('50cl Bottle Water', '^50 ?cl bottle',                              417),
       ('Sachet Water',      '^(sachet|satchet) water',                     545),
       ('Dispenser Water',   '^dispenser( water$|/jug water \(old jug\))',   93),
       ('35cl Bottle Water', '^35 ?cl bottle',                              760)) AS t(label, pattern, counted)
@@ -160,11 +175,26 @@ BEGIN
      WHERE product_id = v_pid AND reference = 'WAREHOUSE-STOCK-2026-10-30';
     GET DIAGNOSTICS v_relabelled = ROW_COUNT;
 
+    -- Brought forward once. After that, releases, postings and sales move
+    -- the stock: running this again must not reset it to the old figure.
+    IF EXISTS (SELECT 1 FROM inventory_movements
+                WHERE product_id = v_pid AND reference = 'BALANCE-BF-2026-10-30') THEN
+      RAISE NOTICE '%: balance already brought forward -- stock left as it is%', v_name,
+        CASE WHEN v_relabelled > 0 THEN ' (earlier line relabelled as balance brought forward)' ELSE '' END;
+      CONTINUE;
+    END IF;
+
     v_before := (SELECT current_stock FROM products WHERE id = v_pid);
     v_delta := v_count.counted - v_before;
     IF v_delta = 0 THEN
-      RAISE NOTICE '%: already % B/F%', v_name, v_count.counted,
-        CASE WHEN v_relabelled > 0 THEN ' (earlier line relabelled as balance brought forward)' ELSE '' END;
+      -- Already at the figure: still mark when it was brought forward.
+      INSERT INTO inventory_movements(factory_id, product_id, movement_type, quantity, reference, reason, user_id,
+                                      quantity_before, quantity_after)
+      VALUES (v_factory, v_pid, 'opening_balance', 0, 'BALANCE-BF-2026-10-30',
+              format('Balance brought forward from the old system (30 Oct 2026 report): %s %s',
+                     v_count.counted, v_unit),
+              auth.uid(), v_before, v_before);
+      RAISE NOTICE '%: already % B/F', v_name, v_count.counted;
       CONTINUE;
     END IF;
 
@@ -192,7 +222,7 @@ DO $$
 DECLARE r text; rel uuid; f uuid := (SELECT id FROM factories WHERE code = 'water');
 BEGIN
   r := (SELECT string_agg(right(id::text, 1) || '=' || current_stock::int, ',' ORDER BY id) FROM products WHERE id::text LIKE 'b0300000-%');
-  PERFORM pg_temp.check(r = '1=13364,2=415,3=545,4=93,5=760,6=517', 'stock ' || r);
+  PERFORM pg_temp.check(r = '1=13364,2=417,3=545,4=93,5=760,6=517', 'stock ' || r);
   PERFORM pg_temp.check((SELECT count(*) FROM inventory_movements WHERE product_id::text LIKE 'b0300000-%') = 5
                         AND (SELECT count(*) FROM inventory_movements WHERE product_id::text LIKE 'b0300000-%'
                                AND movement_type = 'opening_balance' AND reference = 'BALANCE-BF-2026-10-30'

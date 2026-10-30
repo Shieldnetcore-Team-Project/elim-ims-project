@@ -81,6 +81,7 @@ import { SHIFT_LABEL, localDay, suggestedEntry, type Shift } from "@/lib/product
 import { PmJugsFromQc } from "@/components/qc/jug-handover";
 import { PmBottlesFromQc } from "@/components/preform/pm-bottles";
 import { ProductionMaterialsReport } from "@/components/production/materials-report";
+import { ReportActions } from "@/components/shared/report-actions";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export const Route = createFileRoute("/_app/production")({
@@ -553,8 +554,38 @@ function ProductionPage() {
           </AlertDialog>
 
           <Card className="rounded-2xl">
-            <CardHeader>
+            <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
               <CardTitle>Production Runs</CardTitle>
+              <ReportActions
+                size="sm"
+                title="Production Runs"
+                fileName="production-runs"
+                columns={[
+                  { key: "number", label: "Number" },
+                  { key: "date", label: "Date" },
+                  { key: "type", label: "Type" },
+                  { key: "product", label: "Product" },
+                  { key: "qty", label: "Qty Produced" },
+                  { key: "supervisor", label: "Supervisor" },
+                  { key: "batch", label: "Batch" },
+                  { key: "status", label: "Status" },
+                ]}
+                rows={(list.data ?? []).map((row) => ({
+                  number: row.production_number,
+                  date: row.shift
+                    ? `${row.production_date} (${SHIFT_LABEL[row.shift]})`
+                    : row.production_date,
+                  type: row.production_types?.name ?? "",
+                  product: row.products?.name ?? "",
+                  qty:
+                    row.packaging_unit && row.packaging_quantity != null
+                      ? `${num(Number(row.packaging_quantity))} ${row.packaging_unit}`
+                      : `${num(Number(row.quantity_produced))} ${row.unit}`,
+                  supervisor: row.supervisor ?? "",
+                  batch: row.batch_number ?? "",
+                  status: PRODUCTION_STATUS_LABELS[row.status] ?? row.status.replace(/_/g, " "),
+                }))}
+              />
             </CardHeader>
             <CardContent className="overflow-x-auto">
               <Table>

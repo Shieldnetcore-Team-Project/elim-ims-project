@@ -61,6 +61,7 @@ import { toast } from "sonner";
 import { generateInvoicePdf } from "@/lib/pdf";
 import { printSaleInvoice, REPRINT_LABEL, SALE_SLIP_LABELS } from "@/lib/invoice";
 import { PrintCopiesButton } from "@/components/shared/print-copies-button";
+import { ReportActions } from "@/components/shared/report-actions";
 import { logAudit } from "@/lib/audit";
 import { useRealtimeInvalidate } from "@/lib/realtime";
 import { salePaymentStatus, salePosition, useCustomerAccount } from "@/lib/customer-account";
@@ -759,13 +760,47 @@ function SalesPage() {
       <Card className="rounded-2xl">
         <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>Recent Sales</CardTitle>
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search invoice, customer, product, sales person…"
-              className="pl-8 h-9 w-64"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search invoice, customer, product, sales person…"
+                className="pl-8 h-9 w-64"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+              />
+            </div>
+            <ReportActions
+              size="sm"
+              title={warehouseView ? "Orders" : "Retail Shop Sales"}
+              fileName={warehouseView ? "warehouse-orders" : "retail-sales"}
+              columns={[
+                { key: "invoice", label: "Invoice" },
+                { key: "when", label: "Date & Time" },
+                { key: "customer", label: "Customer" },
+                { key: "products", label: "Products" },
+                { key: "total", label: "Total" },
+                ...(shopMoney
+                  ? [
+                      { key: "paid", label: "Paid" },
+                      { key: "balance", label: "Balance" },
+                    ]
+                  : []),
+                { key: "status", label: "Status" },
+              ]}
+              rows={filteredSales.map((s) => ({
+                invoice: s.invoice_number,
+                when: new Date(s.created_at).toLocaleString(),
+                customer: s.customer_name ?? "Walk-in",
+                products: (s.sale_items ?? [])
+                  .map((it) => `${it.products?.name ?? "—"} × ${num(Number(it.quantity))}`)
+                  .join(", "),
+                total: money(Number(s.grand_total)),
+                paid: money(Number(s.amount_paid)),
+                balance: money(Number(s.balance)),
+                status: s.status.replace(/_/g, " "),
+              }))}
+              subtitle={q.trim() ? [`Search: ${q.trim()}`] : []}
             />
           </div>
         </CardHeader>

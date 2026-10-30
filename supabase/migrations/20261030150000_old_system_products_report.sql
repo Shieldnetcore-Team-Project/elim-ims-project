@@ -46,7 +46,7 @@ BEGIN
   END IF;
   FOR v_row IN SELECT * FROM (VALUES
       ('75cl Bottle Water', '^75 ?cl bottle',                          13661::numeric, 819::numeric, 1116::numeric, 13364::numeric),
-      ('50cl Bottle Water', '^50 ?cl bottle',                            302,  613,  500,   415),
+      ('50cl Bottle Water', '^50 ?cl bottle',                            302,  615,  500,   417),
       ('Sachet Water',      '^(sachet|satchet) water',                   126, 2566, 2147,   545),
       ('Dispenser Water',   '^dispenser( water$|/jug water \(old jug\))', 152,  300,  359,    93),
       ('35cl Bottle Water', '^35 ?cl bottle',                            960,    0,  200,   760)
@@ -66,10 +66,9 @@ BEGIN
                                            returned, gift, balance, source)
     VALUES (v_factory, '2026-10-30', v_pid, v_row.opening, v_row.qty_in, v_row.qty_out, 0, 0, v_row.balance,
             'Old system: All Products Reports, 30 Oct 2026')
-    ON CONFLICT (product_id, report_date) DO UPDATE
-      SET opening = EXCLUDED.opening, qty_in = EXCLUDED.qty_in, qty_out = EXCLUDED.qty_out,
-          returned = EXCLUDED.returned, gift = EXCLUDED.gift, balance = EXCLUDED.balance,
-          source = EXCLUDED.source;
+    -- Stored once: a later correction (e.g. 20261030170000) is never undone
+    -- by running this again.
+    ON CONFLICT (product_id, report_date) DO NOTHING;
     RAISE NOTICE '%: old-system row stored (balance %)', v_row.label, v_row.balance;
   END LOOP;
 END $$;

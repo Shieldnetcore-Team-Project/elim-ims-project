@@ -39,6 +39,7 @@ import { ReleasesToAccept } from "@/components/warehouse/releases-to-accept";
 import { WarehouseRecentActivity } from "@/components/warehouse/recent-activity";
 import { RestockButton } from "@/components/warehouse/restock-dialog";
 import { WarehouseProductsReportButton } from "@/components/warehouse/products-report";
+import { ReportActions } from "@/components/shared/report-actions";
 import { FINISHED_PRODUCT_NAMES } from "@/components/shared/product-name-select";
 
 export const Route = createFileRoute("/_app/inventory")({
@@ -301,13 +302,40 @@ function InventoryOverviewPage() {
             <Card className="rounded-2xl">
               <CardHeader className="flex-row items-center justify-between gap-3">
                 <CardTitle>Finished Products — {factoryLabel.name}</CardTitle>
-                <div className="relative w-full max-w-xs">
-                  <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    value={productSearch}
-                    onChange={(e) => setProductSearch(e.target.value)}
-                    placeholder="Search products or SKU…"
-                    className="pl-8 h-9"
+                <div className="flex items-center gap-2">
+                  <div className="relative w-full max-w-xs">
+                    <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      value={productSearch}
+                      onChange={(e) => setProductSearch(e.target.value)}
+                      placeholder="Search products or SKU…"
+                      className="pl-8 h-9"
+                    />
+                  </div>
+                  <ReportActions
+                    size="sm"
+                    title={`Warehouse Stock — ${factoryLabel.name}`}
+                    fileName="warehouse-stock"
+                    columns={[
+                      { key: "name", label: "Product" },
+                      { key: "sku", label: "SKU" },
+                      { key: "category", label: "Category" },
+                      { key: "stock", label: "Stock" },
+                      { key: "reorder", label: "Reorder Level" },
+                      { key: "price", label: "Selling Price" },
+                      { key: "status", label: "Status" },
+                    ]}
+                    rows={filteredProducts.map((p) => ({
+                      name: p.name,
+                      sku: p.sku ?? "",
+                      category: p.product_categories?.name ?? "",
+                      stock: `${num(Number(p.current_stock))} ${p.unit}`,
+                      reorder:
+                        p.reorder_level != null ? `${num(Number(p.reorder_level))} ${p.unit}` : "",
+                      price: money(Number(p.unit_price)),
+                      status: isLow(Number(p.current_stock), p.reorder_level) ? "Low Stock" : "OK",
+                    }))}
+                    subtitle={[`As at ${new Date().toLocaleString()}`]}
                   />
                 </div>
               </CardHeader>

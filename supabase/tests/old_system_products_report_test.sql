@@ -44,7 +44,7 @@ BEGIN
 
   FOR v_count IN SELECT * FROM (VALUES
       ('75cl Bottle Water', '^75 ?cl bottle',                            13364::numeric),
-      ('50cl Bottle Water', '^50 ?cl bottle',                              415),
+      ('50cl Bottle Water', '^50 ?cl bottle',                              417),
       ('Sachet Water',      '^(sachet|satchet) water',                     545),
       ('Dispenser Water',   '^dispenser( water$|/jug water \(old jug\))',   93),
       ('35cl Bottle Water', '^35 ?cl bottle',                              760)) AS t(label, pattern, counted)
@@ -71,11 +71,26 @@ BEGIN
      WHERE product_id = v_pid AND reference = 'WAREHOUSE-STOCK-2026-10-30';
     GET DIAGNOSTICS v_relabelled = ROW_COUNT;
 
+    -- Brought forward once. After that, releases, postings and sales move
+    -- the stock: running this again must not reset it to the old figure.
+    IF EXISTS (SELECT 1 FROM inventory_movements
+                WHERE product_id = v_pid AND reference = 'BALANCE-BF-2026-10-30') THEN
+      RAISE NOTICE '%: balance already brought forward -- stock left as it is%', v_name,
+        CASE WHEN v_relabelled > 0 THEN ' (earlier line relabelled as balance brought forward)' ELSE '' END;
+      CONTINUE;
+    END IF;
+
     v_before := (SELECT current_stock FROM products WHERE id = v_pid);
     v_delta := v_count.counted - v_before;
     IF v_delta = 0 THEN
-      RAISE NOTICE '%: already % B/F%', v_name, v_count.counted,
-        CASE WHEN v_relabelled > 0 THEN ' (earlier line relabelled as balance brought forward)' ELSE '' END;
+      -- Already at the figure: still mark when it was brought forward.
+      INSERT INTO inventory_movements(factory_id, product_id, movement_type, quantity, reference, reason, user_id,
+                                      quantity_before, quantity_after)
+      VALUES (v_factory, v_pid, 'opening_balance', 0, 'BALANCE-BF-2026-10-30',
+              format('Balance brought forward from the old system (30 Oct 2026 report): %s %s',
+                     v_count.counted, v_unit),
+              auth.uid(), v_before, v_before);
+      RAISE NOTICE '%: already % B/F', v_name, v_count.counted;
       CONTINUE;
     END IF;
 
@@ -112,7 +127,7 @@ BEGIN
   END IF;
   FOR v_row IN SELECT * FROM (VALUES
       ('75cl Bottle Water', '^75 ?cl bottle',                          13661::numeric, 819::numeric, 1116::numeric, 13364::numeric),
-      ('50cl Bottle Water', '^50 ?cl bottle',                            302,  613,  500,   415),
+      ('50cl Bottle Water', '^50 ?cl bottle',                            302,  615,  500,   417),
       ('Sachet Water',      '^(sachet|satchet) water',                   126, 2566, 2147,   545),
       ('Dispenser Water',   '^dispenser( water$|/jug water \(old jug\))', 152,  300,  359,    93),
       ('35cl Bottle Water', '^35 ?cl bottle',                            960,    0,  200,   760)
@@ -132,10 +147,9 @@ BEGIN
                                            returned, gift, balance, source)
     VALUES (v_factory, '2026-10-30', v_pid, v_row.opening, v_row.qty_in, v_row.qty_out, 0, 0, v_row.balance,
             'Old system: All Products Reports, 30 Oct 2026')
-    ON CONFLICT (product_id, report_date) DO UPDATE
-      SET opening = EXCLUDED.opening, qty_in = EXCLUDED.qty_in, qty_out = EXCLUDED.qty_out,
-          returned = EXCLUDED.returned, gift = EXCLUDED.gift, balance = EXCLUDED.balance,
-          source = EXCLUDED.source;
+    -- Stored once: a later correction (e.g. 20261030170000) is never undone
+    -- by running this again.
+    ON CONFLICT (product_id, report_date) DO NOTHING;
     RAISE NOTICE '%: old-system row stored (balance %)', v_row.label, v_row.balance;
   END LOOP;
 END $$;
@@ -153,11 +167,11 @@ BEGIN
                                       r.qty_out::int, r.returned::int, r.gift::int, r.adjusted::int, r.balance::int), ' '
                             ORDER BY r.product_id)
             FROM public.warehouse_products_report(f, '2026-10-30') r WHERE r.product_id::text LIKE 'b0400000-%');
-  PERFORM pg_temp.check(got = '1/13661/819/14480/1116/0/0/0/13364 2/302/613/915/500/0/0/0/415 '
+  PERFORM pg_temp.check(got = '1/13661/819/14480/1116/0/0/0/13364 2/302/615/917/500/0/0/0/417 '
                            || '3/126/2566/2692/2147/0/0/0/545 4/152/300/452/359/0/0/0/93 '
                            || '5/960/0/960/200/0/0/0/760 6/517/0/517/0/0/0/0/517',
                         '30 Oct: ' || got);
   got := (SELECT string_agg(right(r.product_id::text, 1) || '=' || r.opening::int, ' ' ORDER BY r.product_id)
             FROM public.warehouse_products_report(f, '2026-10-31') r WHERE r.product_id::text LIKE 'b0400000-%');
-  PERFORM pg_temp.check(got = '1=13364 2=415 3=545 4=93 5=760 6=517', '31 Oct opening: ' || got);
+  PERFORM pg_temp.check(got = '1=13364 2=417 3=545 4=93 5=760 6=517', '31 Oct opening: ' || got);
 END $$;

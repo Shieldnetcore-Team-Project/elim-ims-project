@@ -6,7 +6,7 @@
 -- opening stock here -- its balance brought forward (B/F). Everything after
 -- it adds or takes as normal (a release accepted from Production adds to it):
 --   75cl Bottle Water     13,364 packs
---   50cl Bottle Water        415 packs
+--   50cl Bottle Water        417 packs  (Qty In 615, user 2026-10-30)
 --   Sachet Water             545 bags
 --   Dispenser Water           93 pieces  ("Dispenser/Jug Water (Old Jug)",
 --                                         20261028140000 -- either name)
@@ -17,9 +17,10 @@
 -- 'opening_balance' ledger line, reference BALANCE-BF-2026-10-30, "Balance
 -- brought forward from the old system". An earlier run of this migration
 -- that posted it as an 'adjusted' line (WAREHOUSE-STOCK-2026-10-30) is
--- relabelled, not posted again. A product not found, matched twice, or
--- already at the figure is left alone with a notice; one audit row lists
--- every change. Safe to run again.
+-- relabelled, not posted again. Already at the figure: a 0 line marks it.
+-- A product already brought forward is never reset, so releases, postings
+-- and sales after it stay. A product not found or matched twice is left
+-- alone with a notice; one audit row lists every change. Safe to run again.
 -- Values are read with := (no select-into): the Supabase SQL Editor mistakes
 -- that form for creating a table and breaks the script.
 -- ============================================================================
@@ -44,7 +45,7 @@ BEGIN
 
   FOR v_count IN SELECT * FROM (VALUES
       ('75cl Bottle Water', '^75 ?cl bottle',                            13364::numeric),
-      ('50cl Bottle Water', '^50 ?cl bottle',                              415),
+      ('50cl Bottle Water', '^50 ?cl bottle',                              417),
       ('Sachet Water',      '^(sachet|satchet) water',                     545),
       ('Dispenser Water',   '^dispenser( water$|/jug water \(old jug\))',   93),
       ('35cl Bottle Water', '^35 ?cl bottle',                              760)) AS t(label, pattern, counted)
@@ -71,11 +72,26 @@ BEGIN
      WHERE product_id = v_pid AND reference = 'WAREHOUSE-STOCK-2026-10-30';
     GET DIAGNOSTICS v_relabelled = ROW_COUNT;
 
+    -- Brought forward once. After that, releases, postings and sales move
+    -- the stock: running this again must not reset it to the old figure.
+    IF EXISTS (SELECT 1 FROM inventory_movements
+                WHERE product_id = v_pid AND reference = 'BALANCE-BF-2026-10-30') THEN
+      RAISE NOTICE '%: balance already brought forward -- stock left as it is%', v_name,
+        CASE WHEN v_relabelled > 0 THEN ' (earlier line relabelled as balance brought forward)' ELSE '' END;
+      CONTINUE;
+    END IF;
+
     v_before := (SELECT current_stock FROM products WHERE id = v_pid);
     v_delta := v_count.counted - v_before;
     IF v_delta = 0 THEN
-      RAISE NOTICE '%: already % B/F%', v_name, v_count.counted,
-        CASE WHEN v_relabelled > 0 THEN ' (earlier line relabelled as balance brought forward)' ELSE '' END;
+      -- Already at the figure: still mark when it was brought forward.
+      INSERT INTO inventory_movements(factory_id, product_id, movement_type, quantity, reference, reason, user_id,
+                                      quantity_before, quantity_after)
+      VALUES (v_factory, v_pid, 'opening_balance', 0, 'BALANCE-BF-2026-10-30',
+              format('Balance brought forward from the old system (30 Oct 2026 report): %s %s',
+                     v_count.counted, v_unit),
+              auth.uid(), v_before, v_before);
+      RAISE NOTICE '%: already % B/F', v_name, v_count.counted;
       CONTINUE;
     END IF;
 

@@ -43,6 +43,7 @@ import { logAudit } from "@/lib/audit";
 import { QuickAddProductDialog, ADD_NEW_ITEM } from "@/components/shared/quick-add-item";
 import { ReturnsTab, type Rep } from "@/routes/_app.distribution";
 import { RetailReturnDialog } from "@/components/retail/retail-return-dialog";
+import { ReportActions } from "@/components/shared/report-actions";
 import {
   startOfDay,
   endOfDay,
@@ -358,6 +359,34 @@ function SalesReturnsPage() {
                 />
               </>
             )}
+            <ReportActions
+              size="sm"
+              title="Stock Movement Summary"
+              fileName="stock-movement-summary"
+              columns={[
+                { key: "product", label: "Product" },
+                { key: "opening", label: "Opening Stock" },
+                { key: "production", label: "New Production" },
+                { key: "sold", label: "Quantity Sold" },
+                { key: "pr", label: "PR" },
+                { key: "damages", label: "Damages" },
+                { key: "closing", label: "Closing Stock" },
+              ]}
+              rows={(stockSummary.data ?? []).map((r) => ({
+                product: r.product_name,
+                opening: `${num(r.opening_stock)} ${r.unit}`,
+                production: `${num(r.new_production)} ${r.unit}`,
+                sold: `${num(r.quantity_sold)} ${r.unit}`,
+                pr: `${num(r.pr)} ${r.unit}`,
+                damages: `${num(r.damages)} ${r.unit}`,
+                closing: `${num(r.closing_stock)} ${r.unit}`,
+              }))}
+              subtitle={[
+                stockRange === "custom"
+                  ? `${stockFrom} to ${stockTo}`
+                  : (RANGES.find((r) => r.key === stockRange)?.label ?? ""),
+              ]}
+            />
           </div>
         </CardHeader>
         <CardContent className="overflow-x-auto">
@@ -422,8 +451,37 @@ function SalesReturnsPage() {
       )}
 
       <Card className="rounded-2xl">
-        <CardHeader>
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
           <CardTitle>Returns</CardTitle>
+          <ReportActions
+            size="sm"
+            title="Sales Returns"
+            fileName="sales-returns"
+            columns={[
+              { key: "number", label: "Return #" },
+              { key: "date", label: "Date" },
+              { key: "product", label: "Product" },
+              { key: "customer", label: "Customer" },
+              { key: "invoice", label: "Invoice" },
+              { key: "returned", label: "Returned" },
+              { key: "accepted", label: "Accepted" },
+              { key: "damaged", label: "Damaged" },
+              { key: "rejected", label: "Rejected" },
+              { key: "status", label: "Status" },
+            ]}
+            rows={(list.data ?? []).map((row) => ({
+              number: row.return_number,
+              date: new Date(row.return_date ?? row.received_at).toLocaleDateString(),
+              product: row.products?.name ?? "",
+              customer: row.customers?.name ?? "",
+              invoice: row.sales?.invoice_number ?? "",
+              returned: `${num(Number(row.quantity_returned))} ${row.unit}`,
+              accepted: row.accepted_quantity != null ? num(Number(row.accepted_quantity)) : "",
+              damaged: row.damaged_quantity > 0 ? num(Number(row.damaged_quantity)) : "",
+              rejected: row.rejected_quantity > 0 ? num(Number(row.rejected_quantity)) : "",
+              status: row.status,
+            }))}
+          />
         </CardHeader>
         <CardContent className="overflow-x-auto">
           <Table>
