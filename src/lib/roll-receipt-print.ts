@@ -4,10 +4,41 @@ import type { RollReceipt } from "@/lib/pdf";
 // as a plain page, not a PDF. The browser's PDF viewer turns a PDF into a
 // picture -- thin, faint text on a thermal roll -- adds its own margins that
 // cut the edges, and rescales multi-page PDFs. Here the text is solid black
-// bold type in a 70mm column (the roll prints 72mm), page margins are off,
-// and each copy is its own page, so every copy prints exactly like one.
+// in a 70mm column (the roll prints 72mm), page margins are off, and each
+// copy is its own page, so every copy prints exactly like one. The type is
+// regular weight with bold only for the title and totals: light and quick on
+// the thermal head (the user's choice, 2026-10-30, over all-bold).
 
 const FALLBACK_LOGO_URL = "/assets/elim-logo.png";
+
+// The logo, fetched once and kept as a data URL, so later prints don't wait
+// on the network. Until it is in (or when fetch is refused, e.g. another
+// host without CORS) the plain url is used, and printing waits for it at most
+// LOGO_WAIT_MS.
+const LOGO_WAIT_MS = 1200;
+const logos = new Map<string, Promise<string>>();
+function cachedLogo(url: string): Promise<string> {
+  let p = logos.get(url);
+  if (!p) {
+    p = fetch(url)
+      .then((r) => (r.ok ? r.blob() : Promise.reject(new Error(String(r.status)))))
+      .then(
+        (b) =>
+          new Promise<string>((res, rej) => {
+            const fr = new FileReader();
+            fr.onload = () => res(String(fr.result));
+            fr.onerror = rej;
+            fr.readAsDataURL(b);
+          }),
+      )
+      .catch(() => {
+        logos.delete(url); // try again next print
+        return url;
+      });
+    logos.set(url, p);
+  }
+  return Promise.race([p, new Promise<string>((res) => setTimeout(() => res(url), LOGO_WAIT_MS))]);
+}
 
 const esc = (s: string) =>
   s.replace(
@@ -39,7 +70,7 @@ function receiptHtml(r: RollReceipt, logo: string) {
     `<tr class="${bold ? "strong" : ""}"><td>${esc(label)}</td><td class="r">${esc(value)}</td></tr>`;
   return `
 <section class="receipt">
-  <img class="logo" src="${esc(logo)}" alt="" />
+  ${logo ? `<img class="logo" src="${esc(logo)}" alt="" />` : ""}
   ${r.company.address ? `<div class="c small">${esc(r.company.address)}</div>` : ""}
   ${r.company.phone ? `<div class="c small">${esc(r.company.phone)}</div>` : ""}
   <div class="split gap"><span>${esc(date)}</span><span>${esc(time)}</span></div>
@@ -84,7 +115,7 @@ html, body { margin: 0; padding: 0; background: #fff; }
    72mm) instead of a fixed width: a fixed 80mm inside the browser's default
    margins was shrunk to fit -- small text on a long, mostly empty page. */
 body {
-  font-family: "Courier New", Courier, monospace; font-weight: 700; color: #000;
+  font-family: "Courier New", Courier, monospace; font-weight: 400; color: #000;
   font-size: 9pt; line-height: 1.25;
   -webkit-print-color-adjust: exact; print-color-adjust: exact;
 }
@@ -92,7 +123,7 @@ body {
 /* After the receipt: a cut line and a short gap -- no long blank tail. */
 .tear {
   margin-top: 4mm; padding-bottom: 6mm; text-align: center;
-  font-size: 7pt; font-weight: 700; letter-spacing: 0.5px;
+  font-size: 7pt; font-weight: 400; letter-spacing: 0.5px;
 }
 /* Each copy on its own page; a receipt never splits across two pages. */
 .receipt + .receipt { break-before: page; page-break-before: always; }
@@ -101,10 +132,10 @@ body {
 .c { text-align: center; }
 .r { text-align: right; white-space: nowrap; }
 .small { font-size: 8pt; }
-.strong { font-weight: 900; }
+.strong { font-weight: 700; }
 .gap { margin-top: 2.5mm; }
 .split { display: flex; justify-content: space-between; gap: 2mm; font-size: 7.5pt; }
-h1 { font-size: 13pt; font-weight: 900; text-align: center; margin: 2.5mm 0; letter-spacing: 0.3px; }
+h1 { font-size: 13pt; font-weight: 700; text-align: center; margin: 2.5mm 0; letter-spacing: 0.3px; }
 table { width: 100%; border-collapse: collapse; }
 td, th { padding: 0.4mm 0; vertical-align: top; word-break: break-word; }
 .parties { font-size: 6.5pt; table-layout: fixed; }
@@ -112,7 +143,7 @@ td, th { padding: 0.4mm 0; vertical-align: top; word-break: break-word; }
 .parties td:nth-child(1) { width: 38%; }
 .parties td:nth-child(2) { width: 26%; }
 .parties tr:first-child td { white-space: nowrap; }
-.parties .v td { font-weight: 900; }
+.parties .v td { font-weight: 700; }
 .items { margin-top: 1mm; font-size: 8pt; }
 /* Smaller headings, so the number columns stay narrow and names fit. */
 .items th { text-align: left; font-size: 6.5pt; border-bottom: 1.5px solid #000; padding-bottom: 0.8mm; }
@@ -123,15 +154,83 @@ td, th { padding: 0.4mm 0; vertical-align: top; word-break: break-word; }
 .totals { margin-top: 2mm; border-top: 1.5px dashed #000; padding-top: 1mm; }
 .totals td { padding-top: 0.8mm; }
 .totals .strong td { font-size: 10pt; }
+/* Summary prints: the lines under the title, many-column tables, a total row. */
+.info { margin-top: 1mm; font-size: 7.5pt; }
+.items.dense { font-size: 7pt; }
+.items.dense td:not(:first-child), .items.dense th:not(:first-child) { padding-left: 1mm; }
+.items tfoot td { border-top: 1.5px solid #000; padding-top: 0.8mm; font-weight: 700; }
 `;
 
 // All copies in one print, one after the other, each on its own page and
 // ending with a "cut here" line: one Print gives every copy, cut apart by
 // hand (the user's choice, 2026-10-29, over one print window per copy).
 export async function printRollReceipt(r: RollReceipt, copies = 1) {
-  const logo = r.company.logo_url || FALLBACK_LOGO_URL;
+  const logo = await cachedLogo(r.company.logo_url || FALLBACK_LOGO_URL);
+  await printRoll(r.file_name, () => receiptHtml(r, logo), copies);
+}
+
+// A summary on the same roll, in the same type and header as the receipt
+// (Retail › Transaction Summary and Posting Log): label/value lines and
+// tables of any columns.
+export type RollReport = {
+  company: RollReceipt["company"];
+  title: string;
+  at: Date;
+  file_name: string;
+  // Lines under the title, e.g. ["Day", "Thu 30 Oct 2026"].
+  info?: [string, string][];
+  sections: {
+    heading?: string;
+    // Columns after the first are numbers, set right.
+    columns?: string[];
+    rows?: string[][];
+    total?: string[];
+    // Label/value lines; bold ones are totals.
+    lines?: [string, string, boolean?][];
+  }[];
+  note?: string | null;
+};
+
+function reportHtml(r: RollReport, logo: string) {
+  const { date, time } = dateParts(r.at);
+  const row = (label: string, value: string, bold = false) =>
+    `<tr class="${bold ? "strong" : ""}"><td>${esc(label)}</td><td class="r">${esc(value)}</td></tr>`;
+  const cells = (cs: string[], tag: "td" | "th") =>
+    cs.map((c, i) => `<${tag}${i ? ' class="r"' : ""}>${esc(c)}</${tag}>`).join("");
+  const section = (s: RollReport["sections"][number]) => `
+  ${s.heading ? `<div class="gap">${esc(s.heading)}</div>` : ""}
+  ${
+    s.columns
+      ? `<table class="items${s.columns.length > 4 ? " dense" : ""}">
+    <thead><tr>${cells(s.columns, "th")}</tr></thead>
+    <tbody>${(s.rows ?? []).map((rw) => `<tr>${cells(rw, "td")}</tr>`).join("")}</tbody>
+    ${s.total ? `<tfoot><tr>${cells(s.total, "td")}</tr></tfoot>` : ""}
+  </table>`
+      : ""
+  }
+  ${s.lines?.length ? `<table class="totals">${s.lines.map(([l, v, b]) => row(l, v, b)).join("")}</table>` : ""}`;
+  return `
+<section class="receipt">
+  ${logo ? `<img class="logo" src="${esc(logo)}" alt="" />` : ""}
+  ${r.company.address ? `<div class="c small">${esc(r.company.address)}</div>` : ""}
+  ${r.company.phone ? `<div class="c small">${esc(r.company.phone)}</div>` : ""}
+  <div class="split gap"><span>${esc(date)}</span><span>${esc(time)}</span></div>
+  <h1>${esc(r.title)}</h1>
+  ${r.info?.length ? `<table class="info">${r.info.map(([l, v]) => row(l, v)).join("")}</table>` : ""}
+  ${r.sections.map(section).join("")}
+  ${r.note ? `<div class="small gap">${esc(r.note)}</div>` : ""}
+  <div class="tear">- - - - - - - cut here - - - - - - -</div>
+</section>`;
+}
+
+export async function printRollReport(r: RollReport, copies = 1) {
+  const logo = await cachedLogo(r.company.logo_url || FALLBACK_LOGO_URL);
+  await printRoll(r.file_name, () => reportHtml(r, logo), copies);
+}
+
+async function printRoll(fileName: string, copyHtml: () => string, copies: number) {
   const n = Math.max(1, Math.floor(copies));
-  const html = `<!doctype html><html><head><meta charset="utf-8" /><title>${esc(r.file_name)}</title><style>${STYLE}</style></head><body>${Array.from({ length: n }, () => receiptHtml(r, logo)).join("")}</body></html>`;
+  const html = `<!doctype html><html><head><meta charset="utf-8" /><title>${esc(fileName)}</title><style>${STYLE}</style></head><body>${Array.from({ length: n }, copyHtml).join("")}</body></html>`;
 
   const frame = document.createElement("iframe");
   frame.setAttribute("aria-hidden", "true");
@@ -145,21 +244,25 @@ export async function printRollReceipt(r: RollReceipt, copies = 1) {
   doc.write(html);
   doc.close();
 
-  // Print once the logo has loaded (or failed), so it is on the receipt.
+  // Print once the logo has loaded (or failed), so it is on the receipt --
+  // but never hold the print longer than LOGO_WAIT_MS for it.
   const images = Array.from(doc.images);
-  await Promise.all(
-    images.map((img) =>
-      img.complete
-        ? null
-        : new Promise((res) => {
-            img.onload = res;
-            img.onerror = () => {
-              img.remove();
-              res(null);
-            };
-          }),
+  await Promise.race([
+    Promise.all(
+      images.map((img) =>
+        img.complete
+          ? null
+          : new Promise((res) => {
+              img.onload = res;
+              img.onerror = () => {
+                img.remove();
+                res(null);
+              };
+            }),
+      ),
     ),
-  );
+    new Promise((res) => setTimeout(res, LOGO_WAIT_MS)),
+  ]);
   // The page exactly one receipt long (80mm wide), so the cut falls right
   // under it, not after a full default page of blank roll.
   const pxPerMm = 96 / 25.4;

@@ -94,6 +94,13 @@ export const nav: { section: string; items: NavItem[] }[] = [
         tabs: [
           { label: "POS", module: "sales", url: "/sales" },
           { label: "Retail Outlet", module: "sales", url: "/retail-outlet" },
+          { label: "Transaction Summary", module: "sales", url: "/retail-summary" },
+          {
+            label: "Posting Log",
+            module: "sales",
+            url: "/retail-summary",
+            search: { tab: "log" },
+          },
           { label: "Sales Returns", module: "sales-returns", url: "/sales-returns" },
         ],
       },

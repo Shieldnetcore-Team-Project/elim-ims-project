@@ -76,6 +76,7 @@ const INVENTORY_PAGES = ["Warehouse › Stock", "Store › Raw Materials"];
 const FINANCE_PAGES = ["Finance Overview"];
 const PRODUCTION_PAGES = ["Production › Production"];
 const QC_PAGES = ["Quality Control › Inspections"];
+const MAINTENANCE_PAGES = ["Maintenance"];
 
 const DEPARTMENT_PAGES: [RegExp, () => string[]][] = [
   [/^sales/, () => SALES_PAGES],
@@ -83,6 +84,7 @@ const DEPARTMENT_PAGES: [RegExp, () => string[]][] = [
   [/financ|account/, () => FINANCE_PAGES],
   [/production|water/, () => PRODUCTION_PAGES],
   [/quality|^qc$/, () => QC_PAGES],
+  [/maint/, () => MAINTENANCE_PAGES],
   [/^admin/, () => pagesOfEntry("Admin Panel").map((p) => p.id)],
 ];
 
@@ -96,6 +98,7 @@ const ROLE_PAGES: Record<string, string[]> = {
   accountant: FINANCE_PAGES,
   production: PRODUCTION_PAGES,
   qc_officer: QC_PAGES,
+  maintenance: MAINTENANCE_PAGES,
 };
 
 export type DefaultPageAccess = { granted: string[]; blocked: string[]; viewModules: ModuleKey[] };
