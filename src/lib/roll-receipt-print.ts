@@ -6,8 +6,9 @@ import type { RollReceipt } from "@/lib/pdf";
 // cut the edges, and rescales multi-page PDFs. Here the text is solid black
 // in a 70mm column (the roll prints 72mm), page margins are off, and each
 // copy is its own page, so every copy prints exactly like one. The type is
-// regular weight with bold only for the title and totals: light and quick on
-// the thermal head (the user's choice, 2026-10-30, over all-bold).
+// solid black bold in an even-stroked mono font, a hair thickened, and the
+// logo pure black and white: thermal heads print grey as faint, fuzzy dots
+// (the user's choice, 2026-10-30: dark, sharp and clean).
 
 const FALLBACK_LOGO_URL = "/assets/elim-logo.png";
 
@@ -99,7 +100,7 @@ function receiptHtml(r: RollReceipt, logo: string) {
     ${(r.extra ?? []).map(([l, v]) => row(l, naira(v))).join("")}
   </table>
   ${r.note ? `<div class="small gap">${esc(r.note)}</div>` : ""}
-  <div class="c strong gap">Thank you for your patronage!</div>
+  <div class="c thanks gap">Thank you for your patronage!</div>
   <div class="tear">- - - - - - - cut here - - - - - - -</div>
 </section>`;
 }
@@ -115,7 +116,9 @@ html, body { margin: 0; padding: 0; background: #fff; }
    72mm) instead of a fixed width: a fixed 80mm inside the browser's default
    margins was shrunk to fit -- small text on a long, mostly empty page. */
 body {
-  font-family: "Courier New", Courier, monospace; font-weight: 400; color: #000;
+  font-family: "Lucida Console", Consolas, "Courier New", Courier, monospace;
+  font-weight: 700; color: #000;
+  -webkit-text-stroke: 0.2px #000; text-rendering: geometricPrecision;
   font-size: 9pt; line-height: 1.25;
   -webkit-print-color-adjust: exact; print-color-adjust: exact;
 }
@@ -123,19 +126,28 @@ body {
 /* After the receipt: a cut line and a short gap -- no long blank tail. */
 .tear {
   margin-top: 4mm; padding-bottom: 6mm; text-align: center;
-  font-size: 7pt; font-weight: 400; letter-spacing: 0.5px;
+  font-size: 7pt; font-weight: 700; letter-spacing: 0.5px;
 }
 /* Each copy on its own page; a receipt never splits across two pages. */
 .receipt + .receipt { break-before: page; page-break-before: always; }
 .receipt { break-inside: avoid; page-break-inside: avoid; }
-.logo { display: block; max-width: 48mm; max-height: 18mm; margin: 0 auto 2mm; }
+.logo {
+  display: block; max-width: 48mm; max-height: 18mm; margin: 0 auto 2mm;
+  filter: grayscale(1) contrast(2.5);
+}
 .c { text-align: center; }
 .r { text-align: right; white-space: nowrap; }
 .small { font-size: 8pt; }
-.strong { font-weight: 700; }
+.strong { font-weight: 900; }
 .gap { margin-top: 2.5mm; }
 .split { display: flex; justify-content: space-between; gap: 2mm; font-size: 7.5pt; }
-h1 { font-size: 13pt; font-weight: 700; text-align: center; margin: 2.5mm 0; letter-spacing: 0.3px; }
+/* The title and the closing thanks stand out most: bigger, with thicker
+   strokes (the font has no weight past bold, so the stroke does it). */
+h1 {
+  font-size: 15pt; font-weight: 900; text-align: center; margin: 2.5mm 0; letter-spacing: 0.3px;
+  -webkit-text-stroke: 0.7px #000;
+}
+.thanks { font-size: 10.5pt; font-weight: 900; -webkit-text-stroke: 0.5px #000; }
 table { width: 100%; border-collapse: collapse; }
 td, th { padding: 0.4mm 0; vertical-align: top; word-break: break-word; }
 .parties { font-size: 6.5pt; table-layout: fixed; }
@@ -143,7 +155,7 @@ td, th { padding: 0.4mm 0; vertical-align: top; word-break: break-word; }
 .parties td:nth-child(1) { width: 38%; }
 .parties td:nth-child(2) { width: 26%; }
 .parties tr:first-child td { white-space: nowrap; }
-.parties .v td { font-weight: 700; }
+.parties .v td { font-weight: 900; }
 .items { margin-top: 1mm; font-size: 8pt; }
 /* Smaller headings, so the number columns stay narrow and names fit. */
 .items th { text-align: left; font-size: 6.5pt; border-bottom: 1.5px solid #000; padding-bottom: 0.8mm; }
@@ -161,7 +173,7 @@ td, th { padding: 0.4mm 0; vertical-align: top; word-break: break-word; }
 .receipt div { overflow-wrap: anywhere; }
 .items.dense { font-size: 7pt; }
 .items.dense td:not(:first-child), .items.dense th:not(:first-child) { padding-left: 1mm; }
-.items tfoot td { border-top: 1.5px solid #000; padding-top: 0.8mm; font-weight: 700; }
+.items tfoot td { border-top: 1.5px solid #000; padding-top: 0.8mm; font-weight: 900; }
 `;
 
 // All copies in one print, one after the other, each on its own page and
@@ -234,6 +246,8 @@ export async function printRollReport(r: RollReport, copies = 1) {
 // The print page around the copies (exported for checking a slip's layout).
 export const rollDocument = (fileName: string, body: string) =>
   `<!doctype html><html><head><meta charset="utf-8" /><title>${esc(fileName)}</title><style>${STYLE}</style></head><body>${body}</body></html>`;
+export const rollReceiptDocument = (r: RollReceipt, logo = "") =>
+  rollDocument(r.file_name, receiptHtml(r, logo));
 export const rollReportDocument = (r: RollReport, logo = "") =>
   rollDocument(r.file_name, reportHtml(r, logo));
 
