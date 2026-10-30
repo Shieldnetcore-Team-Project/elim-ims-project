@@ -3225,6 +3225,7 @@ export function RepAccountView({
           <RepCustomersCard
             factoryId={factoryId}
             canCollect={perms.canWrite("payments") || perms.canWrite("debts")}
+            canTakeOff={perms.canEdit("customers") || perms.canEdit("marketer-accounts")}
             repId={repId}
             repName={repName}
             from={from}
@@ -3435,6 +3436,7 @@ function RepCustomersCard({
   from,
   to,
   canCollect,
+  canTakeOff = false,
 }: {
   factoryId: string;
   repId: string;
@@ -3442,8 +3444,12 @@ function RepCustomersCard({
   from: string;
   to: string;
   canCollect: boolean;
+  // Take a customer off this marketer (reassign_customer_marketer to none).
+  canTakeOff?: boolean;
 }) {
   const [open, setOpen] = useState<string | null>(null);
+  const [takingOff, setTakingOff] = useState<CustomerRow | null>(null);
+  const actions = canCollect || canTakeOff;
   const [owingOnly, setOwingOnly] = useState(false);
   const [paying, setPaying] = useState<CustomerRow | null>(null);
   const [adding, setAdding] = useState(false);
@@ -3639,14 +3645,14 @@ function RepCustomersCard({
               <TableHead className="text-right">Overdue</TableHead>
               <TableHead className="text-right">Collected by rep</TableHead>
               <TableHead>Last purchase</TableHead>
-              {canCollect && <TableHead className="w-56" />}
+              {actions && <TableHead className="w-56" />}
             </TableRow>
           </TableHeader>
           <TableBody>
             {customers.length === 0 && (
               <TableRow>
                 <TableCell
-                  colSpan={canCollect ? 11 : 10}
+                  colSpan={actions ? 11 : 10}
                   className="py-8 text-center text-muted-foreground"
                 >
                   {invoices.isLoading || accounts.isLoading
@@ -3705,16 +3711,31 @@ function RepCustomersCard({
                     <TableCell className="whitespace-nowrap">
                       {c.last ? new Date(c.last).toLocaleDateString() : "—"}
                     </TableCell>
-                    {canCollect && (
+                    {actions && (
                       <TableCell onClick={(e) => e.stopPropagation()}>
                         {c.customerId && (
                           <div className="flex justify-end gap-1">
-                            <Button size="sm" variant="outline" onClick={() => setSelling(c)}>
-                              Record sale
-                            </Button>
-                            <Button size="sm" variant="outline" onClick={() => setPaying(c)}>
-                              Record payment
-                            </Button>
+                            {canCollect && (
+                              <>
+                                <Button size="sm" variant="outline" onClick={() => setSelling(c)}>
+                                  Record sale
+                                </Button>
+                                <Button size="sm" variant="outline" onClick={() => setPaying(c)}>
+                                  Record payment
+                                </Button>
+                              </>
+                            )}
+                            {canTakeOff && c.assigned && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="text-destructive"
+                                title={`Take ${c.name} off ${repName}'s account`}
+                                onClick={() => setTakingOff(c)}
+                              >
+                                Take off
+                              </Button>
+                            )}
                           </div>
                         )}
                       </TableCell>
@@ -3723,7 +3744,7 @@ function RepCustomersCard({
                   {expanded && (
                     <TableRow className="bg-muted/30 hover:bg-muted/30">
                       <TableCell />
-                      <TableCell colSpan={canCollect ? 10 : 9}>
+                      <TableCell colSpan={actions ? 10 : 9}>
                         {c.account && (
                           <p className="mb-2 text-xs text-muted-foreground">
                             Whole account: owes {money(Number(c.account.total_owed))} · advance{" "}
@@ -3832,6 +3853,17 @@ function RepCustomersCard({
           />
         )}
       </Dialog>
+      <Dialog open={!!takingOff} onOpenChange={(v) => !v && setTakingOff(null)}>
+        {takingOff?.customerId && (
+          <TakeOffCustomerDialog
+            repName={repName}
+            customerId={takingOff.customerId}
+            customerName={takingOff.name}
+            owes={Number(takingOff.account?.total_owed ?? takingOff.owes ?? 0)}
+            onDone={() => setTakingOff(null)}
+          />
+        )}
+      </Dialog>
       <Dialog open={!!selling} onOpenChange={(v) => !v && setSelling(null)}>
         {selling?.customerId && (
           <RecordCustomerSaleDialog
@@ -3920,6 +3952,82 @@ function CustomerPaymentsList({ customerId }: { customerId: string }) {
         </TableBody>
       </Table>
     </div>
+  );
+}
+
+// "Take off" on a marketer's customer: the customer leaves this marketer's
+// account (reassign_customer_marketer to no marketer, with a reason; the
+// move is kept in the customer's marketer history). The customer, its
+// account and its past sales stay -- e.g. a distributor assigned by mistake
+// goes back to being only a distributor. Assign a marketer again under
+// Customers.
+function TakeOffCustomerDialog({
+  repName,
+  customerId,
+  customerName,
+  owes,
+  onDone,
+}: {
+  repName: string;
+  customerId: string;
+  customerName: string;
+  owes: number;
+  onDone: () => void;
+}) {
+  const qc = useQueryClient();
+  const [reason, setReason] = useState("");
+  const save = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.rpc("reassign_customer_marketer", {
+        p_customer: customerId,
+        p_rep: null as unknown as string,
+        p_reason: reason.trim(),
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success(`${customerName} taken off ${repName}'s account`);
+      for (const key of ["dist-rep-customers", "dist-rep-customer-accounts", "dist-account", "customers"])
+        qc.invalidateQueries({ queryKey: [key] });
+      onDone();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  return (
+    <DialogContent className="max-w-md">
+      <DialogHeader>
+        <DialogTitle>Take {customerName} off {repName}'s account</DialogTitle>
+      </DialogHeader>
+      <div className="space-y-3 text-sm">
+        <p className="text-muted-foreground">
+          {customerName} will no longer be {repName}'s customer. The customer, their account and
+          past sales stay in the system; assign a marketer again under Customers.
+        </p>
+        {owes > 0 && (
+          <p className="rounded-md border border-warning/40 bg-warning/10 p-2 text-warning">
+            {customerName} still owes {money(owes)}. That debt stays on {repName}'s account
+            until it is collected.
+          </p>
+        )}
+        <div>
+          <Label>Reason</Label>
+          <Textarea
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="e.g. Added to this marketer by mistake"
+          />
+        </div>
+      </div>
+      <DialogFooter>
+        <Button
+          variant="destructive"
+          disabled={reason.trim().length < 3 || save.isPending}
+          onClick={() => save.mutate()}
+        >
+          {save.isPending ? "Saving…" : "Take off"}
+        </Button>
+      </DialogFooter>
+    </DialogContent>
   );
 }
 
