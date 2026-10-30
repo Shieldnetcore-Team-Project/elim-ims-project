@@ -57,6 +57,8 @@ import { Route as AppSettingsRouteImport } from './routes/_app.settings'
 import { Route as AppStoreIssuesRouteImport } from './routes/_app.store-issues'
 import { Route as AppSuppliersRouteImport } from './routes/_app.suppliers'
 import { Route as AppUsersRouteImport } from './routes/_app.users'
+import { Route as AppWarehouseActivityRouteImport } from './routes/_app.warehouse-activity'
+import { Route as AppWarehouseProductsReportRouteImport } from './routes/_app.warehouse-products-report'
 import { Route as AppCashLedgerIndexRouteImport } from './routes/_app.cash-ledger.index'
 import { Route as AppCashLedgerDebtsRouteImport } from './routes/_app.cash-ledger.debts'
 import { Route as AppCashLedgerLedgerRouteImport } from './routes/_app.cash-ledger.ledger'
@@ -303,6 +305,17 @@ const AppUsersRoute = AppUsersRouteImport.update({
   path: '/users',
   getParentRoute: () => AppRoute,
 } as any)
+const AppWarehouseActivityRoute = AppWarehouseActivityRouteImport.update({
+  id: '/warehouse-activity',
+  path: '/warehouse-activity',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppWarehouseProductsReportRoute =
+  AppWarehouseProductsReportRouteImport.update({
+    id: '/warehouse-products-report',
+    path: '/warehouse-products-report',
+    getParentRoute: () => AppRoute,
+  } as any)
 const AppCashLedgerIndexRoute = AppCashLedgerIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -385,6 +398,8 @@ export interface FileRoutesByFullPath {
   '/store-issues': typeof AppStoreIssuesRoute
   '/suppliers': typeof AppSuppliersRoute
   '/users': typeof AppUsersRoute
+  '/warehouse-activity': typeof AppWarehouseActivityRoute
+  '/warehouse-products-report': typeof AppWarehouseProductsReportRoute
   '/cash-ledger/debts': typeof AppCashLedgerDebtsRoute
   '/cash-ledger/ledger': typeof AppCashLedgerLedgerRoute
   '/marketer-accounts/$repId': typeof AppMarketerAccountsRepIdRoute
@@ -439,6 +454,8 @@ export interface FileRoutesByTo {
   '/store-issues': typeof AppStoreIssuesRoute
   '/suppliers': typeof AppSuppliersRoute
   '/users': typeof AppUsersRoute
+  '/warehouse-activity': typeof AppWarehouseActivityRoute
+  '/warehouse-products-report': typeof AppWarehouseProductsReportRoute
   '/cash-ledger/debts': typeof AppCashLedgerDebtsRoute
   '/cash-ledger/ledger': typeof AppCashLedgerLedgerRoute
   '/marketer-accounts/$repId': typeof AppMarketerAccountsRepIdRoute
@@ -496,6 +513,8 @@ export interface FileRoutesById {
   '/_app/store-issues': typeof AppStoreIssuesRoute
   '/_app/suppliers': typeof AppSuppliersRoute
   '/_app/users': typeof AppUsersRoute
+  '/_app/warehouse-activity': typeof AppWarehouseActivityRoute
+  '/_app/warehouse-products-report': typeof AppWarehouseProductsReportRoute
   '/_app/cash-ledger/debts': typeof AppCashLedgerDebtsRoute
   '/_app/cash-ledger/ledger': typeof AppCashLedgerLedgerRoute
   '/_app/marketer-accounts_/$repId': typeof AppMarketerAccountsRepIdRoute
@@ -553,6 +572,8 @@ export interface FileRouteTypes {
     | '/store-issues'
     | '/suppliers'
     | '/users'
+    | '/warehouse-activity'
+    | '/warehouse-products-report'
     | '/cash-ledger/debts'
     | '/cash-ledger/ledger'
     | '/marketer-accounts/$repId'
@@ -607,6 +628,8 @@ export interface FileRouteTypes {
     | '/store-issues'
     | '/suppliers'
     | '/users'
+    | '/warehouse-activity'
+    | '/warehouse-products-report'
     | '/cash-ledger/debts'
     | '/cash-ledger/ledger'
     | '/marketer-accounts/$repId'
@@ -663,6 +686,8 @@ export interface FileRouteTypes {
     | '/_app/store-issues'
     | '/_app/suppliers'
     | '/_app/users'
+    | '/_app/warehouse-activity'
+    | '/_app/warehouse-products-report'
     | '/_app/cash-ledger/debts'
     | '/_app/cash-ledger/ledger'
     | '/_app/marketer-accounts_/$repId'
@@ -1015,6 +1040,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppUsersRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/warehouse-activity': {
+      id: '/_app/warehouse-activity'
+      path: '/warehouse-activity'
+      fullPath: '/warehouse-activity'
+      preLoaderRoute: typeof AppWarehouseActivityRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/warehouse-products-report': {
+      id: '/_app/warehouse-products-report'
+      path: '/warehouse-products-report'
+      fullPath: '/warehouse-products-report'
+      preLoaderRoute: typeof AppWarehouseProductsReportRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/cash-ledger/': {
       id: '/_app/cash-ledger/'
       path: '/'
@@ -1122,6 +1161,8 @@ interface AppRouteChildren {
   AppStoreIssuesRoute: typeof AppStoreIssuesRoute
   AppSuppliersRoute: typeof AppSuppliersRoute
   AppUsersRoute: typeof AppUsersRoute
+  AppWarehouseActivityRoute: typeof AppWarehouseActivityRoute
+  AppWarehouseProductsReportRoute: typeof AppWarehouseProductsReportRoute
   AppMarketerAccountsRepIdRoute: typeof AppMarketerAccountsRepIdRoute
   AppPreformInventoryMaterialIdRoute: typeof AppPreformInventoryMaterialIdRoute
   AppMarketerAccountsRepIdCustomersCustomerIdRoute: typeof AppMarketerAccountsRepIdCustomersCustomerIdRoute
@@ -1173,6 +1214,8 @@ const AppRouteChildren: AppRouteChildren = {
   AppStoreIssuesRoute: AppStoreIssuesRoute,
   AppSuppliersRoute: AppSuppliersRoute,
   AppUsersRoute: AppUsersRoute,
+  AppWarehouseActivityRoute: AppWarehouseActivityRoute,
+  AppWarehouseProductsReportRoute: AppWarehouseProductsReportRoute,
   AppMarketerAccountsRepIdRoute: AppMarketerAccountsRepIdRoute,
   AppPreformInventoryMaterialIdRoute: AppPreformInventoryMaterialIdRoute,
   AppMarketerAccountsRepIdCustomersCustomerIdRoute:

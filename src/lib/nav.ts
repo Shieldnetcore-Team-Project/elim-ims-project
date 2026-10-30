@@ -185,6 +185,12 @@ export const nav: { section: string; items: NavItem[] }[] = [
         // those stay out of the bar.
         tabs: [
           { label: "Stock", module: "finished-goods", url: "/inventory" },
+          { label: "Activity Log", module: "finished-goods", url: "/warehouse-activity" },
+          {
+            label: "Products Report",
+            module: "finished-goods",
+            url: "/warehouse-products-report",
+          },
           { label: "Store requests", module: "production-requests", url: "/production-requests" },
           { label: "Orders", module: "sales", url: "/sales" },
           { label: "Returns", module: "sales-returns", url: "/sales-returns" },

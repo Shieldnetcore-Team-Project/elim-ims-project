@@ -1,13 +1,16 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Pencil } from "lucide-react";
-import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useRealtimeInvalidate } from "@/lib/realtime";
 import { useFactorySettings } from "@/lib/use-factory";
-import { printDispatchSlip } from "@/lib/dispatch-slip";
-import { printSaleInvoice } from "@/lib/invoice";
 import { PrintCopiesButton } from "@/components/shared/print-copies-button";
+import {
+  type Activity,
+  hasSlip,
+  KIND,
+  printWarehouseActivity,
+} from "@/components/warehouse/activity";
 import {
   CorrectDispatchPostingDialog,
   CorrectDistributorPostingDialog,
@@ -25,28 +28,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-
-type Activity = {
-  kind: "received" | "refused" | "marketer" | "retail" | "distributor" | "sale";
-  reference: string;
-  at: string;
-  party: string | null;
-  items: string | null;
-  quantity: number;
-  status: string;
-};
-
-const KIND: Record<
-  Activity["kind"],
-  { label: string; variant: "default" | "secondary" | "outline" | "destructive" }
-> = {
-  received: { label: "Received from Production", variant: "default" },
-  refused: { label: "Refused to Production", variant: "destructive" },
-  marketer: { label: "Posted to Marketer", variant: "secondary" },
-  retail: { label: "Posted to Retail Shop", variant: "secondary" },
-  distributor: { label: "Posted to Distributor", variant: "secondary" },
-  sale: { label: "Sold from Warehouse", variant: "outline" },
-};
 
 // What has moved through the Warehouse lately, newest first: releases received
 // from (or refused to) Production, and postings to marketers, the Company
@@ -82,25 +63,8 @@ export function WarehouseRecentActivity({ factoryId }: { factoryId: string }) {
       ? perms.canWrite("sales")
       : (a.kind === "marketer" || a.kind === "retail") && perms.can("distribution", "create"));
   const [correcting, setCorrecting] = useState<Activity | null>(null);
-  // Postings print their slip; a distributor posting is a sale, so it prints
-  // its invoice.
-  const print = async (a: Activity, copies: number) => {
-    if (a.kind === "marketer" || a.kind === "retail") {
-      await printDispatchSlip({ number: a.reference }, settings.data, "print", copies);
-      return;
-    }
-    const { data, error } = await supabase
-      .from("sales")
-      .select("id")
-      .eq("factory_id", factoryId)
-      .eq("invoice_number", a.reference)
-      .maybeSingle();
-    if (error || !data) {
-      toast.error(error?.message ?? "Invoice not found");
-      return;
-    }
-    await printSaleInvoice(data.id, settings.data, "print", "roll", copies);
-  };
+  const print = (a: Activity, copies: number) =>
+    printWarehouseActivity(a, factoryId, settings.data, copies);
 
   return (
     <Card className="rounded-2xl">
@@ -144,9 +108,7 @@ export function WarehouseRecentActivity({ factoryId }: { factoryId: string }) {
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right">
-                    {a.kind !== "received" && a.kind !== "refused" && (
-                      <PrintCopiesButton onPrint={(copies) => print(a, copies)} />
-                    )}
+                    {hasSlip(a) && <PrintCopiesButton onPrint={(copies) => print(a, copies)} />}
                     {canCorrect(a) && (
                       <Button
                         variant="ghost"
