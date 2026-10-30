@@ -4,13 +4,17 @@ import { SectionTabs } from "@/components/layout/section-tabs";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useFactoryId } from "@/lib/use-factory";
+import { useFactoryId, useFactorySettings } from "@/lib/use-factory";
+import { companyOf, generateCreditOutstandingPdf } from "@/lib/marketer-pdf";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
   Table,
   TableBody,
   TableCell,
+  TableFooter,
   TableHead,
   TableHeader,
   TableRow,
@@ -25,7 +29,15 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { money } from "@/lib/format";
 import { useRealtimeInvalidate } from "@/lib/realtime";
-import { AlarmClock, CircleDollarSign, Clock, Search, Wallet } from "lucide-react";
+import {
+  AlarmClock,
+  CircleDollarSign,
+  Clock,
+  FileDown,
+  Printer,
+  Search,
+  Wallet,
+} from "lucide-react";
 import { ReportActions } from "@/components/shared/report-actions";
 
 // Credit sales: every approved sale that wasn't fully paid becomes a debt
@@ -35,13 +47,16 @@ import { ReportActions } from "@/components/shared/report-actions";
 // still recorded from Payments -> Debts; this page is the credit view of them.
 export const Route = createFileRoute("/_app/credit-sales")({
   head: () => ({
-    meta: [{ title: "Credit Sales — Elim Table Water" }, { name: "robots", content: "noindex" }],
+    meta: [
+      { title: "Credits / Outstandings — Elim Table Water" },
+      { name: "robots", content: "noindex" },
+    ],
   }),
   component: () => (
     <>
       <SectionTabs section="Marketer & Retail Accounts" />
       <RequireAccess module="debts">
-        <CreditSalesPage />
+        <CreditsPage />
       </RequireAccess>
     </>
   ),
@@ -88,6 +103,253 @@ function daysOverdue(due: string | null) {
   if (!due) return 0;
   const ms = new Date(todayIso()).getTime() - new Date(due).getTime();
   return Math.max(Math.floor(ms / 86400000), 0);
+}
+
+// Credits / Outstandings (user request 2026-10-30): who owes, by marketer
+// and by distributor (credit_outstanding, 20261030240000) -- printable per
+// marketer or for all, as the factory's "TOTAL CREDIT OUTSTANDING" sheets --
+// and every credit sale with its terms.
+function CreditsPage() {
+  const { data: factoryId } = useFactoryId();
+  const [tab, setTab] = useState("marketers");
+  if (!factoryId) return null;
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Credits / Outstandings</h1>
+        <p className="text-sm text-muted-foreground">
+          Every customer who owes, under their marketer or as a distributor, and every credit sale.
+        </p>
+      </div>
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList>
+          <TabsTrigger value="marketers">Marketers credit outstanding</TabsTrigger>
+          <TabsTrigger value="distributors">Distributors credit outstanding</TabsTrigger>
+          <TabsTrigger value="sales">Credit sales</TabsTrigger>
+        </TabsList>
+        <TabsContent value="marketers" className="mt-4">
+          <OutstandingTab factoryId={factoryId} kind="marketer" />
+        </TabsContent>
+        <TabsContent value="distributors" className="mt-4">
+          <OutstandingTab factoryId={factoryId} kind="distributor" />
+        </TabsContent>
+        <TabsContent value="sales" className="mt-4">
+          <CreditSalesPage />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+type OutstandingRow = {
+  customer_id: string;
+  customer: string;
+  phone: string | null;
+  kind: "marketer" | "distributor";
+  marketer_id: string | null;
+  marketer_name: string | null;
+  marketer_phone: string | null;
+  outstanding: number;
+  credit_limit: number | null;
+};
+
+// Debtors grouped under their marketer (or all the distributors), each with
+// a total; pick one marketer or all, and print as the factory's sheets.
+function OutstandingTab({
+  factoryId,
+  kind,
+}: {
+  factoryId: string;
+  kind: "marketer" | "distributor";
+}) {
+  const settings = useFactorySettings(factoryId);
+  const [who, setWho] = useState("all");
+  const [q, setQ] = useState("");
+  useRealtimeInvalidate(["customers", "debts", "payments_received"], [["credit-outstanding"]]);
+  const data = useQuery({
+    queryKey: ["credit-outstanding", factoryId],
+    queryFn: async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- RPC newer than the generated types
+      const { data, error } = await (supabase as any).rpc("credit_outstanding", {
+        p_factory: factoryId,
+      });
+      if (error) throw error;
+      return ((data ?? []) as OutstandingRow[]).map((r) => ({
+        ...r,
+        outstanding: Number(r.outstanding),
+      }));
+    },
+  });
+
+  const mine = useMemo(() => (data.data ?? []).filter((r) => r.kind === kind), [data.data, kind]);
+  const marketers = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const r of mine) if (r.marketer_id) m.set(r.marketer_id, r.marketer_name ?? "—");
+    return [...m.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  }, [mine]);
+
+  const groups = useMemo(() => {
+    const term = q.trim().toLowerCase();
+    const rows = mine.filter(
+      (r) =>
+        (kind === "distributor" || who === "all" || r.marketer_id === who) &&
+        (!term ||
+          r.customer.toLowerCase().includes(term) ||
+          (r.phone ?? "").toLowerCase().includes(term) ||
+          (r.marketer_name ?? "").toLowerCase().includes(term)),
+    );
+    const byKey = new Map<string, { title: string; rows: OutstandingRow[] }>();
+    for (const r of rows) {
+      const key = kind === "marketer" ? (r.marketer_id ?? "-") : "distributors";
+      const title =
+        kind === "marketer"
+          ? `${(r.marketer_name ?? "—").toUpperCase()} TOTAL CREDIT OUTSTANDING${r.marketer_phone ? ` (${r.marketer_phone})` : ""}`
+          : "DISTRIBUTORS TOTAL CREDIT OUTSTANDING";
+      const g = byKey.get(key) ?? { title, rows: [] };
+      g.rows.push(r);
+      byKey.set(key, g);
+    }
+    return [...byKey.values()];
+  }, [mine, who, q, kind]);
+  const grand = groups.reduce((t, g) => t + g.rows.reduce((s, r) => s + r.outstanding, 0), 0);
+  const debtors = groups.reduce((t, g) => t + g.rows.length, 0);
+
+  const print = (action: "print" | "download") =>
+    generateCreditOutstandingPdf(
+      {
+        company: companyOf(settings.data),
+        heading:
+          kind === "marketer"
+            ? who === "all"
+              ? "MARKETERS CREDIT OUTSTANDING"
+              : `${(marketers.find(([id]) => id === who)?.[1] ?? "").toUpperCase()} CREDIT OUTSTANDING`
+            : "DISTRIBUTORS CREDIT OUTSTANDING",
+        asAt: new Date().toLocaleDateString("en-GB"),
+        groups: groups.map((g) => ({
+          title: g.title,
+          rows: g.rows.map((r) => ({
+            customer: r.customer,
+            outstanding: r.outstanding,
+            phone: r.phone,
+          })),
+        })),
+        currency: settings.data?.currency ?? "NGN",
+      },
+      action,
+    );
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="text-sm text-muted-foreground">
+          {data.isLoading ? "Loading…" : `${debtors} debtor(s) · total outstanding ${money(grand)}`}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {kind === "marketer" && (
+            <Select value={who} onValueChange={setWho}>
+              <SelectTrigger className="w-56">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All marketers</SelectItem>
+                {marketers.map(([id, name]) => (
+                  <SelectItem key={id} value={id}>
+                    {name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          <div className="relative">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              className="w-56 pl-8"
+              placeholder="Customer, phone, marketer"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+          </div>
+          <Button
+            variant="outline"
+            className="gap-2"
+            disabled={!groups.length}
+            onClick={() => print("print")}
+          >
+            <Printer className="h-4 w-4" /> Print
+          </Button>
+          <Button
+            variant="outline"
+            className="gap-2"
+            disabled={!groups.length}
+            onClick={() => print("download")}
+          >
+            <FileDown className="h-4 w-4" /> PDF
+          </Button>
+        </div>
+      </div>
+
+      {data.isError && (
+        <Card className="rounded-2xl border-destructive/40">
+          <CardContent className="py-4 text-sm text-destructive">
+            {(data.error as Error).message}
+          </CardContent>
+        </Card>
+      )}
+      {!data.isLoading && !data.isError && groups.length === 0 && (
+        <Card className="rounded-2xl border-dashed">
+          <CardContent className="py-8 text-center text-sm text-muted-foreground">
+            {kind === "marketer"
+              ? "No marketer's customer owes anything."
+              : "No distributor owes anything."}
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        {groups.map((g) => {
+          const total = g.rows.reduce((s, r) => s + r.outstanding, 0);
+          return (
+            <Card key={g.title} className="rounded-2xl">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-center text-sm font-bold tracking-wide">
+                  {g.title}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Customer's name</TableHead>
+                      <TableHead className="text-right">Total outstanding</TableHead>
+                      <TableHead>Phone number</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {g.rows.map((r) => (
+                      <TableRow key={r.customer_id}>
+                        <TableCell className="font-medium uppercase">{r.customer}</TableCell>
+                        <TableCell className="text-right">{money(r.outstanding)}</TableCell>
+                        <TableCell className="text-xs">{r.phone ?? "—"}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                  <TableFooter>
+                    <TableRow>
+                      <TableCell>TOTAL</TableCell>
+                      <TableCell className="text-right">
+                        <span className="rounded bg-warning/15 px-2 py-0.5">{money(total)}</span>
+                      </TableCell>
+                      <TableCell />
+                    </TableRow>
+                  </TableFooter>
+                </Table>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 function CreditSalesPage() {
@@ -144,7 +406,6 @@ function CreditSalesPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Credit Sales</h1>
         <p className="text-sm text-muted-foreground">
           Sales not fully paid at approval, with their due dates, credit limits and recovery. Record
           collections from{" "}

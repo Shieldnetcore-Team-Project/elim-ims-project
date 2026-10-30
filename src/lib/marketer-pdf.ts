@@ -539,3 +539,87 @@ export function companyOf(
     logo_url: s?.logo_url,
   };
 }
+
+// --------------------------------------------- credits / outstandings sheet ---
+
+// One table per marketer (or for the distributors), laid out as the factory's
+// "<MARKETER> TOTAL CREDIT OUTSTANDING" sheets: a title row, then each
+// customer's name, total outstanding and phone, then the total.
+export type OutstandingGroup = {
+  title: string;
+  rows: { customer: string; outstanding: number; phone: string | null }[];
+};
+
+export async function generateCreditOutstandingPdf(
+  opts: {
+    company: Company;
+    heading: string;
+    asAt: string;
+    groups: OutstandingGroup[];
+    currency?: string;
+  },
+  action: PdfAction = "print",
+) {
+  const amt = (v: number) =>
+    new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(
+      v,
+    );
+  const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "portrait" });
+  const grand = opts.groups.reduce(
+    (t, g) => t + g.rows.reduce((s, r) => s + Number(r.outstanding), 0),
+    0,
+  );
+  let y = await letterhead(doc, opts.company, opts.heading, [
+    `As at: ${opts.asAt}`,
+    `${opts.groups.length} account(s) · Total ${pdfMoney(grand, opts.currency ?? "NGN")}`,
+  ]);
+
+  for (const g of opts.groups) {
+    const total = g.rows.reduce((s, r) => s + Number(r.outstanding), 0);
+    if (y > doc.internal.pageSize.getHeight() - 120) {
+      doc.addPage();
+      y = 48;
+    }
+    autoTable(doc, {
+      startY: y,
+      theme: "grid",
+      head: [
+        [
+          {
+            content: g.title,
+            colSpan: 3,
+            styles: {
+              halign: "center",
+              fontStyle: "bold",
+              fontSize: 10,
+              fillColor: [241, 245, 249],
+            },
+          },
+        ],
+        ["CUSTOMER'S NAME", "TOTAL OUTSTANDING", "PHONE NUMBER"],
+      ],
+      body: g.rows.map((r) => [
+        r.customer.toUpperCase(),
+        amt(Number(r.outstanding)),
+        r.phone ?? "",
+      ]),
+      foot: [["TOTAL", amt(total), ""]],
+      styles: {
+        fontSize: 9,
+        cellPadding: 4,
+        textColor: [15, 23, 42],
+        lineColor: [0, 0, 0],
+        lineWidth: 0.5,
+      },
+      headStyles: { fillColor: [255, 255, 255], textColor: [30, 64, 175], fontStyle: "bold" },
+      footStyles: { fillColor: [255, 255, 255], textColor: [15, 23, 42], fontStyle: "bold" },
+      columnStyles: { 1: { halign: "right" } },
+      didParseCell: (d) => {
+        // The total figure stands out, as on the factory's sheets.
+        if (d.section === "foot" && d.column.index === 1) d.cell.styles.fillColor = [253, 235, 200];
+      },
+    });
+    y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 18;
+  }
+  finish(doc, `${opts.heading.replace(/\s+/g, "-")}.pdf`, action);
+}

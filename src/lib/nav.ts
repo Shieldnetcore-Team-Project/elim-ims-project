@@ -262,7 +262,7 @@ export const nav: { section: string; items: NavItem[] }[] = [
             module: "distributor-accounts",
             url: "/distributor-accounts",
           },
-          { label: "Credit sales (distributors)", module: "debts", url: "/credit-sales" },
+          { label: "Credits/Outstandings", module: "debts", url: "/credit-sales" },
           {
             label: "Postings to assess",
             module: "finance",
