@@ -657,7 +657,9 @@ function SalesPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {write && canSeeMoney && (
+          {/* Not in the Retail Shop (user decision 2026-10-30): advances are
+              taken on Warehouse Orders only. */}
+          {write && canSeeMoney && warehouseView && (
             <Button variant="outline" className="gap-2" onClick={() => setAdvanceOpen(true)}>
               <PiggyBank className="h-4 w-4" /> Record Advance Payment
             </Button>
