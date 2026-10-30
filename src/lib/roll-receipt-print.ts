@@ -17,6 +17,10 @@ const FALLBACK_LOGO_URL = "/assets/elim-logo.png";
 // host without CORS) the plain url is used, and printing waits for it at most
 // LOGO_WAIT_MS.
 const LOGO_WAIT_MS = 1200;
+// .logo's max-height plus its bottom margin, in mm.
+const LOGO_MAX_MM = 20;
+// One inch of roll added to every receipt's length.
+const EXTRA_LENGTH_MM = 25;
 const logos = new Map<string, Promise<string>>();
 function cachedLogo(url: string): Promise<string> {
   let p = logos.get(url);
@@ -286,11 +290,19 @@ async function printRoll(fileName: string, copyHtml: () => string, copies: numbe
     ),
     new Promise((res) => setTimeout(res, LOGO_WAIT_MS)),
   ]);
-  // The page exactly one receipt long (80mm wide), so the cut falls right
-  // under it, not after a full default page of blank roll.
+  // The page as long as the receipt (80mm wide) -- it grows with every
+  // product line -- plus an inch to spare (the user's choice, 2026-10-30), so
+  // the totals and thanks of a long receipt are never cut off, not a full
+  // default page of blank roll. A logo still loading when the wait ran out
+  // is not in the height yet: its full height is kept for it.
   const pxPerMm = 96 / 25.4;
   const receipt = doc.querySelector<HTMLElement>(".receipt");
-  const pageMm = Math.ceil((receipt?.scrollHeight ?? 0) / pxPerMm) + 4;
+  const logoPending = Array.from(doc.images).some((img) => !img.complete);
+  const pageMm =
+    Math.ceil((receipt?.scrollHeight ?? 0) / pxPerMm) +
+    4 +
+    (logoPending ? LOGO_MAX_MM : 0) +
+    EXTRA_LENGTH_MM;
   const size = doc.createElement("style");
   size.textContent = `@page { size: 80mm ${pageMm}mm; }`;
   doc.head.appendChild(size);
