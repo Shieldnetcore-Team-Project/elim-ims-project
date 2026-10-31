@@ -505,7 +505,7 @@ function Landing() {
               <img src="/assets/elim-logo.png" alt="" className="h-full w-full object-cover" />
             </div>
             <div className="text-lg font-semibold tracking-wide">
-              ELIM <span className="font-light">TABLE WATER</span>
+              elim <span className="font-light">TABLE WATER</span>
             </div>
           </div>
           <div className="md:justify-self-end">

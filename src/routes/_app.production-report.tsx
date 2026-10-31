@@ -85,6 +85,15 @@ type Clearance = {
   cleared_at: string;
   products: { name: string } | null;
 };
+// A product's hall balance at the start of a day (20261031090000): from that
+// day on it is the Opening, and the batches, releases and clearances before
+// it are history.
+type HallOpening = {
+  product_id: string;
+  quantity: number;
+  opening_date: string;
+  products: { name: string } | null;
+};
 
 const LIVE = ["pending_confirmation", "confirmed", "posted"];
 // Accepted whole by the Warehouse, before releases existed.
@@ -128,6 +137,21 @@ function ProductionReportPage() {
       // Before its database update there is nothing to subtract.
       if (error) return [] as Clearance[];
       return (data ?? []) as unknown as Clearance[];
+    },
+  });
+
+  const openings = useQuery({
+    queryKey: ["production-report-openings", factoryId, to],
+    enabled: !!factoryId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("production_hall_openings" as never)
+        .select("product_id,quantity,opening_date,products(name)")
+        .eq("factory_id", factoryId!)
+        .lte("opening_date", to);
+      // Before its database update there are none.
+      if (error) return [] as HallOpening[];
+      return (data ?? []) as unknown as HallOpening[];
     },
   });
 
@@ -215,7 +239,20 @@ function ProductionReportPage() {
       return r;
     };
     for (const p of products.data ?? []) row(p.id, p.name);
+    // Each product's latest opening up to the period's end.
+    const opening = new Map<string, HallOpening>();
+    for (const o of openings.data ?? []) {
+      const prev = opening.get(o.product_id);
+      if (!prev || o.opening_date > prev.opening_date) opening.set(o.product_id, o);
+    }
+    for (const o of opening.values())
+      row(o.product_id, o.products?.name ?? "—").opening += Number(o.quantity);
+    const beforeOpening = (id: string, day: string) => {
+      const o = opening.get(id);
+      return !!o && day < o.opening_date;
+    };
     const out = (id: string, name: string, qty: number, day: string, cleared = false) => {
+      if (beforeOpening(id, day)) return;
       const r = row(id, name);
       if (day < from) r.opening -= qty;
       else if (day <= to) {
@@ -226,6 +263,7 @@ function ProductionReportPage() {
     for (const b of batches.data ?? []) {
       const r = row(b.product_id, b.products?.name ?? "—");
       const qty = Number(b.quantity_produced) - Number(b.damaged_quantity ?? 0);
+      if (beforeOpening(b.product_id, b.production_date)) continue;
       if (b.production_date < from) r.opening += qty;
       else r.produced += qty;
       if (ACCEPTED_WHOLE.includes(b.status) && b.confirmed_at)
@@ -252,7 +290,7 @@ function ProductionReportPage() {
         return { ...r, total, balance: total - r.released - r.cleared };
       })
       .sort((a, b) => a.product.localeCompare(b.product));
-  }, [batches.data, releases.data, clearances.data, products.data, from, to]);
+  }, [batches.data, releases.data, clearances.data, openings.data, products.data, from, to]);
 
   const sum = (k: "opening" | "produced" | "total" | "released" | "cleared" | "balance") =>
     rows.reduce((t, r) => t + r[k], 0);
