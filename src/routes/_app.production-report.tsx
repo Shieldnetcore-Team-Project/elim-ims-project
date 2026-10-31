@@ -69,6 +69,7 @@ type Batch = {
   shift: Shift | null;
   confirmed_at: string | null;
   status: string;
+  created_at: string;
   products: { name: string } | null;
 };
 type Release = {
@@ -87,11 +88,13 @@ type Clearance = {
 };
 // A product's hall balance at the start of a day (20261031090000): from that
 // day on it is the Opening, and the batches, releases and clearances before
-// it are history.
+// it are history -- except a batch entered after the opening was recorded,
+// which counts whatever its date (20261031130000).
 type HallOpening = {
   product_id: string;
   quantity: number;
   opening_date: string;
+  created_at: string;
   products: { name: string } | null;
 };
 
@@ -146,7 +149,7 @@ function ProductionReportPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("production_hall_openings" as never)
-        .select("product_id,quantity,opening_date,products(name)")
+        .select("product_id,quantity,opening_date,created_at,products(name)")
         .eq("factory_id", factoryId!)
         .lte("opening_date", to);
       // Before its database update there are none.
@@ -167,7 +170,7 @@ function ProductionReportPage() {
         const { data, error } = await supabase
           .from("production")
           .select(
-            "product_id,quantity_produced,damaged_quantity,production_date,shift,confirmed_at,status,products(name)",
+            "product_id,quantity_produced,damaged_quantity,production_date,shift,confirmed_at,status,created_at,products(name)",
           )
           .eq("factory_id", factoryId!)
           .in("status", LIVE)
@@ -263,7 +266,9 @@ function ProductionReportPage() {
     for (const b of batches.data ?? []) {
       const r = row(b.product_id, b.products?.name ?? "—");
       const qty = Number(b.quantity_produced) - Number(b.damaged_quantity ?? 0);
-      if (beforeOpening(b.product_id, b.production_date)) continue;
+      const o = opening.get(b.product_id);
+      if (beforeOpening(b.product_id, b.production_date) && o && b.created_at <= o.created_at)
+        continue;
       if (b.production_date < from) r.opening += qty;
       else r.produced += qty;
       if (ACCEPTED_WHOLE.includes(b.status) && b.confirmed_at)
