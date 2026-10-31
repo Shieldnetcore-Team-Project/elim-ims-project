@@ -578,6 +578,27 @@ function RepDialog({
 /* ------------------------------------------------------------- Dispatches --- */
 
 type Line = { product_id: string; quantity: number };
+// A marketer's completed return not yet carried into a posting.
+type OpenReturn = {
+  id: string;
+  return_number: string;
+  return_date: string;
+  carried: { status: string } | null;
+  rep_return_items: {
+    product_id: string;
+    quantity_returned: number;
+    accepted_quantity: number | null;
+  }[];
+};
+
+// Lines for the same product added together.
+const mergeLines = (lines: Line[]) => {
+  const byProduct = new Map<string, number>();
+  for (const l of lines)
+    if (l.product_id && l.quantity > 0)
+      byProduct.set(l.product_id, (byProduct.get(l.product_id) ?? 0) + l.quantity);
+  return [...byProduct].map(([product_id, quantity]) => ({ product_id, quantity }));
+};
 
 function DispatchesTab({
   factoryId,
@@ -892,19 +913,52 @@ function NewDispatchDialog({
     carryReturn?.lines.length ? carryReturn.lines : [{ product_id: "", quantity: 0 }],
   );
 
+  // Once a marketer is picked, their returns not yet carried over: the
+  // products are still on the van, so they go on this posting (user,
+  // 2026-10-31). Each can be left out with its tick box.
+  const repKind = reps.find((r) => r.id === repId)?.kind ?? kind;
+  const openReturns = useQuery({
+    queryKey: ["dispatch-open-returns", factoryId, repId],
+    enabled: !!repId && !carryReturn && repKind === "rep",
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("rep_returns")
+        .select(
+          "id,return_number,return_date,carried:stock_dispatches!rep_returns_carried_dispatch_id_fkey(status),rep_return_items(product_id,quantity_returned,accepted_quantity)",
+        )
+        .eq("factory_id", factoryId)
+        .eq("sales_rep_id", repId)
+        .eq("status", "completed")
+        .order("received_at");
+      if (error) throw error;
+      return ((data ?? []) as unknown as OpenReturn[]).filter(
+        (r) => !r.carried || r.carried.status === "reversed",
+      );
+    },
+  });
+  const [skipped, setSkipped] = useState<Set<string>>(new Set());
+  const carried = (openReturns.data ?? []).filter((r) => !skipped.has(r.id));
+  const returnLines = (r: OpenReturn): Line[] =>
+    r.rep_return_items.map((it) => ({
+      product_id: it.product_id,
+      quantity: Number(it.accepted_quantity ?? it.quantity_returned),
+    }));
+  const carriedLines = mergeLines(carried.flatMap(returnLines));
+  const productName = (id: string) => products.find((p) => p.id === id)?.name ?? "—";
+
   const total = useMemo(
     () =>
-      lines.reduce((sum, l) => {
+      [...lines, ...carriedLines].reduce((sum, l) => {
         const p = products.find((x) => x.id === l.product_id);
         return sum + (p ? p.unit_price * (l.quantity || 0) : 0);
       }, 0),
-    [lines, products],
+    [lines, carriedLines, products],
   );
 
   const submit = useMutation({
     mutationFn: async () => {
       if (!repId) throw new Error(`Select a ${holderLabel.toLowerCase()}`);
-      const clean = lines.filter((l) => l.product_id && l.quantity > 0);
+      const clean = mergeLines([...lines, ...carriedLines]);
       if (clean.length === 0) throw new Error("Add at least one product line");
       const { data, error } = await supabase.rpc("create_stock_dispatch", {
         payload: {
@@ -913,6 +967,7 @@ function NewDispatchDialog({
           dispatch_date: date,
           notes: notes || undefined,
           carry_return_id: carryReturn?.id,
+          carry_return_ids: carried.map((r) => r.id),
           items: clean.map((l) => ({ product_id: l.product_id, quantity: l.quantity })),
         } as never,
       });
@@ -941,7 +996,13 @@ function NewDispatchDialog({
           {!fixedRepId && (
             <div>
               <Label>{holderLabel}</Label>
-              <Select value={repId} onValueChange={setRepId}>
+              <Select
+                value={repId}
+                onValueChange={(v) => {
+                  setRepId(v);
+                  setSkipped(new Set());
+                }}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder={`Select ${holderLabel.toLowerCase()}…`} />
                 </SelectTrigger>
@@ -961,8 +1022,51 @@ function NewDispatchDialog({
           </div>
         </div>
 
+        {(openReturns.data?.length ?? 0) > 0 && (
+          <div className="rounded-md border border-primary/40 bg-primary/5 p-3 text-sm">
+            <p className="font-medium">
+              Returns: Products with {reps.find((r) => r.id === repId)?.full_name ?? "the marketer"}{" "}
+              — added to this posting
+            </p>
+            <p className="text-xs text-muted-foreground">
+              What this marketer returned goes back on their supplies with this posting. Untick a
+              return to leave it out.
+            </p>
+            <div className="mt-2 grid gap-2">
+              {openReturns.data!.map((r) => (
+                <label key={r.id} className="flex cursor-pointer items-start gap-2">
+                  <Checkbox
+                    className="mt-0.5"
+                    checked={!skipped.has(r.id)}
+                    onCheckedChange={(on) =>
+                      setSkipped((s) => {
+                        const next = new Set(s);
+                        if (on) next.delete(r.id);
+                        else next.add(r.id);
+                        return next;
+                      })
+                    }
+                  />
+                  <span>
+                    <span className="font-mono text-xs">{r.return_number}</span>
+                    <span className="text-muted-foreground"> · {r.return_date} — </span>
+                    {returnLines(r)
+                      .filter((l) => l.quantity > 0)
+                      .map((l) => `${productName(l.product_id)} × ${num(l.quantity)}`)
+                      .join(", ")}
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div>
-          <Label>Products (warehouse stock shown in brackets)</Label>
+          <Label>
+            {carriedLines.length > 0
+              ? "Extra products (warehouse stock shown in brackets)"
+              : "Products (warehouse stock shown in brackets)"}
+          </Label>
           <LineEditor
             products={products}
             lines={lines}
