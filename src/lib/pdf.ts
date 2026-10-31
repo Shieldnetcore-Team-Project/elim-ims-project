@@ -165,6 +165,10 @@ export type RollReceipt = {
   file_name: string;
   // A footer per copy (see InvoiceData.copy_labels).
   copy_labels?: string[];
+  // Printed like an ESC/POS thermal receipt (the Retail Shop's sale slips):
+  // fixed 48-column Font A body, double-height title, 64-column Font B
+  // Transaction Details. Print only; the PDF keeps the layout above.
+  escpos?: boolean;
 };
 
 export async function generateRollReceiptPdf(
@@ -362,6 +366,7 @@ export async function generateInvoicePdf(
             : undefined,
         file_name: data.invoice_number,
         copy_labels: data.copy_labels,
+        escpos: data.retail,
       },
       action,
       copies,
