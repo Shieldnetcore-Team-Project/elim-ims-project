@@ -81,6 +81,7 @@ import { SHIFT_LABEL, localDay, suggestedEntry, type Shift } from "@/lib/product
 import { PmJugsFromQc } from "@/components/qc/jug-handover";
 import { PmBottlesFromQc } from "@/components/preform/pm-bottles";
 import { ProductionMaterialsReport } from "@/components/production/materials-report";
+import { ProductionStoreIssues } from "@/components/production/store-issues";
 import { ReportActions } from "@/components/shared/report-actions";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -499,7 +500,12 @@ function ProductionPage() {
           <TabsTrigger value="production">Production</TabsTrigger>
           {canSeeBottles && <TabsTrigger value="good-bottles">Good bottles from QC</TabsTrigger>}
           <TabsTrigger value="materials">Process Material</TabsTrigger>
+          <TabsTrigger value="from-store">From Store</TabsTrigger>
         </TabsList>
+        {/* What the Store issued to Production (Store -> Issue Stock). */}
+        <TabsContent value="from-store">
+          {factoryId && <ProductionStoreIssues factoryId={factoryId} />}
+        </TabsContent>
         {canSeeBottles && (
           <TabsContent value="good-bottles">
             {factoryId && <PmBottlesFromQc factoryId={factoryId} showEmpty />}
