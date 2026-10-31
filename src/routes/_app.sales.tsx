@@ -135,6 +135,25 @@ type CartItem = {
   quantity: number;
   unit_price: number;
   stock: number;
+  // Dispenser lines at the shop: what happens to the jar (user, 2026-10-31).
+  jar_mode?: JarMode;
+  // The product's own price, restored when a line stops being Permanent.
+  base_price?: number;
+};
+type JarMode = "swap" | "return_later" | "permanent";
+const JAR_MODE_LABEL: Record<JarMode, string> = {
+  swap: "Swap — empty handed in",
+  return_later: "Return later — empty owed",
+  permanent: "Permanent — jar bought",
+};
+// A product that comes in a jug, with its jug type's prices (jug_products).
+type JugProduct = {
+  product_id: string;
+  container_type_id: string;
+  container_name: string;
+  per_unit: number;
+  jar_price: number | null;
+  with_jar_price: number | null;
 };
 // Full detail needed to re-open a still-pending sale in PosDialog for
 // editing — a superset of SaleRow's list-view fields.
@@ -1871,6 +1890,37 @@ export function PosDialog({
   // while editing but hasn't removed or refilled yet.
   const sellableCart = useMemo(() => cart.filter((c) => c.quantity > 0), [cart]);
 
+  // At the shop, every dispenser line must say what happens to its jar; a
+  // Permanent line is priced from the jug type (the server prices it too).
+  const jugProducts = useQuery({
+    queryKey: ["jug-products", factoryId],
+    enabled: !!factoryId && retailMode,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc(
+        "jug_products" as never,
+        { p_factory: factoryId } as never,
+      );
+      if (error) return [] as JugProduct[];
+      return (data ?? []) as JugProduct[];
+    },
+  });
+  const jugOf = (productId: string) =>
+    retailMode ? jugProducts.data?.find((j) => j.product_id === productId) : undefined;
+  const setJarMode = (id: string, mode: JarMode) => {
+    const jug = jugOf(id);
+    setCart((prev) =>
+      prev.map((c) => {
+        if (c.product_id !== id) return c;
+        const base = c.base_price ?? c.unit_price;
+        const price =
+          mode === "permanent" && jug?.with_jar_price != null
+            ? Number(jug.with_jar_price) * Number(jug.per_unit)
+            : base;
+        return { ...c, jar_mode: mode, base_price: base, unit_price: price };
+      }),
+    );
+  };
+
   // Ticking PR clears anything that implies money changed hands, so the form
   // can't show a half-billed, half-free sale.
   useEffect(() => {
@@ -1944,6 +1994,9 @@ export function PosDialog({
   const submit = useMutation({
     mutationFn: async () => {
       if (sellableCart.length === 0) throw new Error("Cart is empty");
+      const noJarChoice = sellableCart.find((c) => jugOf(c.product_id) && !c.jar_mode);
+      if (noJarChoice)
+        throw new Error(`Choose Swap, Return later or Permanent for ${noJarChoice.name}`);
       const finalCustomer = customerId === "walkin" ? null : customerId;
       let displayName = customerName;
       if (finalCustomer) {
@@ -1968,6 +2021,7 @@ export function PosDialog({
           product_id: c.product_id,
           quantity: c.quantity,
           unit_price: c.unit_price,
+          ...(c.jar_mode ? { jar_mode: c.jar_mode } : {}),
         })),
       };
       if (editingSale) {
@@ -2142,6 +2196,39 @@ export function PosDialog({
                       <div className="text-xs text-muted-foreground">
                         stock {num(c.stock)} {c.unit}
                       </div>
+                      {jugOf(c.product_id) && (
+                        <Select
+                          value={c.jar_mode ?? ""}
+                          onValueChange={(v) => setJarMode(c.product_id, v as JarMode)}
+                        >
+                          <SelectTrigger
+                            className={`mt-1 h-8 text-xs ${c.jar_mode ? "" : "border-destructive"}`}
+                          >
+                            <SelectValue placeholder="Jar: choose…" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(Object.keys(JAR_MODE_LABEL) as JarMode[]).map((m) => (
+                              <SelectItem
+                                key={m}
+                                value={m}
+                                disabled={
+                                  m === "permanent" && jugOf(c.product_id)?.with_jar_price == null
+                                }
+                              >
+                                {JAR_MODE_LABEL[m]}
+                                {m === "permanent" && jugOf(c.product_id)?.with_jar_price != null
+                                  ? ` (${money(Number(jugOf(c.product_id)!.with_jar_price))})`
+                                  : ""}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                      {c.jar_mode === "return_later" && c.quantity > 0 && (
+                        <div className="mt-1 text-xs text-amber-600">
+                          {num(c.quantity)} empty jar{c.quantity === 1 ? "" : "s"} to come back
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell>
                       <MoneyInput
@@ -2157,7 +2244,13 @@ export function PosDialog({
                         value={c.unit_price}
                         onChange={(v) => updatePrice(c.product_id, v)}
                         className="h-8"
+                        disabled={c.jar_mode === "permanent"}
                       />
+                      {c.jar_mode === "permanent" && jugOf(c.product_id)?.jar_price != null && (
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          incl. jar {money(Number(jugOf(c.product_id)!.jar_price))}
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell className="text-right">{money(c.quantity * c.unit_price)}</TableCell>
                     <TableCell>

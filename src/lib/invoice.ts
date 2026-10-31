@@ -73,6 +73,33 @@ export async function fetchSaleLines(saleIds: string[]): Promise<Map<string, Sal
 export const SALE_SLIP_LABELS = ["*** Sales-Rep Copy ***", "*** Customer Copy ***"];
 export const REPRINT_LABEL = "*** Reprint ***";
 
+// What happened to the dispenser jars on a shop sale (user, 2026-10-31), for
+// the receipt: each choice, the jar part of a permanent sale, and how many
+// empties the customer must bring back. Null when no line has a jar choice.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function jarNote(sales: any[]): string | null {
+  const qty = { swap: 0, return_later: 0, permanent: 0 };
+  let jarValue = 0;
+  for (const s of sales)
+    for (const it of s.sale_items ?? []) {
+      const mode = it.jar_mode as keyof typeof qty | null;
+      if (!mode || !(mode in qty)) continue;
+      qty[mode] += Number(it.quantity);
+      jarValue += Number(it.quantity) * Number(it.jar_unit_price ?? 0);
+    }
+  const n = (x: number) => x.toLocaleString("en-US");
+  const parts = [
+    qty.return_later > 0
+      ? `Returnable jar x${n(qty.return_later)}: ${n(qty.return_later)} empty jar${qty.return_later === 1 ? "" : "s"} expected back`
+      : null,
+    qty.permanent > 0
+      ? `Permanent jar sale x${n(qty.permanent)}: jar bought (N${n(jarValue)} incl.), no empty expected`
+      : null,
+    qty.swap > 0 ? `Swap x${n(qty.swap)}: empty jar handed in` : null,
+  ].filter(Boolean);
+  return parts.length ? parts.join(". ") : null;
+}
+
 // Loads a saved sale with its line items and prints/downloads its invoice.
 // Shared by every page that prints a sale so they all produce the same
 // document:
@@ -101,7 +128,9 @@ export async function printSaleInvoice(
   const ids = Array.isArray(saleId) ? saleId : [saleId];
   const { data, error } = await supabase
     .from("sales")
-    .select("*, sale_items(quantity,unit_price,line_total,products(name,unit))")
+    .select(
+      "*, sale_items(quantity,unit_price,line_total,jar_mode,jar_unit_price,products(name,unit))",
+    )
     .in("id", ids);
   if (error) {
     toast.error(error.message);
@@ -171,6 +200,7 @@ export async function printSaleInvoice(
             .join(", ")}`
         : null,
       ...new Set(sales.map((x) => x.remarks as string | null).filter(Boolean)),
+      jarNote(sales),
     ]
       .filter(Boolean)
       .join(". ") || null;

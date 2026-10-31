@@ -101,6 +101,7 @@ export const nav: { section: string; items: NavItem[] }[] = [
             url: "/retail-summary",
             search: { tab: "log" },
           },
+          { label: "Jars", module: "sales", url: "/retail-summary", search: { tab: "jars" } },
           { label: "Sales Returns", module: "sales-returns", url: "/sales-returns" },
         ],
       },
