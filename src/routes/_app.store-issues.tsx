@@ -33,6 +33,7 @@ import { brandDetail } from "@/components/shared/brand-picker";
 import { ReportActions } from "@/components/shared/report-actions";
 import { detectPack, formatBags, packWord, splitBags } from "@/lib/preform-units";
 import { num } from "@/lib/format";
+import { StoreJugs } from "@/components/jugs/store-jugs";
 
 // Store → Issued out: everything the Store issued to other departments,
 // newest first, read from the raw-material ledger:
@@ -48,15 +49,36 @@ export const Route = createFileRoute("/_app/store-issues")({
   head: () => ({
     meta: [{ title: "Issued Out — Elim Table Water" }, { name: "robots", content: "noindex" }],
   }),
+  // ?tab=jugs: Store -> Jugs (receive new jugs, send jugs to QC).
+  validateSearch: (s: Record<string, unknown>): { tab?: string } => ({
+    tab: typeof s.tab === "string" ? s.tab : undefined,
+  }),
   component: () => (
     <>
       <SectionTabs section="Store" />
       <RequireAccess module="raw-materials">
-        <StoreIssuesPage />
+        <StoreIssuesOrJugs />
       </RequireAccess>
     </>
   ),
 });
+
+function StoreIssuesOrJugs() {
+  const { tab } = Route.useSearch();
+  if (tab !== "jugs") return <StoreIssuesPage />;
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Jugs</h1>
+        <p className="text-sm text-muted-foreground">
+          Receive new jugs into the Store and send Old / New Jugs to Quality Control, which counts,
+          verifies and posts the good ones to Production.
+        </p>
+      </div>
+      <StoreJugs />
+    </div>
+  );
+}
 
 type Department = "production" | "quality_control" | "preform_blowing" | "lugbe" | "jos" | "other";
 const DEPARTMENT_LABEL: Record<Department, string> = {

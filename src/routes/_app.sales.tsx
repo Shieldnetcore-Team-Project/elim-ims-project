@@ -63,6 +63,7 @@ import { printSaleInvoice, REPRINT_LABEL, SALE_SLIP_LABELS } from "@/lib/invoice
 import { PrintCopiesButton } from "@/components/shared/print-copies-button";
 import { ReportActions } from "@/components/shared/report-actions";
 import { logAudit } from "@/lib/audit";
+import { useMyProductMatcher } from "@/lib/product-rules";
 import { useRealtimeInvalidate } from "@/lib/realtime";
 import { salePaymentStatus, salePosition, useCustomerAccount } from "@/lib/customer-account";
 import { AccountLedgerTable, AccountStatusBadge } from "@/components/sales/account-ledger";
@@ -139,7 +140,11 @@ type CartItem = {
   jar_mode?: JarMode;
   // The product's own price, restored when a line stops being Permanent.
   base_price?: number;
+  // Line id: the same dispenser can be on two lines at the shop (Water +
+  // Jug, Water only); other lines are keyed by their product.
+  key?: string;
 };
+const lineKey = (c: { key?: string; product_id: string }) => c.key ?? c.product_id;
 type JarMode = "swap" | "return_later" | "permanent";
 const JAR_MODE_LABEL: Record<JarMode, string> = {
   swap: "Swap — empty handed in",
@@ -1835,10 +1840,13 @@ export function PosDialog({
   }, [editingSale, products.data, repStock.isLoading]);
 
   const vatRate = Number(settings.data?.vat_rate ?? 0);
+  // Warehouse postings: only the products this officer handles
+  // (20261101140000); the shop sells everything it holds.
+  const mine = useMyProductMatcher();
   const visibleProducts = useMemo(() => {
-    const all = products.data ?? [];
+    const all = (products.data ?? []).filter((p) => retailMode || mine(p.name));
     return categoryFilter === "all" ? all : all.filter((p) => p.category_id === categoryFilter);
-  }, [products.data, categoryFilter]);
+  }, [products.data, categoryFilter, retailMode, mine]);
 
   const totals = useMemo(() => {
     const subtotal = cart.reduce((s, i) => s + i.quantity * i.unit_price, 0);
@@ -1906,17 +1914,28 @@ export function PosDialog({
   });
   const jugOf = (productId: string) =>
     retailMode ? jugProducts.data?.find((j) => j.product_id === productId) : undefined;
-  const setJarMode = (id: string, mode: JarMode) => {
-    const jug = jugOf(id);
+  // Permanent: jug + water. Swap / Return later: the water only -- jug +
+  // water less the jug (the product's own price is jug + water).
+  const jarPrice = (productId: string, mode: JarMode, base: number) => {
+    const jug = jugOf(productId);
+    const withJar = jug?.with_jar_price != null ? Number(jug.with_jar_price) : null;
+    const jar = jug?.jar_price != null ? Number(jug.jar_price) : null;
+    const per = Number(jug?.per_unit ?? 1);
+    if (withJar == null) return base;
+    if (mode === "permanent") return withJar * per;
+    return jar != null ? (withJar - jar) * per : base;
+  };
+  const setJarMode = (key: string, mode: JarMode) => {
     setCart((prev) =>
       prev.map((c) => {
-        if (c.product_id !== id) return c;
+        if (lineKey(c) !== key) return c;
         const base = c.base_price ?? c.unit_price;
-        const price =
-          mode === "permanent" && jug?.with_jar_price != null
-            ? Number(jug.with_jar_price) * Number(jug.per_unit)
-            : base;
-        return { ...c, jar_mode: mode, base_price: base, unit_price: price };
+        return {
+          ...c,
+          jar_mode: mode,
+          base_price: base,
+          unit_price: jarPrice(c.product_id, mode, base),
+        };
       }),
     );
   };
@@ -1931,16 +1950,18 @@ export function PosDialog({
   }, [isPr]);
 
   const [addingProduct, setAddingProduct] = useState(false);
-  const addProduct = (id: string) => {
-    if (id === ADD_NEW_ITEM) {
+  const addProduct = (value: string) => {
+    if (value === ADD_NEW_ITEM) {
       setAddingProduct(true);
       return;
     }
+    const [id, presetMode] = value.split("::") as [string, JarMode | undefined];
+    const key = presetMode ? value : id;
     const p = products.data?.find((x) => x.id === id);
     if (!p) return;
     const avail = effStock(p);
     setCart((prev) => {
-      const existing = prev.find((c) => c.product_id === id);
+      const existing = prev.find((c) => lineKey(c) === key);
       if (existing) {
         if (existing.quantity + 1 > avail) {
           toast.error(
@@ -1948,7 +1969,7 @@ export function PosDialog({
           );
           return prev;
         }
-        return prev.map((c) => (c.product_id === id ? { ...c, quantity: c.quantity + 1 } : c));
+        return prev.map((c) => (lineKey(c) === key ? { ...c, quantity: c.quantity + 1 } : c));
       }
       if (avail < 1) {
         toast.error(retailMode ? "Not in the shop" : repMode ? "Not on the van" : "Out of stock");
@@ -1963,8 +1984,11 @@ export function PosDialog({
           // Starts empty: the user types the quantity straight in. A line
           // left empty is not sold (sellableCart).
           quantity: 0,
-          unit_price: Number(p.unit_price),
+          unit_price: presetMode
+            ? jarPrice(p.id, presetMode, Number(p.unit_price))
+            : Number(p.unit_price),
           stock: avail,
+          ...(presetMode ? { key, jar_mode: presetMode, base_price: Number(p.unit_price) } : {}),
         },
       ];
     });
@@ -1976,18 +2000,21 @@ export function PosDialog({
   // out from under them mid-edit would yank the input away. Zero-qty lines
   // are excluded where it actually matters (submit, previews, invoice) via
   // sellableCart below; an explicit trash button removes a row outright.
-  const updateQty = (id: string, qty: number) => {
+  const updateQty = (key: string, qty: number) => {
     setCart((prev) =>
       prev.map((c) => {
-        if (c.product_id !== id) return c;
-        const q = Math.max(0, Math.min(qty, c.stock));
+        if (lineKey(c) !== key) return c;
+        const others = prev
+          .filter((x) => x.product_id === c.product_id && lineKey(x) !== key)
+          .reduce((t, x) => t + x.quantity, 0);
+        const q = Math.max(0, Math.min(qty, c.stock - others));
         return { ...c, quantity: q };
       }),
     );
   };
-  const updatePrice = (id: string, price: number) => {
+  const updatePrice = (key: string, price: number) => {
     setCart((prev) =>
-      prev.map((c) => (c.product_id === id ? { ...c, unit_price: Math.max(0, price) } : c)),
+      prev.map((c) => (lineKey(c) === key ? { ...c, unit_price: Math.max(0, price) } : c)),
     );
   };
 
@@ -2136,12 +2163,35 @@ export function PosDialog({
                   <SelectValue placeholder="Select a product to add…" />
                 </SelectTrigger>
                 <SelectContent>
-                  {visibleProducts.map((p) => (
-                    <SelectItem key={p.id} value={p.id} disabled={effStock(p) <= 0}>
-                      {p.name} · {money(Number(p.unit_price))} ·{" "}
-                      {retailMode ? "shop" : repMode ? "van" : "stock"} {num(effStock(p))} {p.unit}
-                    </SelectItem>
-                  ))}
+                  {visibleProducts.flatMap((p) => {
+                    const where = retailMode ? "shop" : repMode ? "van" : "stock";
+                    // At the shop a dispenser is offered as Water + Jug and as
+                    // Water only (the customer hands an empty in).
+                    if (jugOf(p.id)) {
+                      const base = Number(p.unit_price);
+                      return (
+                        [
+                          ["permanent", "Water + Jug"],
+                          ["swap", "Water only (empty jug in)"],
+                        ] as [JarMode, string][]
+                      ).map(([mode, label]) => (
+                        <SelectItem
+                          key={`${p.id}::${mode}`}
+                          value={`${p.id}::${mode}`}
+                          disabled={effStock(p) <= 0}
+                        >
+                          {p.name} — {label} · {money(jarPrice(p.id, mode, base))} · {where}{" "}
+                          {num(effStock(p))} {p.unit}
+                        </SelectItem>
+                      ));
+                    }
+                    return [
+                      <SelectItem key={p.id} value={p.id} disabled={effStock(p) <= 0}>
+                        {p.name} · {money(Number(p.unit_price))} · {where} {num(effStock(p))}{" "}
+                        {p.unit}
+                      </SelectItem>,
+                    ];
+                  })}
                   {visibleProducts.length === 0 && (
                     <div className="px-2 py-4 text-center text-sm text-muted-foreground">
                       No products in this category.
@@ -2190,7 +2240,7 @@ export function PosDialog({
               </TableHeader>
               <TableBody>
                 {cart.map((c) => (
-                  <TableRow key={c.product_id}>
+                  <TableRow key={lineKey(c)}>
                     <TableCell>
                       <div className="font-medium">{c.name}</div>
                       <div className="text-xs text-muted-foreground">
@@ -2199,7 +2249,7 @@ export function PosDialog({
                       {jugOf(c.product_id) && (
                         <Select
                           value={c.jar_mode ?? ""}
-                          onValueChange={(v) => setJarMode(c.product_id, v as JarMode)}
+                          onValueChange={(v) => setJarMode(lineKey(c), v as JarMode)}
                         >
                           <SelectTrigger
                             className={`mt-1 h-8 text-xs ${c.jar_mode ? "" : "border-destructive"}`}
@@ -2235,14 +2285,14 @@ export function PosDialog({
                         min={0}
                         max={c.stock}
                         value={c.quantity}
-                        onChange={(v) => updateQty(c.product_id, v)}
+                        onChange={(v) => updateQty(lineKey(c), v)}
                         className="h-8"
                       />
                     </TableCell>
                     <TableCell>
                       <MoneyInput
                         value={c.unit_price}
-                        onChange={(v) => updatePrice(c.product_id, v)}
+                        onChange={(v) => updatePrice(lineKey(c), v)}
                         className="h-8"
                         disabled={c.jar_mode === "permanent"}
                       />
@@ -2258,7 +2308,7 @@ export function PosDialog({
                         variant="ghost"
                         size="icon"
                         onClick={() =>
-                          setCart((prev) => prev.filter((x) => x.product_id !== c.product_id))
+                          setCart((prev) => prev.filter((x) => lineKey(x) !== lineKey(c)))
                         }
                       >
                         <Trash2 className="h-4 w-4" />

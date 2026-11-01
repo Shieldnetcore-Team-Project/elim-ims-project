@@ -170,6 +170,7 @@ export const nav: { section: string; items: NavItem[] }[] = [
             search: { tab: "issues" },
           },
           { label: "Issued out", module: "raw-materials", url: "/store-issues" },
+          { label: "Jugs", module: "raw-materials", url: "/store-issues", search: { tab: "jugs" } },
           { label: "Brands", module: "raw-materials", url: "/brands" },
         ],
       },

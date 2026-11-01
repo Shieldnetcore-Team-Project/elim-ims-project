@@ -55,7 +55,10 @@ export function WarehouseJugsToQc({ factoryId }: { factoryId: string }) {
   const canSend =
     can("finished-goods", "create") ||
     can("finished-goods", "submit") ||
-    can("distribution", "create");
+    can("distribution", "create") ||
+    // The Store sends jugs too (Store -> Jugs, 20261101090000).
+    can("raw-materials", "create") ||
+    can("raw-materials", "submit");
   useQcJugLive();
   const today = localDay();
   const batches = useQcJugBatches(factoryId, addDays(today, -30), today);

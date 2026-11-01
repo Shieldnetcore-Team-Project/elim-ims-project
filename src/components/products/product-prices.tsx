@@ -1,13 +1,23 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pencil, Plus, Save, Search, Tag } from "lucide-react";
+import { Pencil, Plus, Save, Search, Tag, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { usePermissions } from "@/lib/permissions";
+import { useIsAdmin } from "@/lib/permissions";
 import { money } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { MoneyInput } from "@/components/ui/money-input";
 import {
@@ -30,14 +40,17 @@ type PriceRow = ProductFormProduct;
 // form for everything else about a product.
 export function ProductPricesCard({ factoryId }: { factoryId: string }) {
   const qc = useQueryClient();
-  const { canEdit, canWrite } = usePermissions();
-  const canPrice = canEdit("costing") || canWrite("finished-goods");
-  const canManage = canWrite("finished-goods");
+  // Only the administrator changes products here (user, 2026-11-01); the
+  // database refuses anyone else (20261101110000).
+  const isAdmin = useIsAdmin();
+  const canPrice = isAdmin;
+  const canManage = isAdmin;
   const [q, setQ] = useState("");
   // Prices typed but not saved yet, by product id.
   const [drafts, setDrafts] = useState<Record<string, number>>({});
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<PriceRow | null>(null);
+  const [deleting, setDeleting] = useState<PriceRow | null>(null);
 
   const products = useQuery({
     queryKey: ["product-prices", factoryId],
@@ -108,6 +121,29 @@ export function ProductPricesCard({ factoryId }: { factoryId: string }) {
     ])
       qc.invalidateQueries({ queryKey: [key] });
   };
+
+  // Delete (delete_product, 20261101120000): deleted outright if nothing
+  // refers to it, otherwise taken off every list with its history kept.
+  const remove = useMutation({
+    mutationFn: async (p: PriceRow) => {
+      const { data, error } = await supabase.rpc(
+        "delete_product" as never,
+        { p_id: p.id } as never,
+      );
+      if (error) throw error;
+      return data as unknown as { mode: "deleted" | "deactivated"; name: string };
+    },
+    onSuccess: (r) => {
+      toast.success(
+        r.mode === "deleted"
+          ? `${r.name} deleted`
+          : `${r.name} removed from every list — its past sales and postings keep it`,
+      );
+      setDeleting(null);
+      invalidate();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
 
   const save = useMutation({
     mutationFn: async () => {
@@ -218,6 +254,15 @@ export function ProductPricesCard({ factoryId }: { factoryId: string }) {
                       >
                         <Pencil className="h-4 w-4" />
                       </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title="Delete product"
+                        aria-label="Delete product"
+                        onClick={() => setDeleting(p)}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
                     </TableCell>
                   )}
                 </TableRow>
@@ -242,6 +287,31 @@ export function ProductPricesCard({ factoryId }: { factoryId: string }) {
           </p>
         )}
       </CardContent>
+      <AlertDialog open={!!deleting} onOpenChange={(v) => !v && setDeleting(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {deleting?.name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              It leaves every product list. If it was never sold, posted or produced it is deleted
+              for good; otherwise its past records keep it and an admin can bring it back in
+              Settings → Products. A product still holding stock can&apos;t be deleted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep it</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={remove.isPending}
+              onClick={(e) => {
+                e.preventDefault();
+                if (deleting) remove.mutate(deleting);
+              }}
+            >
+              {remove.isPending ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <Dialog
         open={formOpen}
         onOpenChange={(v) => {

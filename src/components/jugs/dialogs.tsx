@@ -34,6 +34,7 @@ import { CountInput, fmtDateTime } from "@/components/preform/shared";
 import { db, rpc, useUserNames } from "@/components/preform/api";
 import { formatDay } from "@/lib/jug-accountability";
 import { localDay } from "@/lib/production-shift";
+import { useMyProductMatcher } from "@/lib/product-rules";
 import { money, num } from "@/lib/format";
 import {
   ROLE_LABEL,
@@ -75,7 +76,7 @@ const jugTypeRank = (name: string) => {
 
 // ----------------------------------------------------------- record return
 // What the marketer says they brought back. Nothing moves until the
-// Warehouse counts it (Returns tab -> Confirm count).
+// QC counts it (Quality Control -> Old & New Jugs; 20261101100000).
 export function RecordReturnDialog({
   marketers,
   types,
@@ -111,7 +112,7 @@ export function RecordReturnDialog({
         },
       }),
     (r) =>
-      `${(r as { reference: string }).reference} recorded — the Warehouse counts and confirms it`,
+      `${(r as { reference: string }).reference} recorded — hand the jugs to QC, who count and confirm them`,
   );
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -196,13 +197,16 @@ export function ReceiveUnsoldDialog({
   const [notes, setNotes] = useState("");
   const links = useProductLinks(factoryId);
   // Filled dispenser products only; an "Empty jug" product is not a dispenser.
-  const dispenserIds = useMemo(
-    () =>
-      new Set(
-        (links.data?.links ?? []).filter((l) => l.jug_role !== "empty").map((l) => l.product_id),
-      ),
-    [links.data],
-  );
+  // ...and only those this Warehouse officer handles (20261101140000).
+  const mine = useMyProductMatcher();
+  const dispenserIds = useMemo(() => {
+    const names = Object.fromEntries((links.data?.products ?? []).map((p) => [p.id, p.name]));
+    return new Set(
+      (links.data?.links ?? [])
+        .filter((l) => l.jug_role !== "empty" && mine(names[l.product_id] ?? ""))
+        .map((l) => l.product_id),
+    );
+  }, [links.data, mine]);
   const productName = useMemo(
     () => Object.fromEntries((links.data?.products ?? []).map((p) => [p.id, p.name])),
     [links.data],

@@ -60,6 +60,7 @@ import { money, num } from "@/lib/format";
 import { exportCsv } from "@/lib/export";
 import { toast } from "sonner";
 import { logAudit } from "@/lib/audit";
+import { fetchMyProductMatcher } from "@/lib/product-rules";
 import { QuickAddProductDialog, ADD_NEW_ITEM } from "@/components/shared/quick-add-item";
 import { requestDelete } from "@/lib/request-delete";
 import { RequestDeleteDialog } from "@/components/shared/request-delete-dialog";
@@ -219,7 +220,9 @@ function DistributionPage() {
         .eq("product_type", "finished")
         .order("name");
       if (error) throw error;
-      return (data ?? []) as Product[];
+      // Only the products this Warehouse officer handles (20261101140000).
+      const mine = await fetchMyProductMatcher();
+      return ((data ?? []) as Product[]).filter((p) => mine(p.name));
     },
   });
 
@@ -1138,7 +1141,9 @@ function useDispatchPickers(factoryId: string) {
         .eq("product_type", "finished")
         .order("name");
       if (error) throw error;
-      return (data ?? []) as Product[];
+      // Only the products this Warehouse officer handles (20261101140000).
+      const mine = await fetchMyProductMatcher();
+      return ((data ?? []) as Product[]).filter((p) => mine(p.name));
     },
   });
   const vehicles = useQuery({
@@ -2577,6 +2582,9 @@ type AccountSummary = {
   van_stock_value: number;
   sales_count: number;
   sales_value: number;
+  // Empty jugs QC counted back, credited at the jug price (20261101100000).
+  empty_jugs_returned?: number;
+  empty_jugs_value?: number;
   net_balance_owed: number;
 };
 
@@ -2708,6 +2716,7 @@ function AllAccountsCard({
               <TableHead>Marketer / outlet</TableHead>
               <TableHead className="text-right">Goods posted</TableHead>
               <TableHead className="text-right">Returns</TableHead>
+              <TableHead className="text-right">Empty jugs back</TableHead>
               <TableHead className="text-right">Cash remitted</TableHead>
               <TableHead className="text-right">Credit outstanding</TableHead>
               <TableHead className="text-right">Balance owed</TableHead>
@@ -2727,6 +2736,9 @@ function AllAccountsCard({
                 <TableCell className="font-medium">{repLabel(r)}</TableCell>
                 <TableCell className="text-right">{money(s.goods_out_value)}</TableCell>
                 <TableCell className="text-right">{money(s.accepted_returns_value)}</TableCell>
+                <TableCell className="text-right">
+                  {money(Number(s.empty_jugs_value ?? 0))}
+                </TableCell>
                 <TableCell className="text-right">{money(s.cash_remitted)}</TableCell>
                 <TableCell className="text-right">{money(s.credit_outstanding)}</TableCell>
                 <TableCell className="text-right font-medium">
@@ -2741,6 +2753,7 @@ function AllAccountsCard({
                 <TableCell className="text-right">
                   {money(total("accepted_returns_value"))}
                 </TableCell>
+                <TableCell className="text-right">{money(total("empty_jugs_value"))}</TableCell>
                 <TableCell className="text-right">{money(total("cash_remitted"))}</TableCell>
                 <TableCell className="text-right">{money(total("credit_outstanding"))}</TableCell>
                 <TableCell className="text-right">{money(total("net_balance_owed"))}</TableCell>
@@ -2748,7 +2761,7 @@ function AllAccountsCard({
             )}
             {rows.length === 0 && (
               <TableRow>
-                <TableCell colSpan={6} className="py-6 text-center text-muted-foreground">
+                <TableCell colSpan={7} className="py-6 text-center text-muted-foreground">
                   {all.isLoading
                     ? "Loading…"
                     : all.error
@@ -3218,6 +3231,10 @@ export function RepAccountView({
         { label: "Goods out (dispatched value)", value: s.goods_out_value },
         { label: "Less: accepted returns", value: -s.accepted_only_value },
         { label: "Less: damage/rejects written off", value: -s.written_off_value },
+        {
+          label: `Less: empty jugs returned, counted by QC (${num(Number(s.empty_jugs_returned ?? 0))})`,
+          value: -Number(s.empty_jugs_value ?? 0),
+        },
         { label: "Less: cash remitted", value: -s.cash_remitted },
         { label: "Less: customer credit outstanding", value: -s.credit_outstanding },
         {

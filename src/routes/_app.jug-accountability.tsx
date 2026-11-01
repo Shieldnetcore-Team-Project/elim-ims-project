@@ -192,7 +192,8 @@ function JugAccountabilityPage() {
   );
 
   const canRecordReturn = can("distribution", "create") || can("sales", "create");
-  const canVerify = can("distribution", "confirm");
+  // Quality Control counts returned jugs (20261101100000).
+  const canVerify = can("goods-receiving", "submit");
   const canAdjust = can("distribution", "create");
   const canWriteOff = can("distribution", "approve");
   const canSetup = can("distribution", "approve");
@@ -431,7 +432,7 @@ function JugAccountabilityPage() {
           icon={CheckCircle2}
           label="Returned & verified"
           value={num(sumOv("received"))}
-          hint={`${num(sumOv("pending_returns"))} awaiting the Warehouse count`}
+          hint={`${num(sumOv("pending_returns"))} awaiting the QC count`}
         />
         <Stat
           icon={AlertTriangle}

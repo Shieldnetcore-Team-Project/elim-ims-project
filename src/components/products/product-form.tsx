@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { useIsAdmin } from "@/lib/permissions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MoneyInput } from "@/components/ui/money-input";
@@ -54,6 +55,10 @@ export function ProductForm({
   editing: ProductFormProduct | null;
   onDone: () => void;
 }) {
+  // Changing a product is the administrator's (20261101110000); anyone else
+  // sees it read-only.
+  const isAdmin = useIsAdmin();
+  const locked = !!editing && !isAdmin;
   const unitsOfMeasure = useUnitsOfMeasure();
   const unitOptions = unitsOfMeasure.data ?? UNIT_OPTIONS_FALLBACK;
   const [name, setName] = useState(editing?.name ?? "");
@@ -124,26 +129,40 @@ export function ProductForm({
   return (
     <DialogContent>
       <DialogHeader>
-        <DialogTitle>{editing ? "Edit Product" : "Add New Product"}</DialogTitle>
+        <DialogTitle>
+          {editing ? (locked ? "Product" : "Edit Product") : "Add New Product"}
+        </DialogTitle>
       </DialogHeader>
-      <div className="grid gap-3">
+      {locked && (
+        <p className="rounded-md border border-dashed p-2 text-xs text-muted-foreground">
+          Only an administrator can change products — Costing → Product Prices. Changes there show
+          on every page.
+        </p>
+      )}
+      <fieldset disabled={locked} className="grid gap-3">
         <div>
           <Label>Product name</Label>
-          <ProductNameSelect
-            value={name}
-            onChange={(n) => {
-              setName(n);
-              if (isBottleWater(n)) setUnitChoice(packUnitOf(unitOptions));
-              // File it under its category (Bottle / Dispenser / Sachet Water).
-              const cat = categoryForProduct(n);
-              const match =
-                cat && categories.find((c) => c.name.toLowerCase() === cat.toLowerCase());
-              if (match) setCategoryId(match.id);
-              // New product: start from its standard selling price.
-              const price = defaultPriceFor(n);
-              if (!editing && price) setUnitPrice(price);
-            }}
-          />
+          {/* An existing product's name is typed straight in (renamed by the
+              admin, 2026-11-01); a new one starts from the standard list. */}
+          {editing ? (
+            <Input value={name} onChange={(e) => setName(e.target.value)} />
+          ) : (
+            <ProductNameSelect
+              value={name}
+              onChange={(n) => {
+                setName(n);
+                if (isBottleWater(n)) setUnitChoice(packUnitOf(unitOptions));
+                // File it under its category (Bottle / Dispenser / Sachet Water).
+                const cat = categoryForProduct(n);
+                const match =
+                  cat && categories.find((c) => c.name.toLowerCase() === cat.toLowerCase());
+                if (match) setCategoryId(match.id);
+                // New product: start from its standard selling price.
+                const price = defaultPriceFor(n);
+                if (!editing && price) setUnitPrice(price);
+              }}
+            />
+          )}
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -238,9 +257,9 @@ export function ProductForm({
             <MoneyInput min={0} step="0.001" value={reorderLevel} onChange={setReorderLevel} />
           </div>
         </div>
-      </div>
+      </fieldset>
       <DialogFooter>
-        <Button disabled={save.isPending} onClick={() => save.mutate()}>
+        <Button disabled={locked || save.isPending} onClick={() => save.mutate()}>
           {save.isPending ? "Saving…" : editing ? "Save changes" : "Add product"}
         </Button>
       </DialogFooter>

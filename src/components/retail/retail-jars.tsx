@@ -603,8 +603,8 @@ function SendDialog({
           />
         </div>
         <p className="text-xs text-muted-foreground">
-          They stay on the shop until the Warehouse counts them. If fewer arrive, the difference
-          stays on the shop as a shortfall.
+          They stay on the shop until QC counts them. If fewer arrive, the difference stays on the
+          shop as a shortfall.
         </p>
       </div>
       <DialogFooter>

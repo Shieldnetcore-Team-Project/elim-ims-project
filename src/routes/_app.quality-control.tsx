@@ -52,6 +52,7 @@ import { AddMaterialDialog, MaterialCombobox } from "@/components/shared/materia
 import { brandDetail } from "@/components/shared/brand-picker";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { QcJugRegister } from "@/components/qc/jug-register";
+import { QcJugReturnsToCount } from "@/components/qc/jug-returns-to-count";
 import { BottleTrackingPanel } from "@/components/qc/bottle-tracking";
 import { GoodBottlesPanel } from "@/components/qc/good-bottles";
 import { ReceivedFromStorePanel } from "@/components/qc/received-from-store";
@@ -384,7 +385,12 @@ function QualityControlPage() {
           )}
         </TabsContent>
         <TabsContent value="jugs">
-          {factoryId && <QcJugRegister factoryId={factoryId} />}
+          {factoryId && (
+            <div className="space-y-6">
+              <QcJugReturnsToCount factoryId={factoryId} />
+              <QcJugRegister factoryId={factoryId} />
+            </div>
+          )}
         </TabsContent>
         <TabsContent value="inspections" className="space-y-6">
           <div className="grid gap-4 sm:grid-cols-3">

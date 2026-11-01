@@ -314,3 +314,11 @@ export function usePermissions() {
     canSeeMoney: can("finance", "view") || can("payments", "view") || can("debts", "view"),
   };
 }
+
+// Admin or Chairman -- the only ones who may change a product's name, unit,
+// prices, category or type (Costing -> Product Prices; enforced in the
+// database by 20261101110000_products_admin_only_edits.sql).
+export function useIsAdmin(): boolean {
+  const roles = useMyRoles().data ?? [];
+  return roles.some((r) => r === "super_admin" || r === "chairman");
+}

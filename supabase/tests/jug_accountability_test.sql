@@ -32,6 +32,12 @@ INSERT INTO user_roles(user_id, role, factory_id) VALUES
   ('a5000000-0000-0000-0000-000000000004', 'jug_nobody', 'f5000000-0000-0000-0000-000000000001'),
   ('a5000000-0000-0000-0000-000000000005', 'store_officer', 'f5000000-0000-0000-0000-000000000001')
 ON CONFLICT DO NOTHING;
+-- Since 20261101100000 Quality Control counts returned jugs: the two
+-- counters below hold QC's right.
+INSERT INTO permission_overrides(user_id, module, action, granted) VALUES
+  ('a5000000-0000-0000-0000-000000000002', 'goods-receiving', 'submit', true),
+  ('a5000000-0000-0000-0000-000000000005', 'goods-receiving', 'submit', true)
+ON CONFLICT (user_id, module, action) DO UPDATE SET granted = true;
 
 INSERT INTO sales_reps(id, factory_id, code, full_name, status, kind) VALUES
   ('e5000000-0000-0000-0000-000000000001', 'f5000000-0000-0000-0000-000000000001', 'JT-01', 'Test Moniepoint', 'active', 'rep');
@@ -151,7 +157,7 @@ BEGIN
   PERFORM pg_temp.check(e LIKE '%at most 20%', 'pending claims count against what can be claimed');
 
   e := pg_temp.err(format($q$SELECT public.verify_jug_return('%s', 60)$q$, pg_temp.id('ret1')));
-  PERFORM pg_temp.check(e LIKE '%Insufficient%', 'sales cannot confirm a warehouse count');
+  PERFORM pg_temp.check(e LIKE '%Only Quality Control%', 'sales cannot confirm a jug count');
   PERFORM pg_temp.as_user('2');
   e := pg_temp.err(format($q$SELECT public.verify_jug_return('%s', 58)$q$, pg_temp.id('ret1')));
   PERFORM pg_temp.check(e LIKE '%say why%', 'a short count needs a reason');
@@ -176,7 +182,7 @@ BEGIN
   PERFORM pg_temp.check(e LIKE '%Someone other%', 'whoever recorded a return cannot confirm it');
   PERFORM pg_temp.as_user('5');
   e := pg_temp.err(format($q$SELECT public.verify_jug_return('%s', 30, 'found more')$q$, v->>'id'));
-  PERFORM pg_temp.check(e LIKE '%owes only 22%', 'cannot receive more empties than the marketer can owe: ' || COALESCE(e, 'no error'));
+  PERFORM pg_temp.check(e LIKE '%the Warehouse recorded%', 'cannot count more than the Warehouse recorded: ' || COALESCE(e, 'no error'));
   PERFORM pg_temp.as_user('2');
   PERFORM public.cancel_jug_return((v->>'id')::uuid, 'Entered twice');
   PERFORM pg_temp.check((SELECT status FROM jug_returns WHERE id = (v->>'id')::uuid) = 'cancelled', 'cancelled');
