@@ -10,7 +10,9 @@ import {
   hasSlip,
   KIND,
   printWarehouseActivity,
+  scopeToMyProducts,
 } from "@/components/warehouse/activity";
+import { useMyProductMatcher } from "@/lib/product-rules";
 import {
   CorrectDispatchPostingDialog,
   CorrectDistributorPostingDialog,
@@ -86,8 +88,10 @@ export function WarehouseRecentActivity({ factoryId }: { factoryId: string }) {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<Party | null>(null);
   const term = q.trim().toLowerCase();
+  // Only the products this Warehouse officer handles (2026-11-02).
+  const mine = useMyProductMatcher();
   const rows = groupByParty(
-    (activity.data ?? []).filter(
+    scopeToMyProducts(activity.data ?? [], mine).filter(
       (a) =>
         !term ||
         [a.party, a.reference, a.items].some((f) => (f ?? "").toLowerCase().includes(term)),

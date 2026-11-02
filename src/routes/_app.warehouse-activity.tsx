@@ -16,7 +16,9 @@ import {
   hasSlip,
   KIND,
   printWarehouseActivity,
+  scopeToMyProducts,
 } from "@/components/warehouse/activity";
+import { useMyProductMatcher } from "@/lib/product-rules";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -103,7 +105,10 @@ function WarehouseActivityPage() {
     },
   });
 
-  const rows = useMemo(() => {
+  // Printed / exported: every product. On screen: only the products this
+  // Warehouse officer handles (scopeToMyProducts; 2026-11-02).
+  const mine = useMyProductMatcher();
+  const printRows = useMemo(() => {
     const term = q.trim().toLowerCase();
     return (activity.data ?? []).filter(
       (a) =>
@@ -114,6 +119,7 @@ function WarehouseActivityPage() {
           )),
     );
   }, [activity.data, kind, q]);
+  const rows = useMemo(() => scopeToMyProducts(printRows, mine), [printRows, mine]);
 
   // How many of each kind in the range, for the summary chips.
   const counts = useMemo(() => {
@@ -251,7 +257,7 @@ function WarehouseActivityPage() {
               { key: "by", label: "Posted by" },
               { key: "status", label: "Status" },
             ]}
-            rows={rows.map((a) => ({
+            rows={printRows.map((a) => ({
               when: new Date(a.at).toLocaleString(),
               activity: (KIND[a.kind] ?? { label: a.kind }).label,
               reference: a.reference,

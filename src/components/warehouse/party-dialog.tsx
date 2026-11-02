@@ -6,7 +6,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { usePermissions } from "@/lib/permissions";
 import { localDay } from "@/lib/production-shift";
 import { num } from "@/lib/format";
-import { type Activity, KIND } from "@/components/warehouse/activity";
+import { type Activity, KIND, scopeToMyProducts } from "@/components/warehouse/activity";
+import { useMyProductMatcher } from "@/lib/product-rules";
 import { CustomerUnsoldDialog, RecordReturnDialog } from "@/components/jugs/dialogs";
 import { useJugTypes, useMarketers } from "@/components/jugs/api";
 import { Badge } from "@/components/ui/badge";
@@ -57,6 +58,8 @@ export function WarehousePartyDialog({
   const canJugs = perms.can("distribution", "create") || perms.can("sales", "create");
   const [act, setAct] = useState<"products" | "jugs" | null>(null);
   const marketers = useMarketers(factoryId);
+  // Only the products this Warehouse officer handles (2026-11-02).
+  const mine = useMyProductMatcher();
   const types = useJugTypes(factoryId);
 
   const history = useQuery({
@@ -142,11 +145,13 @@ export function WarehousePartyDialog({
                 </p>
               ) : (
                 <div className="flex flex-wrap gap-2">
-                  {(holding.data ?? []).map((h) => (
-                    <Badge key={h.name} variant="secondary" className="text-sm font-normal">
-                      {h.name} × {num(h.quantity)} {h.unit}
-                    </Badge>
-                  ))}
+                  {(holding.data ?? [])
+                    .filter((h) => mine(h.name))
+                    .map((h) => (
+                      <Badge key={h.name} variant="secondary" className="text-sm font-normal">
+                        {h.name} × {num(h.quantity)} {h.unit}
+                      </Badge>
+                    ))}
                 </div>
               )}
             </CardContent>
@@ -168,7 +173,7 @@ export function WarehousePartyDialog({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(history.data ?? []).map((a) => {
+                  {scopeToMyProducts(history.data ?? [], mine).map((a) => {
                     const k = KIND[a.kind] ?? { label: a.kind, variant: "outline" as const };
                     return (
                       <TableRow key={`${a.kind}-${a.reference}`}>
@@ -188,7 +193,7 @@ export function WarehousePartyDialog({
                       </TableRow>
                     );
                   })}
-                  {(history.data ?? []).length === 0 && (
+                  {scopeToMyProducts(history.data ?? [], mine).length === 0 && (
                     <TableRow>
                       <TableCell colSpan={5} className="py-6 text-center text-muted-foreground">
                         {history.isLoading
@@ -263,7 +268,9 @@ function HolderReturnDialog({
       ).map((r) => ({ ...r, quantity: Number(r.quantity) }));
     },
   });
-  const held = stock.data ?? [];
+  // Only the products this officer handles; the database refuses the rest.
+  const mine = useMyProductMatcher();
+  const held = (stock.data ?? []).filter((s) => mine(s.name));
   const items = held
     .map((s) => ({ product_id: s.product_id, quantity_returned: qty[s.product_id] ?? 0 }))
     .filter((i) => i.quantity_returned > 0);

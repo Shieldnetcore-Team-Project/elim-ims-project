@@ -70,3 +70,38 @@ export async function printWarehouseActivity(
   }
   await printSaleInvoice(data.id, settings, "print", "roll", copies);
 }
+
+// Each Warehouse officer sees only the products they handle (user,
+// 2026-11-02: Kemi bottles; Gideon dispensers and sachet) -- on screen.
+// Printed and exported reports keep everything. `items` is "Name × qty, …":
+// the lines for other products are dropped, and a row with none left is
+// hidden. Empty-jug returns belong with the dispensers.
+export function scopeToMyProducts<
+  T extends { kind: string; items: string | null; quantity: number },
+>(rows: T[], mine: (name: string) => boolean): T[] {
+  const jugs = mine("Dispenser Water") || mine("Jug Water");
+  const out: T[] = [];
+  for (const r of rows) {
+    if (r.kind === "jugs_returned") {
+      if (jugs) out.push(r);
+      continue;
+    }
+    if (!r.items) {
+      out.push(r);
+      continue;
+    }
+    const parts = r.items.split(", ");
+    const kept = parts.filter((p) => mine(p.split(" × ")[0]));
+    if (kept.length === 0) continue;
+    if (kept.length === parts.length) {
+      out.push(r);
+      continue;
+    }
+    const qty = kept.reduce(
+      (t, p) => t + (Number((p.split(" × ")[1] ?? "").replace(/[^\d.]/g, "")) || 0),
+      0,
+    );
+    out.push({ ...r, items: kept.join(", "), quantity: qty });
+  }
+  return out;
+}

@@ -190,28 +190,28 @@ td, th { padding: 0.4mm 0; vertical-align: top; word-break: break-word; }
    the 72mm line; the title in Font A at double height; Transaction Details
    in the smaller Font B -- 9 x 17 dots, 1.125mm x 2.125mm. Bold only where a
    printer would emphasise: the title, amount to pay, thanks, copy label. */
-/* Enlarged 2026-11-02 (user: bigger, so it prints clean and clear): body
-   3.4mm, Transaction Details 3mm, title 3.4mm at double height. Same
-   layout and weights as before. */
+/* Enlarged 2026-11-02 (user: bigger, so it prints clean and clear), then
+   again the same day: body 4mm, Transaction Details 3.6mm, headings 3.1mm,
+   title 4mm at double height. Same layout and weights as before. */
 .slip {
   font-family: Consolas, "Lucida Console", "Courier New", Courier, monospace;
-  font-weight: 400; -webkit-text-stroke: 0; font-size: 3.4mm; line-height: 4.2mm;
+  font-weight: 400; -webkit-text-stroke: 0; font-size: 4mm; line-height: 4.8mm;
 }
 .slip .small, .slip .split, .slip .parties, .slip .totals .strong td,
-.slip .thanks, .slip .copy-label { font-size: 3.4mm; line-height: 4.2mm; letter-spacing: 0; }
+.slip .thanks, .slip .copy-label { font-size: 4mm; line-height: 4.8mm; letter-spacing: 0; }
 /* At this size "Marketer/Dist.:" is wider than its column: let labels wrap. */
 .slip .parties tr:first-child td { white-space: normal; }
 .slip .parties .v td, .slip .strong, .slip .thanks, .slip .copy-label {
   font-weight: 700; -webkit-text-stroke: 0;
 }
-.slip .fb, .slip .items { font-size: 3mm; line-height: 3.7mm; }
-.slip .items th { font-size: 2.6mm; line-height: 3.2mm; }
+.slip .fb, .slip .items { font-size: 3.6mm; line-height: 4.3mm; }
+.slip .items th { font-size: 3.1mm; line-height: 3.7mm; }
 .slip h1 {
-  font-size: 3.4mm; line-height: 8.4mm; font-weight: 700; letter-spacing: 0;
+  font-size: 4mm; line-height: 9.6mm; font-weight: 700; letter-spacing: 0;
   -webkit-text-stroke: 0; margin: 2mm 0;
 }
 .slip h1 span {
-  display: inline-block; vertical-align: top; line-height: 4.2mm;
+  display: inline-block; vertical-align: top; line-height: 4.8mm;
   transform: scaleY(2); transform-origin: 50% 0;
 }
 `;
