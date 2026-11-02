@@ -126,24 +126,36 @@ export function RecordReturnDialog({
     (a, b) => jugTypeRank(a.name) - jugTypeRank(b.name) || a.name.localeCompare(b.name),
   );
   const [qty, setQty] = useState<number | null>(null);
+  // More jug types and quantities in one go (user, 2026-11-02): the first
+  // line is typeId / qty above, these are the added ones.
+  const [more, setMore] = useState<{ typeId: string; qty: number | null }[]>([]);
+  const lines = [{ typeId, qty }, ...more];
+  const linesReady = lines.every((l) => l.typeId && l.qty && l.qty > 0);
+  const totalJugs = lines.reduce((t, l) => t + (l.qty ?? 0), 0);
   const [notes, setNotes] = useState("");
   // The day they came back -- today, or an earlier day (user, 2026-11-02).
   const [returnDate, setReturnDate] = useState(localDay());
-  // One key per dialog: a double click records one return.
+  // One key per dialog: a double click records one return (one per line).
   const [clientRef] = useState(() => crypto.randomUUID());
   const save = useJugAction(
-    () =>
-      rpc<{ reference: string }>("record_jug_return", {
-        payload: {
-          client_ref: clientRef,
-          sales_rep_id: holderKind === "rep" ? holderId : undefined,
-          customer_id: holderKind === "customer" ? holderId : undefined,
-          container_type_id: typeId,
-          quantity: qty,
-          notes,
-          return_date: returnDate,
-        },
-      }),
+    async () => {
+      const refs: string[] = [];
+      for (const [i, l] of lines.entries()) {
+        const r = await rpc<{ reference: string }>("record_jug_return", {
+          payload: {
+            client_ref: i === 0 ? clientRef : `${clientRef}-${i}`,
+            sales_rep_id: holderKind === "rep" ? holderId : undefined,
+            customer_id: holderKind === "customer" ? holderId : undefined,
+            container_type_id: l.typeId,
+            quantity: l.qty,
+            notes,
+            return_date: returnDate,
+          },
+        });
+        refs.push(r.reference);
+      }
+      return { reference: refs.join(", ") };
+    },
     (r) =>
       `${(r as { reference: string }).reference} recorded — hand the jugs to QC, who count and confirm them`,
   );
@@ -187,6 +199,12 @@ export function RecordReturnDialog({
               </SelectContent>
             </Select>
           </Field>
+          {holderId && (
+            <LastSuppliedPanel
+              kind={holderKind === "customer" ? "customer" : "marketer"}
+              id={holderId}
+            />
+          )}
           <Field label="Jug type">
             <Select value={typeId} onValueChange={setTypeId}>
               <SelectTrigger>
@@ -212,6 +230,59 @@ export function RecordReturnDialog({
           <Field label="Empty Dispenser Jugs returned">
             <CountInput value={qty} onChange={setQty} placeholder="0" />
           </Field>
+          {more.map((l, i) => (
+            <div key={i} className="flex flex-wrap items-end gap-2">
+              <div className="min-w-0 flex-1">
+                <Field label="Jug type">
+                  <Select
+                    value={l.typeId}
+                    onValueChange={(v) =>
+                      setMore((m) => m.map((x, j) => (j === i ? { ...x, typeId: v } : x)))
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Old or New Dispenser Jug?" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {jugTypes.map((t) => (
+                        <SelectItem key={t.id} value={t.id}>
+                          {t.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+              </div>
+              <div className="w-28">
+                <Field label="Jugs">
+                  <CountInput
+                    value={l.qty}
+                    onChange={(v) =>
+                      setMore((m) => m.map((x, j) => (j === i ? { ...x, qty: v } : x)))
+                    }
+                    placeholder="0"
+                  />
+                </Field>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                title="Remove"
+                onClick={() => setMore((m) => m.filter((_, j) => j !== i))}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          ))}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="w-fit gap-1"
+            onClick={() => setMore((m) => [...m, { typeId: "", qty: null }])}
+          >
+            <Plus className="h-4 w-4" /> Add another jug type
+          </Button>
           <Field label="Notes (optional)">
             <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
           </Field>
@@ -221,11 +292,11 @@ export function RecordReturnDialog({
             Cancel
           </Button>
           <Button
-            disabled={!holderId || !typeId || !qty || save.isPending}
+            disabled={!holderId || !linesReady || save.isPending}
             onClick={() => save.mutate(undefined, { onSuccess: onClose })}
           >
             {save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Record return
+            Record return{totalJugs > 0 ? ` (${num(totalJugs)})` : ""}
           </Button>
         </DialogFooter>
       </DialogContent>

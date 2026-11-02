@@ -86,3 +86,25 @@ BEGIN
          'items', jsonb_build_array(jsonb_build_object('product_id', 'de000000-0000-0000-0000-000000000002', 'quantity', 1))))$q$)
          IS NOT NULL, 'refused without all_products');
 END $$;
+
+-- @@ Test 4: "Dispenser Jug" -- a finished product supplied to customers -- comes back as a dispenser (20261102250000)
+DO $$
+DECLARE r jsonb;
+BEGIN
+  PERFORM set_config('test.uid', 'ae000000-0000-0000-0000-000000000001', false);
+  INSERT INTO products(id, factory_id, name, unit, unit_price, current_stock, product_type) VALUES
+    ('de000000-0000-0000-0000-000000000003', 'fe000000-0000-0000-0000-000000000001', 'Dispenser Jug', 'Piece', 1000, 0, 'finished');
+  INSERT INTO sales(id, factory_id, invoice_number, sale_date, customer_id, customer_name, subtotal, discount, vat,
+                    grand_total, amount_paid, balance, payment_method, status, created_at)
+  VALUES ('5e000000-0000-0000-0000-000000000002', 'fe000000-0000-0000-0000-000000000001', 'CRM-2', CURRENT_DATE,
+          'ce000000-0000-0000-0000-000000000001', 'CRM Distributor', 17000, 0, 0, 17000, 17000, 0, 'cash', 'posted', now());
+  INSERT INTO sale_items(sale_id, product_id, quantity, unit_price, discount, line_total) VALUES
+    ('5e000000-0000-0000-0000-000000000002', 'de000000-0000-0000-0000-000000000003', 17, 1000, 0, 17000);
+  PERFORM pg_temp.check((SELECT returnable FROM public.customer_returnable_dispensers('ce000000-0000-0000-0000-000000000001')
+                          WHERE name = 'Dispenser Jug') = 17, 'listed: 17 can come back');
+  r := public.receive_customer_dispenser_return(jsonb_build_object(
+         'customer_id', 'ce000000-0000-0000-0000-000000000001',
+         'items', jsonb_build_array(jsonb_build_object('product_id', 'de000000-0000-0000-0000-000000000003', 'quantity', 6))));
+  PERFORM pg_temp.check((r->>'value')::numeric = 6000, 'six back: ' || r::text);
+  PERFORM pg_temp.check((SELECT current_stock FROM products WHERE id = 'de000000-0000-0000-0000-000000000003') = 6, 'stock +6');
+END $$;
