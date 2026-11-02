@@ -59,7 +59,12 @@ import {
 import { money, num } from "@/lib/format";
 import { toast } from "sonner";
 import { generateInvoicePdf } from "@/lib/pdf";
-import { printSaleInvoice, REPRINT_LABEL, SALE_SLIP_LABELS } from "@/lib/invoice";
+import {
+  INVOICE_COMPANY_NAME,
+  printSaleInvoice,
+  REPRINT_LABEL,
+  SALE_SLIP_LABELS,
+} from "@/lib/invoice";
 import { PrintCopiesButton } from "@/components/shared/print-copies-button";
 import { ReportActions } from "@/components/shared/report-actions";
 import { logAudit } from "@/lib/audit";
@@ -2110,7 +2115,7 @@ export function PosDialog({
     await generateInvoicePdf(
       {
         company: {
-          name: settings.data?.company_name ?? "Elim Table Water",
+          name: INVOICE_COMPANY_NAME,
           address: settings.data?.address,
           phone: settings.data?.phone,
           email: settings.data?.email,

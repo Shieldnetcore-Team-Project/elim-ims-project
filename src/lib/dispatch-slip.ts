@@ -2,6 +2,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { generateDispatchSlipPdf } from "@/lib/pdf";
 import { generateDistributorInvoicePdf } from "@/lib/distributor-invoice";
+import { INVOICE_COMPANY_NAME } from "@/lib/invoice";
 import type { Database } from "@/integrations/supabase/types";
 
 type Settings = Database["public"]["Tables"]["settings"]["Row"] | null | undefined;
@@ -72,7 +73,7 @@ async function loadDispatch(ref: { id: string } | { number: string }): Promise<D
 }
 
 const companyOf = (settings: Settings) => ({
-  name: settings?.company_name ?? "Elim Table Water",
+  name: INVOICE_COMPANY_NAME,
   address: settings?.address,
   phone: settings?.phone,
   email: settings?.email,

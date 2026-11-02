@@ -87,11 +87,19 @@ export const nav: { section: string; items: NavItem[] }[] = [
     items: [
       {
         title: "Retail",
-        url: "/retail-outlet",
+        // POS first and the default (2026-11-02); All activity next.
+        url: "/sales",
         icon: ShoppingCart,
         modules: ["sales", "sales-returns"],
         tabs: [
           { label: "POS", module: "sales", url: "/sales" },
+          // The shop's whole activity, off the Accountant's feed (2026-11-02).
+          {
+            label: "All activity",
+            module: "sales",
+            url: "/retail-summary",
+            search: { tab: "activity" },
+          },
           { label: "Retail Outlet", module: "sales", url: "/retail-outlet" },
           { label: "Transaction Summary", module: "sales", url: "/retail-summary" },
           {
@@ -101,13 +109,6 @@ export const nav: { section: string; items: NavItem[] }[] = [
             search: { tab: "log" },
           },
           { label: "Jars", module: "sales", url: "/retail-summary", search: { tab: "jars" } },
-          // The shop's whole activity, off the Accountant's feed (2026-11-02).
-          {
-            label: "All activity",
-            module: "sales",
-            url: "/retail-summary",
-            search: { tab: "activity" },
-          },
           { label: "Sales Returns", module: "sales-returns", url: "/sales-returns" },
         ],
       },

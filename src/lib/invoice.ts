@@ -115,6 +115,11 @@ function jarNote(sales: any[]): string | null {
 // lines for the same product at the same price are added together, totals are
 // summed and the remarks list every invoice number covered. The layout and
 // the party come from the earliest sale.
+// The name every invoice prints (user, 2026-11-02), whatever Settings'
+// company name is: sale invoices (A4 and roll), Warehouse posting slips and
+// posting invoices. Reports and statements keep the Settings name.
+export const INVOICE_COMPANY_NAME = "ANIYA PHARMACEUTICAL LTD.";
+
 export async function printSaleInvoice(
   saleId: string | string[],
   settings: Settings,
@@ -207,7 +212,7 @@ export async function printSaleInvoice(
   // A combined invoice is for the day, so it prints the date only.
   const issuedAt = combined ? String(s.sale_date).slice(0, 10) : (s.created_at ?? s.sale_date);
   const company = {
-    name: settings?.company_name ?? "Elim Table Water",
+    name: INVOICE_COMPANY_NAME,
     address: settings?.address,
     phone: settings?.phone,
     email: settings?.email,
