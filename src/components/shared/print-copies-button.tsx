@@ -5,10 +5,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
-// Printer icon for the Warehouse's slim receipts: asks how many copies (1 by
-// default) and prints them all in one go, one after the other, each ending
-// with a "cut here" line (printRollReceipt). Leave the print window's own
-// copies at 1.
+// Printer icon for the Warehouse's and shop's slim receipts: asks how many
+// copies (1 by default) and prints each as its own print job, one after the
+// other, so the printer cuts after every copy (printRollReceipt, 2026-11-02).
+// Leave the print window's own copies at 1.
 export function PrintCopiesButton({
   onPrint,
   title = "Print",

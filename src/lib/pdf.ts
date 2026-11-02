@@ -168,6 +168,9 @@ export type RollReceipt = {
   // Items and quantities only, no prices or totals: a posting slip printed
   // outside Accounts (marketer money is Accounts' only, 2026-11-02).
   quantities_only?: boolean;
+  // The Retail Shop's sale receipt (user, 2026-11-02): type one point
+  // smaller and no extra inch of blank roll at the end.
+  compact?: boolean;
 };
 
 export async function generateRollReceiptPdf(
@@ -376,6 +379,7 @@ export async function generateInvoicePdf(
             : undefined,
         file_name: data.invoice_number,
         copy_labels: data.copy_labels,
+        compact: data.retail,
       },
       action,
       copies,

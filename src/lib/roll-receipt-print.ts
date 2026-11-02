@@ -74,7 +74,7 @@ function receiptHtml(r: RollReceipt, logo: string, label?: string) {
   const row = (label: string, value: string, bold = false) =>
     `<tr class="${bold ? "strong" : ""}"><td>${esc(label)}</td><td class="r">${esc(value)}</td></tr>`;
   return `
-<section class="receipt slip">
+<section class="receipt slip${r.compact ? " compact" : ""}">
   ${logo ? `<img class="logo" src="${esc(logo)}" alt="" />` : ""}
   ${r.company.address ? `<div class="c small">${esc(r.company.address)}</div>` : ""}
   ${r.company.phone ? `<div class="c small">${esc(r.company.phone)}</div>` : ""}
@@ -214,6 +214,17 @@ td, th { padding: 0.4mm 0; vertical-align: top; word-break: break-word; }
   display: inline-block; vertical-align: top; line-height: 4.8mm;
   transform: scaleY(2); transform-origin: 50% 0;
 }
+/* The Retail Shop's sale receipt (user, 2026-11-02): every size one point
+   (0.35mm) smaller so the page fits, line heights in step. */
+.slip.compact { font-size: 3.65mm; line-height: 4.4mm; }
+.slip.compact .small, .slip.compact .split, .slip.compact .parties,
+.slip.compact .totals .strong td, .slip.compact .thanks, .slip.compact .copy-label {
+  font-size: 3.65mm; line-height: 4.4mm;
+}
+.slip.compact .fb, .slip.compact .items { font-size: 3.25mm; line-height: 3.9mm; }
+.slip.compact .items th { font-size: 2.75mm; line-height: 3.3mm; }
+.slip.compact h1 { font-size: 3.65mm; line-height: 8.8mm; }
+.slip.compact h1 span { line-height: 4.4mm; }
 `;
 
 // Each copy is its own print job, one after the other, so the printer cuts
@@ -229,6 +240,7 @@ export async function printRollReceipt(r: RollReceipt, copies = 1) {
       r.file_name,
       () => receiptHtml(r, logo, labels[Math.min(i, labels.length - 1)]),
       1,
+      r.compact ? 0 : EXTRA_LENGTH_MM,
     );
 }
 
@@ -299,7 +311,13 @@ export const rollReceiptDocument = (r: RollReceipt, logo = "") =>
 export const rollReportDocument = (r: RollReport, logo = "") =>
   rollDocument(r.file_name, reportHtml(r, logo));
 
-async function printRoll(fileName: string, copyHtml: (i: number) => string, copies: number) {
+async function printRoll(
+  fileName: string,
+  copyHtml: (i: number) => string,
+  copies: number,
+  // Blank roll after the receipt (none on the shop's compact receipt).
+  extraMm = EXTRA_LENGTH_MM,
+) {
   const n = Math.max(1, Math.floor(copies));
   const html = rollDocument(fileName, Array.from({ length: n }, (_, i) => copyHtml(i)).join(""));
 
@@ -346,7 +364,7 @@ async function printRoll(fileName: string, copyHtml: (i: number) => string, copi
     Math.ceil((receipt?.scrollHeight ?? 0) / pxPerMm) +
     4 +
     (logoPending ? LOGO_MAX_MM : 0) +
-    EXTRA_LENGTH_MM;
+    extraMm;
   const size = doc.createElement("style");
   size.textContent = `@page { size: 80mm ${pageMm}mm; }`;
   doc.head.appendChild(size);
