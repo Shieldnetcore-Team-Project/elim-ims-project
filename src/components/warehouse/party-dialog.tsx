@@ -92,10 +92,15 @@ export function WarehousePartyDialog({
         );
       }
       const { data, error } = await supabase.rpc(
-        "customer_returnable_dispensers" as never,
+        "warehouse_customer_returnable" as never,
         { p_customer: party.id, p_all: true } as never,
       );
-      if (error) throw error;
+      if (error)
+        throw /could not find the function/i.test(error.message)
+          ? new Error(
+              "The Warehouse return update is not in the database yet -- run supabase/migrations/20261102270000_warehouse_customer_returns.sql in the SQL Editor.",
+            )
+          : error;
       return ((data ?? []) as unknown as { name: string; unit: string; returnable: number }[])
         .map((r) => ({ name: r.name, unit: r.unit, quantity: Number(r.returnable) }))
         .filter((r) => r.quantity > 0);

@@ -16,7 +16,13 @@ export const db = supabase as any;
 
 export async function rpc<T = unknown>(fn: string, args: Record<string, unknown>): Promise<T> {
   const { data, error } = await db.rpc(fn, args);
-  if (error) throw error;
+  if (error) {
+    if (fn.startsWith("warehouse_") && /could not find the function/i.test(error.message))
+      throw new Error(
+        "The Warehouse return update is not in the database yet -- run supabase/migrations/20261102270000_warehouse_customer_returns.sql in the SQL Editor.",
+      );
+    throw error;
+  }
   return data as T;
 }
 

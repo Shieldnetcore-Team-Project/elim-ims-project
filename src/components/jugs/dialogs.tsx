@@ -520,7 +520,7 @@ function MarketerUnsoldDialog({
 }
 
 // Unsold dispensers back from any customer -- distributor, a marketer's
-// customer, retail / walk-in (receive_customer_dispenser_return): back into
+// customer, retail / walk-in (warehouse_receive_customer_return, 20261102270000): back into
 // the Warehouse, what they owe comes down first, the rest is their credit.
 // Goods bought from a marketer's van or the shop go back through that
 // marketer's account, so the marketer is credited too.
@@ -611,7 +611,7 @@ export function CustomerUnsoldDialog({
             bought: number;
             returnable: number;
           }[]
-        >("customer_returnable_dispensers", { p_customer: customerId, p_all: allProducts })
+        >("warehouse_customer_returnable", { p_customer: customerId, p_all: allProducts })
       ).map((r) => ({ ...r, bought: Number(r.bought), returnable: Number(r.returnable) })),
   });
   const held = (returnable.data ?? []).filter((r) => r.returnable > 0);
@@ -633,7 +633,7 @@ export function CustomerUnsoldDialog({
 
   const save = useJugAction(
     () =>
-      rpc<{ return_number: string }>("receive_customer_dispenser_return", {
+      rpc<{ return_number: string }>("warehouse_receive_customer_return", {
         payload: {
           customer_id: customerId,
           return_date: returnDate,

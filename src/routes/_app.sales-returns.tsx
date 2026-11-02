@@ -161,7 +161,7 @@ function SalesReturnsPage() {
   const canRetailReturn = canSubmit("sales-returns") || perms.canWrite("sales");
   const [retailOpen, setRetailOpen] = useState(false);
   // A Distributor/Office Delivery customer's return, any product, posted at
-  // once (receive_customer_dispenser_return with all_products; 2026-11-02).
+  // once (warehouse_receive_customer_return with all_products; 2026-11-02).
   const [distributorOpen, setDistributorOpen] = useState(false);
   const [inspectTarget, setInspectTarget] = useState<ReturnRow | null>(null);
   const [detailTarget, setDetailTarget] = useState<ReturnRow | null>(null);
