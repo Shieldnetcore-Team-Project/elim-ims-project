@@ -30,9 +30,9 @@ CREATE OR REPLACE FUNCTION pg_temp.jug(p_name text) RETURNS uuid LANGUAGE sql AS
 -- @@ Test 1: the Water Factory has Old Jug and New Jug, once each
 DO $$
 BEGIN
-  PERFORM pg_temp.check(pg_temp.jug('Old Jug') IS NOT NULL AND pg_temp.jug('New Jug') IS NOT NULL, 'both jug types');
+  PERFORM pg_temp.check(pg_temp.jug('Old Dispenser Jug') IS NOT NULL AND pg_temp.jug('New Dispenser Jug') IS NOT NULL, 'both jug types');
   PERFORM pg_temp.check((SELECT COUNT(*) FROM container_types c JOIN factories f ON f.id = c.factory_id
-                          WHERE f.code = 'water' AND lower(c.name) IN ('old jug', 'new jug')) = 2, 'no duplicates');
+                          WHERE f.code = 'water' AND lower(c.name) IN ('old dispenser jug', 'new dispenser jug')) = 2, 'no duplicates');
 END $$;
 
 -- @@ Test 2: the Warehouse (Store & Warehouse role) records an Old Jug return
@@ -43,10 +43,10 @@ BEGIN
   PERFORM set_config('test.uid', '8a000000-0000-0000-0000-000000000001', false);
   -- The marketer's opening balance: 10 Old Jugs out with them.
   PERFORM public.record_container_movement(jsonb_build_object('factory_id', f,
-    'container_type_id', pg_temp.jug('Old Jug'), 'kind', 'issue', 'holder_type', 'sales_rep',
+    'container_type_id', pg_temp.jug('Old Dispenser Jug'), 'kind', 'issue', 'holder_type', 'sales_rep',
     'holder_id', '8e000000-0000-0000-0000-000000000001', 'quantity', 10, 'notes', 'Opening balance count'));
   v := public.record_jug_return(jsonb_build_object('sales_rep_id', '8e000000-0000-0000-0000-000000000001',
-    'container_type_id', pg_temp.jug('Old Jug'), 'quantity', 4, 'notes', 'Brought back today'));
-  PERFORM pg_temp.check((SELECT container_type_id = pg_temp.jug('Old Jug') AND quantity_claimed = 4 AND status = 'pending'
+    'container_type_id', pg_temp.jug('Old Dispenser Jug'), 'quantity', 4, 'notes', 'Brought back today'));
+  PERFORM pg_temp.check((SELECT container_type_id = pg_temp.jug('Old Dispenser Jug') AND quantity_claimed = 4 AND status = 'pending'
                            FROM jug_returns WHERE id = (v->>'id')::uuid), 'Old Jug return recorded: ' || v::text);
 END $$;

@@ -9,7 +9,10 @@ import { useRealtimeInvalidate } from "@/lib/realtime";
 // (supabase/migrations/20261021100000_qc_jug_register.sql).
 
 export type JugKind = "old" | "new";
-export const KIND_NAME: Record<JugKind, string> = { old: "Old Jug", new: "New Jug" };
+export const KIND_NAME: Record<JugKind, string> = {
+  old: "Old Dispenser Jug",
+  new: "New Dispenser Jug",
+};
 
 export type JugBatch = {
   id: string;

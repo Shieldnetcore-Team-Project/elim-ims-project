@@ -3,8 +3,15 @@
 // last night's batch, it belongs to yesterday; the day shift's output that
 // she records later belongs to today.
 export type Shift = "day" | "night";
+// Production's batches also take Over-Time (user, 2026-11-02): work outside
+// the normal shifts, e.g. Sunday. QC's preform shifts stay Day / Night.
+export type ProductionShift = Shift | "overtime";
 
-export const SHIFT_LABEL: Record<Shift, string> = { day: "Day", night: "Night" };
+export const SHIFT_LABEL: Record<ProductionShift, string> = {
+  day: "Day",
+  night: "Night",
+  overtime: "Over-Time",
+};
 
 // YYYY-MM-DD in the user's own timezone (the factory's working day).
 export const localDay = (d: Date = new Date()) => d.toLocaleDateString("en-CA");

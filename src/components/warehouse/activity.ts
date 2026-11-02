@@ -40,7 +40,7 @@ export const KIND: Record<
   adjusted: { label: "Stock correction", variant: "outline" },
   returned: { label: "Returned to Warehouse", variant: "outline" },
   customer_return: { label: "Customer return", variant: "outline" },
-  jugs_returned: { label: "Empty jugs returned", variant: "outline" },
+  jugs_returned: { label: "Empty Dispenser Jugs returned", variant: "outline" },
 };
 
 // Which activities have a slip to print: postings print their dispatch slip;

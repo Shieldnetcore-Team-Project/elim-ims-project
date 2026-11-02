@@ -126,6 +126,8 @@ export function RecordReturnDialog({
   );
   const [qty, setQty] = useState<number | null>(null);
   const [notes, setNotes] = useState("");
+  // The day they came back -- today, or an earlier day (user, 2026-11-02).
+  const [returnDate, setReturnDate] = useState(localDay());
   // One key per dialog: a double click records one return.
   const [clientRef] = useState(() => crypto.randomUUID());
   const save = useJugAction(
@@ -138,6 +140,7 @@ export function RecordReturnDialog({
           container_type_id: typeId,
           quantity: qty,
           notes,
+          return_date: returnDate,
         },
       }),
     (r) =>
@@ -147,7 +150,7 @@ export function RecordReturnDialog({
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Return empty jugs</DialogTitle>
+          <DialogTitle>Return empty Dispenser Jugs</DialogTitle>
           <DialogDescription>
             What the marketer or customer says they brought back. It counts as &quot;Returned&quot;
             now and reduces Outstanding only when the Warehouse confirms its count.
@@ -186,7 +189,7 @@ export function RecordReturnDialog({
           <Field label="Jug type">
             <Select value={typeId} onValueChange={setTypeId}>
               <SelectTrigger>
-                <SelectValue placeholder="Old Jug or New Jug?" />
+                <SelectValue placeholder="Old or New Dispenser Jug?" />
               </SelectTrigger>
               <SelectContent>
                 {jugTypes.map((t) => (
@@ -197,7 +200,15 @@ export function RecordReturnDialog({
               </SelectContent>
             </Select>
           </Field>
-          <Field label="Empty jugs returned">
+          <Field label="Date returned">
+            <Input
+              type="date"
+              value={returnDate}
+              max={localDay()}
+              onChange={(e) => e.target.value && setReturnDate(e.target.value)}
+            />
+          </Field>
+          <Field label="Empty Dispenser Jugs returned">
             <CountInput value={qty} onChange={setQty} placeholder="0" />
           </Field>
           <Field label="Notes (optional)">
@@ -465,6 +476,7 @@ export function CustomerUnsoldDialog({
   const [customerId, setCustomerId] = useState(presetCustomerId ?? "");
   const [qty, setQty] = useState<Record<string, number | null>>({});
   const [reason, setReason] = useState("");
+  const [returnDate, setReturnDate] = useState(localDay());
   const customers = useQuery({
     queryKey: ["jug", "customers", factoryId, distributorsOnly],
     queryFn: async () => {
@@ -492,6 +504,7 @@ export function CustomerUnsoldDialog({
   const returnable = useQuery({
     queryKey: ["jug", "customer-returnable", customerId, allProducts],
     enabled: !!customerId,
+    retry: false,
     queryFn: async () =>
       (
         await rpc<
@@ -518,7 +531,7 @@ export function CustomerUnsoldDialog({
       rpc<{ return_number: string }>("receive_customer_dispenser_return", {
         payload: {
           customer_id: customerId,
-          return_date: localDay(),
+          return_date: returnDate,
           reason: reason || undefined,
           all_products: allProducts || undefined,
           items,
@@ -620,6 +633,14 @@ export function CustomerUnsoldDialog({
               </TableBody>
             </Table>
           )}
+          <Field label="Date returned">
+            <Input
+              type="date"
+              value={returnDate}
+              max={localDay()}
+              onChange={(e) => e.target.value && setReturnDate(e.target.value)}
+            />
+          </Field>
           <Field label="Reason (optional)">
             <Textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} />
           </Field>

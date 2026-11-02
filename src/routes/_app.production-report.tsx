@@ -9,7 +9,8 @@ import { useRealtimeInvalidate } from "@/lib/realtime";
 import { num } from "@/lib/format";
 import { generateProductionStockReportPdf } from "@/lib/pdf";
 import { exportCsv } from "@/lib/export";
-import { SHIFT_LABEL, type Shift } from "@/lib/production-shift";
+import { useMyProductMatcher } from "@/lib/product-rules";
+import { SHIFT_LABEL, type ProductionShift as Shift } from "@/lib/production-shift";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -297,9 +298,13 @@ function ProductionReportPage() {
       .sort((a, b) => a.product.localeCompare(b.product));
   }, [batches.data, releases.data, clearances.data, openings.data, products.data, from, to]);
 
+  // On screen: only the products this person handles (user, 2026-11-02);
+  // the printed / downloaded report keeps every product.
+  const mine = useMyProductMatcher();
+  const shownRows = rows.filter((r) => mine(r.product));
   const sum = (k: "opening" | "produced" | "total" | "released" | "cleared" | "balance") =>
-    rows.reduce((t, r) => t + r[k], 0);
-  const withCleared = rows.some((r) => r.cleared !== 0);
+    shownRows.reduce((t, r) => t + r[k], 0);
+  const withCleared = shownRows.some((r) => r.cleared !== 0);
 
   const print = (action: "print" | "download") =>
     generateProductionStockReportPdf(
@@ -399,7 +404,7 @@ function ProductionReportPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map((r, i) => (
+              {shownRows.map((r, i) => (
                 <TableRow key={r.product + i}>
                   <TableCell>{i + 1}</TableCell>
                   <TableCell className="font-medium">{r.product}</TableCell>
@@ -415,7 +420,7 @@ function ProductionReportPage() {
                   </TableCell>
                 </TableRow>
               ))}
-              {rows.length === 0 && (
+              {shownRows.length === 0 && (
                 <TableRow>
                   <TableCell
                     colSpan={withCleared ? 8 : 7}
@@ -426,7 +431,7 @@ function ProductionReportPage() {
                 </TableRow>
               )}
             </TableBody>
-            {rows.length > 0 && (
+            {shownRows.length > 0 && (
               <TableFooter>
                 <TableRow>
                   <TableCell colSpan={2}>Total</TableCell>
@@ -451,19 +456,27 @@ function ProductionReportPage() {
       </Card>
 
       <ProductTypeSummary
-        batches={batches.data ?? []}
-        products={products.data ?? []}
+        batches={(batches.data ?? []).filter((b) => mine(b.products?.name ?? ""))}
+        products={(products.data ?? []).filter((p) => mine(p.name))}
         from={from}
         to={to}
       />
 
-      <ShiftBreakdown batches={batches.data ?? []} from={from} to={to} />
+      <ShiftBreakdown batches={batches.data ?? []} from={from} to={to} mine={mine} />
     </div>
   );
 }
 
 type ReportProduct = { id: string; name: string; product_categories: { name: string } | null };
-type TypeRow = { name: string; category: string; night: number; day: number; other: number };
+type TypeRow = {
+  name: string;
+  category: string;
+  night: number;
+  day: number;
+  // Over-Time (e.g. Sunday; 2026-11-02).
+  ot: number;
+  other: number;
+};
 
 // The general record: everything produced in the period, per product, grouped
 // by product type (category: Bottle / Dispenser / Sachet Water), with Night,
@@ -483,12 +496,16 @@ function ProductTypeSummary({
     const catOf = new Map(
       products.map((p) => [p.id, p.product_categories?.name ?? "Uncategorised"]),
     );
-    const byProduct = new Map<
-      string,
-      { name: string; category: string; night: number; day: number; other: number }
-    >();
+    const byProduct = new Map<string, TypeRow>();
     for (const p of products)
-      byProduct.set(p.id, { name: p.name, category: catOf.get(p.id)!, night: 0, day: 0, other: 0 });
+      byProduct.set(p.id, {
+        name: p.name,
+        category: catOf.get(p.id)!,
+        night: 0,
+        day: 0,
+        ot: 0,
+        other: 0,
+      });
     for (const b of batches) {
       if (b.production_date < from || b.production_date > to) continue;
       let r = byProduct.get(b.product_id);
@@ -498,6 +515,7 @@ function ProductTypeSummary({
           category: catOf.get(b.product_id) ?? "Uncategorised",
           night: 0,
           day: 0,
+          ot: 0,
           other: 0,
         };
         byProduct.set(b.product_id, r);
@@ -505,6 +523,7 @@ function ProductTypeSummary({
       const qty = Number(b.quantity_produced) - Number(b.damaged_quantity ?? 0);
       if (b.shift === "night") r.night += qty;
       else if (b.shift === "day") r.day += qty;
+      else if (b.shift === "overtime") r.ot += qty;
       else r.other += qty;
     }
     const cats = new Map<string, TypeRow[]>();
@@ -522,14 +541,21 @@ function ProductTypeSummary({
         items: items.sort((a, b) => a.name.localeCompare(b.name)),
         night: items.reduce((t, r) => t + r.night, 0),
         day: items.reduce((t, r) => t + r.day, 0),
+        ot: items.reduce((t, r) => t + r.ot, 0),
         other: items.reduce((t, r) => t + r.other, 0),
       }));
   }, [batches, products, from, to]);
 
   const showOther = groups.some((g) => g.other > 0);
+  const showOt = groups.some((g) => g.ot > 0);
   const grand = groups.reduce(
-    (t, g) => ({ night: t.night + g.night, day: t.day + g.day, other: t.other + g.other }),
-    { night: 0, day: 0, other: 0 },
+    (t, g) => ({
+      night: t.night + g.night,
+      day: t.day + g.day,
+      ot: t.ot + g.ot,
+      other: t.other + g.other,
+    }),
+    { night: 0, day: 0, ot: 0, other: 0 },
   );
 
   return (
@@ -547,6 +573,7 @@ function ProductTypeSummary({
               <TableHead>Product</TableHead>
               <TableHead className="text-right">Night</TableHead>
               <TableHead className="text-right">Day</TableHead>
+              {showOt && <TableHead className="text-right">Over-Time</TableHead>}
               {showOther && <TableHead className="text-right">No shift</TableHead>}
               <TableHead className="text-right">Total produced</TableHead>
             </TableRow>
@@ -558,11 +585,14 @@ function ProductTypeSummary({
                   <TableCell className="font-semibold">{g.category}</TableCell>
                   <TableCell className="text-right font-semibold">{num(g.night)}</TableCell>
                   <TableCell className="text-right font-semibold">{num(g.day)}</TableCell>
+                  {showOt && (
+                    <TableCell className="text-right font-semibold">{num(g.ot)}</TableCell>
+                  )}
                   {showOther && (
                     <TableCell className="text-right font-semibold">{num(g.other)}</TableCell>
                   )}
                   <TableCell className="text-right font-semibold">
-                    {num(g.night + g.day + g.other)}
+                    {num(g.night + g.day + g.ot + g.other)}
                   </TableCell>
                 </TableRow>
                 {g.items.map((r) => (
@@ -570,10 +600,15 @@ function ProductTypeSummary({
                     <TableCell className="pl-8">{r.name}</TableCell>
                     <TableCell className="text-right">{r.night ? num(r.night) : "—"}</TableCell>
                     <TableCell className="text-right">{r.day ? num(r.day) : "—"}</TableCell>
+                    {showOt && (
+                      <TableCell className="text-right">{r.ot ? num(r.ot) : "—"}</TableCell>
+                    )}
                     {showOther && (
                       <TableCell className="text-right">{r.other ? num(r.other) : "—"}</TableCell>
                     )}
-                    <TableCell className="text-right">{num(r.night + r.day + r.other)}</TableCell>
+                    <TableCell className="text-right">
+                      {num(r.night + r.day + r.ot + r.other)}
+                    </TableCell>
                   </TableRow>
                 ))}
               </Fragment>
@@ -592,9 +627,10 @@ function ProductTypeSummary({
                 <TableCell>All products</TableCell>
                 <TableCell className="text-right">{num(grand.night)}</TableCell>
                 <TableCell className="text-right">{num(grand.day)}</TableCell>
+                {showOt && <TableCell className="text-right">{num(grand.ot)}</TableCell>}
                 {showOther && <TableCell className="text-right">{num(grand.other)}</TableCell>}
                 <TableCell className="text-right">
-                  {num(grand.night + grand.day + grand.other)}
+                  {num(grand.night + grand.day + grand.ot + grand.other)}
                 </TableCell>
               </TableRow>
             </TableFooter>
@@ -611,7 +647,18 @@ const GROUP_LABEL: Record<Group, string> = { day: "Daily", week: "Weekly", month
 // What was produced in the period, per product, split by shift (Day / Night)
 // and grouped by day, week or month. Batches recorded before shifts existed
 // show as "—".
-function ShiftBreakdown({ batches, from, to }: { batches: Batch[]; from: string; to: string }) {
+function ShiftBreakdown({
+  batches,
+  from,
+  to,
+  mine,
+}: {
+  batches: Batch[];
+  from: string;
+  to: string;
+  // On screen: only this person's products; the CSV keeps every product.
+  mine: (name: string) => boolean;
+}) {
   const [group, setGroup] = useState<Group>("day");
 
   const { products, rows, totals } = useMemo(() => {
@@ -638,7 +685,8 @@ function ShiftBreakdown({ batches, from, to }: { batches: Batch[]; from: string;
       r.total += qty;
       totals.set(b.product_id, (totals.get(b.product_id) ?? 0) + qty);
     }
-    const shiftOrder = (s: Shift | null) => (s === "night" ? 0 : s === "day" ? 1 : 2);
+    const shiftOrder = (s: Shift | null) =>
+      s === "night" ? 0 : s === "day" ? 1 : s === "overtime" ? 2 : 3;
     const rows = [...byKey.values()].sort(
       (a, b) => a.period.localeCompare(b.period) || shiftOrder(a.shift) - shiftOrder(b.shift),
     );
@@ -663,7 +711,11 @@ function ShiftBreakdown({ batches, from, to }: { batches: Batch[]; from: string;
             year: "numeric",
           });
 
-  const grand = rows.reduce((t, r) => t + r.total, 0);
+  const shownProducts = products.filter((p) => mine(p.name));
+  const shownRows = rows
+    .map((r) => ({ ...r, total: shownProducts.reduce((t, p) => t + (r.qty.get(p.id) ?? 0), 0) }))
+    .filter((r) => r.total !== 0 || shownProducts.length === products.length);
+  const shownGrand = shownRows.reduce((t, r) => t + r.total, 0);
 
   const download = () =>
     exportCsv(
@@ -688,7 +740,7 @@ function ShiftBreakdown({ batches, from, to }: { batches: Batch[]; from: string;
         <div>
           <CardTitle className="text-base">Produced by shift</CardTitle>
           <p className="mt-1 text-sm text-muted-foreground">
-            Every product produced from {from} to {to}, by Night and Day shift.
+            Every product produced from {from} to {to}, by Night, Day and Over-Time shift.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -721,7 +773,7 @@ function ShiftBreakdown({ batches, from, to }: { batches: Batch[]; from: string;
                 {group === "day" ? "Date" : group === "week" ? "Week" : "Month"}
               </TableHead>
               <TableHead>Shift</TableHead>
-              {products.map((p) => (
+              {shownProducts.map((p) => (
                 <TableHead key={p.id} className="text-right">
                   {p.name}
                 </TableHead>
@@ -730,11 +782,11 @@ function ShiftBreakdown({ batches, from, to }: { batches: Batch[]; from: string;
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.map((r) => (
+            {shownRows.map((r) => (
               <TableRow key={`${r.period}|${r.shift ?? ""}`}>
                 <TableCell className="whitespace-nowrap">{periodLabel(r.period)}</TableCell>
                 <TableCell>{r.shift ? SHIFT_LABEL[r.shift] : "—"}</TableCell>
-                {products.map((p) => (
+                {shownProducts.map((p) => (
                   <TableCell key={p.id} className="text-right">
                     {r.qty.get(p.id) ? num(r.qty.get(p.id)!) : "—"}
                   </TableCell>
@@ -742,10 +794,10 @@ function ShiftBreakdown({ batches, from, to }: { batches: Batch[]; from: string;
                 <TableCell className="text-right font-semibold">{num(r.total)}</TableCell>
               </TableRow>
             ))}
-            {rows.length === 0 && (
+            {shownRows.length === 0 && (
               <TableRow>
                 <TableCell
-                  colSpan={products.length + 3}
+                  colSpan={shownProducts.length + 3}
                   className="py-8 text-center text-muted-foreground"
                 >
                   Nothing produced in this period.
@@ -753,16 +805,16 @@ function ShiftBreakdown({ batches, from, to }: { batches: Batch[]; from: string;
               </TableRow>
             )}
           </TableBody>
-          {rows.length > 0 && (
+          {shownRows.length > 0 && (
             <TableFooter>
               <TableRow>
                 <TableCell colSpan={2}>Total</TableCell>
-                {products.map((p) => (
+                {shownProducts.map((p) => (
                   <TableCell key={p.id} className="text-right">
                     {num(totals.get(p.id) ?? 0)}
                   </TableCell>
                 ))}
-                <TableCell className="text-right">{num(grand)}</TableCell>
+                <TableCell className="text-right">{num(shownGrand)}</TableCell>
               </TableRow>
             </TableFooter>
           )}

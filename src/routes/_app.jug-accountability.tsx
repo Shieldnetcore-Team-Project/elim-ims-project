@@ -475,7 +475,7 @@ function JugAccountabilityPage() {
                     onClick={() => setDialog({ kind: "return" })}
                     disabled={noJugs}
                   >
-                    <Undo2 className="h-4 w-4" /> Return empty jugs
+                    <Undo2 className="h-4 w-4" /> Return empty Dispenser Jugs
                   </Button>
                 )}
                 {canAdjust && (
@@ -733,7 +733,7 @@ function JugsPanel({
         <div className="flex flex-wrap justify-end gap-2">
           {onReturnEmpty && (
             <Button className="gap-2" onClick={onReturnEmpty}>
-              <Undo2 className="h-4 w-4" /> Return empty jugs
+              <Undo2 className="h-4 w-4" /> Return empty Dispenser Jugs
             </Button>
           )}
           {onReceiveNew && (
@@ -923,7 +923,7 @@ function ReturnsPanel({
         </div>
         {canRecord && (
           <Button className="gap-2" onClick={onRecord}>
-            <Plus className="h-4 w-4" /> Return empty jugs
+            <Plus className="h-4 w-4" /> Return empty Dispenser Jugs
           </Button>
         )}
       </CardHeader>

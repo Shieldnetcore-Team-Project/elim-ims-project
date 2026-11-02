@@ -77,12 +77,18 @@ import {
   defaultUnitFor,
 } from "@/lib/units";
 import { QuickAddProductDialog, ADD_NEW_ITEM } from "@/components/shared/quick-add-item";
-import { SHIFT_LABEL, localDay, suggestedEntry, type Shift } from "@/lib/production-shift";
+import {
+  SHIFT_LABEL,
+  localDay,
+  suggestedEntry,
+  type ProductionShift as Shift,
+} from "@/lib/production-shift";
 import { PmJugsFromQc } from "@/components/qc/jug-handover";
 import { PmBottlesFromQc } from "@/components/preform/pm-bottles";
 import { ProductionMaterialsReport } from "@/components/production/materials-report";
 import { ProductionStoreIssues } from "@/components/production/store-issues";
 import { ReportActions } from "@/components/shared/report-actions";
+import { useMyProductMatcher } from "@/lib/product-rules";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export const Route = createFileRoute("/_app/production")({
@@ -259,6 +265,12 @@ function ProductionPage() {
     },
   });
 
+  // Each person sees only the products they handle (user, 2026-11-02: the
+  // bottle production manager doesn't see dispensers or sachet); printed and
+  // exported reports keep every product.
+  const mine = useMyProductMatcher();
+  const myProducts = (products.data ?? []).filter((p) => mine(p.name));
+
   const list = useQuery({
     queryKey: ["production-list", factoryId],
     enabled: !!factoryId,
@@ -275,6 +287,8 @@ function ProductionPage() {
       return (data ?? []) as unknown as ProductionRow[];
     },
   });
+
+  const shownList = (list.data ?? []).filter((r) => mine(r.products?.name ?? ""));
 
   const eligibleRequests = useQuery({
     queryKey: ["eligible-production-requests", factoryId],
@@ -428,7 +442,7 @@ function ProductionPage() {
               {sheetOpen && factoryId && (
                 <DailyProductionSheet
                   factoryId={factoryId}
-                  products={products.data ?? []}
+                  products={myProducts}
                   recorded={list.data ?? []}
                   onDone={() => {
                     setSheetOpen(false);
@@ -465,7 +479,7 @@ function ProductionPage() {
                   <ProductionForm
                     key={editing?.id ?? "new"}
                     factoryId={factoryId}
-                    products={products.data ?? []}
+                    products={myProducts}
                     eligibleRequests={eligibleRequests.data ?? []}
                     editing={editing}
                     onDone={() => {
@@ -611,7 +625,7 @@ function ProductionPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(list.data ?? []).map((row) => (
+                  {shownList.map((row) => (
                     <TableRow key={row.id}>
                       <TableCell className="font-mono text-xs">{row.production_number}</TableCell>
                       <TableCell className="whitespace-nowrap">
@@ -726,7 +740,7 @@ function ProductionPage() {
                       </TableCell>
                     </TableRow>
                   ))}
-                  {(list.data ?? []).length === 0 && (
+                  {shownList.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={11} className="text-center text-muted-foreground py-8">
                         No production runs yet.
@@ -871,7 +885,7 @@ function DailyProductionSheet({
             production_date: date,
             shift,
             supervisor: supervisor || null,
-            batch_number: `${batch}-${shift === "night" ? "N" : "D"}`,
+            batch_number: `${batch}-${shift === "night" ? "N" : shift === "overtime" ? "OT" : "D"}`,
             remarks: remarks || null,
           } as never,
         });
@@ -912,6 +926,7 @@ function DailyProductionSheet({
               <SelectContent>
                 <SelectItem value="day">Day</SelectItem>
                 <SelectItem value="night">Night</SelectItem>
+                <SelectItem value="overtime">Over-Time (e.g. Sunday)</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -1179,7 +1194,7 @@ function ProductionForm({
   const save = useMutation({
     mutationFn: async () => {
       if (!productId) throw new Error("Select a finished product");
-      if (!shift) throw new Error("Select the shift — Day or Night");
+      if (!shift) throw new Error("Select the shift — Day, Night or Over-Time");
       if (quantity <= 0) throw new Error("Quantity must be greater than 0");
       if (editing) {
         const { error } = await supabase.rpc("update_production", {
@@ -1267,6 +1282,7 @@ function ProductionForm({
               <SelectContent>
                 <SelectItem value="day">Day</SelectItem>
                 <SelectItem value="night">Night</SelectItem>
+                <SelectItem value="overtime">Over-Time (e.g. Sunday)</SelectItem>
               </SelectContent>
             </Select>
           </div>

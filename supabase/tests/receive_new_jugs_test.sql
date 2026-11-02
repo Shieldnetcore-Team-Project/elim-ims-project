@@ -36,7 +36,7 @@ DECLARE f uuid; v uuid; m container_movements%ROWTYPE;
 BEGIN
   SELECT id INTO f FROM factories WHERE code = 'water';
   PERFORM set_config('test.uid', '8b000000-0000-0000-0000-000000000001', false);
-  v := public.receive_new_jugs(f, pg_temp.jug('New Jug'), 50, '  DN-0457 ', 'From supplier');
+  v := public.receive_new_jugs(f, pg_temp.jug('New Dispenser Jug'), 50, '  DN-0457 ', 'From supplier');
   SELECT * INTO m FROM container_movements WHERE id = v;
   PERFORM pg_temp.check(m.source = 'purchase' AND m.from_type = 'external' AND m.to_type = 'warehouse'
                         AND m.quantity = 50 AND m.reference = 'DN-0457' AND m.notes = 'From supplier'
@@ -50,15 +50,15 @@ DECLARE f uuid; e text; other uuid;
 BEGIN
   SELECT id INTO f FROM factories WHERE code = 'water';
   PERFORM set_config('test.uid', '8b000000-0000-0000-0000-000000000002', false);
-  e := pg_temp.err(format('SELECT public.receive_new_jugs(%L, %L, 5, %L)', f, pg_temp.jug('New Jug'), 'DN-1'));
+  e := pg_temp.err(format('SELECT public.receive_new_jugs(%L, %L, 5, %L)', f, pg_temp.jug('New Dispenser Jug'), 'DN-1'));
   PERFORM pg_temp.check(e LIKE '%Insufficient permissions%', 'no rights: ' || COALESCE(e, 'none'));
 
   PERFORM set_config('test.uid', '8b000000-0000-0000-0000-000000000001', false);
-  e := pg_temp.err(format('SELECT public.receive_new_jugs(%L, %L, 0, %L)', f, pg_temp.jug('New Jug'), 'DN-1'));
+  e := pg_temp.err(format('SELECT public.receive_new_jugs(%L, %L, 0, %L)', f, pg_temp.jug('New Dispenser Jug'), 'DN-1'));
   PERFORM pg_temp.check(e LIKE '%whole number%', 'zero: ' || COALESCE(e, 'none'));
-  e := pg_temp.err(format('SELECT public.receive_new_jugs(%L, %L, 2.5, %L)', f, pg_temp.jug('New Jug'), 'DN-1'));
+  e := pg_temp.err(format('SELECT public.receive_new_jugs(%L, %L, 2.5, %L)', f, pg_temp.jug('New Dispenser Jug'), 'DN-1'));
   PERFORM pg_temp.check(e LIKE '%whole number%', 'fraction: ' || COALESCE(e, 'none'));
-  e := pg_temp.err(format('SELECT public.receive_new_jugs(%L, %L, 5, %L)', f, pg_temp.jug('New Jug'), ' '));
+  e := pg_temp.err(format('SELECT public.receive_new_jugs(%L, %L, 5, %L)', f, pg_temp.jug('New Dispenser Jug'), ' '));
   PERFORM pg_temp.check(e LIKE '%delivery note%', 'no reference: ' || COALESCE(e, 'none'));
 
   SELECT c.id INTO other FROM container_types c WHERE c.factory_id <> f LIMIT 1;

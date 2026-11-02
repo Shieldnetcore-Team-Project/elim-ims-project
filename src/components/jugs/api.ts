@@ -332,6 +332,11 @@ export function useJugAction<A>(
         ["container-balances"],
         ["container-movements"],
         ["product-containers"],
+        // The Warehouse's transactions and party window (2026-11-02).
+        ["warehouse-transactions"],
+        ["warehouse-party"],
+        ["warehouse-party-holding"],
+        ["sales-returns-list"],
       ])
         qc.invalidateQueries({ queryKey: key });
     },

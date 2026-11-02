@@ -64,6 +64,7 @@ export function WarehousePartyDialog({
 
   const history = useQuery({
     queryKey: ["warehouse-party", party.id],
+    retry: false,
     queryFn: async () => {
       const { data, error } = await supabase.rpc(
         "warehouse_transactions" as never,
@@ -77,6 +78,7 @@ export function WarehousePartyDialog({
   // bought that can still come back.
   const holding = useQuery({
     queryKey: ["warehouse-party-holding", party.id],
+    retry: false,
     queryFn: async () => {
       if (holder) {
         const { data, error } = await supabase.rpc(
@@ -127,7 +129,7 @@ export function WarehousePartyDialog({
             )}
             {canJugs && (types.data ?? []).length > 0 && (
               <Button variant="outline" className="gap-2" onClick={() => setAct("jugs")}>
-                <Undo2 className="h-4 w-4" /> Return empty jugs
+                <Undo2 className="h-4 w-4" /> Return empty Dispenser Jugs
               </Button>
             )}
           </div>
@@ -141,7 +143,11 @@ export function WarehousePartyDialog({
             <CardContent>
               {(holding.data ?? []).length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  {holding.isLoading ? "Loading…" : "Nothing."}
+                  {holding.isLoading
+                    ? "Loading…"
+                    : holding.isError
+                      ? (holding.error as Error).message
+                      : "Nothing."}
                 </p>
               ) : (
                 <div className="flex flex-wrap gap-2">
