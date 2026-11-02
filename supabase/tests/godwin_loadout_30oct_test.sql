@@ -69,7 +69,7 @@ BEGIN
                         AND (SELECT count(*) FROM rep_returns WHERE sales_rep_id = g) = 1, 'nothing twice');
 END $$;
 
--- @@ Test 3: the return is reopened, shows for his next posting, and carrying it nets the Warehouse to zero
+-- @@ Test 3: the return is reopened with no stock change (like Malla); the next posting carries it out
 DO $$
 DECLARE g uuid := (SELECT v FROM ids WHERE k = 'godwin');
   p50 uuid := (SELECT v FROM ids WHERE k = '50'); p75 uuid := (SELECT v FROM ids WHERE k = '75');
@@ -79,9 +79,21 @@ BEGIN
   PERFORM public._godwin_30oct_return_open();  -- twice: no double stock
   ret := (SELECT id FROM rep_returns WHERE sales_rep_id = g AND status = 'completed' AND carried_dispatch_id IS NULL);
   PERFORM pg_temp.check(ret IS NOT NULL, 'open for his next posting');
-  PERFORM pg_temp.check((SELECT p.current_stock - wh.current_stock FROM products p JOIN wh ON wh.id = p.id WHERE p.id = p50) = 16
-                        AND (SELECT p.current_stock - wh.current_stock FROM products p JOIN wh ON wh.id = p.id WHERE p.id = p75) = 4,
-                        'returned goods back in the Warehouse once');
+  PERFORM pg_temp.check(NOT EXISTS (SELECT 1 FROM products p JOIN wh ON wh.id = p.id WHERE p.current_stock <> wh.current_stock),
+                        'reopening leaves Warehouse stock alone');
+  -- Where the first version of 20261102110000 had put the packs back in
+  -- stock, 20261102180000 takes them out again.
+  INSERT INTO inventory_movements(factory_id, product_id, movement_type, quantity, reference, reason)
+  SELECT r.factory_id, i.product_id, 'return_from_rep', i.accepted_quantity, r.return_number, 'old version'
+    FROM rep_returns r JOIN rep_return_items i ON i.rep_return_id = r.id WHERE r.id = ret;
+  UPDATE products p SET current_stock = p.current_stock + i.accepted_quantity
+    FROM rep_return_items i WHERE i.rep_return_id = ret AND i.product_id = p.id;
+  PERFORM public._godwin_30oct_return_no_stock();
+  PERFORM public._godwin_30oct_return_no_stock();  -- twice: taken back once
+  PERFORM pg_temp.check(NOT EXISTS (SELECT 1 FROM products p JOIN wh ON wh.id = p.id WHERE p.current_stock <> wh.current_stock)
+                        AND NOT EXISTS (SELECT 1 FROM inventory_movements m JOIN rep_returns r ON r.return_number = m.reference
+                                         WHERE r.id = ret), 'old stock lines undone');
+  PERFORM pg_temp.check((SELECT carried_dispatch_id FROM rep_returns WHERE id = ret) IS NULL, 'still open');
   -- The next posting carries it (as the form does): 75cl 10 extra.
   INSERT INTO user_roles(user_id, role, factory_id)
   SELECT '90300000-0000-0000-0000-000000000001', 'super_admin', id FROM factories WHERE code = 'water'
@@ -93,9 +105,25 @@ BEGIN
          'items', jsonb_build_array(jsonb_build_object('product_id', p50, 'quantity', 16),
                                     jsonb_build_object('product_id', p75, 'quantity', 14))));
   PERFORM pg_temp.check((SELECT carried_dispatch_id FROM rep_returns WHERE id = ret) = (d->>'id')::uuid, 'carried');
-  PERFORM pg_temp.check((SELECT p.current_stock - wh.current_stock FROM products p JOIN wh ON wh.id = p.id WHERE p.id = p50) = 0
-                        AND (SELECT p.current_stock - wh.current_stock FROM products p JOIN wh ON wh.id = p.id WHERE p.id = p75) = -10,
-                        'Warehouse: return nets to zero, only the 10 extra 75cl left');
+  PERFORM pg_temp.check((SELECT p.current_stock - wh.current_stock FROM products p JOIN wh ON wh.id = p.id WHERE p.id = p50) = -16
+                        AND (SELECT p.current_stock - wh.current_stock FROM products p JOIN wh ON wh.id = p.id WHERE p.id = p75) = -14,
+                        'Warehouse: the carried packs and the 10 extra 75cl leave on the posting');
   PERFORM pg_temp.check((SELECT quantity FROM rep_stock WHERE sales_rep_id = g AND product_id = p50) = 116
                         AND (SELECT quantity FROM rep_stock WHERE sales_rep_id = g AND product_id = p75) = 425, 'van');
+END $$;
+
+-- @@ Test 4: the old system's prices brought forward (20261102170000)
+DO $$
+DECLARE g uuid := (SELECT v FROM ids WHERE k = 'godwin');
+BEGIN
+  PERFORM public._godwin_30oct_bbf_prices();
+  PERFORM public._godwin_30oct_bbf_prices();  -- twice: same result
+  PERFORM pg_temp.check((SELECT array_agg(total_value ORDER BY total_value) FROM stock_dispatches
+                          WHERE sales_rep_id = g AND dispatch_date = '2026-10-30')
+                        = ARRAY[42400, 102000, 340000, 520000]::numeric[], 'load-out totals');
+  PERFORM pg_temp.check((SELECT sum(i.quantity_returned * i.unit_price) FROM rep_return_items i
+                          JOIN rep_returns r ON r.id = i.rep_return_id
+                          WHERE r.sales_rep_id = g AND r.return_date = '2026-10-30') = 49200, 'return value');
+  PERFORM pg_temp.check((SELECT count(*) FROM stock_dispatches WHERE sales_rep_id = g AND dispatch_date = '2026-10-30'
+                          AND notes LIKE 'Balance brought forward from the old system%') = 4, 'noted as b/f');
 END $$;
