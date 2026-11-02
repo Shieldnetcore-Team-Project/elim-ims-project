@@ -48,10 +48,22 @@ END;
 $$;
 
 -- A dispenser: a product carrying a jug that isn't the empty jug itself.
+-- A database without jug tracking (no product_containers -- the live one
+-- lacked 20260928140000): by name, "Dispenser" / "Jug Water" but not the
+-- empty Dispenser Jug. plpgsql, so it is created either way.
 CREATE OR REPLACE FUNCTION public._is_dispenser_product(p_product uuid)
-RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
-  SELECT EXISTS (SELECT 1 FROM product_containers pc
-                  WHERE pc.product_id = p_product AND pc.jug_role IS DISTINCT FROM 'empty');
+RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_found boolean;
+BEGIN
+  IF to_regclass('public.product_containers') IS NOT NULL THEN
+    EXECUTE 'SELECT EXISTS (SELECT 1 FROM product_containers pc
+                             WHERE pc.product_id = $1 AND pc.jug_role IS DISTINCT FROM ''empty'')'
+       INTO v_found USING p_product;
+    RETURN v_found;
+  END IF;
+  RETURN EXISTS (SELECT 1 FROM products p WHERE p.id = p_product
+                    AND p.name ~* '(dispenser|jug water)' AND p.name !~* 'dispenser jug\s*$');
+END;
 $$;
 REVOKE ALL ON FUNCTION public._is_dispenser_product(uuid) FROM PUBLIC, anon, authenticated;
 

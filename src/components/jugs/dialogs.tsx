@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, Plus, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -36,6 +36,7 @@ import { CountInput, fmtDateTime } from "@/components/preform/shared";
 import { db, rpc, useUserNames } from "@/components/preform/api";
 import { formatDay } from "@/lib/jug-accountability";
 import { localDay } from "@/lib/production-shift";
+import { LastSuppliedPanel } from "@/components/warehouse/last-supplied";
 import { useMyProductMatcher } from "@/lib/product-rules";
 import { money, num } from "@/lib/format";
 import { usePermissions } from "@/lib/permissions";
@@ -383,6 +384,7 @@ function MarketerUnsoldDialog({
               </SelectContent>
             </Select>
           </Field>
+          {repId && <LastSuppliedPanel kind="marketer" id={repId} />}
           {repId && (
             <Table>
               <TableHeader>
@@ -477,6 +479,29 @@ export function CustomerUnsoldDialog({
   const [qty, setQty] = useState<Record<string, number | null>>({});
   const [reason, setReason] = useState("");
   const [returnDate, setReturnDate] = useState(localDay());
+  // Products typed in by hand (Distributor/Office Delivery, 2026-11-02): any
+  // finished product and quantity, also goods not bought in this system.
+  const [manual, setManual] = useState<{ product_id: string; quantity: number }[]>([]);
+  const [addProduct, setAddProduct] = useState("");
+  const [addQty, setAddQty] = useState<number | null>(null);
+  const mine = useMyProductMatcher();
+  const products = useQuery({
+    queryKey: ["jug", "return-products", factoryId],
+    enabled: allProducts,
+    queryFn: async () => {
+      const { data, error } = await db
+        .from("products")
+        .select("id,name,unit")
+        .eq("factory_id", factoryId)
+        .eq("product_type", "finished")
+        .eq("active", true)
+        .order("name");
+      if (error) throw error;
+      return (data ?? []) as { id: string; name: string; unit: string }[];
+    },
+  });
+  const productList = (products.data ?? []).filter((p) => mine(p.name));
+  const productOf = (id: string) => (products.data ?? []).find((p) => p.id === id);
   const customers = useQuery({
     queryKey: ["jug", "customers", factoryId, distributorsOnly],
     queryFn: async () => {
@@ -519,8 +544,17 @@ export function CustomerUnsoldDialog({
       ).map((r) => ({ ...r, bought: Number(r.bought), returnable: Number(r.returnable) })),
   });
   const held = (returnable.data ?? []).filter((r) => r.returnable > 0);
-  const items = held
-    .map((r) => ({ product_id: r.product_id, quantity: qty[r.product_id] ?? 0 }))
+  // Listed quantities plus the hand-typed lines, one line per product.
+  const items = Object.entries(
+    [
+      ...held.map((r) => ({ product_id: r.product_id, quantity: qty[r.product_id] ?? 0 })),
+      ...manual,
+    ].reduce<Record<string, number>>((t, i) => {
+      t[i.product_id] = (t[i.product_id] ?? 0) + i.quantity;
+      return t;
+    }, {}),
+  )
+    .map(([product_id, quantity]) => ({ product_id, quantity }))
     .filter((i) => i.quantity > 0);
   const over = held.some((r) => (qty[r.product_id] ?? 0) > r.returnable);
   const total = items.reduce((s, i) => s + i.quantity, 0);
@@ -567,6 +601,7 @@ export function CustomerUnsoldDialog({
               onValueChange={(v) => {
                 setCustomerId(v);
                 setQty({});
+                setManual([]);
               }}
             >
               <SelectTrigger className="mt-1">
@@ -582,6 +617,7 @@ export function CustomerUnsoldDialog({
               </SelectContent>
             </Select>
           </Field>
+          {customerId && <LastSuppliedPanel kind="customer" id={customerId} />}
           {customerId && (
             <Table>
               <TableHeader>
@@ -592,16 +628,18 @@ export function CustomerUnsoldDialog({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {held.length === 0 && (
+                {held.length === 0 && manual.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={3} className="py-6 text-center text-muted-foreground">
                       {returnable.isLoading
                         ? "Loading…"
-                        : returnable.isError
-                          ? (returnable.error as Error).message
-                          : allProducts
-                            ? "Nothing this customer bought can come back."
-                            : "This customer has no dispensers to return."}
+                        : allProducts
+                          ? "Nothing listed from this system -- add the products below."
+                          : returnable.isError
+                            ? (returnable.error as Error).message
+                            : allProducts
+                              ? "Nothing this customer bought can come back."
+                              : "This customer has no dispensers to return."}
                     </TableCell>
                   </TableRow>
                 )}
@@ -630,8 +668,72 @@ export function CustomerUnsoldDialog({
                     </TableRow>
                   );
                 })}
+                {manual.map((m, i) => {
+                  const p = productOf(m.product_id);
+                  return (
+                    <TableRow key={`manual-${i}`}>
+                      <TableCell>
+                        {p?.name ?? "—"}
+                        <div className="text-[11px] text-muted-foreground">added by hand</div>
+                      </TableCell>
+                      <TableCell className="text-right">—</TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          {num(m.quantity)} {p?.unit ?? ""}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            title="Remove"
+                            onClick={() => setManual((l) => l.filter((_, j) => j !== i))}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
+          )}
+          {customerId && allProducts && (
+            <Field label="Add a product">
+              <div className="flex flex-wrap gap-2">
+                <Select value={addProduct} onValueChange={setAddProduct}>
+                  <SelectTrigger className="min-w-0 flex-1">
+                    <SelectValue placeholder={products.isLoading ? "Loading…" : "Product"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {productList.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.name}
+                        {p.unit ? ` (${p.unit})` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <CountInput
+                  className="w-24 text-right"
+                  value={addQty}
+                  onChange={setAddQty}
+                  placeholder="Qty"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="gap-1"
+                  disabled={!addProduct || !addQty || addQty <= 0}
+                  onClick={() => {
+                    setManual((l) => [...l, { product_id: addProduct, quantity: addQty! }]);
+                    setAddProduct("");
+                    setAddQty(null);
+                  }}
+                >
+                  <Plus className="h-4 w-4" /> Add
+                </Button>
+              </div>
+            </Field>
           )}
           <Field label="Date returned">
             <Input

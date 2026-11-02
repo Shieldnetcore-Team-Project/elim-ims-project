@@ -9,6 +9,7 @@ import { num } from "@/lib/format";
 import { type Activity, KIND, scopeToMyProducts } from "@/components/warehouse/activity";
 import { useMyProductMatcher } from "@/lib/product-rules";
 import { CustomerUnsoldDialog, RecordReturnDialog } from "@/components/jugs/dialogs";
+import { LastSuppliedPanel } from "@/components/warehouse/last-supplied";
 import { useJugTypes, useMarketers } from "@/components/jugs/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -323,6 +324,7 @@ function HolderReturnDialog({
             next posting automatically.
           </DialogDescription>
         </DialogHeader>
+        <LastSuppliedPanel kind="marketer" id={party.id} />
         <Table>
           <TableHeader>
             <TableRow>

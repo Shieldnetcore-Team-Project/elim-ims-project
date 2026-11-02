@@ -44,6 +44,7 @@ import { QuickAddProductDialog, ADD_NEW_ITEM } from "@/components/shared/quick-a
 import { ReturnsTab, type Rep } from "@/routes/_app.distribution";
 import { RetailReturnDialog } from "@/components/retail/retail-return-dialog";
 import { CustomerUnsoldDialog } from "@/components/jugs/dialogs";
+import { LastSuppliedPanel } from "@/components/warehouse/last-supplied";
 import { ReportActions } from "@/components/shared/report-actions";
 import {
   startOfDay,
@@ -802,6 +803,7 @@ function CreateReturnDialog({
             )}
           </div>
         )}
+        {isMarketerReturn && <LastSuppliedPanel kind="marketer" id={repId} />}
         {!isMarketerReturn && canLogSalesReturn && (
           <div>
             <Label>Invoice (optional)</Label>
