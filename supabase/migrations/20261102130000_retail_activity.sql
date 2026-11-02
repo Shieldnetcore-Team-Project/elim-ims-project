@@ -35,11 +35,12 @@ BEGIN
 
   RETURN QUERY
   SELECT a.* FROM (
-    SELECT 'Posting'::text, d.created_at, d.dispatch_number, 'From the Warehouse'::text,
+    SELECT 'Posting'::text AS k, d.created_at AS t, d.dispatch_number AS ref, 'From the Warehouse'::text AS who,
            (SELECT string_agg(p.name || ' × ' || trim(to_char(i.quantity, 'FM999G999G990D###')) || ' ' || p.unit, ' · '
                               ORDER BY p.name)
-              FROM stock_dispatch_items i JOIN products p ON p.id = i.product_id WHERE i.dispatch_id = d.id),
-           d.total_value, NULL::numeric, NULL::numeric, NULL::text, d.status, NULL::uuid, d.id
+              FROM stock_dispatch_items i JOIN products p ON p.id = i.product_id WHERE i.dispatch_id = d.id) AS info,
+           d.total_value AS amt, NULL::numeric AS pd, NULL::numeric AS bal, NULL::text AS how, d.status AS st,
+           NULL::uuid AS sid, d.id AS did
       FROM stock_dispatches d
      WHERE d.sales_rep_id = p_outlet AND d.dispatch_date BETWEEN p_from AND p_to
 
@@ -93,9 +94,17 @@ BEGIN
       FROM rep_remittances m
      WHERE m.sales_rep_id = p_outlet AND m.remittance_date BETWEEN p_from AND p_to
   ) a
-  ORDER BY a.at DESC NULLS LAST
+  ORDER BY a.t DESC NULLS LAST
   LIMIT 2000;
 END;
 $$;
 REVOKE ALL ON FUNCTION public.retail_activity(uuid, date, date) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.retail_activity(uuid, date, date) TO authenticated;
+
+-- The new tab Retail › All activity: ticked for every account that already
+-- has the Retail Outlet page (as 20261030090000 did for the summary pages).
+INSERT INTO public.user_page_access (user_id, page_id, granted)
+SELECT a.user_id, 'Retail › All activity', true
+  FROM public.user_page_access a
+ WHERE a.page_id = 'Retail › Retail Outlet' AND a.granted
+ON CONFLICT (user_id, page_id) DO UPDATE SET granted = true, granted_at = now();

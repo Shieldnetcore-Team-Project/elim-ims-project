@@ -11,6 +11,7 @@ import { KPI } from "@/lib/dashboard-kit";
 import { money, num } from "@/lib/format";
 import { PosDialog } from "./_app.sales";
 import { RetailDayClose } from "@/components/retail/outlet-day-close";
+import { ReturnToWarehouseDialog } from "@/components/retail/return-to-warehouse-dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogTrigger } from "@/components/ui/dialog";
@@ -30,7 +31,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Boxes, PackageOpen, ShoppingCart, Store, TrendingUp } from "lucide-react";
+import { Boxes, PackageOpen, ShoppingCart, Store, TrendingUp, Undo2 } from "lucide-react";
 import { ReportActions } from "@/components/shared/report-actions";
 
 export const Route = createFileRoute("/_app/retail-outlet")({
@@ -117,6 +118,8 @@ function RetailOutletPage() {
   const [outletId, setOutletId] = useState<string>("");
   const [period, setPeriod] = useState<Period>("today");
   const [posOpen, setPosOpen] = useState(false);
+  // End of business: unsold products back to the Warehouse (2026-11-02).
+  const [returning, setReturning] = useState(false);
 
   useRealtimeInvalidate(
     ["rep_stock", "rep_stock_movements", "sales"],
@@ -389,6 +392,28 @@ function RetailOutletPage() {
               ))}
             </SelectContent>
           </Select>
+          {canSell && outletId && (
+            <Dialog open={returning} onOpenChange={setReturning}>
+              <DialogTrigger asChild>
+                <Button variant="outline" className="gap-2">
+                  <Undo2 className="h-4 w-4" /> Return unsold to Warehouse
+                </Button>
+              </DialogTrigger>
+              {returning && (
+                <ReturnToWarehouseDialog
+                  outletId={outletId}
+                  outletName={outlets.data?.find((o) => o.id === outletId)?.full_name ?? "the shop"}
+                  stock={(stock.data ?? []).map((r) => ({
+                    product_id: r.product_id,
+                    name: r.products?.name ?? "—",
+                    unit: r.products?.unit ?? "",
+                    quantity: Number(r.quantity),
+                  }))}
+                  onDone={() => setReturning(false)}
+                />
+              )}
+            </Dialog>
+          )}
           {canSell && outletId && (
             <Dialog open={posOpen} onOpenChange={setPosOpen}>
               <DialogTrigger asChild>

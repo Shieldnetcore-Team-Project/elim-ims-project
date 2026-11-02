@@ -101,6 +101,13 @@ export const nav: { section: string; items: NavItem[] }[] = [
             search: { tab: "log" },
           },
           { label: "Jars", module: "sales", url: "/retail-summary", search: { tab: "jars" } },
+          // The shop's whole activity, off the Accountant's feed (2026-11-02).
+          {
+            label: "All activity",
+            module: "sales",
+            url: "/retail-summary",
+            search: { tab: "activity" },
+          },
           { label: "Sales Returns", module: "sales-returns", url: "/sales-returns" },
         ],
       },

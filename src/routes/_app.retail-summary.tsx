@@ -33,6 +33,7 @@ import { Banknote, CreditCard, RotateCcw, TrendingUp } from "lucide-react";
 import { PrintCopiesButton } from "@/components/shared/print-copies-button";
 import { ReportActions } from "@/components/shared/report-actions";
 import { RetailJars } from "@/components/retail/retail-jars";
+import { RetailActivity } from "@/components/retail/retail-activity";
 
 export const Route = createFileRoute("/_app/retail-summary")({
   head: () => ({
@@ -180,6 +181,7 @@ function RetailSummaryPage() {
   if (!factoryId) return null;
   const isLog = tab === "log";
   const isJars = tab === "jars";
+  const isActivity = tab === "activity";
   const outletName = outlets.data?.find((o) => o.id === outletId)?.full_name ?? "Retail Shop";
 
   return (
@@ -187,18 +189,22 @@ function RetailSummaryPage() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">
-            {isJars
-              ? "Dispenser jars"
-              : isLog
-                ? "Postings from the Warehouse"
-                : "Transaction Summary"}
+            {isActivity
+              ? "All activity"
+              : isJars
+                ? "Dispenser jars"
+                : isLog
+                  ? "Postings from the Warehouse"
+                  : "Transaction Summary"}
           </h1>
           <p className="text-sm text-muted-foreground">
-            {isJars
-              ? "Filled and empty jars at the shop, empties customers still owe, and empties sent to the Warehouse."
-              : isLog
-                ? "Products the Warehouse posted to the shop: who posted them, the day and the time."
-                : "The shop's day: stock in and out per product, sales, and money by payment method."}
+            {isActivity
+              ? "Everything at the shop: postings from the Warehouse, sales, customer returns, payments, returns to the Warehouse and cash handed in."
+              : isJars
+                ? "Filled and empty jars at the shop, empties customers still owe, and empties sent to the Warehouse."
+                : isLog
+                  ? "Products the Warehouse posted to the shop: who posted them, the day and the time."
+                  : "The shop's day: stock in and out per product, sales, and money by payment method."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -232,7 +238,9 @@ function RetailSummaryPage() {
             No retail outlet set up yet.
           </CardContent>
         </Card>
-      ) : !outletId ? null : isJars ? (
+      ) : !outletId ? null : isActivity ? (
+        <RetailActivity outletId={outletId} date={date} />
+      ) : isJars ? (
         <RetailJars outletId={outletId} date={date} />
       ) : isLog ? (
         <PostingLog outletId={outletId} outletName={outletName} date={date} />

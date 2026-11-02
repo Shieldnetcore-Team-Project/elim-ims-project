@@ -597,7 +597,8 @@ function NewDispatchDialog({
   const repKind = reps.find((r) => r.id === repId)?.kind ?? kind;
   const openReturns = useQuery({
     queryKey: ["dispatch-open-returns", factoryId, repId],
-    enabled: !!repId && !carryReturn && repKind === "rep",
+    // The Retail Shop returns unsold products at close of business too (2026-11-02).
+    enabled: !!repId && !carryReturn && (repKind === "rep" || repKind === "outlet"),
     queryFn: async () => {
       const { data, error } = await supabase
         .from("rep_returns")
@@ -709,8 +710,10 @@ function NewDispatchDialog({
               — added to this posting
             </p>
             <p className="text-xs text-muted-foreground">
-              What this marketer returned goes back on their supplies with this posting. Untick a
-              return to leave it out.
+              {repKind === "outlet"
+                ? "What the shop returned unsold goes back on its stock with this posting."
+                : "What this marketer returned goes back on their supplies with this posting."}{" "}
+              Untick a return to leave it out.
             </p>
             <div className="mt-2 grid gap-2">
               {openReturns.data!.map((r) => (
