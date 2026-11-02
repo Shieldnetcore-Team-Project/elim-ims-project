@@ -47,7 +47,10 @@ export type Overview = {
 export type JugReturn = {
   id: string;
   reference: string;
-  sales_rep_id: string;
+  // A marketer / the shop, or a Distributor/Office Delivery customer (2026-11-02).
+  sales_rep_id: string | null;
+  customer_id?: string | null;
+  customers?: { name: string } | null;
   container_type_id: string;
   quantity_claimed: number;
   quantity_received: number | null;
@@ -245,7 +248,7 @@ export function useJugReturns(
       // Pending returns always show, whatever the dates.
       const { data, error } = await db
         .from("jug_returns")
-        .select("*")
+        .select("*,customers(name)")
         .eq("factory_id", factoryId)
         .or(
           `status.eq.pending,and(recorded_at.gte.${dayStart(from!)},recorded_at.lte.${dayEnd(to!)})`,

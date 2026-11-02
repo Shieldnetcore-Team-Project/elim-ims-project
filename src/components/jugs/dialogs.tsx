@@ -17,7 +17,9 @@ import {
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -79,19 +81,44 @@ const jugTypeRank = (name: string) => {
 // What the marketer says they brought back. Nothing moves until the
 // QC counts it (Quality Control -> Old & New Jugs; 20261101100000).
 export function RecordReturnDialog({
+  factoryId,
   marketers,
   types,
   initialRepId,
+  initialCustomerId,
   initialTypeId,
   onClose,
 }: {
+  factoryId: string;
   marketers: Named[];
   types: { id: string; name: string }[];
   initialRepId?: string;
+  // A Distributor/Office Delivery customer to start with (Warehouse party window).
+  initialCustomerId?: string;
   initialTypeId?: string;
   onClose: () => void;
 }) {
-  const [repId, setRepId] = useState(initialRepId ?? "");
+  // "rep:<id>" for a marketer / the shop, "customer:<id>" for a
+  // Distributor/Office Delivery customer (user, 2026-11-02).
+  const [holder, setHolder] = useState(
+    initialRepId ? `rep:${initialRepId}` : initialCustomerId ? `customer:${initialCustomerId}` : "",
+  );
+  const [holderKind, holderId] = holder.split(":") as ["rep" | "customer" | "", string];
+  const distributors = useQuery({
+    queryKey: ["jug", "distributors", factoryId],
+    queryFn: async () => {
+      const { data, error } = await db
+        .from("customers")
+        .select("id,name,phone")
+        .eq("factory_id", factoryId)
+        .eq("registered", true)
+        .is("sales_rep_id", null)
+        .is("removed_at", null)
+        .order("name");
+      if (error) return [];
+      return (data ?? []) as { id: string; name: string; phone: string | null }[];
+    },
+  });
   // Old Jug / New Jug (20261023190000) first; the person returning picks one.
   const [typeId, setTypeId] = useState(initialTypeId ?? "");
   const jugTypes = [...types].sort(
@@ -106,7 +133,8 @@ export function RecordReturnDialog({
       rpc<{ reference: string }>("record_jug_return", {
         payload: {
           client_ref: clientRef,
-          sales_rep_id: repId,
+          sales_rep_id: holderKind === "rep" ? holderId : undefined,
+          customer_id: holderKind === "customer" ? holderId : undefined,
           container_type_id: typeId,
           quantity: qty,
           notes,
@@ -119,25 +147,39 @@ export function RecordReturnDialog({
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Record empty-jug return</DialogTitle>
+          <DialogTitle>Return empty jugs</DialogTitle>
           <DialogDescription>
-            What the marketer says they brought back. It counts as &quot;Returned&quot; now and
-            reduces Outstanding only when the Warehouse confirms its count.
+            What the marketer or customer says they brought back. It counts as &quot;Returned&quot;
+            now and reduces Outstanding only when the Warehouse confirms its count.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
-          <Field label="Marketer / outlet">
-            <Select value={repId} onValueChange={setRepId}>
+          <Field label="From">
+            <Select value={holder} onValueChange={setHolder}>
               <SelectTrigger>
-                <SelectValue placeholder="Choose" />
+                <SelectValue placeholder="Marketer or Distributor/Office Delivery" />
               </SelectTrigger>
               <SelectContent>
-                {marketers.map((m) => (
-                  <SelectItem key={m.id} value={m.id}>
-                    {m.code ? `${m.code} · ` : ""}
-                    {m.name}
-                  </SelectItem>
-                ))}
+                <SelectGroup>
+                  <SelectLabel>Marketers &amp; shop</SelectLabel>
+                  {marketers.map((m) => (
+                    <SelectItem key={m.id} value={`rep:${m.id}`}>
+                      {m.code ? `${m.code} · ` : ""}
+                      {m.name}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+                {(distributors.data ?? []).length > 0 && (
+                  <SelectGroup>
+                    <SelectLabel>Distributor/Office Delivery</SelectLabel>
+                    {(distributors.data ?? []).map((c) => (
+                      <SelectItem key={c.id} value={`customer:${c.id}`}>
+                        {c.name}
+                        {c.phone ? ` · ${c.phone}` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                )}
               </SelectContent>
             </Select>
           </Field>
@@ -167,7 +209,7 @@ export function RecordReturnDialog({
             Cancel
           </Button>
           <Button
-            disabled={!repId || !typeId || !qty || save.isPending}
+            disabled={!holderId || !typeId || !qty || save.isPending}
             onClick={() => save.mutate(undefined, { onSuccess: onClose })}
           >
             {save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -408,6 +450,7 @@ export function CustomerUnsoldDialog({
   allProducts = false,
   distributorsOnly = false,
   onDone,
+  presetCustomerId,
 }: {
   factoryId: string;
   onClose: () => void;
@@ -415,9 +458,11 @@ export function CustomerUnsoldDialog({
   allProducts?: boolean;
   distributorsOnly?: boolean;
   onDone?: () => void;
+  // Start on this customer (Warehouse party window).
+  presetCustomerId?: string;
 }) {
   const [search, setSearch] = useState("");
-  const [customerId, setCustomerId] = useState("");
+  const [customerId, setCustomerId] = useState(presetCustomerId ?? "");
   const [qty, setQty] = useState<Record<string, number | null>>({});
   const [reason, setReason] = useState("");
   const customers = useQuery({

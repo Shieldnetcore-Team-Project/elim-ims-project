@@ -475,7 +475,7 @@ function JugAccountabilityPage() {
                     onClick={() => setDialog({ kind: "return" })}
                     disabled={noJugs}
                   >
-                    <Undo2 className="h-4 w-4" /> Record return
+                    <Undo2 className="h-4 w-4" /> Return empty jugs
                   </Button>
                 )}
                 {canAdjust && (
@@ -600,6 +600,9 @@ function JugAccountabilityPage() {
               canReceiveUnsold && !noJugs ? () => setDialog({ kind: "unsold" }) : undefined
             }
             onReceiveNew={canReceiveNew && !noJugs ? () => setDialog({ kind: "new" }) : undefined}
+            onReturnEmpty={
+              canRecordReturn && !noJugs ? () => setDialog({ kind: "return" }) : undefined
+            }
           />
         </TabsContent>
 
@@ -624,6 +627,7 @@ function JugAccountabilityPage() {
 
       {dialog?.kind === "return" && (
         <RecordReturnDialog
+          factoryId={factoryId}
           marketers={(marketers.data ?? []).filter((m) => m.active)}
           types={(types.data ?? []).filter((t) => t.active)}
           initialRepId={dialog.repId}
@@ -677,6 +681,7 @@ function JugsPanel({
   typeNames,
   onReceiveUnsold,
   onReceiveNew,
+  onReturnEmpty,
 }: {
   factoryId: string;
   from: string;
@@ -688,6 +693,9 @@ function JugsPanel({
   typeNames: Record<string, string>;
   onReceiveUnsold?: () => void;
   onReceiveNew?: () => void;
+  // Empty jugs a marketer / the shop brings back (record_jug_return), here
+  // too so it is found with the other jug actions (user, 2026-11-02).
+  onReturnEmpty?: () => void;
 }) {
   const movements = useJugMovements(factoryId, from, to);
   const [q, setQ] = useState("");
@@ -721,8 +729,13 @@ function JugsPanel({
 
   return (
     <div className="space-y-4">
-      {(onReceiveNew || onReceiveUnsold) && (
+      {(onReceiveNew || onReceiveUnsold || onReturnEmpty) && (
         <div className="flex flex-wrap justify-end gap-2">
+          {onReturnEmpty && (
+            <Button className="gap-2" onClick={onReturnEmpty}>
+              <Undo2 className="h-4 w-4" /> Return empty jugs
+            </Button>
+          )}
           {onReceiveNew && (
             <Button className="gap-2" onClick={onReceiveNew}>
               <PackageCheck className="h-4 w-4" /> Receive new jugs
@@ -910,7 +923,7 @@ function ReturnsPanel({
         </div>
         {canRecord && (
           <Button className="gap-2" onClick={onRecord}>
-            <Plus className="h-4 w-4" /> Record return
+            <Plus className="h-4 w-4" /> Return empty jugs
           </Button>
         )}
       </CardHeader>
@@ -940,7 +953,11 @@ function ReturnsPanel({
             {returns.map((r) => (
               <TableRow key={r.id}>
                 <TableCell className="font-mono text-xs">{r.reference}</TableCell>
-                <TableCell>{marketerNames[r.sales_rep_id] ?? "—"}</TableCell>
+                <TableCell>
+                  {r.sales_rep_id
+                    ? (marketerNames[r.sales_rep_id] ?? "—")
+                    : (r.customers?.name ?? "Customer")}
+                </TableCell>
                 <TableCell className="text-xs">{typeNames[r.container_type_id] ?? "—"}</TableCell>
                 <TableCell className="text-right">{num(r.quantity_claimed)}</TableCell>
                 <TableCell className="text-right">
@@ -1009,7 +1026,7 @@ function ReturnsPanel({
         open={act?.kind === "verify"}
         onOpenChange={(o) => !o && setAct(null)}
         title={`Count ${act?.r.reference ?? ""}`}
-        description={`${act ? (marketerNames[act.r.sales_rep_id] ?? "") : ""} says ${num(act?.r.quantity_claimed ?? 0)} empty jugs. Enter what you physically counted.`}
+        description={`${act ? (act.r.sales_rep_id ? (marketerNames[act.r.sales_rep_id] ?? "") : (act.r.customers?.name ?? "The customer")) : ""} says ${num(act?.r.quantity_claimed ?? 0)} empty jugs. Enter what you physically counted.`}
         label="Note (required if the count differs)"
         required={false}
         quantity={{ label: "Empty jugs counted", initial: act?.r.quantity_claimed ?? null }}

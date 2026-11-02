@@ -5,13 +5,26 @@ import { printSaleInvoice } from "@/lib/invoice";
 
 // Shared by the Warehouse's Recent activity card and its Activity Log tab.
 export type Activity = {
-  kind: "received" | "refused" | "marketer" | "retail" | "distributor" | "sale" | "adjusted";
+  kind:
+    | "received"
+    | "refused"
+    | "marketer"
+    | "retail"
+    | "distributor"
+    | "sale"
+    | "adjusted"
+    | "returned"
+    | "customer_return"
+    | "jugs_returned";
   reference: string;
   at: string;
   party: string | null;
   items: string | null;
   quantity: number;
   status: string;
+  // warehouse_transactions (2026-11-02): whose row it is, to open their window.
+  party_type?: "production" | "marketer" | "retail" | "distributor" | "walk_in";
+  party_id?: string | null;
 };
 
 export const KIND: Record<
@@ -25,6 +38,9 @@ export const KIND: Record<
   distributor: { label: "Posted to Distributor", variant: "secondary" },
   sale: { label: "Sold from Warehouse", variant: "outline" },
   adjusted: { label: "Stock correction", variant: "outline" },
+  returned: { label: "Returned to Warehouse", variant: "outline" },
+  customer_return: { label: "Customer return", variant: "outline" },
+  jugs_returned: { label: "Empty jugs returned", variant: "outline" },
 };
 
 // Which activities have a slip to print: postings print their dispatch slip;
