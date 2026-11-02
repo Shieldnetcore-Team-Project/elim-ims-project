@@ -91,6 +91,9 @@ type SaleRow = {
   is_pr: boolean;
   // The marketer or the Retail Shop whose stock it was sold from, if any.
   sales_rep_id: string | null;
+  // Whose account the sale is on: the marketer who sold it, else the
+  // customer's marketer at the time (stamped by the database).
+  account_rep_id: string | null;
   sale_items: { quantity: number; products: { name: string; unit: string } | null }[] | null;
 };
 
@@ -142,7 +145,7 @@ function groupInvoices(sales: SaleRow[]): InvoiceGroup[] {
         status: s.status,
         is_pr: s.is_pr,
         qty: new Map(),
-        repId: s.sales_rep_id,
+        repId: s.account_rep_id ?? s.sales_rep_id,
       };
       groups.set(key, g);
     }
@@ -177,6 +180,8 @@ type PaymentRow = {
   status: string;
   customers: { name: string } | null;
   sales: { invoice_number: string; customer_name: string | null } | null;
+  // The marketer's account the payment counts on, if any.
+  account_rep_id: string | null;
 };
 
 type ExpenseRow = {
@@ -203,7 +208,8 @@ type PartyType = "marketer" | "customer" | "retail" | "internal";
 const PARTY_FILTERS: { key: PartyType | "all"; label: string }[] = [
   { key: "all", label: "All" },
   { key: "marketer", label: "Marketers" },
-  { key: "customer", label: "Customers & Distributor/Office Delivery" },
+  // Customers under a marketer are on the marketer's row (2026-11-02).
+  { key: "customer", label: "Distributor/Office Delivery" },
   { key: "internal", label: "Expenses & payroll" },
 ];
 
@@ -389,7 +395,7 @@ function AccountantPage() {
       const { data, error } = await supabase
         .from("sales")
         .select(
-          "id,invoice_number,sale_date,customer_name,grand_total,amount_paid,balance,status,is_pr,sales_rep_id,sale_items(quantity,products(name,unit))",
+          "id,invoice_number,sale_date,customer_name,grand_total,amount_paid,balance,status,is_pr,sales_rep_id,account_rep_id,sale_items(quantity,products(name,unit))",
         )
         .eq("factory_id", factoryId!)
         // Admins can also read soft-deleted sales; they aren't real invoices.
@@ -423,7 +429,7 @@ function AccountantPage() {
       const { data, error } = await supabase
         .from("payments_received")
         .select(
-          "id,receipt_number,payment_date,amount,payment_method,remarks,status,customers(name),sales(invoice_number,customer_name)",
+          "id,receipt_number,payment_date,amount,payment_method,remarks,status,account_rep_id,customers(name),sales(invoice_number,customer_name)",
         )
         .eq("factory_id", factoryId!)
         .order("payment_date", { ascending: false })
@@ -578,16 +584,24 @@ function AccountantPage() {
     const rows: Activity[] = [
       ...invoiceGroups.map((g) => {
         const ps = paidTo.get(g.key) ?? [];
+        // A sale on a marketer's account (their van sale, or their customer's)
+        // is the marketer's activity: it goes on the marketer's row (user,
+        // 2026-11-02 -- STROI MINI MART is under Courage).
+        const owner = (reps.data ?? []).find((r) => r.id === g.repId);
+        const mkt = owner?.kind === "rep" ? owner : null;
         return {
           key: `inv-${g.key}`,
           date: g.date,
           kind: "Invoice" as const,
           reference: g.numbers.length > 1 ? `${g.numbers.length} invoices` : g.numbers[0],
-          party_type: ((reps.data ?? []).find((r) => r.id === g.repId)?.kind === "outlet"
+          party_type: (owner?.kind === "outlet"
             ? "retail"
-            : "customer") as PartyType,
-          party: g.customer,
-          details: g.products,
+            : mkt
+              ? "marketer"
+              : "customer") as PartyType,
+          repId: mkt?.id,
+          party: mkt ? mkt.full_name : g.customer,
+          details: mkt ? `${g.customer}: ${g.products}` : g.products,
           group: g,
           paid: ps.length ? sum(ps) : undefined,
           receipts: ps.length || undefined,
@@ -599,13 +613,22 @@ function AccountantPage() {
       ...[...loose.entries()].map(([k, ps]) => {
         const p = ps[0];
         const name = p.customers?.name ?? p.sales?.customer_name ?? null;
+        // A payment on a marketer's account goes on the marketer's row too.
+        const owner = (reps.data ?? []).find((r) => r.id === p.account_rep_id);
+        const mkt = owner?.kind === "rep" ? owner : null;
         return {
           key: `pay-${k}`,
           date: p.payment_date,
           kind: "Payment" as const,
-          party_type: "customer" as PartyType,
+          party_type: (owner?.kind === "outlet"
+            ? "retail"
+            : mkt
+              ? "marketer"
+              : "customer") as PartyType,
+          repId: mkt?.id,
+          details: mkt && name ? `From ${name}` : undefined,
           reference: ps.length > 1 ? `${ps.length} receipts` : p.receipt_number,
-          party: name ?? "—",
+          party: mkt ? mkt.full_name : (name ?? "—"),
           amount: sum(ps),
           direction: "in" as const,
           status: p.status,
@@ -959,14 +982,17 @@ function AccountantPage() {
                             )}
                             {a.group && (
                               <>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  title="View all of this customer's activity"
-                                  onClick={() => setViewing((a.viewGroup ?? a.group)!)}
-                                >
-                                  <Eye className="h-4 w-4" />
-                                </Button>
+                                {/* A marketer's row opens the marketer's account (above). */}
+                                {!a.repId && (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    title="View all of this customer's activity"
+                                    onClick={() => setViewing((a.viewGroup ?? a.group)!)}
+                                  >
+                                    <Eye className="h-4 w-4" />
+                                  </Button>
+                                )}
                                 {a.group.ids.length > 0 && (
                                   <>
                                     <Button

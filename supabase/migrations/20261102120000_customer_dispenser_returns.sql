@@ -55,7 +55,10 @@ RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS
 $$;
 REVOKE ALL ON FUNCTION public._is_dispenser_product(uuid) FROM PUBLIC, anon, authenticated;
 
-CREATE OR REPLACE FUNCTION public.customer_returnable_dispensers(p_customer uuid)
+-- p_all (2026-11-02): every product, for Warehouse → Returns from a
+-- Distributor/Office Delivery customer; without it, dispensers only.
+DROP FUNCTION IF EXISTS public.customer_returnable_dispensers(uuid);
+CREATE OR REPLACE FUNCTION public.customer_returnable_dispensers(p_customer uuid, p_all boolean DEFAULT false)
 RETURNS TABLE(product_id uuid, name text, unit text, bought numeric, returned numeric, returnable numeric)
 LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
 #variable_conflict use_column
@@ -74,7 +77,7 @@ BEGIN
     SELECT si.product_id, SUM(si.quantity) AS q
       FROM sale_items si JOIN sales s ON s.id = si.sale_id
      WHERE s.customer_id = p_customer AND s.status = 'posted' AND s.deleted_at IS NULL
-       AND NOT COALESCE(s.is_pr, false) AND public._is_dispenser_product(si.product_id)
+       AND NOT COALESCE(s.is_pr, false) AND (p_all OR public._is_dispenser_product(si.product_id))
      GROUP BY si.product_id
   ), back AS (
     SELECT r.product_id, SUM(r.quantity_returned) AS q
@@ -89,8 +92,8 @@ BEGIN
    ORDER BY p.name;
 END;
 $$;
-REVOKE ALL ON FUNCTION public.customer_returnable_dispensers(uuid) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.customer_returnable_dispensers(uuid) TO authenticated;
+REVOKE ALL ON FUNCTION public.customer_returnable_dispensers(uuid, boolean) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.customer_returnable_dispensers(uuid, boolean) TO authenticated;
 
 CREATE OR REPLACE FUNCTION public.receive_customer_dispenser_return(payload jsonb)
 RETURNS jsonb
@@ -125,6 +128,10 @@ DECLARE
   v_holder text;
   v_rep_return jsonb;
   v_rep_returns jsonb := '[]'::jsonb;
+  -- all_products: any product (Warehouse → Returns, Distributor/Office
+  -- Delivery); otherwise dispensers only (Dispenser & jugs).
+  v_all boolean := COALESCE((payload->>'all_products')::boolean, false);
+  v_what text;
 BEGIN
   IF NOT (public.has_permission(v_uid, 'sales-returns'::module_key, 'submit'::action_key)
        OR public.has_permission(v_uid, 'distribution'::module_key, 'submit'::action_key)) THEN
@@ -136,6 +143,7 @@ BEGIN
     RAISE EXCEPTION 'Customer not found';
   END IF;
   IF jsonb_typeof(payload->'items') IS DISTINCT FROM 'array' THEN RAISE EXCEPTION 'Enter what came back'; END IF;
+  v_what := CASE WHEN v_all THEN 'Products' ELSE 'Unsold dispensers' END;
 
   -- Take each product back from the customer's sales, newest first.
   FOR v_item IN SELECT * FROM jsonb_array_elements(payload->'items') LOOP
@@ -144,7 +152,7 @@ BEGIN
     IF v_want < 0 THEN RAISE EXCEPTION 'Quantities cannot be negative'; END IF;
     SELECT * INTO v_product FROM products WHERE id = (v_item->>'product_id')::uuid AND factory_id = v_cust.factory_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'Product not found'; END IF;
-    IF NOT public._is_dispenser_product(v_product.id) THEN
+    IF NOT v_all AND NOT public._is_dispenser_product(v_product.id) THEN
       RAISE EXCEPTION '% is not a dispenser', v_product.name;
     END IF;
     v_left := v_want;
@@ -215,7 +223,7 @@ BEGIN
       PERFORM public._customer_ledger_post(
         v_cust.factory_id, v_cust.id, 'CREDIT_ADJUSTMENT', 'sales_return', gen_random_uuid(), v_sale_id, NULL,
         v_debt.id, 0, 0, 0, v_credit, -v_reduce, NULL,
-        'Unsold dispensers returned on ' || v_s.invoice_number, v_reason, NULL, NULL, v_uid);
+        v_what || ' returned on ' || v_s.invoice_number, v_reason, NULL, NULL, v_uid);
     END IF;
     v_total_value := v_total_value + v_value;
     v_total_reduce := v_total_reduce + v_reduce;
@@ -231,7 +239,7 @@ BEGIN
         INSERT INTO inventory_movements(factory_id, product_id, movement_type, quantity, reference, reason, user_id,
                                         quantity_before, quantity_after)
         VALUES (v_cust.factory_id, (v_c->>'product_id')::uuid, 'returned', (v_c->>'qty')::numeric,
-                v_number || '-' || v_n, 'Unsold dispensers returned by ' || v_cust.name, v_uid,
+                v_number || '-' || v_n, v_what || ' returned by ' || v_cust.name, v_uid,
                 v_before, v_before + (v_c->>'qty')::numeric);
       ELSE
         -- A marketer's / the shop's sale: back onto their stock first.
@@ -264,7 +272,7 @@ BEGIN
               v_uid, v_uid, now(), v_date, v_s.sales_rep_id, (v_c->>'value')::numeric,
               round(v_reduce * (v_c->>'value')::numeric / NULLIF(v_value, 0), 2),
               round(v_credit * (v_c->>'value')::numeric / NULLIF(v_value, 0), 2), 0,
-              'Unsold dispensers back to the Warehouse');
+              v_what || ' back to the Warehouse');
     END LOOP;
   END LOOP;
 
@@ -273,7 +281,7 @@ BEGIN
   FOR v_holder IN SELECT jsonb_object_keys(v_holder_items) LOOP
     v_rep_return := public.create_rep_return(jsonb_build_object(
       'factory_id', v_cust.factory_id, 'sales_rep_id', v_holder, 'return_date', v_date,
-      'notes', 'Unsold dispensers returned by ' || v_cust.name || ' (' || v_number || ')',
+      'notes', v_what || ' returned by ' || v_cust.name || ' (' || v_number || ')',
       'items', v_holder_items->v_holder));
     v_rep_returns := v_rep_returns || v_rep_return;
   END LOOP;

@@ -43,6 +43,7 @@ import { logAudit } from "@/lib/audit";
 import { QuickAddProductDialog, ADD_NEW_ITEM } from "@/components/shared/quick-add-item";
 import { ReturnsTab, type Rep } from "@/routes/_app.distribution";
 import { RetailReturnDialog } from "@/components/retail/retail-return-dialog";
+import { CustomerUnsoldDialog } from "@/components/jugs/dialogs";
 import { ReportActions } from "@/components/shared/report-actions";
 import {
   startOfDay,
@@ -158,6 +159,9 @@ function SalesReturnsPage() {
   // submit or sales write.
   const canRetailReturn = canSubmit("sales-returns") || perms.canWrite("sales");
   const [retailOpen, setRetailOpen] = useState(false);
+  // A Distributor/Office Delivery customer's return, any product, posted at
+  // once (receive_customer_dispenser_return with all_products; 2026-11-02).
+  const [distributorOpen, setDistributorOpen] = useState(false);
   const [inspectTarget, setInspectTarget] = useState<ReturnRow | null>(null);
   const [detailTarget, setDetailTarget] = useState<ReturnRow | null>(null);
   const [cancelTarget, setCancelTarget] = useState<ReturnRow | null>(null);
@@ -312,14 +316,37 @@ function SalesReturnsPage() {
             <Button
               variant="outline"
               className="gap-2"
+              title="What a Distributor/Office Delivery customer brings back: straight into Warehouse stock, their account credited"
+              onClick={() => setDistributorOpen(true)}
+            >
+              <Undo2 className="h-4 w-4" /> From Distributor/Office Delivery
+            </Button>
+          )}
+          {submitPerm && (
+            <Button
+              variant="outline"
+              className="gap-2"
               title="A marketer's return, or a return to the Warehouse (inspected before it goes back into stock)"
               onClick={() => setFormOpen(true)}
             >
-              <Plus className="h-4 w-4" /> Other return
+              <Plus className="h-4 w-4" /> Marketer / other return
             </Button>
           )}
         </div>
       </div>
+
+      {distributorOpen && factoryId && (
+        <CustomerUnsoldDialog
+          factoryId={factoryId}
+          allProducts
+          distributorsOnly
+          onClose={() => setDistributorOpen(false)}
+          onDone={() => {
+            for (const key of ["sales-returns-list", "products-for-returns", "dist-products"])
+              qc.invalidateQueries({ queryKey: [key] });
+          }}
+        />
+      )}
 
       <Dialog open={retailOpen} onOpenChange={setRetailOpen}>
         {retailOpen && factoryId && (

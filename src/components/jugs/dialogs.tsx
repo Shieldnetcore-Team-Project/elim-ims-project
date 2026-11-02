@@ -398,30 +398,46 @@ function MarketerUnsoldDialog({
 // the Warehouse, what they owe comes down first, the rest is their credit.
 // Goods bought from a marketer's van or the shop go back through that
 // marketer's account, so the marketer is credited too.
-function CustomerUnsoldDialog({
+// Also Warehouse → Returns (2026-11-02): allProducts takes back any product,
+// distributorsOnly lists Distributor/Office Delivery customers only (a
+// marketer's customers come back through the marketer).
+export function CustomerUnsoldDialog({
   factoryId,
   onClose,
   toggle,
+  allProducts = false,
+  distributorsOnly = false,
+  onDone,
 }: {
   factoryId: string;
   onClose: () => void;
-  toggle: React.ReactNode;
+  toggle?: React.ReactNode;
+  allProducts?: boolean;
+  distributorsOnly?: boolean;
+  onDone?: () => void;
 }) {
   const [search, setSearch] = useState("");
   const [customerId, setCustomerId] = useState("");
   const [qty, setQty] = useState<Record<string, number | null>>({});
   const [reason, setReason] = useState("");
   const customers = useQuery({
-    queryKey: ["jug", "customers", factoryId],
+    queryKey: ["jug", "customers", factoryId, distributorsOnly],
     queryFn: async () => {
       const { data, error } = await db
         .from("customers")
-        .select("id,name,phone")
+        .select("id,name,phone,registered,sales_rep_id")
         .eq("factory_id", factoryId)
         .is("removed_at", null)
         .order("name");
       if (error) throw error;
-      return (data ?? []) as { id: string; name: string; phone: string | null }[];
+      const rows = (data ?? []) as {
+        id: string;
+        name: string;
+        phone: string | null;
+        registered: boolean;
+        sales_rep_id: string | null;
+      }[];
+      return distributorsOnly ? rows.filter((c) => c.registered && !c.sales_rep_id) : rows;
     },
   });
   const k = search.trim().toLowerCase();
@@ -429,7 +445,7 @@ function CustomerUnsoldDialog({
     (c) => !k || c.name.toLowerCase().includes(k) || (c.phone ?? "").includes(k),
   );
   const returnable = useQuery({
-    queryKey: ["jug", "customer-returnable", customerId],
+    queryKey: ["jug", "customer-returnable", customerId, allProducts],
     enabled: !!customerId,
     queryFn: async () =>
       (
@@ -441,7 +457,7 @@ function CustomerUnsoldDialog({
             bought: number;
             returnable: number;
           }[]
-        >("customer_returnable_dispensers", { p_customer: customerId })
+        >("customer_returnable_dispensers", { p_customer: customerId, p_all: allProducts })
       ).map((r) => ({ ...r, bought: Number(r.bought), returnable: Number(r.returnable) })),
   });
   const held = (returnable.data ?? []).filter((r) => r.returnable > 0);
@@ -459,22 +475,25 @@ function CustomerUnsoldDialog({
           customer_id: customerId,
           return_date: localDay(),
           reason: reason || undefined,
+          all_products: allProducts || undefined,
           items,
         },
       }),
     (r) =>
-      `${(r as { return_number: string }).return_number}: ${num(total)} unsold dispenser(s) from ${name} received into the Warehouse`,
+      `${(r as { return_number: string }).return_number}: ${num(total)} ${allProducts ? "item(s)" : "unsold dispenser(s)"} from ${name} received into the Warehouse`,
   );
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Receive unsold dispensers</DialogTitle>
+          <DialogTitle>
+            {allProducts ? "Return from Distributor/Office Delivery" : "Receive unsold dispensers"}
+          </DialogTitle>
           <DialogDescription>
-            Filled dispenser jugs any customer brings back unsold -- a distributor, a
-            marketer&apos;s customer or a retail customer. They go back into Warehouse finished
-            goods, the jugs count as Received, and the customer&apos;s account is credited.
+            {allProducts
+              ? "Products a Distributor/Office Delivery customer brings back. They go back into Warehouse stock at once; what the customer owes comes down first and the rest is kept as their credit."
+              : "Filled dispenser jugs any customer brings back unsold -- a distributor, a marketer's customer or a retail customer. They go back into Warehouse finished goods, the jugs count as Received, and the customer's account is credited."}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
@@ -522,7 +541,9 @@ function CustomerUnsoldDialog({
                         ? "Loading…"
                         : returnable.isError
                           ? (returnable.error as Error).message
-                          : "This customer has no dispensers to return."}
+                          : allProducts
+                            ? "Nothing this customer bought can come back."
+                            : "This customer has no dispensers to return."}
                     </TableCell>
                   </TableRow>
                 )}
@@ -564,7 +585,14 @@ function CustomerUnsoldDialog({
           </Button>
           <Button
             disabled={!customerId || items.length === 0 || over || save.isPending}
-            onClick={() => save.mutate(undefined, { onSuccess: onClose })}
+            onClick={() =>
+              save.mutate(undefined, {
+                onSuccess: () => {
+                  onDone?.();
+                  onClose();
+                },
+              })
+            }
           >
             {save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Receive {total > 0 ? num(total) : ""}
