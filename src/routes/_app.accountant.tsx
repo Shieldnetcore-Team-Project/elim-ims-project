@@ -112,6 +112,8 @@ type InvoiceGroup = {
   status: string;
   is_pr: boolean;
   repId?: string | null;
+  // Opened from a party's row on All activity: the whole history.
+  allHistory?: boolean;
 };
 
 function groupInvoices(sales: SaleRow[]): InvoiceGroup[] {
@@ -259,10 +261,53 @@ type Activity = {
   // Payments merged into the row (the customer's receipts that day).
   paid?: number;
   receipts?: number;
+  // A party's row stands for all their activity (2026-11-02): how many
+  // transactions it gathers; the rest of the row is the latest one.
+  count?: number;
+  // What the eye opens on a customer's row: every invoice they have here,
+  // from their whole history (print buttons keep the latest invoice).
+  viewGroup?: InvoiceGroup;
   amount: number;
   direction: "in" | "out";
   status: string;
 };
+
+// One row per marketer and per customer (user, 2026-11-02): the latest
+// activity stands for them, with how many there are; the eye opens all of
+// it. Walk-ins, expenses and payroll stay one row each. `list` is newest
+// first, so the first row met for a party is their latest.
+function groupByParty(list: Activity[]): Activity[] {
+  const out: Activity[] = [];
+  const at = new Map<string, number>();
+  for (const a of list) {
+    const key = a.repId
+      ? `rep:${a.repId}`
+      : a.party_type === "customer" && a.group && !a.group.walkIn && a.party !== "—"
+        ? `customer:${a.party.trim().toLowerCase()}`
+        : null;
+    if (!key) {
+      out.push(a);
+      continue;
+    }
+    const i = at.get(key);
+    if (i === undefined) {
+      at.set(key, out.length);
+      out.push({
+        ...a,
+        count: 1,
+        viewGroup: a.group ? { ...a.group, ids: [...a.group.ids], allHistory: true } : undefined,
+      });
+      continue;
+    }
+    const row = out[i];
+    row.count = (row.count ?? 1) + 1;
+    if (row.viewGroup && a.group)
+      row.viewGroup = { ...row.viewGroup, ids: [...row.viewGroup.ids, ...a.group.ids] };
+    else if (!row.viewGroup && a.group)
+      row.viewGroup = { ...a.group, ids: [...a.group.ids], allHistory: true };
+  }
+  return out;
+}
 
 const startOfToday = () => new Date().toISOString().slice(0, 10);
 const startOfMonth = () => {
@@ -806,11 +851,13 @@ function AccountantPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {activity
-                    // The Retail Shop's activity is on Retail › All activity (2026-11-02).
-                    .filter((a) => a.party_type !== "retail")
-                    .filter((a) => party === "all" || a.party_type === party)
-                    .filter((a) => match(a.reference, a.party, a.kind, a.details))
+                  {groupByParty(
+                    activity
+                      // The Retail Shop's activity is on Retail › All activity (2026-11-02).
+                      .filter((a) => a.party_type !== "retail")
+                      .filter((a) => party === "all" || a.party_type === party)
+                      .filter((a) => match(a.reference, a.party, a.kind, a.details)),
+                  )
                     .slice(0, 300)
                     .map((a) => (
                       <TableRow key={a.key}>
@@ -822,18 +869,25 @@ function AccountantPage() {
                         </TableCell>
                         <TableCell className="font-mono text-xs">{a.reference}</TableCell>
                         <TableCell>
-                          {a.repId || a.group ? (
+                          {a.repId || a.viewGroup || a.group ? (
                             <button
                               type="button"
                               className="text-left font-medium text-primary hover:underline"
                               onClick={() =>
-                                a.repId ? setRepViewing(a.repId) : setViewing(a.group!)
+                                a.repId
+                                  ? setRepViewing(a.repId)
+                                  : setViewing((a.viewGroup ?? a.group)!)
                               }
                             >
                               {a.party}
                             </button>
                           ) : (
                             <div>{a.party}</div>
+                          )}
+                          {(a.count ?? 1) > 1 && (
+                            <div className="text-xs font-medium text-muted-foreground">
+                              Latest of {a.count} activities — click to see them all
+                            </div>
                           )}
                           {a.details && (
                             <div className="text-xs text-muted-foreground">{a.details}</div>
@@ -908,8 +962,8 @@ function AccountantPage() {
                                 <Button
                                   variant="ghost"
                                   size="icon"
-                                  title="View customer's activity"
-                                  onClick={() => setViewing(a.group!)}
+                                  title="View all of this customer's activity"
+                                  onClick={() => setViewing((a.viewGroup ?? a.group)!)}
                                 >
                                   <Eye className="h-4 w-4" />
                                 </Button>
@@ -1252,6 +1306,7 @@ function AccountantPage() {
           saleIds={viewing.ids}
           currency={currency}
           settings={settings.data}
+          initialRange={viewing.allHistory ? "all" : "day"}
         />
       )}
     </div>

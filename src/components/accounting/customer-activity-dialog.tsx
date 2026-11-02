@@ -90,6 +90,7 @@ export function CustomerActivityDialog({
   saleIds,
   currency,
   settings,
+  initialRange = "day",
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -99,8 +100,10 @@ export function CustomerActivityDialog({
   saleIds: string[];
   currency: string;
   settings: Settings;
+  // "all": open on the customer's whole history (All activity's party row).
+  initialRange?: "day" | "all";
 }) {
-  const [range, setRange] = useState<"day" | "all">("day");
+  const [range, setRange] = useState<"day" | "all">(initialRange);
   const day = date.slice(0, 10);
   const qc = useQueryClient();
   const perms = usePermissions();
