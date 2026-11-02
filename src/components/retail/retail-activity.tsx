@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useFactoryId, useFactorySettings } from "@/lib/use-factory";
 import { useRealtimeInvalidate } from "@/lib/realtime";
-import { printSaleInvoice } from "@/lib/invoice";
+import { printShopSaleSlips } from "@/lib/invoice";
 import { printDispatchSlip } from "@/lib/dispatch-slip";
 import { money } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
@@ -262,7 +262,7 @@ export function RetailActivity({ outletId, date }: { outletId: string; date: str
                         variant="ghost"
                         size="icon"
                         title="Print receipt"
-                        onClick={() => printSaleInvoice(r.sale_id!, settings.data, "print", "roll")}
+                        onClick={() => printShopSaleSlips(r.sale_id!, settings.data)}
                       >
                         <Printer className="h-4 w-4" />
                       </Button>

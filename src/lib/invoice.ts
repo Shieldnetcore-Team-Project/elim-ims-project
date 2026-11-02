@@ -67,9 +67,9 @@ export async function fetchSaleLines(saleIds: string[]): Promise<Map<string, Sal
   return out;
 }
 
-// The Retail Shop's slip footers (user decision 2026-10-30): a sale prints
-// exactly two copies when it is recorded, the sales rep's then the customer's;
-// any print after that is a reprint.
+// The Retail Shop's slip footers (user decision 2026-10-30): a sale's first
+// print is exactly two copies, the sales rep's then the customer's; any print
+// after that is a reprint (printShopSaleSlips, 2026-11-02).
 export const SALE_SLIP_LABELS = ["*** Sales-Rep Copy ***", "*** Customer Copy ***"];
 export const REPRINT_LABEL = "*** Reprint ***";
 
@@ -303,4 +303,27 @@ export async function printSaleInvoice(
     paper,
     copies,
   );
+}
+
+// A Retail Shop sale's slips (user, 2026-11-02): until its two slips have
+// printed once -- Sales-Rep Copy and Customer Copy, each its own cut slip --
+// any print gives those two; after that every print is a Reprint (copies as
+// asked). claim_sale_slips (20261102280000) records the first print. Without
+// that migration: the two slips when the sale has just been saved
+// (justSaved), a Reprint otherwise -- as before.
+export async function printShopSaleSlips(
+  saleId: string | string[],
+  settings: Settings,
+  copies = 1,
+  justSaved = false,
+) {
+  const ids = Array.isArray(saleId) ? saleId : [saleId];
+  const { data, error } = await supabase.rpc(
+    "claim_sale_slips" as never,
+    { p_sales: ids } as never,
+  );
+  const first = error ? justSaved : data === true;
+  return first
+    ? printSaleInvoice(saleId, settings, "print", "roll", SALE_SLIP_LABELS.length, SALE_SLIP_LABELS)
+    : printSaleInvoice(saleId, settings, "print", "roll", copies, [REPRINT_LABEL]);
 }

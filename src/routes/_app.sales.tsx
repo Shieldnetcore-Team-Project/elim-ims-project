@@ -62,8 +62,7 @@ import { generateInvoicePdf } from "@/lib/pdf";
 import {
   INVOICE_COMPANY_NAME,
   printSaleInvoice,
-  REPRINT_LABEL,
-  SALE_SLIP_LABELS,
+  printShopSaleSlips,
 } from "@/lib/invoice";
 import { PrintCopiesButton } from "@/components/shared/print-copies-button";
 import { ReportActions } from "@/components/shared/report-actions";
@@ -327,7 +326,7 @@ function SalesPage() {
   // receipt; PDF: the A4 receipt to keep or send.
   const openInvoice = (saleId: string, action: "download" | "print", copies = 1) =>
     action === "print"
-      ? printSaleInvoice(saleId, settings.data, "print", "roll", copies, [REPRINT_LABEL])
+      ? printShopSaleSlips(saleId, settings.data, copies)
       : printSaleInvoice(saleId, settings.data, "download");
 
   // Loads the full detail (including line items) a still-pending sale needs
@@ -964,13 +963,10 @@ function SalesPage() {
                           <PrintCopiesButton
                             title="One receipt for all of these"
                             onPrint={(copies) =>
-                              printSaleInvoice(
+                              printShopSaleSlips(
                                 g.sales.map((x) => x.id),
                                 settings.data,
-                                "print",
-                                "roll",
                                 copies,
-                                [REPRINT_LABEL],
                               )
                             }
                           />
@@ -2092,16 +2088,9 @@ export function PosDialog({
         },
       });
       // A shop sale prints its two slips at once: the sales rep's and the
-      // customer's -- always exactly two (SALE_SLIP_LABELS).
+      // customer's -- each its own cut slip (printShopSaleSlips).
       if (retailMode && !editingSale && res.sale_id)
-        void printSaleInvoice(
-          res.sale_id,
-          settings.data,
-          "print",
-          "roll",
-          SALE_SLIP_LABELS.length,
-          SALE_SLIP_LABELS,
-        );
+        void printShopSaleSlips(res.sale_id, settings.data, 1, true);
       onDone();
     },
     onError: (e: Error) => toast.error(e.message),

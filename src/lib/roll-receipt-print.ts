@@ -216,18 +216,20 @@ td, th { padding: 0.4mm 0; vertical-align: top; word-break: break-word; }
 }
 `;
 
-// All copies in one print, one after the other, each on its own page and
-// ending with a "cut here" line: one Print gives every copy, cut apart by
-// hand (the user's choice, 2026-10-29, over one print window per copy).
+// Each copy is its own print job, one after the other, so the printer cuts
+// after every copy: the customer and the sales rep each tear off their own
+// slip (user, 2026-11-02 -- before, all copies came out in one print, cut
+// apart by hand).
 export async function printRollReceipt(r: RollReceipt, copies = 1) {
   const logo = await cachedLogo(r.company.logo_url || FALLBACK_LOGO_URL);
   // Copy i carries copy_labels[i]; the last label repeats for any more.
   const labels = r.copy_labels ?? [];
-  await printRoll(
-    r.file_name,
-    (i) => receiptHtml(r, logo, labels[Math.min(i, labels.length - 1)]),
-    copies,
-  );
+  for (let i = 0; i < Math.max(1, Math.floor(copies)); i++)
+    await printRoll(
+      r.file_name,
+      () => receiptHtml(r, logo, labels[Math.min(i, labels.length - 1)]),
+      1,
+    );
 }
 
 // A summary on the same roll, in the same type and header as the receipt
