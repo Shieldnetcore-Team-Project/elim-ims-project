@@ -131,11 +131,12 @@ DO $$
 DECLARE r jsonb;
 BEGIN
   PERFORM set_config('test.uid', 'ad000000-0000-0000-0000-000000000001', false);
-  -- Without all_products the 75cl is refused; with it, it comes back.
+  -- Without all_products: no "not a dispenser" refusal any more
+  -- (20261102260000), but never more than they bought (5 packs).
   PERFORM pg_temp.check(pg_temp.err($q$SELECT public.receive_customer_dispenser_return(jsonb_build_object(
          'customer_id', 'cd000000-0000-0000-0000-000000000001',
-         'items', jsonb_build_array(jsonb_build_object('product_id', 'dd000000-0000-0000-0000-000000000002', 'quantity', 2))))$q$)
-         LIKE '%not a dispenser%', 'dispensers-only by default');
+         'items', jsonb_build_array(jsonb_build_object('product_id', 'dd000000-0000-0000-0000-000000000002', 'quantity', 9))))$q$)
+         LIKE '%bought only%', 'capped at what was bought');
   PERFORM pg_temp.check((SELECT returnable FROM public.customer_returnable_dispensers('cd000000-0000-0000-0000-000000000001', true)
                           WHERE name = 'CDR 75cl') = 5, '75cl listed with p_all');
   r := public.receive_customer_dispenser_return(jsonb_build_object(

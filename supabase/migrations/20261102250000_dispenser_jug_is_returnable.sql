@@ -9,9 +9,11 @@
 -- _is_dispenser_product (20261102120000) went by name and left out names
 -- ending in "Dispenser Jug", meant for the empty jug. But "Dispenser Jug" is
 -- a finished product the Warehouse posts and sells to customers, so it can
--- come back. Now: any finished product named "Dispenser..." or "...Jug
--- Water". Empty jugs are container types, not finished products, so they
--- stay out. With jug tracking the jug table still decides.
+-- come back. Now: any product named "Dispenser..." or "...Jug..." -- of
+-- any product type (the live "Dispenser Jug" is not stored as finished, so a
+-- finished-only rule still refused it). Safe: a return is still matched to
+-- what the customer bought, never more. With jug tracking a jug-table match
+-- also counts.
 -- ============================================================================
 
 CREATE OR REPLACE FUNCTION public._is_dispenser_product(p_product uuid)
@@ -25,8 +27,7 @@ BEGIN
     IF v_found THEN RETURN true; END IF;
   END IF;
   RETURN EXISTS (SELECT 1 FROM products p WHERE p.id = p_product
-                    AND p.product_type = 'finished'
-                    AND p.name ~* '(dispenser|jug water)');
+                    AND p.name ~* '(dispenser|jug)');
 END;
 $$;
 REVOKE ALL ON FUNCTION public._is_dispenser_product(uuid) FROM PUBLIC, anon, authenticated;
