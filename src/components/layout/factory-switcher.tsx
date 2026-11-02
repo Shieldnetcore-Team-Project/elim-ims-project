@@ -18,14 +18,9 @@ export function FactorySwitcher() {
   const current = FACTORIES.find((f) => f.code === active) ?? FACTORIES[0];
   const Icon = current.icon;
 
-  if (FACTORIES.length <= 1) {
-    return (
-      <span className="flex h-9 min-w-[180px] items-center gap-2 rounded-md border border-input px-3 text-sm font-medium">
-        <Icon className="h-4 w-4 text-primary" />
-        {current.name}
-      </span>
-    );
-  }
+  // One factory (the Water Factory): nothing to switch, so no box (user,
+  // 2026-11-02).
+  if (FACTORIES.length <= 1) return null;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
