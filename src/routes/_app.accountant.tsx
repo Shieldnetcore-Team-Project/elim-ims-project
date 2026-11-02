@@ -201,8 +201,7 @@ type PartyType = "marketer" | "customer" | "retail" | "internal";
 const PARTY_FILTERS: { key: PartyType | "all"; label: string }[] = [
   { key: "all", label: "All" },
   { key: "marketer", label: "Marketers" },
-  { key: "customer", label: "Customers & distributors" },
-  { key: "retail", label: "Retail" },
+  { key: "customer", label: "Customers & Distributor/Office Delivery" },
   { key: "internal", label: "Expenses & payroll" },
 ];
 
@@ -539,8 +538,7 @@ function AccountantPage() {
           date: g.date,
           kind: "Invoice" as const,
           reference: g.numbers.length > 1 ? `${g.numbers.length} invoices` : g.numbers[0],
-          party_type: (g.walkIn ||
-          (reps.data ?? []).find((r) => r.id === g.repId)?.kind === "outlet"
+          party_type: ((reps.data ?? []).find((r) => r.id === g.repId)?.kind === "outlet"
             ? "retail"
             : "customer") as PartyType,
           party: g.customer,
@@ -759,7 +757,7 @@ function AccountantPage() {
             {canRepAccounts && perms.canSeeMoney && (
               <TabsTrigger value="remittances">Cash remitted</TabsTrigger>
             )}
-            <TabsTrigger value="distributors">Distributors</TabsTrigger>
+            <TabsTrigger value="distributors">Distributor/Office Delivery</TabsTrigger>
             {can("customers") && <TabsTrigger value="customers">Customers</TabsTrigger>}
           </TabsList>
           <div className={`relative w-full sm:w-72 ${searchable ? "" : "hidden"}`}>
@@ -809,6 +807,8 @@ function AccountantPage() {
                 </TableHeader>
                 <TableBody>
                   {activity
+                    // The Retail Shop's activity is on Retail › All activity (2026-11-02).
+                    .filter((a) => a.party_type !== "retail")
                     .filter((a) => party === "all" || a.party_type === party)
                     .filter((a) => match(a.reference, a.party, a.kind, a.details))
                     .slice(0, 300)

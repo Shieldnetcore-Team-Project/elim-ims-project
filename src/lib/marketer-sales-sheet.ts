@@ -138,7 +138,7 @@ export type PartyKind = "marketer" | "retail" | "distributor" | "other";
 export const PARTY_KINDS: { kind: PartyKind; label: string; idLabel: string }[] = [
   { kind: "marketer", label: "Marketers", idLabel: "Marketer ID" },
   { kind: "retail", label: "Retail", idLabel: "Outlet ID" },
-  { kind: "distributor", label: "Distributors", idLabel: "Distributor ID" },
+  { kind: "distributor", label: "Distributor/Office Delivery", idLabel: "Distributor ID" },
   { kind: "other", label: "Walk-in & other customers", idLabel: "ID" },
 ];
 

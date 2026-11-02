@@ -99,7 +99,7 @@ export function DistributorsTab({ factoryId, currency }: { factoryId: string; cu
   return (
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label="Distributors" value={`${all.length} · ${totals.owing} owing`} />
+        <Stat label="Distributor/Office Delivery" value={`${all.length} · ${totals.owing} owing`} />
         <Stat label="Invoiced" value={money(totals.invoiced, currency)} />
         <Stat label="Paid" value={money(totals.paid, currency)} />
         <Stat
@@ -111,7 +111,7 @@ export function DistributorsTab({ factoryId, currency }: { factoryId: string; cu
 
       <Card className="rounded-2xl">
         <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <CardTitle>Distributor accounts</CardTitle>
+          <CardTitle>Distributor/Office Delivery accounts</CardTitle>
           <div className="flex flex-wrap items-center gap-3">
             <label className="flex items-center gap-2 text-sm">
               <Checkbox checked={owingOnly} onCheckedChange={(v) => setOwingOnly(v === true)} />
@@ -134,7 +134,7 @@ export function DistributorsTab({ factoryId, currency }: { factoryId: string; cu
                 exportCsv(
                   "distributor-accounts",
                   [
-                    { key: "name", label: "Distributor" },
+                    { key: "name", label: "Distributor/Office Delivery" },
                     { key: "phone", label: "Phone" },
                     { key: "marketer", label: "Marketer" },
                     { key: "invoices", label: "Invoices" },
@@ -157,7 +157,7 @@ export function DistributorsTab({ factoryId, currency }: { factoryId: string; cu
             <TableHeader>
               <TableRow>
                 <TableHead className="w-8"></TableHead>
-                <TableHead>Distributor</TableHead>
+                <TableHead>Distributor/Office Delivery</TableHead>
                 <TableHead>Marketer</TableHead>
                 <TableHead className="text-right">Invoices</TableHead>
                 <TableHead className="text-right">Invoiced</TableHead>
@@ -259,7 +259,7 @@ export function DistributorsTab({ factoryId, currency }: { factoryId: string; cu
                     {accounts.isLoading
                       ? "Loading…"
                       : accounts.isError
-                        ? "Distributor accounts aren't available yet."
+                        ? "Distributor/Office Delivery accounts aren't available yet."
                         : owingOnly
                           ? "No distributor owes anything."
                           : "No distributors yet."}

@@ -124,7 +124,9 @@ function CreditsPage() {
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           <TabsTrigger value="marketers">Marketers credit outstanding</TabsTrigger>
-          <TabsTrigger value="distributors">Distributors credit outstanding</TabsTrigger>
+          <TabsTrigger value="distributors">
+            Distributor/Office Delivery credit outstanding
+          </TabsTrigger>
           <TabsTrigger value="sales">Credit sales</TabsTrigger>
         </TabsList>
         <TabsContent value="marketers" className="mt-4">

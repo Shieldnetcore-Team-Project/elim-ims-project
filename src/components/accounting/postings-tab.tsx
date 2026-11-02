@@ -63,7 +63,7 @@ export type Posting = {
 const KIND: Record<Posting["kind"], string> = {
   marketer: "Marketer",
   retail: "Retail shop",
-  distributor: "Distributor",
+  distributor: "Distributor/Office Delivery",
   chairmans_gift: "Chairman's gift",
 };
 
@@ -249,7 +249,7 @@ export function PostingsTab({ factoryId, currency }: { factoryId: string; curren
               <SelectContent>
                 <SelectItem value="all">All postings</SelectItem>
                 <SelectItem value="marketer">Marketers</SelectItem>
-                <SelectItem value="distributor">Distributors</SelectItem>
+                <SelectItem value="distributor">Distributor/Office Delivery</SelectItem>
                 <SelectItem value="chairmans_gift">Chairman's gifts</SelectItem>
               </SelectContent>
             </Select>

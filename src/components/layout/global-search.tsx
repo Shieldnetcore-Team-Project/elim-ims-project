@@ -182,7 +182,7 @@ export function GlobalSearch() {
                       ? "Retail outlet"
                       : "Marketer"
                     : h.customer.registered
-                      ? "Distributor"
+                      ? "Distributor/Office Delivery"
                       : "Customer"}
                 </Badge>
               </button>

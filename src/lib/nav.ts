@@ -260,7 +260,7 @@ export const nav: { section: string; items: NavItem[] }[] = [
             url: "/marketer-accounts",
           },
           {
-            label: "Distributor accounts",
+            label: "Distributor/Office Delivery accounts",
             module: "distributor-accounts",
             url: "/distributor-accounts",
           },

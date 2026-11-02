@@ -193,6 +193,53 @@ export function ReceiveUnsoldDialog({
   marketers: Named[];
   onClose: () => void;
 }) {
+  // From a marketer / the shop, or from any customer (user, 2026-11-02).
+  const [from, setFrom] = useState<"rep" | "customer">("rep");
+  const toggle = (
+    <Field label="From">
+      <div className="flex gap-1">
+        <Button
+          type="button"
+          size="sm"
+          variant={from === "rep" ? "default" : "outline"}
+          onClick={() => setFrom("rep")}
+        >
+          Marketer / shop
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant={from === "customer" ? "default" : "outline"}
+          onClick={() => setFrom("customer")}
+        >
+          Customer
+        </Button>
+      </div>
+    </Field>
+  );
+  return from === "rep" ? (
+    <MarketerUnsoldDialog
+      factoryId={factoryId}
+      marketers={marketers}
+      onClose={onClose}
+      toggle={toggle}
+    />
+  ) : (
+    <CustomerUnsoldDialog factoryId={factoryId} onClose={onClose} toggle={toggle} />
+  );
+}
+
+function MarketerUnsoldDialog({
+  factoryId,
+  marketers,
+  onClose,
+  toggle,
+}: {
+  factoryId: string;
+  marketers: Named[];
+  onClose: () => void;
+  toggle: React.ReactNode;
+}) {
   const [repId, setRepId] = useState("");
   const [qty, setQty] = useState<Record<string, number | null>>({});
   const [notes, setNotes] = useState("");
@@ -261,6 +308,7 @@ export function ReceiveUnsoldDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
+          {toggle}
           <Field label="Marketer / outlet">
             <Select
               value={repId}
@@ -334,6 +382,188 @@ export function ReceiveUnsoldDialog({
           </Button>
           <Button
             disabled={!repId || items.length === 0 || over || save.isPending}
+            onClick={() => save.mutate(undefined, { onSuccess: onClose })}
+          >
+            {save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Receive {total > 0 ? num(total) : ""}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// Unsold dispensers back from any customer -- distributor, a marketer's
+// customer, retail / walk-in (receive_customer_dispenser_return): back into
+// the Warehouse, what they owe comes down first, the rest is their credit.
+// Goods bought from a marketer's van or the shop go back through that
+// marketer's account, so the marketer is credited too.
+function CustomerUnsoldDialog({
+  factoryId,
+  onClose,
+  toggle,
+}: {
+  factoryId: string;
+  onClose: () => void;
+  toggle: React.ReactNode;
+}) {
+  const [search, setSearch] = useState("");
+  const [customerId, setCustomerId] = useState("");
+  const [qty, setQty] = useState<Record<string, number | null>>({});
+  const [reason, setReason] = useState("");
+  const customers = useQuery({
+    queryKey: ["jug", "customers", factoryId],
+    queryFn: async () => {
+      const { data, error } = await db
+        .from("customers")
+        .select("id,name,phone")
+        .eq("factory_id", factoryId)
+        .is("removed_at", null)
+        .order("name");
+      if (error) throw error;
+      return (data ?? []) as { id: string; name: string; phone: string | null }[];
+    },
+  });
+  const k = search.trim().toLowerCase();
+  const shown = (customers.data ?? []).filter(
+    (c) => !k || c.name.toLowerCase().includes(k) || (c.phone ?? "").includes(k),
+  );
+  const returnable = useQuery({
+    queryKey: ["jug", "customer-returnable", customerId],
+    enabled: !!customerId,
+    queryFn: async () =>
+      (
+        await rpc<
+          {
+            product_id: string;
+            name: string;
+            unit: string;
+            bought: number;
+            returnable: number;
+          }[]
+        >("customer_returnable_dispensers", { p_customer: customerId })
+      ).map((r) => ({ ...r, bought: Number(r.bought), returnable: Number(r.returnable) })),
+  });
+  const held = (returnable.data ?? []).filter((r) => r.returnable > 0);
+  const items = held
+    .map((r) => ({ product_id: r.product_id, quantity: qty[r.product_id] ?? 0 }))
+    .filter((i) => i.quantity > 0);
+  const over = held.some((r) => (qty[r.product_id] ?? 0) > r.returnable);
+  const total = items.reduce((s, i) => s + i.quantity, 0);
+  const name = (customers.data ?? []).find((c) => c.id === customerId)?.name ?? "the customer";
+
+  const save = useJugAction(
+    () =>
+      rpc<{ return_number: string }>("receive_customer_dispenser_return", {
+        payload: {
+          customer_id: customerId,
+          return_date: localDay(),
+          reason: reason || undefined,
+          items,
+        },
+      }),
+    (r) =>
+      `${(r as { return_number: string }).return_number}: ${num(total)} unsold dispenser(s) from ${name} received into the Warehouse`,
+  );
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Receive unsold dispensers</DialogTitle>
+          <DialogDescription>
+            Filled dispenser jugs any customer brings back unsold -- a distributor, a
+            marketer&apos;s customer or a retail customer. They go back into Warehouse finished
+            goods, the jugs count as Received, and the customer&apos;s account is credited.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3">
+          {toggle}
+          <Field label="Customer">
+            <Input
+              placeholder="Search name or phone…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            <Select
+              value={customerId}
+              onValueChange={(v) => {
+                setCustomerId(v);
+                setQty({});
+              }}
+            >
+              <SelectTrigger className="mt-1">
+                <SelectValue placeholder={customers.isLoading ? "Loading…" : "Choose"} />
+              </SelectTrigger>
+              <SelectContent>
+                {shown.slice(0, 200).map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name}
+                    {c.phone ? ` · ${c.phone}` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+          {customerId && (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Product</TableHead>
+                  <TableHead className="text-right">Can return</TableHead>
+                  <TableHead className="w-28 text-right">Returned</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {held.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={3} className="py-6 text-center text-muted-foreground">
+                      {returnable.isLoading
+                        ? "Loading…"
+                        : returnable.isError
+                          ? (returnable.error as Error).message
+                          : "This customer has no dispensers to return."}
+                    </TableCell>
+                  </TableRow>
+                )}
+                {held.map((r) => {
+                  const v = qty[r.product_id] ?? null;
+                  return (
+                    <TableRow key={r.product_id}>
+                      <TableCell>
+                        {r.name}
+                        <div className="text-[11px] text-muted-foreground">
+                          bought {num(r.bought)} {r.unit}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right">{num(r.returnable)}</TableCell>
+                      <TableCell className="text-right">
+                        <CountInput
+                          className="ml-auto w-24 text-right"
+                          value={v}
+                          onChange={(x) => setQty((q) => ({ ...q, [r.product_id]: x }))}
+                          placeholder="0"
+                        />
+                        {(v ?? 0) > r.returnable && (
+                          <div className="text-[11px] text-destructive">More than bought</div>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+          <Field label="Reason (optional)">
+            <Textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} />
+          </Field>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            disabled={!customerId || items.length === 0 || over || save.isPending}
             onClick={() => save.mutate(undefined, { onSuccess: onClose })}
           >
             {save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

@@ -78,7 +78,7 @@ export function WarehousePostMenu({ factoryId }: { factoryId: string }) {
           )}
           {canSell && (
             <DropdownMenuItem onSelect={() => setTarget("distributor")}>
-              <Users className="mr-2 h-4 w-4" /> Distributors
+              <Users className="mr-2 h-4 w-4" /> Distributor/Office Delivery
             </DropdownMenuItem>
           )}
           {canDispatch && (

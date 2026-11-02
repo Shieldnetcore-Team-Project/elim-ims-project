@@ -90,13 +90,13 @@ const PARTY_TYPES: { key: PartyType | "all"; label: string }[] = [
   { key: "all", label: "All" },
   { key: "marketer", label: "Marketers" },
   { key: "marketer-customer", label: "Marketer customers" },
-  { key: "distributor", label: "Distributors" },
+  { key: "distributor", label: "Distributor/Office Delivery" },
   { key: "retail", label: "Retail" },
 ];
 const PARTY_LABEL: Record<PartyType, string> = {
   marketer: "Marketer",
   "marketer-customer": "Marketer customer",
-  distributor: "Distributor",
+  distributor: "Distributor/Office Delivery",
   retail: "Retail",
 };
 
