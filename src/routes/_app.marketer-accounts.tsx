@@ -45,7 +45,8 @@ function MarketerAccountsPage() {
   const { data: factoryId } = useFactoryId();
   const settings = useFactorySettings(factoryId);
   const perms = usePermissions();
-  const canAll = perms.can("marketer-accounts") || perms.canSeeMoney || perms.can("distribution");
+  // Marketer accounts are Accounts' only (2026-11-02): not the Warehouse.
+  const canAll = perms.canSeeMoney;
   const dir = useMarketerDirectory(canAll ? factoryId : undefined);
   const [search, setSearch] = useState("");
   const [showInactive, setShowInactive] = useState(false);
@@ -76,7 +77,7 @@ function MarketerAccountsPage() {
   }
   if (!factoryId) return null;
 
-  const showMoney = perms.can("marketer-accounts") || perms.canSeeMoney;
+  const showMoney = perms.canSeeMoney;
   const totals = rows.reduce(
     (t, r) => ({
       customers: t.customers + r.customers,

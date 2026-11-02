@@ -105,6 +105,16 @@ function CustomerPage() {
   const [paying, setPaying] = useState<StatementInvoice | "account" | null>(null);
 
   if (perms.loading) return <Loading />;
+  // A marketer customer's account is Accounts' only (2026-11-02).
+  if (!perms.canSeeMoney)
+    return (
+      <Card className="rounded-2xl border-dashed">
+        <CardContent className="flex items-center gap-2 pt-6 text-sm text-muted-foreground">
+          <ShieldAlert className="h-5 w-5 text-destructive" /> You don&apos;t have access to this
+          customer&apos;s account.
+        </CardContent>
+      </Card>
+    );
   if (all.isError)
     return (
       <Card className="rounded-2xl border-dashed">

@@ -165,6 +165,9 @@ export type RollReceipt = {
   file_name: string;
   // A footer per copy (see InvoiceData.copy_labels).
   copy_labels?: string[];
+  // Items and quantities only, no prices or totals: a posting slip printed
+  // outside Accounts (marketer money is Accounts' only, 2026-11-02).
+  quantities_only?: boolean;
 };
 
 export async function generateRollReceiptPdf(
@@ -259,21 +262,28 @@ export async function generateRollReceiptPdf(
     // Item | Qty | Price(N) | Amount(N)
     const qtyX = M + 112;
     const priceX = M + 152;
+    const qOnly = !!r.quantities_only;
     font(7, true);
     doc.text("Item", M, y);
-    doc.text("Qty", qtyX, y, { align: "right" });
-    doc.text("Price(N)", priceX, y, { align: "right" });
-    doc.text("Amount(N)", right, y, { align: "right" });
+    doc.text("Qty", qOnly ? right : qtyX, y, { align: "right" });
+    if (!qOnly) {
+      doc.text("Price(N)", priceX, y, { align: "right" });
+      doc.text("Amount(N)", right, y, { align: "right" });
+    }
     y += 3;
     doc.line(M, y, right, y);
     y += 10;
     font(7);
     for (const it of r.items) {
       // Room left for a quantity up to "14,424" before the Qty column.
-      const name = doc.splitTextToSize(it.name, qtyX - M - 30) as string[];
-      doc.text(String(it.quantity.toLocaleString("en-US")), qtyX, y, { align: "right" });
-      doc.text(amt(it.unit_price), priceX, y, { align: "right" });
-      doc.text(amt(it.amount), right, y, { align: "right" });
+      const name = doc.splitTextToSize(it.name, (qOnly ? right : qtyX) - M - 30) as string[];
+      doc.text(String(it.quantity.toLocaleString("en-US")), qOnly ? right : qtyX, y, {
+        align: "right",
+      });
+      if (!qOnly) {
+        doc.text(amt(it.unit_price), priceX, y, { align: "right" });
+        doc.text(amt(it.amount), right, y, { align: "right" });
+      }
       name.forEach((ln, j) => doc.text(ln, M, y + j * 9));
       y += name.length * 9 + 3;
     }
@@ -289,11 +299,15 @@ export async function generateRollReceiptPdf(
       doc.text(value, right, y, { align: "right" });
       y += 11;
     };
-    total("Subtotal", naira(r.subtotal));
-    total("Surcharge", naira(r.surcharge));
-    total("Discount", naira(r.discount));
-    total("Amount to pay", naira(r.total), true);
-    for (const [label, value] of r.extra ?? []) total(label, naira(value));
+    if (qOnly) {
+      total("Total quantity", amt(r.items.reduce((s, it) => s + it.quantity, 0)), true);
+    } else {
+      total("Subtotal", naira(r.subtotal));
+      total("Surcharge", naira(r.surcharge));
+      total("Discount", naira(r.discount));
+      total("Amount to pay", naira(r.total), true);
+      for (const [label, value] of r.extra ?? []) total(label, naira(value));
+    }
     if (r.note) {
       y += 2;
       font(6.5);
@@ -1227,6 +1241,7 @@ export async function generateDispatchSlipPdf(
     notes?: string | null;
     posted_by?: string | null;
     currency?: string;
+    quantities_only?: boolean;
   },
   action: PdfAction = "download",
   copies = 1,
@@ -1253,6 +1268,7 @@ export async function generateDispatchSlipPdf(
       note:
         opts.status === "posted" ? null : `Status: ${opts.status.replace(/_/g, " ").toUpperCase()}`,
       file_name: opts.dispatch_number,
+      quantities_only: opts.quantities_only,
     },
     action,
     copies,

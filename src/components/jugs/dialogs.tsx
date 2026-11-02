@@ -36,6 +36,7 @@ import { formatDay } from "@/lib/jug-accountability";
 import { localDay } from "@/lib/production-shift";
 import { useMyProductMatcher } from "@/lib/product-rules";
 import { money, num } from "@/lib/format";
+import { usePermissions } from "@/lib/permissions";
 import {
   ROLE_LABEL,
   SOURCE_LABEL,
@@ -576,6 +577,8 @@ export function RowDetailDialog({
   onClose: () => void;
 }) {
   const movements = useJugMovements(factoryId, row.report_date, row.report_date, row.sales_rep_id);
+  // Money is Accounts' only (2026-11-02).
+  const showMoney = usePermissions().canSeeMoney;
   const returns = useJugReturns(factoryId, row.report_date, row.report_date);
   const lines = (movements.data ?? []).filter((m) => m.container_type_id === row.container_type_id);
   const claims = (returns.data ?? []).filter(
@@ -658,7 +661,7 @@ export function RowDetailDialog({
                 Also {num(row.refills_sold)} refills sold — swaps, so no jug left the marketer.
               </p>
             )}
-            {row.empties_value > 0 && (
+            {showMoney && row.empties_value > 0 && (
               <p className="mt-1 text-xs text-muted-foreground">
                 Empty jugs sold for {money(row.empties_value)}.
               </p>

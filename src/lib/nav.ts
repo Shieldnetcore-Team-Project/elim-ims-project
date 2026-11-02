@@ -4,7 +4,6 @@ import {
   Factory as FactoryIcon,
   Receipt,
   Wallet,
-  Users,
   Truck,
   Wrench,
   UserCog,
@@ -178,9 +177,10 @@ export const nav: { section: string; items: NavItem[] }[] = [
         title: "Warehouse",
         url: "/inventory",
         icon: Warehouse,
-        modules: ["finished-goods", "sales", "sales-returns", "distribution", "customers"],
-        // Stock plus the goods side of order-to-cash: customer orders, returns,
-        // marketer (sales rep) and outlet stock, and customers. Cash remitted,
+        modules: ["finished-goods", "sales-returns", "distribution"],
+        // Stock plus the goods side of order-to-cash: returns and marketer
+        // (sales rep) jugs. Orders, reps and customers moved to the Accountant
+        // page (2026-11-02). Cash remitted,
         // credit and account balances are Accounting's (Finance → Marketer &
         // Retail Accounts), not the Warehouse's. The Stock overview has its own
         // Raw Materials / Finished Products tabs linking to the full pages, so
@@ -194,11 +194,12 @@ export const nav: { section: string; items: NavItem[] }[] = [
             url: "/warehouse-products-report",
           },
           { label: "Store requests", module: "production-requests", url: "/production-requests" },
-          { label: "Orders", module: "sales", url: "/sales" },
+          // No "Orders" tab (user, 2026-11-02): sales values are Accounts'.
           { label: "Returns", module: "sales-returns", url: "/sales-returns" },
-          { label: "Reps & outlet stock", module: "distribution", url: "/distribution" },
+          // "Reps & outlet stock" moved to the Accountant page (2026-11-02); the
+          // Warehouse posts to marketers from Stock's Post menu.
           { label: "Dispenser & jugs", module: "distribution", url: "/jug-accountability" },
-          { label: "Customers", module: "customers", url: "/customers" },
+          // "Customers" moved to the Accountant page (2026-11-02).
           {
             label: "Finished Products",
             module: "finished-goods",
@@ -207,7 +208,6 @@ export const nav: { section: string; items: NavItem[] }[] = [
           },
         ],
       },
-      { title: "Distribution", url: "/distribution", icon: Truck, module: "distribution" },
       { title: "Costing", url: "/costing", icon: Calculator, module: "costing" },
     ],
   },
@@ -280,8 +280,20 @@ export const nav: { section: string; items: NavItem[] }[] = [
           {
             label: "Cash remitted",
             module: "finance",
-            url: "/distribution",
+            url: "/accountant",
             search: { tab: "remittances" },
+          },
+          {
+            label: "Reps & outlets",
+            module: "finance",
+            url: "/accountant",
+            search: { tab: "reps" },
+          },
+          {
+            label: "Customers",
+            module: "customers",
+            url: "/accountant",
+            search: { tab: "customers" },
           },
           {
             label: "Performance & commission",
@@ -308,7 +320,6 @@ export const nav: { section: string; items: NavItem[] }[] = [
   {
     section: "Directory",
     items: [
-      { title: "Customers", url: "/customers", icon: Users, module: "customers" },
       { title: "Suppliers", url: "/suppliers", icon: Truck, module: "suppliers" },
       { title: "Employees", url: "/employees", icon: UserCog, module: "employees" },
     ],

@@ -34,7 +34,7 @@ export function GlobalSearch() {
   const navigate = useNavigate();
   // Whoever may see marketer accounts goes to the marketer's profile page;
   // stock-only users (Warehouse) get the stock and activity dialog.
-  const canAccounts = can("marketer-accounts") || canSeeMoney;
+  const canAccounts = canSeeMoney;
   const canReps = can("distribution");
   const canCustomers = can("customers");
   const [q, setQ] = useState("");

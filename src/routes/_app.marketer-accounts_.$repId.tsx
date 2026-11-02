@@ -138,11 +138,12 @@ type Access = {
 
 function useAccess(): Access & { loading: boolean } {
   const perms = usePermissions();
-  const money = perms.can("marketer-accounts") || perms.canSeeMoney;
+  // Accounts only (2026-11-02): the Warehouse has no marketer account view.
+  const money = perms.canSeeMoney;
   return {
     loading: perms.loading,
     money,
-    stock: money || perms.can("distribution"),
+    stock: money,
     addCustomer: perms.can("customers", "create") || perms.can("marketer-accounts", "create"),
     collect: perms.canWrite("payments") || perms.canWrite("debts"),
     remit: perms.canPost("distribution"),

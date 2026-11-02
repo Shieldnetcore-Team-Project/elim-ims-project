@@ -11,11 +11,20 @@ import { money } from "@/lib/format";
 import { fetchSaleLines, printSaleInvoice } from "@/lib/invoice";
 import { printMonthlySales } from "@/lib/monthly-sales-pdf";
 import { generateReceiptPdf } from "@/lib/pdf";
-import { AccountsTab, type Rep } from "@/routes/_app.distribution";
+import {
+  AccountsTab,
+  RemittancesTab,
+  RepDetailsDialog,
+  RepsTab,
+  type Rep,
+} from "@/routes/_app.distribution";
+import { printDispatchInvoice } from "@/lib/dispatch-slip";
+import { CustomersPage } from "@/routes/_app.customers";
 import { PostingsTab } from "@/components/accounting/postings-tab";
 import { DistributorsTab } from "@/components/accounting/distributors-tab";
 import { RetailCashUpTab } from "@/components/retail/outlet-day-close";
 import { CustomerActivityDialog } from "@/components/accounting/customer-activity-dialog";
+import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -80,6 +89,8 @@ type SaleRow = {
   balance: number;
   status: string;
   is_pr: boolean;
+  // The marketer or the Retail Shop whose stock it was sold from, if any.
+  sales_rep_id: string | null;
   sale_items: { quantity: number; products: { name: string; unit: string } | null }[] | null;
 };
 
@@ -100,6 +111,7 @@ type InvoiceGroup = {
   balance: number;
   status: string;
   is_pr: boolean;
+  repId?: string | null;
 };
 
 function groupInvoices(sales: SaleRow[]): InvoiceGroup[] {
@@ -128,6 +140,7 @@ function groupInvoices(sales: SaleRow[]): InvoiceGroup[] {
         status: s.status,
         is_pr: s.is_pr,
         qty: new Map(),
+        repId: s.sales_rep_id,
       };
       groups.set(key, g);
     }
@@ -184,10 +197,59 @@ type PayrollRow = {
   employees: { full_name: string } | null;
 };
 
+type PartyType = "marketer" | "customer" | "retail" | "internal";
+const PARTY_FILTERS: { key: PartyType | "all"; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "marketer", label: "Marketers" },
+  { key: "customer", label: "Customers & distributors" },
+  { key: "retail", label: "Retail" },
+  { key: "internal", label: "Expenses & payroll" },
+];
+
+// Warehouse postings to marketers and the Retail Shop (accounting_postings).
+type PostingRow = {
+  kind: string;
+  posting_kind: string;
+  posting_id: string;
+  reference: string;
+  at: string;
+  party_id: string;
+  party: string;
+  items: string | null;
+  value: number;
+  status: string;
+};
+type ReturnRow = {
+  id: string;
+  return_number: string;
+  return_date: string;
+  received_at: string | null;
+  status: string;
+  sales_rep_id: string;
+  sales_reps: { full_name: string; kind: string } | null;
+  rep_return_items: { quantity_returned: number; unit_price: number }[];
+  items?: string;
+};
+type RemittanceRow = {
+  id: string;
+  remittance_number: string;
+  remittance_date: string;
+  created_at: string | null;
+  amount: number;
+  payment_method: string | null;
+  sales_rep_id: string;
+  sales_reps: { full_name: string; kind: string } | null;
+};
+
 type Activity = {
   key: string;
   date: string;
-  kind: "Invoice" | "Payment" | "Expense" | "Payroll";
+  kind: "Invoice" | "Payment" | "Expense" | "Payroll" | "Posting" | "Return" | "Cash remitted";
+  // Whose activity it is, for the filter: a marketer, a customer or
+  // distributor, the Retail Shop, or the factory's own spending.
+  party_type: PartyType;
+  // A marketer or the shop: the row opens their whole account.
+  repId?: string;
   reference: string;
   party: string;
   // Invoices: the products supplied.
@@ -224,6 +286,9 @@ function AccountantPage() {
   const { can } = perms;
   const [q, setQ] = useState("");
   const [viewing, setViewing] = useState<InvoiceGroup | null>(null);
+  // All activity: whose rows to show, and the marketer / shop account open.
+  const [party, setParty] = useState<PartyType | "all">("all");
+  const [repViewing, setRepViewing] = useState<string | null>(null);
   // Monthly accumulated sales PDF: "YYYY-MM", this month by default.
   const [month, setMonth] = useState(() => startOfToday().slice(0, 7));
   const { tab = "activity" } = Route.useSearch();
@@ -253,8 +318,24 @@ function AccountantPage() {
   });
 
   useRealtimeInvalidate(
-    ["sales", "payments_received", "expenses", "payroll"],
-    [["acct-sales"], ["acct-payments"], ["acct-expenses"], ["acct-payroll"]],
+    [
+      "sales",
+      "payments_received",
+      "expenses",
+      "payroll",
+      "stock_dispatches",
+      "rep_returns",
+      "rep_remittances",
+    ],
+    [
+      ["acct-sales"],
+      ["acct-payments"],
+      ["acct-expenses"],
+      ["acct-payroll"],
+      ["acct-activity-postings"],
+      ["acct-activity-returns"],
+      ["acct-activity-remittances"],
+    ],
   );
 
   const sales = useQuery({
@@ -264,7 +345,7 @@ function AccountantPage() {
       const { data, error } = await supabase
         .from("sales")
         .select(
-          "id,invoice_number,sale_date,customer_name,grand_total,amount_paid,balance,status,is_pr,sale_items(quantity,products(name,unit))",
+          "id,invoice_number,sale_date,customer_name,grand_total,amount_paid,balance,status,is_pr,sales_rep_id,sale_items(quantity,products(name,unit))",
         )
         .eq("factory_id", factoryId!)
         // Admins can also read soft-deleted sales; they aren't real invoices.
@@ -340,6 +421,69 @@ function AccountantPage() {
     },
   });
 
+  // Marketers' and the Retail Shop's side of the feed (2026-11-02): what the
+  // Warehouse posted to them, what they brought back, and cash they handed in.
+  const postings = useQuery({
+    queryKey: ["acct-activity-postings", factoryId],
+    enabled: !!factoryId && canRepAccounts,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc(
+        "accounting_postings" as never,
+        { p_factory: factoryId, p_limit: 300 } as never,
+      );
+      if (error) throw error;
+      // Distributor postings are invoices, already on the feed.
+      return ((data ?? []) as unknown as PostingRow[]).filter((p) => p.posting_kind === "dispatch");
+    },
+  });
+  const returns = useQuery({
+    queryKey: ["acct-activity-returns", factoryId],
+    enabled: !!factoryId && canRepAccounts,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("rep_returns")
+        .select(
+          "id,return_number,return_date,received_at,status,sales_rep_id,sales_reps(full_name,kind),rep_return_items(quantity_returned,unit_price)",
+        )
+        .eq("factory_id", factoryId!)
+        .neq("status", "cancelled")
+        .order("received_at", { ascending: false })
+        .limit(100);
+      if (error) throw error;
+      const rows = (data ?? []) as unknown as ReturnRow[];
+      // Product names through rep_posting_lines(): accountants can't read
+      // products directly.
+      const lines = await Promise.all(
+        rows.map((r) =>
+          supabase
+            .rpc("rep_posting_lines" as never, { p_kind: "return", p_id: r.id } as never)
+            .then(({ data: l }) =>
+              ((l ?? []) as unknown as { product_name: string; unit: string; quantity: number }[])
+                .map((x) => `${x.product_name} × ${Number(x.quantity).toLocaleString()} ${x.unit}`)
+                .join(" · "),
+            ),
+        ),
+      );
+      return rows.map((r, i) => ({ ...r, items: lines[i] }));
+    },
+  });
+  const remittances = useQuery({
+    queryKey: ["acct-activity-remittances", factoryId],
+    enabled: !!factoryId && canRepAccounts,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("rep_remittances")
+        .select(
+          "id,remittance_number,remittance_date,created_at,amount,payment_method,sales_rep_id,sales_reps(full_name,kind)",
+        )
+        .eq("factory_id", factoryId!)
+        .order("created_at", { ascending: false })
+        .limit(200);
+      if (error) throw error;
+      return (data ?? []) as unknown as RemittanceRow[];
+    },
+  });
+
   const today = startOfToday();
   const monthStart = startOfMonth();
   const livePayments = (payments.data ?? []).filter(
@@ -395,6 +539,10 @@ function AccountantPage() {
           date: g.date,
           kind: "Invoice" as const,
           reference: g.numbers.length > 1 ? `${g.numbers.length} invoices` : g.numbers[0],
+          party_type: (g.walkIn ||
+          (reps.data ?? []).find((r) => r.id === g.repId)?.kind === "outlet"
+            ? "retail"
+            : "customer") as PartyType,
           party: g.customer,
           details: g.products,
           group: g,
@@ -412,6 +560,7 @@ function AccountantPage() {
           key: `pay-${k}`,
           date: p.payment_date,
           kind: "Payment" as const,
+          party_type: "customer" as PartyType,
           reference: ps.length > 1 ? `${ps.length} receipts` : p.receipt_number,
           party: name ?? "—",
           amount: sum(ps),
@@ -441,6 +590,7 @@ function AccountantPage() {
         key: `exp-${e.id}`,
         date: e.expense_date,
         kind: "Expense" as const,
+        party_type: "internal" as PartyType,
         reference: e.expense_categories?.name ?? "Expense",
         party: e.description ?? "—",
         amount: Number(e.amount),
@@ -451,15 +601,68 @@ function AccountantPage() {
         key: `pr-${p.id}`,
         date: p.submitted_at,
         kind: "Payroll" as const,
+        party_type: "internal" as PartyType,
         reference: `${String(p.period_month).padStart(2, "0")}/${p.period_year}`,
         party: p.employees?.full_name ?? "—",
         amount: Number(p.net_salary),
         direction: "out" as const,
         status: p.status,
       })),
+      ...(postings.data ?? []).map((p) => ({
+        key: `post-${p.posting_id}`,
+        date: p.at,
+        kind: "Posting" as const,
+        party_type: (p.kind === "retail" ? "retail" : "marketer") as PartyType,
+        repId: p.party_id,
+        reference: p.reference,
+        party: p.party,
+        details: p.items ?? undefined,
+        amount: Number(p.value),
+        direction: "in" as const,
+        status: p.status,
+      })),
+      ...(returns.data ?? []).map((r) => ({
+        key: `ret-${r.id}`,
+        date: r.received_at ?? r.return_date,
+        kind: "Return" as const,
+        party_type: (r.sales_reps?.kind === "outlet" ? "retail" : "marketer") as PartyType,
+        repId: r.sales_rep_id,
+        reference: r.return_number,
+        party: r.sales_reps?.full_name ?? "—",
+        details: r.items || undefined,
+        // Goods back: credited to their account.
+        amount: r.rep_return_items.reduce(
+          (t, i) => t + Number(i.quantity_returned) * Number(i.unit_price),
+          0,
+        ),
+        direction: "out" as const,
+        status: r.status,
+      })),
+      ...(remittances.data ?? []).map((m) => ({
+        key: `rem-${m.id}`,
+        date: m.created_at ?? m.remittance_date,
+        kind: "Cash remitted" as const,
+        party_type: (m.sales_reps?.kind === "outlet" ? "retail" : "marketer") as PartyType,
+        repId: m.sales_rep_id,
+        reference: m.remittance_number,
+        party: m.sales_reps?.full_name ?? "—",
+        details: m.payment_method ? `Paid by ${m.payment_method.replace(/_/g, " ")}` : undefined,
+        amount: Number(m.amount),
+        direction: "in" as const,
+        status: "received",
+      })),
     ];
     return rows.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
-  }, [invoiceGroups, payments.data, expenses.data, payroll.data]);
+  }, [
+    invoiceGroups,
+    payments.data,
+    expenses.data,
+    payroll.data,
+    postings.data,
+    returns.data,
+    remittances.data,
+    reps.data,
+  ]);
 
   const query = q.trim().toLowerCase();
   const match = (...fields: (string | null | undefined)[]) =>
@@ -552,7 +755,12 @@ function AccountantPage() {
             {canRepAccounts && (
               <TabsTrigger value="accounts">Marketer &amp; retail accounts</TabsTrigger>
             )}
+            {canRepAccounts && <TabsTrigger value="reps">Reps &amp; outlets</TabsTrigger>}
+            {canRepAccounts && perms.canSeeMoney && (
+              <TabsTrigger value="remittances">Cash remitted</TabsTrigger>
+            )}
             <TabsTrigger value="distributors">Distributors</TabsTrigger>
+            {can("customers") && <TabsTrigger value="customers">Customers</TabsTrigger>}
           </TabsList>
           <div className={`relative w-full sm:w-72 ${searchable ? "" : "hidden"}`}>
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -567,8 +775,24 @@ function AccountantPage() {
 
         <TabsContent value="activity">
           <Card className="rounded-2xl">
-            <CardHeader>
+            <CardHeader className="space-y-3">
               <CardTitle>All transactions</CardTitle>
+              <div className="flex flex-wrap gap-1">
+                {PARTY_FILTERS.map((p) => (
+                  <Button
+                    key={p.key}
+                    size="sm"
+                    variant={party === p.key ? "default" : "outline"}
+                    onClick={() => setParty(p.key)}
+                  >
+                    {p.label}
+                  </Button>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Click a name to open their account: what was posted to them, what they owe, and
+                payments, remittances and everything else on it.
+              </p>
             </CardHeader>
             <CardContent className="overflow-x-auto">
               <Table>
@@ -585,6 +809,7 @@ function AccountantPage() {
                 </TableHeader>
                 <TableBody>
                   {activity
+                    .filter((a) => party === "all" || a.party_type === party)
                     .filter((a) => match(a.reference, a.party, a.kind, a.details))
                     .slice(0, 300)
                     .map((a) => (
@@ -597,7 +822,19 @@ function AccountantPage() {
                         </TableCell>
                         <TableCell className="font-mono text-xs">{a.reference}</TableCell>
                         <TableCell>
-                          <div>{a.party}</div>
+                          {a.repId || a.group ? (
+                            <button
+                              type="button"
+                              className="text-left font-medium text-primary hover:underline"
+                              onClick={() =>
+                                a.repId ? setRepViewing(a.repId) : setViewing(a.group!)
+                              }
+                            >
+                              {a.party}
+                            </button>
+                          ) : (
+                            <div>{a.party}</div>
+                          )}
                           {a.details && (
                             <div className="text-xs text-muted-foreground">{a.details}</div>
                           )}
@@ -623,6 +860,49 @@ function AccountantPage() {
                         <TableCell>
                           {/* Same actions as the Invoices / Payments received tabs. */}
                           <div className="flex justify-end gap-1">
+                            {a.repId && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                title={`Open ${a.party}'s account`}
+                                onClick={() => setRepViewing(a.repId!)}
+                              >
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                            )}
+                            {/* The posting on the A4 invoice, as a distributor's sale. */}
+                            {a.kind === "Posting" && (
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  title="Print invoice"
+                                  onClick={() =>
+                                    printDispatchInvoice(
+                                      { id: a.key.slice("post-".length) },
+                                      settings.data,
+                                      "print",
+                                    )
+                                  }
+                                >
+                                  <Printer className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  title="Download invoice"
+                                  onClick={() =>
+                                    printDispatchInvoice(
+                                      { id: a.key.slice("post-".length) },
+                                      settings.data,
+                                      "download",
+                                    )
+                                  }
+                                >
+                                  <Download className="h-4 w-4" />
+                                </Button>
+                              </>
+                            )}
                             {a.group && (
                               <>
                                 <Button
@@ -714,6 +994,22 @@ function AccountantPage() {
           </TabsContent>
         )}
 
+        {/* Moved from the Distribution page (2026-11-02). */}
+        {canRepAccounts && (
+          <TabsContent value="reps">
+            <RepsTab factoryId={factoryId} reps={reps.data ?? []} perms={perms} />
+          </TabsContent>
+        )}
+        {canRepAccounts && perms.canSeeMoney && (
+          <TabsContent value="remittances">
+            <RemittancesTab
+              factoryId={factoryId}
+              reps={(reps.data ?? []).filter((r) => r.status === "active")}
+              perms={perms}
+            />
+          </TabsContent>
+        )}
+
         <TabsContent value="retail-cashup">
           <RetailCashUpTab factoryId={factoryId} currency={currency} />
         </TabsContent>
@@ -721,6 +1017,13 @@ function AccountantPage() {
         <TabsContent value="distributors">
           <DistributorsTab factoryId={factoryId} currency={currency} />
         </TabsContent>
+
+        {/* Moved from the Warehouse (2026-11-02). */}
+        {can("customers") && (
+          <TabsContent value="customers">
+            <CustomersPage />
+          </TabsContent>
+        )}
 
         <TabsContent value="invoices">
           <Card className="rounded-2xl">
@@ -931,6 +1234,14 @@ function AccountantPage() {
         </TabsContent>
       </Tabs>
 
+      {repViewing && (reps.data ?? []).some((r) => r.id === repViewing) && (
+        <Dialog open onOpenChange={(v) => !v && setRepViewing(null)}>
+          <RepDetailsDialog
+            factoryId={factoryId}
+            rep={(reps.data ?? []).find((r) => r.id === repViewing)!}
+          />
+        </Dialog>
+      )}
       {viewing && (
         <CustomerActivityDialog
           open

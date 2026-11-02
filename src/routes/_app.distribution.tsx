@@ -1,12 +1,12 @@
-import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
-import { RequireAccess } from "@/components/layout/require-access";
-import { SectionTabs } from "@/components/layout/section-tabs";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import { Fragment, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useFactoryId, useFactorySettings } from "@/lib/use-factory";
+import { useMarketerStatement } from "@/lib/marketer-accounts";
+import { companyOf, generateMarketerStatementPdf } from "@/lib/marketer-pdf";
 import { PrintCopiesButton } from "@/components/shared/print-copies-button";
-import { printDispatchSlip } from "@/lib/dispatch-slip";
+import { printDispatchInvoice, printDispatchSlip } from "@/lib/dispatch-slip";
 import { printSaleInvoice } from "@/lib/invoice";
 import { generateReceiptPdf } from "@/lib/pdf";
 import { usePermissions } from "@/lib/permissions";
@@ -64,29 +64,33 @@ import { fetchMyProductMatcher } from "@/lib/product-rules";
 import { QuickAddProductDialog, ADD_NEW_ITEM } from "@/components/shared/quick-add-item";
 import { requestDelete } from "@/lib/request-delete";
 import { RequestDeleteDialog } from "@/components/shared/request-delete-dialog";
-import { DistributorsListTab } from "@/components/warehouse/distributors-list";
 
+// The Distribution page moved to the Accountant page (user, 2026-11-02):
+// Reps & outlets and Cash remitted are its tabs there; dispatches are
+// Accountant → Postings to assess, distributors Accountant → Distributors,
+// returns Warehouse → Returns. Old links and bookmarks follow. The Warehouse
+// still posts to marketers from its Post menu (MarketerPostDialog below).
 export const Route = createFileRoute("/_app/distribution")({
-  head: () => ({
-    meta: [{ title: "Distribution — FMIS" }, { name: "robots", content: "noindex" }],
-  }),
-  // ?tab= opens a specific tab (Finance links Cash remitted to
-  // ?tab=remittances); no param means the default Sales Reps tab.
   validateSearch: (s: Record<string, unknown>): { tab?: string } => ({
     tab: typeof s.tab === "string" ? s.tab : undefined,
   }),
-  // Marketer & retail accounts have their own page now; old links follow.
   beforeLoad: ({ search }) => {
     if (search.tab === "accounts") throw redirect({ to: "/marketer-accounts" });
+    if (search.tab === "returns") throw redirect({ to: "/sales-returns" });
+    throw redirect({
+      to: "/accountant",
+      search: {
+        tab:
+          search.tab === "remittances"
+            ? "remittances"
+            : search.tab === "dispatches"
+              ? "postings"
+              : search.tab === "distributors"
+                ? "distributors"
+                : "reps",
+      },
+    });
   },
-  component: () => (
-    <>
-      <SectionTabs section="Distribution" />
-      <RequireAccess module="distribution">
-        <DistributionPage />
-      </RequireAccess>
-    </>
-  ),
 });
 
 export type Rep = {
@@ -167,169 +171,19 @@ const statusBadge = (s: string): "default" | "secondary" | "outline" | "destruct
   return "outline";
 };
 
-function DistributionPage() {
-  const { data: factoryId } = useFactoryId();
-  const perms = usePermissions();
-  // Cash remitted, credit and account balances are Accounting's: only people
-  // with a finance-side right see Remittances (not the Warehouse). Marketer &
-  // retail accounts live on the Accountant page.
-  const canMoney = perms.canSeeMoney;
-  const { tab: urlTab } = Route.useSearch();
-  const tab = !canMoney && urlTab === "remittances" ? undefined : urlTab;
-  const navigate = useNavigate({ from: Route.fullPath });
-  // Keep the tab in the URL so Finance's Marketer Accounts links land on it,
-  // and keep the history state so the sidebar/tab bar stay on the same entry.
-  const setTab = (v: string) =>
-    navigate({
-      search: { tab: v === "reps" ? undefined : v },
-      replace: true,
-      state: (prev) => prev,
-    });
-
-  const currentUser = useQuery({
-    queryKey: ["current-user-id"],
-    queryFn: async () => (await supabase.auth.getUser()).data.user?.id ?? null,
-    staleTime: Infinity,
-  });
-
-  const reps = useQuery({
-    queryKey: ["dist-reps", factoryId],
-    enabled: !!factoryId,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("sales_reps")
-        .select("id,code,full_name,phone,status,employee_id,remarks,kind")
-        .eq("factory_id", factoryId!)
-        .order("full_name");
-      if (error) throw error;
-      return (data ?? []) as Rep[];
-    },
-  });
-
-  const products = useQuery({
-    queryKey: ["dist-products", factoryId],
-    enabled: !!factoryId,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("products")
-        .select("id,name,unit,unit_price,current_stock")
-        .eq("factory_id", factoryId!)
-        .eq("active", true)
-        // Finished products only (bottle water in packs); empty blown
-        // bottles are QC stock in pieces, never posted.
-        .eq("product_type", "finished")
-        .order("name");
-      if (error) throw error;
-      // Only the products this Warehouse officer handles (20261101140000).
-      const mine = await fetchMyProductMatcher();
-      return ((data ?? []) as Product[]).filter((p) => mine(p.name));
-    },
-  });
-
-  const vehicles = useQuery({
-    queryKey: ["dist-vehicles", factoryId],
-    enabled: !!factoryId,
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("vehicles")
-        .select("id,plate_number")
-        .eq("factory_id", factoryId!)
-        .order("plate_number");
-      return (data ?? []) as NamedRow[];
-    },
-  });
-  const drivers = useQuery({
-    queryKey: ["dist-drivers", factoryId],
-    enabled: !!factoryId,
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("drivers")
-        .select("id,full_name")
-        .eq("factory_id", factoryId!)
-        .order("full_name");
-      return (data ?? []) as NamedRow[];
-    },
-  });
-  const routes = useQuery({
-    queryKey: ["dist-routes", factoryId],
-    enabled: !!factoryId,
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("delivery_routes")
-        .select("id,name")
-        .eq("factory_id", factoryId!)
-        .order("name");
-      return (data ?? []) as NamedRow[];
-    },
-  });
-
-  if (!factoryId) return null;
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Distribution</h1>
-        <p className="text-sm text-muted-foreground">
-          Products leave the warehouse on a dispatch to a sales rep or the company's retail outlet.
-          Each sells from its own stock, returns what's unsold for inspection, and remits cash — its
-          account nets it all against the value of goods it took.
-        </p>
-      </div>
-
-      <Tabs value={tab ?? "reps"} onValueChange={setTab}>
-        <TabsList className="flex-wrap">
-          <TabsTrigger value="reps">Reps &amp; Outlets</TabsTrigger>
-          {perms.can("customers") && <TabsTrigger value="distributors">Distributors</TabsTrigger>}
-          <TabsTrigger value="dispatches">Dispatches</TabsTrigger>
-          <TabsTrigger value="returns">Returns</TabsTrigger>
-          {canMoney && <TabsTrigger value="remittances">Remittances</TabsTrigger>}
-        </TabsList>
-
-        <TabsContent value="reps" className="mt-4">
-          <RepsTab factoryId={factoryId} reps={reps.data ?? []} perms={perms} />
-        </TabsContent>
-        {perms.can("customers") && (
-          <TabsContent value="distributors" className="mt-4">
-            <DistributorsListTab factoryId={factoryId} />
-          </TabsContent>
-        )}
-        <TabsContent value="dispatches" className="mt-4">
-          <DispatchesTab
-            factoryId={factoryId}
-            reps={(reps.data ?? []).filter((r) => r.status === "active")}
-            products={products.data ?? []}
-            vehicles={vehicles.data ?? []}
-            drivers={drivers.data ?? []}
-            routes={routes.data ?? []}
-            perms={perms}
-          />
-        </TabsContent>
-        <TabsContent value="returns" className="mt-4">
-          <ReturnsTab
-            factoryId={factoryId}
-            reps={reps.data ?? []}
-            products={products.data ?? []}
-            perms={perms}
-            currentUserId={currentUser.data ?? null}
-          />
-        </TabsContent>
-        <TabsContent value="remittances" className="mt-4">
-          <RemittancesTab
-            factoryId={factoryId}
-            reps={(reps.data ?? []).filter((r) => r.status === "active")}
-            perms={perms}
-          />
-        </TabsContent>
-      </Tabs>
-    </div>
-  );
-}
-
 type Perms = ReturnType<typeof usePermissions>;
 
 /* ------------------------------------------------------------------ Reps --- */
 
-function RepsTab({ factoryId, reps, perms }: { factoryId: string; reps: Rep[]; perms: Perms }) {
+export function RepsTab({
+  factoryId,
+  reps,
+  perms,
+}: {
+  factoryId: string;
+  reps: Rep[];
+  perms: Perms;
+}) {
   const qc = useQueryClient();
   const [editing, setEditing] = useState<Rep | null>(null);
   const [open, setOpen] = useState(false);
@@ -603,189 +457,6 @@ const mergeLines = (lines: Line[]) => {
   return [...byProduct].map(([product_id, quantity]) => ({ product_id, quantity }));
 };
 
-function DispatchesTab({
-  factoryId,
-  reps,
-  products,
-  vehicles,
-  drivers,
-  routes,
-  perms,
-}: {
-  factoryId: string;
-  reps: Rep[];
-  products: Product[];
-  vehicles: NamedRow[];
-  drivers: NamedRow[];
-  routes: NamedRow[];
-  perms: Perms;
-}) {
-  const qc = useQueryClient();
-  const settings = useFactorySettings(factoryId);
-  const [open, setOpen] = useState(false);
-  const [reverseTarget, setReverseTarget] = useState<DispatchRow | null>(null);
-  const [detail, setDetail] = useState<DispatchRow | null>(null);
-  const canCreate = perms.canCreate("distribution");
-  const canReverse = perms.canReverse("distribution");
-
-  const list = useQuery({
-    queryKey: ["dist-dispatches", factoryId],
-    enabled: !!factoryId,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("stock_dispatches")
-        .select(
-          "id,dispatch_number,dispatch_date,status,total_value,notes,sales_reps(full_name),stock_dispatch_items(quantity,unit_price,line_value,products(name,unit))",
-        )
-        .eq("factory_id", factoryId!)
-        .order("created_at", { ascending: false })
-        .limit(300);
-      if (error) throw error;
-      return (data ?? []) as unknown as DispatchRow[];
-    },
-  });
-
-  const refresh = () => {
-    qc.invalidateQueries({ queryKey: ["dist-dispatches"] });
-    qc.invalidateQueries({ queryKey: ["dist-products"] });
-    qc.invalidateQueries({ queryKey: ["dist-rep-stock"] });
-    qc.invalidateQueries({ queryKey: ["dist-account"] });
-    qc.invalidateQueries({ queryKey: ["finished-goods"] });
-  };
-
-  return (
-    <Card className="rounded-2xl">
-      <CardHeader className="flex flex-row items-center flex-wrap justify-between gap-2">
-        <CardTitle>Dispatches</CardTitle>
-        {canCreate && (
-          <Button size="sm" className="gap-2" onClick={() => setOpen(true)}>
-            <Send className="h-4 w-4" /> New Dispatch
-          </Button>
-        )}
-      </CardHeader>
-      <CardContent className="overflow-x-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Dispatch #</TableHead>
-              <TableHead>Date</TableHead>
-              <TableHead>Rep</TableHead>
-              <TableHead className="text-right">Lines</TableHead>
-              <TableHead className="text-right">Value</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead></TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {(list.data ?? []).map((d) => (
-              <TableRow key={d.id}>
-                <TableCell className="font-mono text-xs">{d.dispatch_number}</TableCell>
-                <TableCell className="whitespace-nowrap text-xs">
-                  {new Date(d.dispatch_date).toLocaleDateString()}
-                </TableCell>
-                <TableCell className="font-medium">{d.sales_reps?.full_name ?? "—"}</TableCell>
-                <TableCell className="text-right">{d.stock_dispatch_items?.length ?? 0}</TableCell>
-                <TableCell className="text-right">{money(Number(d.total_value))}</TableCell>
-                <TableCell>
-                  <Badge variant={statusBadge(d.status)} className="capitalize">
-                    {d.status}
-                  </Badge>
-                </TableCell>
-                <TableCell>
-                  <div className="flex justify-end gap-1">
-                    <Button variant="ghost" size="icon" title="View" onClick={() => setDetail(d)}>
-                      <Eye className="h-4 w-4" />
-                    </Button>
-                    <PrintCopiesButton
-                      onPrint={(copies) =>
-                        printDispatchSlip({ id: d.id }, settings.data, "print", copies)
-                      }
-                    />
-                    {d.status === "posted" && canReverse && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        title="Reverse"
-                        onClick={() => setReverseTarget(d)}
-                      >
-                        <Undo2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    )}
-                  </div>
-                </TableCell>
-              </TableRow>
-            ))}
-            {(list.data ?? []).length === 0 && (
-              <TableRow>
-                <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
-                  No dispatches yet.
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </CardContent>
-
-      <Dialog open={open} onOpenChange={setOpen}>
-        {open && (
-          <NewDispatchDialog
-            factoryId={factoryId}
-            reps={reps}
-            products={products}
-            onDone={() => {
-              setOpen(false);
-              refresh();
-            }}
-          />
-        )}
-      </Dialog>
-      <Dialog open={!!reverseTarget} onOpenChange={(v) => !v && setReverseTarget(null)}>
-        {reverseTarget && (
-          <ReverseDialog
-            row={reverseTarget}
-            onDone={() => {
-              setReverseTarget(null);
-              refresh();
-            }}
-          />
-        )}
-      </Dialog>
-      <Dialog open={!!detail} onOpenChange={(v) => !v && setDetail(null)}>
-        {detail && (
-          <DialogContent className="max-w-lg">
-            <DialogHeader>
-              <DialogTitle>{detail.dispatch_number}</DialogTitle>
-            </DialogHeader>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Product</TableHead>
-                  <TableHead className="text-right">Qty</TableHead>
-                  <TableHead className="text-right">Unit price</TableHead>
-                  <TableHead className="text-right">Value</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {detail.stock_dispatch_items?.map((it, i) => (
-                  <TableRow key={i}>
-                    <TableCell>{it.products?.name ?? "—"}</TableCell>
-                    <TableCell className="text-right">
-                      {num(Number(it.quantity))} {it.products?.unit}
-                    </TableCell>
-                    <TableCell className="text-right">{money(Number(it.unit_price))}</TableCell>
-                    <TableCell className="text-right">{money(Number(it.line_value))}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-            {detail.notes && <p className="text-sm text-muted-foreground">Notes: {detail.notes}</p>}
-          </DialogContent>
-        )}
-      </Dialog>
-    </Card>
-  );
-}
-
 function LineEditor({
   products,
   lines,
@@ -803,6 +474,8 @@ function LineEditor({
   factoryId?: string;
 }) {
   const [addingFor, setAddingFor] = useState<number | null>(null);
+  // Line values are Accounts' only.
+  const showValues = usePermissions().canSeeMoney;
   const add = () => setLines([...lines, { product_id: "", quantity: 0 }]);
   const update = (i: number, patch: Partial<Line>) =>
     setLines(lines.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
@@ -853,9 +526,11 @@ function LineEditor({
                 onChange={(v) => update(i, { quantity: v })}
               />
             </div>
-            <div className="w-24 pb-2 text-right text-xs text-muted-foreground">
-              {p ? money(p.unit_price * (l.quantity || 0)) : "—"}
-            </div>
+            {showValues && (
+              <div className="w-24 pb-2 text-right text-xs text-muted-foreground">
+                {p ? money(p.unit_price * (l.quantity || 0)) : "—"}
+              </div>
+            )}
             <Button variant="ghost" size="icon" onClick={() => remove(i)}>
               <Trash2 className="h-4 w-4 text-destructive" />
             </Button>
@@ -949,6 +624,8 @@ function NewDispatchDialog({
   const carriedLines = mergeLines(carried.flatMap(returnLines));
   const productName = (id: string) => products.find((p) => p.id === id)?.name ?? "—";
 
+  // The posting's value is Accounts' only (2026-11-02).
+  const showValue = usePermissions().canSeeMoney;
   const total = useMemo(
     () =>
       [...lines, ...carriedLines].reduce((sum, l) => {
@@ -1084,10 +761,12 @@ function NewDispatchDialog({
           <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} />
         </div>
 
-        <div className="flex justify-between border-t pt-2 text-sm font-medium">
-          <span>Dispatch value</span>
-          <span>{money(total)}</span>
-        </div>
+        {showValue && (
+          <div className="flex justify-between border-t pt-2 text-sm font-medium">
+            <span>Dispatch value</span>
+            <span>{money(total)}</span>
+          </div>
+        )}
       </div>
       <DialogFooter>
         <Button onClick={() => submit.mutate()} disabled={submit.isPending}>
@@ -1639,7 +1318,12 @@ function MarketerPostingsCard({
 }) {
   const qc = useQueryClient();
   const settings = useFactorySettings(factoryId);
+  // Values are Accounts' only (2026-11-02): products and quantities here.
+  const showValues = usePermissions().canSeeMoney;
   const [target, setTarget] = useState<DispatchRow | null>(null);
+  // Reverse moved here with the Distribution page's Dispatches tab (2026-11-02).
+  const canReverse = usePermissions().canReverse("distribution");
+  const [reverseTarget, setReverseTarget] = useState<DispatchRow | null>(null);
   const list = useQuery({
     queryKey: ["dist-dispatches", factoryId, repId],
     queryFn: async () => {
@@ -1673,7 +1357,7 @@ function MarketerPostingsCard({
               <TableHead>Posting #</TableHead>
               <TableHead>Date</TableHead>
               <TableHead>Products</TableHead>
-              <TableHead className="text-right">Value</TableHead>
+              {showValues && <TableHead className="text-right">Value</TableHead>}
               <TableHead>Status</TableHead>
               <TableHead></TableHead>
             </TableRow>
@@ -1690,7 +1374,9 @@ function MarketerPostingsCard({
                     ?.map((it) => `${it.products?.name ?? "—"} × ${num(Number(it.quantity))}`)
                     .join(", ")}
                 </TableCell>
-                <TableCell className="text-right">{money(Number(d.total_value))}</TableCell>
+                {showValues && (
+                  <TableCell className="text-right">{money(Number(d.total_value))}</TableCell>
+                )}
                 <TableCell>
                   <Badge variant={statusBadge(d.status)} className="capitalize">
                     {d.status}
@@ -1702,7 +1388,7 @@ function MarketerPostingsCard({
                 <TableCell className="whitespace-nowrap text-right">
                   <PrintCopiesButton
                     onPrint={(copies) =>
-                      printDispatchSlip({ id: d.id }, settings.data, "print", copies)
+                      printDispatchSlip({ id: d.id }, settings.data, "print", copies, !showValues)
                     }
                   />
                   {d.status === "posted" && canCorrect && (
@@ -1716,12 +1402,26 @@ function MarketerPostingsCard({
                       <Pencil className="h-4 w-4" />
                     </Button>
                   )}
+                  {d.status === "posted" && canReverse && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      title="Reverse"
+                      aria-label="Reverse"
+                      onClick={() => setReverseTarget(d)}
+                    >
+                      <Undo2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  )}
                 </TableCell>
               </TableRow>
             ))}
             {(list.data ?? []).length === 0 && (
               <TableRow>
-                <TableCell colSpan={6} className="py-6 text-center text-muted-foreground">
+                <TableCell
+                  colSpan={showValues ? 6 : 5}
+                  className="py-6 text-center text-muted-foreground"
+                >
                   {list.isLoading ? "Loading…" : "Nothing posted to this marketer yet."}
                 </TableCell>
               </TableRow>
@@ -1742,6 +1442,24 @@ function MarketerPostingsCard({
                 "dist-rep-stock",
                 "dist-account",
                 "dist-returns",
+                "finished-goods",
+              ])
+                qc.invalidateQueries({ queryKey: [key] });
+            }}
+          />
+        )}
+      </Dialog>
+      <Dialog open={!!reverseTarget} onOpenChange={(v) => !v && setReverseTarget(null)}>
+        {reverseTarget && (
+          <ReverseDialog
+            row={reverseTarget}
+            onDone={() => {
+              setReverseTarget(null);
+              for (const key of [
+                "dist-dispatches",
+                "dist-products",
+                "dist-rep-stock",
+                "dist-account",
                 "finished-goods",
               ])
                 qc.invalidateQueries({ queryKey: [key] });
@@ -2369,7 +2087,7 @@ function CancelReturnDialog({ row, onDone }: { row: ReturnRow; onDone: () => voi
 
 /* ----------------------------------------------------------- Remittances --- */
 
-function RemittancesTab({
+export function RemittancesTab({
   factoryId,
   reps,
   perms,
@@ -2893,6 +2611,11 @@ export function RepActivityCard({
       printSaleInvoice(r.saleId, settings.data, "print");
       return;
     }
+    // A posting's invoice: the company's A4 invoice, with prices.
+    if (r.kind === "Dispatch" && r.lines?.kind === "dispatch") {
+      printDispatchInvoice({ id: r.lines.id }, settings.data, "print");
+      return;
+    }
     generateReceiptPdf(
       {
         company: {
@@ -3059,12 +2782,16 @@ export function RepActivityCard({
                   {showValues && <TableCell className="text-right">{money(r.value)}</TableCell>}
                   {showValues && (
                     <TableCell>
-                      {(r.kind === "Sale" || r.kind === "Cash remitted") && (
+                      {(r.kind === "Sale" ||
+                        r.kind === "Dispatch" ||
+                        r.kind === "Cash remitted") && (
                         <Button
                           size="sm"
                           variant="ghost"
                           className="gap-1"
-                          title={r.kind === "Sale" ? "Print this invoice" : "Print this receipt"}
+                          title={
+                            r.kind === "Cash remitted" ? "Print this receipt" : "Print this invoice"
+                          }
                           onClick={(e) => {
                             e.stopPropagation();
                             printVoucher(r);
@@ -3117,9 +2844,27 @@ export function RepActivityCard({
 // account and its values; anyone else gets stock and activity only.
 export function RepDetailsDialog({ factoryId, rep }: { factoryId: string; rep: Rep }) {
   const perms = usePermissions();
-  const canAccount = perms.canSeeMoney || perms.can("marketer-accounts");
+  // A marketer's account (money) is Accounts' only (2026-11-02); everyone
+  // else sees their name, van stock and postings in quantities.
+  const canAccount = perms.canSeeMoney;
+  const settings = useFactorySettings(factoryId);
+  // The whole account on paper, for the accountant (2026-11-02).
+  const statement = useMarketerStatement(rep.id, null, null, canAccount);
+  const printStatement = () =>
+    statement.data &&
+    generateMarketerStatementPdf(
+      {
+        company: companyOf(settings.data),
+        statement: statement.data,
+        periodLabel: "All records",
+        currency: settings.data?.currency ?? "NGN",
+      },
+      "print",
+    );
   return (
-    <DialogContent className="max-h-[92vh] w-[95vw] max-w-5xl overflow-y-auto">
+    // Wide enough for the whole account without scrolling sideways (user,
+    // 2026-11-02); wide tables scroll inside their own cards.
+    <DialogContent className="max-h-[92vh] w-[96vw] max-w-[1400px] overflow-y-auto overflow-x-hidden">
       <DialogHeader>
         <DialogTitle className="flex flex-wrap items-center gap-2">
           {rep.full_name}
@@ -3129,6 +2874,17 @@ export function RepDetailsDialog({ factoryId, rep }: { factoryId: string; rep: R
           {rep.code && <span className="font-mono text-xs text-muted-foreground">{rep.code}</span>}
           {rep.phone && (
             <span className="text-sm font-normal text-muted-foreground">{rep.phone}</span>
+          )}
+          {canAccount && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="ml-auto mr-8 gap-2"
+              disabled={!statement.data}
+              onClick={() => printStatement()}
+            >
+              <Printer className="h-4 w-4" /> Print statement
+            </Button>
           )}
         </DialogTitle>
       </DialogHeader>

@@ -1,7 +1,6 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { RequireAccess } from "@/components/layout/require-access";
-import { SectionTabs } from "@/components/layout/section-tabs";
-import { useState } from "react";
+import { createFileRoute, Link, redirect } from "@tanstack/react-router";
+import { useMemo, useState } from "react";
+import { useMarketerDirectory } from "@/lib/marketer-accounts";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useFactoryId } from "@/lib/use-factory";
@@ -57,18 +56,12 @@ import { KPI } from "@/lib/dashboard-kit";
 import { AccountAdjustmentsCard } from "@/components/customers/account-adjustments";
 import { ReportActions } from "@/components/shared/report-actions";
 
+// Customers moved to the Accountant page (user, 2026-11-02): it is the
+// "Customers" tab there. Old links and bookmarks follow.
 export const Route = createFileRoute("/_app/customers")({
-  head: () => ({
-    meta: [{ title: "Customers — Elim Table Water" }, { name: "robots", content: "noindex" }],
-  }),
-  component: () => (
-    <>
-      <SectionTabs section="Customers" />
-      <RequireAccess module="customers">
-        <CustomersPage />
-      </RequireAccess>
-    </>
-  ),
+  beforeLoad: () => {
+    throw redirect({ to: "/accountant", search: { tab: "customers" } });
+  },
 });
 
 export type Customer = {
@@ -89,7 +82,25 @@ export type Customer = {
   removed_reason?: string | null;
 };
 
-function CustomersPage() {
+// Everyone the factory sells to, on one list (user, 2026-11-02): customers
+// by who they buy through, plus the marketers and the Retail Shop
+// themselves (their accounts, from marketer_directory).
+type PartyType = "marketer" | "marketer-customer" | "distributor" | "retail";
+const PARTY_TYPES: { key: PartyType | "all"; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "marketer", label: "Marketers" },
+  { key: "marketer-customer", label: "Marketer customers" },
+  { key: "distributor", label: "Distributors" },
+  { key: "retail", label: "Retail" },
+];
+const PARTY_LABEL: Record<PartyType, string> = {
+  marketer: "Marketer",
+  "marketer-customer": "Marketer customer",
+  distributor: "Distributor",
+  retail: "Retail",
+};
+
+export function CustomersPage() {
   const { data: factoryId } = useFactoryId();
   const qc = useQueryClient();
   const { can, canWrite, canApprove, canSeeMoney } = usePermissions();
@@ -131,17 +142,50 @@ function CustomersPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("sales_reps")
-        .select("id,full_name,status")
+        .select("id,full_name,status,kind")
         .eq("factory_id", factoryId!)
-        // Customers belong to field reps; the retail outlet has none.
-        .eq("kind", "rep")
         .order("full_name");
       if (error) return [];
       return data ?? [];
     },
   });
-  const repList = reps.data ?? [];
-  const repName = (id: string | null) => repList.find((r) => r.id === id)?.full_name;
+  const allReps = reps.data ?? [];
+  // Customers are assigned to field reps; the retail outlet takes none.
+  const repList = allReps.filter((r) => r.kind === "rep");
+  const repName = (id: string | null) => allReps.find((r) => r.id === id)?.full_name;
+  const typeOf = (c: Customer): PartyType => {
+    const kind = allReps.find((r) => r.id === c.sales_rep_id)?.kind;
+    if (kind === "rep") return "marketer-customer";
+    if (kind === "outlet" || !c.registered) return "retail";
+    return "distributor";
+  };
+  const [type, setType] = useState<PartyType | "all">("all");
+  // The marketers' and the shop's own accounts (Accounts only).
+  const directory = useMarketerDirectory(canSeeMoney ? factoryId : undefined);
+  const holders = useMemo(() => {
+    const k = q.trim().toLowerCase();
+    if (showRemoved) return [];
+    return (directory.data ?? []).filter(
+      (r) =>
+        r.status === "active" &&
+        (type === "all" || type === (r.kind === "outlet" ? "retail" : "marketer")) &&
+        (!k || r.full_name.toLowerCase().includes(k) || (r.phone ?? "").includes(k)),
+    );
+  }, [directory.data, q, showRemoved, type]);
+  const rows = (list.data ?? []).filter((c) => type === "all" || typeOf(c) === type);
+  const countOf = (t: PartyType | "all") =>
+    t === "all"
+      ? (list.data ?? []).length +
+        (showRemoved ? 0 : (directory.data ?? []).filter((r) => r.status === "active").length)
+      : t === "marketer"
+        ? showRemoved
+          ? 0
+          : (directory.data ?? []).filter((r) => r.status === "active" && r.kind === "rep").length
+        : (list.data ?? []).filter((c) => typeOf(c) === t).length +
+          (t === "retail" && !showRemoved
+            ? (directory.data ?? []).filter((r) => r.status === "active" && r.kind === "outlet")
+                .length
+            : 0);
 
   const save = useMutation({
     mutationFn: async (form: Partial<Customer>) => {
@@ -220,11 +264,11 @@ function CustomersPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <KPI icon={Users} label="Total Customers" value={String(list.data?.length ?? 0)} />
+        <KPI icon={Users} label="Total Customers" value={String(rows.length + holders.length)} />
         <KPI
           icon={Wallet}
           label="Total Goods Value"
-          value={money((list.data ?? []).reduce((s, c) => s + Number(c.total_purchases), 0))}
+          value={money(rows.reduce((s, c) => s + Number(c.total_purchases), 0))}
         />
         {canSeeMoney && (
           <>
@@ -232,7 +276,7 @@ function CustomersPage() {
               icon={HandCoins}
               label="Total Amount Paid"
               value={money(
-                (list.data ?? []).reduce(
+                rows.reduce(
                   (s, c) => s + (Number(c.total_purchases) - Number(c.outstanding_balance)),
                   0,
                 ),
@@ -242,9 +286,7 @@ function CustomersPage() {
             <KPI
               icon={AlertTriangle}
               label="Total Balance Due"
-              value={money(
-                (list.data ?? []).reduce((s, c) => s + Number(c.outstanding_balance), 0),
-              )}
+              value={money(rows.reduce((s, c) => s + Number(c.outstanding_balance), 0))}
               tone="destructive"
             />
           </>
@@ -262,6 +304,7 @@ function CustomersPage() {
             fileName={showRemoved ? "customers-removed" : "customers"}
             columns={[
               { key: "name", label: "Name" },
+              { key: "type", label: "Type" },
               { key: "phone", label: "Phone" },
               ...(repList.length > 0 ? [{ key: "marketer", label: "Marketer" }] : []),
               { key: "sales", label: "Transactions" },
@@ -275,19 +318,46 @@ function CustomersPage() {
                   ]
                 : []),
             ]}
-            rows={(list.data ?? []).map((c) => ({
-              name: c.name,
-              phone: c.phone ?? "",
-              marketer: repName(c.sales_rep_id) ?? "",
-              sales: c.total_transactions,
-              goods: money(Number(c.total_purchases)),
-              paid: money(Number(c.total_purchases) - Number(c.outstanding_balance)),
-              balance: money(Number(c.outstanding_balance)),
-              limit: c.credit_limit == null ? "No limit" : money(Number(c.credit_limit)),
-              terms: `${c.credit_days} days`,
-            }))}
+            rows={[
+              ...holders.map((r) => ({
+                name: r.full_name,
+                type: r.kind === "outlet" ? "Retail Shop" : "Marketer",
+                phone: r.phone ?? "",
+                marketer: "",
+                sales: `${r.customers} customers`,
+                goods: money(r.sales_value),
+                paid: money(r.collected),
+                balance: money(r.outstanding),
+                limit: "",
+                terms: "",
+              })),
+              ...rows.map((c) => ({
+                name: c.name,
+                type: PARTY_LABEL[typeOf(c)],
+                phone: c.phone ?? "",
+                marketer: repName(c.sales_rep_id) ?? "",
+                sales: c.total_transactions,
+                goods: money(Number(c.total_purchases)),
+                paid: money(Number(c.total_purchases) - Number(c.outstanding_balance)),
+                balance: money(Number(c.outstanding_balance)),
+                limit: c.credit_limit == null ? "No limit" : money(Number(c.credit_limit)),
+                terms: `${c.credit_days} days`,
+              })),
+            ]}
             subtitle={q.trim() ? [`Search: ${q.trim()}`] : []}
           />
+          <div className="flex w-full flex-wrap gap-1">
+            {PARTY_TYPES.filter((t) => canSeeMoney || t.key !== "marketer").map((t) => (
+              <Button
+                key={t.key}
+                size="sm"
+                variant={type === t.key ? "default" : "outline"}
+                onClick={() => setType(t.key)}
+              >
+                {t.label} ({countOf(t.key)})
+              </Button>
+            ))}
+          </div>
           <div className="flex w-full max-w-md items-center gap-2">
             <Button
               size="sm"
@@ -313,6 +383,7 @@ function CustomersPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Name</TableHead>
+                <TableHead>Type</TableHead>
                 <TableHead>Phone</TableHead>
                 {repList.length > 0 && <TableHead>Marketer</TableHead>}
                 <TableHead>Transactions</TableHead>
@@ -329,7 +400,48 @@ function CustomersPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(list.data ?? []).map((c) => {
+              {holders.map((r) => (
+                <TableRow key={`holder-${r.id}`}>
+                  <TableCell className="font-medium">
+                    <Link
+                      to="/marketer-accounts/$repId"
+                      params={{ repId: r.id }}
+                      className="text-primary hover:underline"
+                    >
+                      {r.full_name}
+                    </Link>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="default">
+                      {r.kind === "outlet" ? "Retail Shop" : "Marketer"}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>{r.phone ?? "—"}</TableCell>
+                  {repList.length > 0 && <TableCell>—</TableCell>}
+                  <TableCell>
+                    <Badge variant="secondary">
+                      {r.customers} customer{r.customers === 1 ? "" : "s"}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-right">{money(r.sales_value)}</TableCell>
+                  <TableCell className="text-right text-success">{money(r.collected)}</TableCell>
+                  <TableCell className="text-right">
+                    <span className={r.outstanding > 0 ? "text-destructive font-medium" : ""}>
+                      {r.outstanding > 0 ? money(r.outstanding) : "—"}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-right text-muted-foreground">—</TableCell>
+                  <TableCell className="text-muted-foreground">—</TableCell>
+                  <TableCell className="text-right">
+                    <Button asChild variant="ghost" size="sm">
+                      <Link to="/marketer-accounts/$repId" params={{ repId: r.id }}>
+                        Open account
+                      </Link>
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {rows.map((c) => {
                 const paid = Number(c.total_purchases) - Number(c.outstanding_balance);
                 return (
                   <TableRow key={c.id}>
@@ -352,6 +464,9 @@ function CustomersPage() {
                           )
                         )}
                       </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline">{PARTY_LABEL[typeOf(c)]}</Badge>
                     </TableCell>
                     <TableCell>{c.phone ?? "—"}</TableCell>
                     {repList.length > 0 && <TableCell>{repName(c.sales_rep_id) ?? "—"}</TableCell>}
@@ -447,9 +562,9 @@ function CustomersPage() {
                   </TableRow>
                 );
               })}
-              {(list.data ?? []).length === 0 && (
+              {rows.length + holders.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={11} className="text-center text-muted-foreground py-8">
                     {showRemoved
                       ? "No removed customers."
                       : q

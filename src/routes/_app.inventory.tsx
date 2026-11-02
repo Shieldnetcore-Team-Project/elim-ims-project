@@ -129,7 +129,9 @@ const isLow = isLowStock;
 function InventoryOverviewPage() {
   const { data: factoryId } = useFactoryId();
   const factoryCode = useActiveFactoryCode();
-  const { can } = usePermissions();
+  const { can, canSeeMoney } = usePermissions();
+  // Values and prices are Accounts' only (2026-11-02).
+  const showMoney = canSeeMoney;
   const canSeeFinishedGoods = can("finished-goods", "view");
   const factoryLabel = FACTORY_LABEL[factoryCode];
   const FactoryIcon = factoryLabel.icon;
@@ -272,8 +274,10 @@ function InventoryOverviewPage() {
           value={String(summary.lowStock)}
           tone={summary.lowStock > 0 ? "destructive" : "primary"}
         />
-        <SummaryCard icon={Wallet} label="Estimated Stock Value" value={money(summary.value)} />
-        {canSeeFinishedGoods && (
+        {showMoney && (
+          <SummaryCard icon={Wallet} label="Estimated Stock Value" value={money(summary.value)} />
+        )}
+        {showMoney && canSeeFinishedGoods && (
           <SummaryCard
             icon={Gift}
             label="Chairman's Gifts"
@@ -322,7 +326,7 @@ function InventoryOverviewPage() {
                       { key: "category", label: "Category" },
                       { key: "stock", label: "Stock" },
                       { key: "reorder", label: "Reorder Level" },
-                      { key: "price", label: "Selling Price" },
+                      ...(showMoney ? [{ key: "price", label: "Selling Price" }] : []),
                       { key: "status", label: "Status" },
                     ]}
                     rows={filteredProducts.map((p) => ({
@@ -349,7 +353,7 @@ function InventoryOverviewPage() {
                       <TableHead>Type</TableHead>
                       <TableHead className="text-right">Stock</TableHead>
                       <TableHead className="text-right">Reorder Level</TableHead>
-                      <TableHead className="text-right">Selling Price</TableHead>
+                      {showMoney && <TableHead className="text-right">Selling Price</TableHead>}
                       <TableHead>Status</TableHead>
                       <TableHead></TableHead>
                     </TableRow>
@@ -379,9 +383,11 @@ function InventoryOverviewPage() {
                               ? `${num(Number(p.reorder_level))} ${p.unit}`
                               : "—"}
                           </TableCell>
-                          <TableCell className="text-right">
-                            {money(Number(p.unit_price))}
-                          </TableCell>
+                          {showMoney && (
+                            <TableCell className="text-right">
+                              {money(Number(p.unit_price))}
+                            </TableCell>
+                          )}
                           <TableCell>
                             {low ? (
                               <Badge variant="destructive">Low Stock</Badge>
@@ -401,7 +407,10 @@ function InventoryOverviewPage() {
                     })}
                     {filteredProducts.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
+                        <TableCell
+                          colSpan={showMoney ? 9 : 8}
+                          className="text-center text-muted-foreground py-8"
+                        >
                           No finished goods for {factoryLabel.name}.
                         </TableCell>
                       </TableRow>

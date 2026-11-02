@@ -86,23 +86,27 @@ function receiptHtml(r: RollReceipt, logo: string, label?: string) {
   </table>
   <div class="gap fb">Transaction Details</div>
   <table class="items">
-    <thead><tr><th>Item</th><th class="r">Qty</th><th class="r">Price(N)</th><th class="r">Amount(N)</th></tr></thead>
+    <thead><tr><th>Item</th><th class="r">Qty</th>${r.quantities_only ? "" : `<th class="r">Price(N)</th><th class="r">Amount(N)</th>`}</tr></thead>
     <tbody>
       ${r.items
         .map(
           (it) =>
-            `<tr><td>${esc(it.name)}</td><td class="r">${amt(it.quantity)}</td><td class="r">${amt(it.unit_price)}</td><td class="r">${amt(it.amount)}</td></tr>`,
+            `<tr><td>${esc(it.name)}</td><td class="r">${amt(it.quantity)}</td>${r.quantities_only ? "" : `<td class="r">${amt(it.unit_price)}</td><td class="r">${amt(it.amount)}</td>`}</tr>`,
         )
         .join("")}
     </tbody>
   </table>
-  <table class="totals">
+  ${
+    r.quantities_only
+      ? `<table class="totals">${row("Total quantity", amt(r.items.reduce((s, it) => s + it.quantity, 0)), true)}</table>`
+      : `<table class="totals">
     ${row("Subtotal", naira(r.subtotal))}
     ${row("Surcharge", naira(r.surcharge))}
     ${row("Discount", naira(r.discount))}
     ${row("Amount to pay", naira(r.total), true)}
     ${(r.extra ?? []).map(([l, v]) => row(l, naira(v))).join("")}
-  </table>
+  </table>`
+  }
   ${r.note ? `<div class="small gap">${esc(r.note)}</div>` : ""}
   <div class="c thanks gap">Thank you for your patronage!</div>
   ${label ? `<div class="c copy-label gap">${esc(label)}</div>` : ""}
@@ -186,22 +190,28 @@ td, th { padding: 0.4mm 0; vertical-align: top; word-break: break-word; }
    the 72mm line; the title in Font A at double height; Transaction Details
    in the smaller Font B -- 9 x 17 dots, 1.125mm x 2.125mm. Bold only where a
    printer would emphasise: the title, amount to pay, thanks, copy label. */
+/* Enlarged 2026-11-02 (user: bigger, so it prints clean and clear): body
+   3.4mm, Transaction Details 3mm, title 3.4mm at double height. Same
+   layout and weights as before. */
 .slip {
   font-family: Consolas, "Lucida Console", "Courier New", Courier, monospace;
-  font-weight: 400; -webkit-text-stroke: 0; font-size: 2.5mm; line-height: 3mm;
+  font-weight: 400; -webkit-text-stroke: 0; font-size: 3.4mm; line-height: 4.2mm;
 }
 .slip .small, .slip .split, .slip .parties, .slip .totals .strong td,
-.slip .thanks, .slip .copy-label { font-size: 2.5mm; line-height: 3mm; letter-spacing: 0; }
+.slip .thanks, .slip .copy-label { font-size: 3.4mm; line-height: 4.2mm; letter-spacing: 0; }
+/* At this size "Marketer/Dist.:" is wider than its column: let labels wrap. */
+.slip .parties tr:first-child td { white-space: normal; }
 .slip .parties .v td, .slip .strong, .slip .thanks, .slip .copy-label {
   font-weight: 700; -webkit-text-stroke: 0;
 }
-.slip .fb, .slip .items, .slip .items th { font-size: 1.875mm; line-height: 2.125mm; }
+.slip .fb, .slip .items { font-size: 3mm; line-height: 3.7mm; }
+.slip .items th { font-size: 2.6mm; line-height: 3.2mm; }
 .slip h1 {
-  font-size: 2.5mm; line-height: 6mm; font-weight: 700; letter-spacing: 0;
+  font-size: 3.4mm; line-height: 8.4mm; font-weight: 700; letter-spacing: 0;
   -webkit-text-stroke: 0; margin: 2mm 0;
 }
 .slip h1 span {
-  display: inline-block; vertical-align: top; line-height: 3mm;
+  display: inline-block; vertical-align: top; line-height: 4.2mm;
   transform: scaleY(2); transform-origin: 50% 0;
 }
 `;
