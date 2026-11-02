@@ -4776,6 +4776,8 @@ export type Database = {
         Returns: {
           advance_balance: number
           assigned: boolean
+          brought_forward: number
+          brought_forward_due: string | null
           collected_by_rep: number
           customer_id: string
           last_collection: string | null

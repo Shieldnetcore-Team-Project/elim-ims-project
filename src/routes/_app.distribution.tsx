@@ -3523,6 +3523,9 @@ type RepCustomer = {
   advance_balance: number;
   collected_by_rep: number;
   last_collection: string | null;
+  // Still owed on debts with no invoice (balances brought forward).
+  brought_forward: number;
+  brought_forward_due: string | null;
 };
 
 type CustomerRow = {
@@ -3606,6 +3609,7 @@ function RepCustomersCard({
   const customers = useMemo(() => {
     const map = new Map<string, CustomerRow>();
     for (const a of accounts.data ?? []) {
+      const bf = Number(a.brought_forward ?? 0);
       map.set(a.customer_id, {
         key: a.customer_id,
         customerId: a.customer_id,
@@ -3617,8 +3621,8 @@ function RepCustomersCard({
         invoices: [],
         goods: 0,
         paid: 0,
-        owes: 0,
-        overdue: 0,
+        owes: bf,
+        overdue: bf > 0 && a.brought_forward_due && a.brought_forward_due < today ? bf : 0,
         last: null,
       });
     }
@@ -3873,6 +3877,16 @@ function RepCustomersCard({
                             {money(Number(c.account.collected_by_rep))}
                             {c.account.last_collection &&
                               ` (last ${new Date(c.account.last_collection).toLocaleDateString()})`}
+                          </p>
+                        )}
+                        {Number(c.account?.brought_forward ?? 0) > 0 && (
+                          <p className="mb-2 text-sm">
+                            Balance brought forward:{" "}
+                            <span className="font-semibold text-destructive">
+                              {money(Number(c.account!.brought_forward))}
+                            </span>
+                            {c.account!.brought_forward_due &&
+                              ` · due ${new Date(c.account!.brought_forward_due).toLocaleDateString()}`}
                           </p>
                         )}
                         {c.customerId && <CustomerPaymentsList customerId={c.customerId} />}
