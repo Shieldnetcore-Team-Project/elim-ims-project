@@ -109,6 +109,13 @@ export const nav: { section: string; items: NavItem[] }[] = [
             search: { tab: "log" },
           },
           { label: "Jars", module: "sales", url: "/retail-summary", search: { tab: "jars" } },
+          // Dispenser sales, empties and cash-ups over a period (2026-11-02).
+          {
+            label: "Dispenser Reports",
+            module: "sales",
+            url: "/retail-summary",
+            search: { tab: "dispensers" },
+          },
           { label: "Sales Returns", module: "sales-returns", url: "/sales-returns" },
         ],
       },

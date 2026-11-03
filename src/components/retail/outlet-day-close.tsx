@@ -35,6 +35,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { CheckCircle2, ClipboardCheck, Loader2, MessageSquareWarning, Send } from "lucide-react";
+import { DispenserDay, type Revenue } from "@/components/retail/dispenser-day";
 
 // End-of-day reconciliation between the retail outlet and Accounts (see
 // supabase/migrations/20261020100000_retail_day_reconciliation.sql).
@@ -101,6 +102,8 @@ type DayFigures = {
     other_expected: number;
     credit_sales: number;
     by_method: Record<string, number>;
+    // Days submitted before 20261102300000 have no split.
+    revenue?: Revenue;
   };
   unremitted_before: number;
   remitted_on_day: number;
@@ -342,10 +345,34 @@ function Figure({
 
 function MoneyFigures({ figures, currency }: { figures: DayFigures; currency?: string }) {
   const m = figures.money;
+  const r = m.revenue;
   const fmt = (v: number) => money(v, currency);
   return (
     <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-      <Figure label="Sales" value={fmt(m.sales_value)} hint={`${num(m.sales_count)} invoice(s)`} />
+      {r && (
+        <>
+          <Figure
+            label="Water sales"
+            value={fmt(Number(r.water_revenue))}
+            hint={`Dispenser water ${fmt(Number(r.dispenser_water_revenue))}`}
+          />
+          <Figure
+            label="Permanent jug sales"
+            value={fmt(Number(r.jar_revenue))}
+            hint={`${num(Number(r.jars_sold))} jug(s) sold for good`}
+          />
+          <Figure
+            label="Discounts / VAT / corrections"
+            value={fmt(Number(r.adjustments))}
+            hint="Invoice-level, not split by kind"
+          />
+        </>
+      )}
+      <Figure
+        label={r ? "Total sales" : "Sales"}
+        value={fmt(m.sales_value)}
+        hint={`${num(m.sales_count)} invoice(s)`}
+      />
       <Figure label="Cash expected" value={fmt(m.cash_expected)} hint="Cash taken at the till" />
       <Figure
         label="Transfer / POS expected"
@@ -482,6 +509,8 @@ export function RetailDayClose({ outletId, currency }: { outletId: string; curre
               onCount={editable ? (id, v) => setCounts((c) => ({ ...c, [id]: v })) : undefined}
               counted={editable ? undefined : rec?.counted_stock}
             />
+
+            <DispenserDay outletId={outletId} date={date} currency={currency} />
 
             {editable ? (
               <div className="grid gap-4 md:grid-cols-3">
@@ -902,6 +931,7 @@ function AccountsDayDialog({
               figures={shown}
               counted={rec && rec.status !== "queried" ? rec.counted_stock : undefined}
             />
+            <DispenserDay outletId={outletId} date={date} currency={currency} />
             {rec && rec.status !== "queried" && <SubmittedSummary rec={rec} currency={currency} />}
             {rec?.status === "queried" && (
               <p className="text-sm text-muted-foreground">

@@ -38,10 +38,12 @@ function useCount(
       if (error) throw error;
       return count ?? 0;
     },
-    staleTime: 15_000,
+    staleTime: 60_000,
     // Realtime clears a count the moment it is attended to; this only
-    // catches an event the browser missed (e.g. a dropped connection).
-    refetchInterval: 30_000,
+    // catches an event the browser missed (e.g. a dropped connection). Every
+    // signed-in user runs these ~20 counts, so the backstop is every 5
+    // minutes, not 30 s (Disk IO, 2026-11-03).
+    refetchInterval: 5 * 60_000,
   });
 }
 

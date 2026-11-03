@@ -140,13 +140,19 @@ DECLARE v jsonb; s record; o record;
 BEGIN
   v := public.record_jug_return(jsonb_build_object('sales_rep_id', r, 'container_type_id', t, 'quantity', 10));
   SELECT * INTO s FROM public.shop_jar_summary(r, CURRENT_DATE, CURRENT_DATE);
-  PERFORM pg_temp.check(s.sent_unconfirmed = 10 AND s.empties_at_shop = 17, 'not moved until confirmed: ' || row_to_json(s)::text);
+  -- On their way: off the shop's empties at once (20261102300000), still on
+  -- its jug ledger until the count.
+  PERFORM pg_temp.check(s.sent_unconfirmed = 10 AND s.empties_at_shop = 7, 'in transit, not at the shop: ' || row_to_json(s)::text);
   PERFORM set_config('test.uid', 'a3200000-0000-0000-0000-000000000002', false);
   PERFORM public.verify_jug_return((v->>'id')::uuid, 9, 'one short');
   PERFORM set_config('test.uid', 'a3200000-0000-0000-0000-000000000001', false);
   SELECT * INTO s FROM public.shop_jar_summary(r, CURRENT_DATE, CURRENT_DATE);
   PERFORM pg_temp.check(s.sent_to_warehouse = 10 AND s.confirmed_by_warehouse = 9 AND s.sent_unconfirmed = 0
                         AND s.empties_at_shop = 8, 'shortfall stays on the shop: ' || row_to_json(s)::text);
+  PERFORM pg_temp.check((public.shop_dispenser_day(r, CURRENT_DATE)->'types'->0->>'transfer_short')::numeric = 1,
+                        'the 1 short shows as a transfer discrepancy');
+  PERFORM pg_temp.check((SELECT quantity_claimed FROM jug_returns WHERE id = (v->>'id')::uuid) = 10,
+                        'the original transfer keeps the 10 sent');
   SELECT * INTO o FROM public.jug_overview(f, CURRENT_DATE, CURRENT_DATE) WHERE container_type_id = t;
   PERFORM pg_temp.check(o.written_off_total = 0 AND o.with_customers = 0, 'overview: ' || row_to_json(o)::text);
 END $$;

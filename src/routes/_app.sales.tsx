@@ -59,11 +59,7 @@ import {
 import { money, num } from "@/lib/format";
 import { toast } from "sonner";
 import { generateInvoicePdf } from "@/lib/pdf";
-import {
-  INVOICE_COMPANY_NAME,
-  printSaleInvoice,
-  printShopSaleSlips,
-} from "@/lib/invoice";
+import { INVOICE_COMPANY_NAME, printSaleInvoice, printShopSaleSlips } from "@/lib/invoice";
 import { PrintCopiesButton } from "@/components/shared/print-copies-button";
 import { ReportActions } from "@/components/shared/report-actions";
 import { logAudit } from "@/lib/audit";
@@ -1738,6 +1734,9 @@ export function PosDialog({
     editingSale ? editingSale.vat > 0 : !presetSalesRepId && !warehousePosting,
   );
   const [isPr, setIsPr] = useState(editingSale?.is_pr ?? false);
+  // One per checkout: a double tap or a retry after a dropped connection
+  // gets the first sale back from create_sale instead of posting it twice.
+  const [clientRef] = useState(() => crypto.randomUUID());
   const [payments, setPayments] = useState<PaymentLine[]>(() => {
     if (editingSale?.pending_payments?.length) return editingSale.pending_payments;
     if (editingSale && editingSale.amount_paid > 0) {
@@ -2060,11 +2059,18 @@ export function PosDialog({
         if (error) throw error;
         return data as any;
       }
-      const { data, error } = await supabase.rpc("create_sale", { payload: payload as any });
+      const { data, error } = await supabase.rpc("create_sale", {
+        payload: { ...payload, client_ref: clientRef } as any,
+      });
       if (error) throw error;
       return data as any;
     },
     onSuccess: (res) => {
+      if (res.duplicate) {
+        toast.info(`${res.invoice_number} was already recorded — not posted again`);
+        onDone();
+        return;
+      }
       toast.success(
         editingSale
           ? `${res.invoice_number} updated — awaiting manager approval`

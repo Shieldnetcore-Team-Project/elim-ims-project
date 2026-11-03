@@ -603,8 +603,9 @@ function SendDialog({
           />
         </div>
         <p className="text-xs text-muted-foreground">
-          They stay on the shop until QC counts them. If fewer arrive, the difference stays on the
-          shop as a shortfall.
+          They come off the shop&apos;s empties now and go into the Warehouse when QC counts them.
+          If fewer arrive, the transfer keeps what was sent and the difference stays on the shop as
+          a shortfall.
         </p>
       </div>
       <DialogFooter>

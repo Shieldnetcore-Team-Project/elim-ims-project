@@ -38,7 +38,9 @@ function NotificationsBell() {
   const notifications = useQuery({
     queryKey: ["notifications", factoryId],
     enabled: !!factoryId,
-    refetchInterval: 30_000,
+    // Realtime on notifications (usePendingAttention) refreshes this at once;
+    // the poll only catches a missed event (Disk IO, 2026-11-03).
+    refetchInterval: 5 * 60_000,
     queryFn: async () => {
       const { data, error } = await supabase.rpc(
         "my_open_notifications" as never,

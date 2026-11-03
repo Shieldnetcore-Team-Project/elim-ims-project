@@ -306,7 +306,7 @@ export async function generateRollReceiptPdf(
       total("Total quantity", amt(r.items.reduce((s, it) => s + it.quantity, 0)), true);
     } else {
       total("Subtotal", naira(r.subtotal));
-      total("Surcharge", naira(r.surcharge));
+      if (r.surcharge) total("Surcharge", naira(r.surcharge));
       total("Discount", naira(r.discount));
       total("Amount to pay", naira(r.total), true);
       for (const [label, value] of r.extra ?? []) total(label, naira(value));
@@ -367,7 +367,9 @@ export async function generateInvoicePdf(
           amount: it.line_total,
         })),
         subtotal: data.subtotal,
-        surcharge: data.vat,
+        // The roll's Surcharge line only ever carried VAT, and VAT is not
+        // printed (user, 2026-11-03).
+        surcharge: 0,
         discount: data.discount,
         total: data.grand_total,
         extra:
@@ -485,7 +487,7 @@ export async function generateInvoicePdf(
     } else {
       row("Subtotal", cur(data.subtotal));
       if (data.discount > 0) row("Discount", `-${cur(data.discount)}`);
-      if (data.vat > 0) row("VAT", cur(data.vat));
+      // No VAT line on any printout (user, 2026-11-03); the total still includes it.
       row("GRAND TOTAL", cur(data.grand_total), true, 10);
       row("Amount Paid", cur(data.amount_paid));
       row("Balance Due", cur(data.balance), data.balance > 0);

@@ -101,7 +101,7 @@ function receiptHtml(r: RollReceipt, logo: string, label?: string) {
       ? `<table class="totals">${row("Total quantity", amt(r.items.reduce((s, it) => s + it.quantity, 0)), true)}</table>`
       : `<table class="totals">
     ${row("Subtotal", naira(r.subtotal))}
-    ${row("Surcharge", naira(r.surcharge))}
+    ${r.surcharge ? row("Surcharge", naira(r.surcharge)) : ""}
     ${row("Discount", naira(r.discount))}
     ${row("Amount to pay", naira(r.total), true)}
     ${(r.extra ?? []).map(([l, v]) => row(l, naira(v))).join("")}

@@ -228,10 +228,7 @@ export async function generateDistributorInvoicePdf(
   const tLeft = xs[3] + 20;
   const tSplit = xs[5] + 2;
   const tRow = 16;
-  const vatLabel =
-    data.vat_rate != null && data.vat_rate > 0
-      ? `${fig(Number(data.vat_rate))}% VAT Applicable`
-      : "VAT Applicable";
+  // No VAT line on any printout (user, 2026-11-03); the total still includes it.
   const totals: [string, string][] = data.is_pr
     ? [
         ["Value of goods issued", `N${fig(data.subtotal)}`],
@@ -242,7 +239,6 @@ export async function generateDistributorInvoicePdf(
         ...(data.discount > 0
           ? ([["Discount", `-N${fig(data.discount)}`]] as [string, string][])
           : []),
-        [vatLabel, data.vat > 0 ? `N${fig(data.vat)}` : ""],
         ["Total", `N${fig(data.grand_total)}`],
         ["Amount Paid", `N${fig(data.amount_paid)}`],
         ["Balance Due", `N${fig(data.balance)}`],

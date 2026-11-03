@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useMyProductMatcher } from "@/lib/product-rules";
 import { Loader2, PackageCheck, Send } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -238,7 +239,13 @@ function SendDialog({ factoryId, onClose }: { factoryId: string; onClose: () => 
 
 export function PmJugsFromQc({ factoryId }: { factoryId: string }) {
   const { can } = usePermissions();
-  const canReceive = can("production", "submit") || can("production", "create");
+  // Empty jugs go to dispenser production only (user, 2026-11-02): bottle
+  // production (Ruth, Blessing) neither sees nor confirms them
+  // (20261102290000 refuses it in the database too).
+  const mine = useMyProductMatcher();
+  const dispenserProduction = mine("Dispenser+Water");
+  const canReceive =
+    dispenserProduction && (can("production", "submit") || can("production", "create"));
   useQcJugLive();
   const today = localDay();
   const batches = useQcJugBatches(factoryId, addDays(today, -7), today);
@@ -254,7 +261,7 @@ export function PmJugsFromQc({ factoryId }: { factoryId: string }) {
       return `${x.reference}: ${num(Number(x.good))} good jugs received from QC`;
     },
   );
-  if (!rows.length && !batches.isLoading) return null;
+  if (!dispenserProduction || (!rows.length && !batches.isLoading)) return null;
 
   return (
     <Card className="rounded-2xl">

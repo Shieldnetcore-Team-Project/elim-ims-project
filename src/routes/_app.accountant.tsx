@@ -23,6 +23,7 @@ import { CustomersPage } from "@/routes/_app.customers";
 import { PostingsTab } from "@/components/accounting/postings-tab";
 import { DistributorsTab } from "@/components/accounting/distributors-tab";
 import { RetailCashUpTab } from "@/components/retail/outlet-day-close";
+import { DispenserReports } from "@/components/retail/dispenser-reports";
 import { CustomerActivityDialog } from "@/components/accounting/customer-activity-dialog";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -210,6 +211,8 @@ const PARTY_FILTERS: { key: PartyType | "all"; label: string }[] = [
   { key: "marketer", label: "Marketers" },
   // Customers under a marketer are on the marketer's row (2026-11-02).
   { key: "customer", label: "Distributor/Office Delivery" },
+  // Only the Warehouse's postings to the shop show here (2026-11-03).
+  { key: "retail", label: "Retail Shop postings" },
   { key: "internal", label: "Expenses & payroll" },
 ];
 
@@ -341,6 +344,10 @@ function AccountantPage() {
   const [repViewing, setRepViewing] = useState<string | null>(null);
   // Monthly accumulated sales PDF: "YYYY-MM", this month by default.
   const [month, setMonth] = useState(() => startOfToday().slice(0, 7));
+  // Invoices tab calendar: empty = the latest 200; a day / range loads every
+  // invoice dated then, so earlier invoices can be printed again (2026-11-03).
+  const [invFrom, setInvFrom] = useState("");
+  const [invTo, setInvTo] = useState("");
   const { tab = "activity" } = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
   const setTab = (v: string) =>
@@ -388,38 +395,51 @@ function AccountantPage() {
     ],
   );
 
+  // The latest 200 invoices, or every invoice dated from..to.
+  const loadSales = async (range?: { from: string; to: string }) => {
+    let q = supabase
+      .from("sales")
+      .select(
+        "id,invoice_number,sale_date,customer_name,grand_total,amount_paid,balance,status,is_pr,sales_rep_id,account_rep_id,sale_items(quantity,products(name,unit))",
+      )
+      .eq("factory_id", factoryId!)
+      // Admins can also read soft-deleted sales; they aren't real invoices.
+      .is("deleted_at", null);
+    q = range
+      ? q.gte("sale_date", range.from).lte("sale_date", range.to)
+      : q.order("created_at", { ascending: false }).limit(200);
+    const { data, error } = await (range ? q.order("created_at", { ascending: false }) : q);
+    if (error) throw error;
+    const rows = (data ?? []) as unknown as SaleRow[];
+    // Product names through sale_invoice_lines(): an accountant without
+    // finished-goods rights can't read products directly.
+    const lines = await fetchSaleLines(rows.map((s) => s.id));
+    return rows.map((s) => {
+      const own = lines?.get(s.id);
+      return own
+        ? {
+            ...s,
+            sale_items: own.map((l) => ({
+              quantity: l.quantity,
+              products: { name: l.name, unit: l.unit },
+            })),
+          }
+        : s;
+    });
+  };
   const sales = useQuery({
     queryKey: ["acct-sales", factoryId],
     enabled: !!factoryId,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("sales")
-        .select(
-          "id,invoice_number,sale_date,customer_name,grand_total,amount_paid,balance,status,is_pr,sales_rep_id,account_rep_id,sale_items(quantity,products(name,unit))",
-        )
-        .eq("factory_id", factoryId!)
-        // Admins can also read soft-deleted sales; they aren't real invoices.
-        .is("deleted_at", null)
-        .order("created_at", { ascending: false })
-        .limit(200);
-      if (error) throw error;
-      const rows = (data ?? []) as unknown as SaleRow[];
-      // Product names through sale_invoice_lines(): an accountant without
-      // finished-goods rights can't read products directly.
-      const lines = await fetchSaleLines(rows.map((s) => s.id));
-      return rows.map((s) => {
-        const own = lines?.get(s.id);
-        return own
-          ? {
-              ...s,
-              sale_items: own.map((l) => ({
-                quantity: l.quantity,
-                products: { name: l.name, unit: l.unit },
-              })),
-            }
-          : s;
-      });
-    },
+    queryFn: () => loadSales(),
+  });
+  const invRange = useMemo(
+    () => (invFrom ? { from: invFrom, to: invTo && invTo >= invFrom ? invTo : invFrom } : null),
+    [invFrom, invTo],
+  );
+  const datedSales = useQuery({
+    queryKey: ["acct-sales", factoryId, "dated", invRange?.from, invRange?.to],
+    enabled: !!factoryId && !!invRange,
+    queryFn: () => loadSales(invRange!),
   });
 
   const payments = useQuery({
@@ -550,6 +570,11 @@ function AccountantPage() {
     .reduce((t, s) => t + Math.max(0, Number(s.balance)), 0);
 
   const invoiceGroups = useMemo(() => groupInvoices(sales.data ?? []), [sales.data]);
+  // The Invoices tab: the calendar's day / range when one is picked.
+  const invoiceRows = useMemo(
+    () => (invRange ? groupInvoices(datedSales.data ?? []) : invoiceGroups),
+    [invRange, datedSales.data, invoiceGroups],
+  );
 
   const activity = useMemo<Activity[]>(() => {
     // One row per customer per day: their payments that day join their
@@ -679,7 +704,9 @@ function AccountantPage() {
         date: p.at,
         kind: "Posting" as const,
         party_type: (p.kind === "retail" ? "retail" : "marketer") as PartyType,
-        repId: p.party_id,
+        // A shop posting keeps its own row (and Print button) rather than
+        // folding into one row for the shop.
+        repId: p.kind === "retail" ? undefined : p.party_id,
         reference: p.reference,
         party: p.party,
         details: p.items ?? undefined,
@@ -816,6 +843,7 @@ function AccountantPage() {
             <TabsTrigger value="activity">All activity</TabsTrigger>
             <TabsTrigger value="postings">Postings to assess</TabsTrigger>
             <TabsTrigger value="retail-cashup">Retail cash-up</TabsTrigger>
+            <TabsTrigger value="dispensers">Dispenser sales</TabsTrigger>
             <TabsTrigger value="invoices">Invoices</TabsTrigger>
             <TabsTrigger value="payments">Payments received</TabsTrigger>
             {canRepAccounts && (
@@ -876,8 +904,10 @@ function AccountantPage() {
                 <TableBody>
                   {groupByParty(
                     activity
-                      // The Retail Shop's activity is on Retail › All activity (2026-11-02).
-                      .filter((a) => a.party_type !== "retail")
+                      // The Retail Shop's activity is on Retail › All activity (2026-11-02),
+                      // except the Warehouse's postings to it, kept here so their
+                      // invoices can be printed (2026-11-03).
+                      .filter((a) => a.party_type !== "retail" || a.kind === "Posting")
                       .filter((a) => party === "all" || a.party_type === party)
                       .filter((a) => match(a.reference, a.party, a.kind, a.details)),
                   )
@@ -1094,6 +1124,10 @@ function AccountantPage() {
           <RetailCashUpTab factoryId={factoryId} currency={currency} />
         </TabsContent>
 
+        <TabsContent value="dispensers">
+          <DispenserReports factoryId={factoryId} currency={currency} />
+        </TabsContent>
+
         <TabsContent value="distributors">
           <DistributorsTab factoryId={factoryId} currency={currency} />
         </TabsContent>
@@ -1109,6 +1143,39 @@ function AccountantPage() {
           <Card className="rounded-2xl">
             <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
               <CardTitle>Invoices</CardTitle>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm text-muted-foreground">Invoices dated</span>
+                <Input
+                  type="date"
+                  className="w-40"
+                  title="From"
+                  value={invFrom}
+                  max={startOfToday()}
+                  onChange={(e) => setInvFrom(e.target.value)}
+                />
+                <span className="text-sm text-muted-foreground">to</span>
+                <Input
+                  type="date"
+                  className="w-40"
+                  title="To (leave empty for one day)"
+                  value={invTo}
+                  min={invFrom || undefined}
+                  max={startOfToday()}
+                  onChange={(e) => setInvTo(e.target.value)}
+                />
+                {invFrom && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setInvFrom("");
+                      setInvTo("");
+                    }}
+                  >
+                    Latest
+                  </Button>
+                )}
+              </div>
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm text-muted-foreground">Monthly sales</span>
                 <Input
@@ -1153,7 +1220,7 @@ function AccountantPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {invoiceGroups
+                  {invoiceRows
                     .filter((g) => match(...g.numbers, g.customer, g.products))
                     .map((g) => (
                       <TableRow key={g.key}>
@@ -1213,10 +1280,14 @@ function AccountantPage() {
                         </TableCell>
                       </TableRow>
                     ))}
-                  {(sales.data ?? []).length === 0 && (
+                  {invoiceRows.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={9} className="text-center text-sm text-muted-foreground">
-                        No invoices yet.
+                        {invRange
+                          ? datedSales.isLoading
+                            ? "Loading…"
+                            : "No invoices on these dates."
+                          : "No invoices yet."}
                       </TableCell>
                     </TableRow>
                   )}

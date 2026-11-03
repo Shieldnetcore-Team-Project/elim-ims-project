@@ -135,8 +135,9 @@ export function PostingsTab({ factoryId, currency }: { factoryId: string; curren
       return ((data ?? []) as unknown as Posting[]).filter((p) => p.kind !== "retail");
     },
     // Realtime refreshes this the moment something changes; this only catches
-    // an event the browser missed.
-    refetchInterval: 30_000,
+    // an event the browser missed -- every 5 minutes, not 30 s: it reads up
+    // to 500 postings each time (Disk IO, 2026-11-03).
+    refetchInterval: 5 * 60_000,
   });
 
   // Marketers and the shop, for the remittance dialog's picker. Readable with
