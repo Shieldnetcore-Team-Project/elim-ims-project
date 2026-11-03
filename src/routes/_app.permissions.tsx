@@ -186,7 +186,8 @@ export function PermissionsPage() {
   );
 }
 
-function UserOverridesPicker({ isSuperAdmin }: { isSuperAdmin: boolean }) {
+// Also its own sub-tab, Admin Panel > Permissions > Pages per user (2026-11-03).
+export function UserOverridesPicker({ isSuperAdmin }: { isSuperAdmin: boolean }) {
   const [userId, setUserId] = useState("");
 
   const users = useQuery({
