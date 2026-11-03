@@ -168,24 +168,25 @@ export async function printDispatchInvoice(
   );
 }
 
-// All of a marketer's / the shop's postings on one day as ONE invoice (user,
-// 2026-11-03): lines of the same product and price added together, every
-// posting number listed. Reversed postings are left out.
+// A marketer's / the shop's whole day as ONE invoice (user, 2026-11-03):
+// everything posted (lines of the same product and price added together)
+// and, as minus lines, everything they returned that day; the total is the
+// net. Every posting / return number is listed. Reversed postings are left
+// out.
 export async function printDispatchDayInvoice(
   ids: string[],
   settings: Settings,
   action: "download" | "print",
+  returnIds: string[] = [],
 ) {
   const all = await Promise.all(ids.map((id) => loadDispatch({ id })));
   const live = all.filter((d): d is NonNullable<typeof d> => !!d && d.status !== "reversed");
   if (live.length === 0) return;
-  if (live.length === 1)
+  if (live.length === 1 && returnIds.length === 0)
     return printDispatchInvoice({ id: ids[all.indexOf(live[0])] }, settings, action);
   const first = live[0];
-  const lines = new Map<
-    string,
-    { name: string; quantity: number; unit_price: number; line_total: number }
-  >();
+  type Item = { name: string; quantity: number; unit_price: number; line_total: number };
+  const lines = new Map<string, Item>();
   for (const d of live)
     for (const it of d.items) {
       const key = `${it.name}|${it.unit_price}`;
@@ -199,7 +200,37 @@ export async function printDispatchDayInvoice(
       l.line_total += Number(it.line_value);
       lines.set(key, l);
     }
-  const total = live.reduce((t, d) => t + Number(d.total_value), 0);
+  // The day's returns, through rep_posting_lines (Accounts can't read
+  // products directly), as minus lines.
+  const back = new Map<string, Item>();
+  const returnNumbers: string[] = [];
+  for (const id of returnIds) {
+    const [{ data: rl }, { data: rr }] = await Promise.all([
+      supabase.rpc("rep_posting_lines" as never, { p_kind: "return", p_id: id } as never),
+      supabase.from("rep_returns").select("return_number").eq("id", id).maybeSingle(),
+    ]);
+    if (rr) returnNumbers.push((rr as { return_number: string }).return_number);
+    for (const l of (rl ?? []) as unknown as {
+      product_name: string;
+      quantity: number;
+      unit_price: number;
+      line_total: number;
+    }[]) {
+      const key = `${l.product_name}|${l.unit_price}`;
+      const b = back.get(key) ?? {
+        name: `Returned: ${l.product_name}`,
+        quantity: 0,
+        unit_price: Number(l.unit_price),
+        line_total: 0,
+      };
+      b.quantity -= Number(l.quantity);
+      b.line_total -= Number(l.line_total);
+      back.set(key, b);
+    }
+  }
+  const posted = live.reduce((t, d) => t + Number(d.total_value), 0);
+  const returned = -[...back.values()].reduce((t, b) => t + b.line_total, 0);
+  const net = posted - returned;
   const latest = live
     .map((d) => d.created_at ?? d.dispatch_date)
     .sort()
@@ -207,7 +238,8 @@ export async function printDispatchDayInvoice(
   await generateDistributorInvoicePdf(
     {
       company: { ...companyOf(settings), website: settings?.website ?? null },
-      invoice_number: `${first.dispatch_number} +${live.length - 1}`,
+      invoice_number:
+        live.length > 1 ? `${first.dispatch_number} +${live.length - 1}` : first.dispatch_number,
       issued_at: latest,
       customer: {
         name: first.sales_reps?.full_name ?? "—",
@@ -217,15 +249,20 @@ export async function printDispatchDayInvoice(
       party_label: first.sales_reps?.kind === "outlet" ? "Retail Shop" : null,
       delivery_method:
         first.sales_reps?.kind === "outlet" ? "Company Delivery" : "Delivered by Marketer",
-      items: [...lines.values()],
-      subtotal: total,
+      items: [...lines.values(), ...back.values()],
+      subtotal: net,
       discount: 0,
       vat: 0,
       vat_rate: null,
-      grand_total: total,
+      grand_total: net,
       amount_paid: 0,
-      balance: total,
-      remarks: `${live.length} postings on ${first.dispatch_date}: ${live.map((d) => d.dispatch_number).join(", ")}`,
+      balance: net,
+      remarks: [
+        `${first.dispatch_date}: posted ${live.map((d) => d.dispatch_number).join(", ")}`,
+        returnNumbers.length ? `returned ${returnNumbers.join(", ")}` : null,
+      ]
+        .filter(Boolean)
+        .join("; "),
     },
     action,
   );

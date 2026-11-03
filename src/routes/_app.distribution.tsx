@@ -2562,6 +2562,7 @@ type RepActivity = {
   // Postings: their day. A day's postings are one row (user, 2026-11-03).
   day?: string;
   dayPostings?: { id: string; reference: string; status: string; value: number; date: string }[];
+  dayReturns?: { id: string; reference: string; status: string; value: number; date: string }[];
 };
 
 type PostingLine = {
@@ -2643,47 +2644,83 @@ function RepTransactionLines({
   );
 }
 
-// All of a day's postings at once: the products added together, then each
-// posting with its own invoice (user, 2026-11-03).
-function RepDayPostingLines({
+// One day with a marketer / the shop, in one place (user, 2026-11-03): every
+// product posted that day and every product returned, side by side with the
+// net. The day's row prints its one invoice.
+type DayItem = NonNullable<RepActivity["dayPostings"]>[number];
+function RepDayLines({
   postings,
+  returns,
   showValues,
-  onPrint,
 }: {
-  postings: NonNullable<RepActivity["dayPostings"]>;
+  postings: DayItem[];
+  returns: DayItem[];
   showValues: boolean;
-  onPrint: (id: string) => void;
 }) {
   const live = postings.filter((p) => p.status !== "reversed");
   const lines = useQuery({
-    queryKey: ["rep-posting-lines", "day", live.map((p) => p.id).join(",")],
+    queryKey: [
+      "rep-posting-lines",
+      "day",
+      live.map((p) => p.id).join(","),
+      returns.map((r) => r.id).join(","),
+    ],
     queryFn: async () => {
-      const all = await Promise.all(
-        live.map(async (p) => {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- RPC newer than the generated types
-          const { data, error } = await (supabase as any).rpc("rep_posting_lines", {
-            p_kind: "dispatch",
-            p_id: p.id,
-          });
-          if (error) throw error;
-          return (data ?? []) as PostingLine[];
-        }),
-      );
-      const merged = new Map<string, PostingLine>();
-      for (const l of all.flat()) {
-        const key = `${l.product_name}|${l.unit_price}`;
-        const m = merged.get(key);
-        if (m) {
-          m.quantity = Number(m.quantity) + Number(l.quantity);
-          m.line_total = Number(m.line_total) + Number(l.line_total);
-        } else merged.set(key, { ...l });
+      const read = async (kind: "dispatch" | "return", id: string) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- RPC newer than the generated types
+        const { data, error } = await (supabase as any).rpc("rep_posting_lines", {
+          p_kind: kind,
+          p_id: id,
+        });
+        if (error) throw error;
+        return (data ?? []) as PostingLine[];
+      };
+      const [posted, back] = await Promise.all([
+        Promise.all(live.map((p) => read("dispatch", p.id))),
+        Promise.all(returns.map((r) => read("return", r.id))),
+      ]);
+      type Row = {
+        product_name: string;
+        unit: string;
+        unit_price: number;
+        posted: number;
+        returned: number;
+        posted_value: number;
+        returned_value: number;
+      };
+      const byProduct = new Map<string, Row>();
+      const row = (l: PostingLine) => {
+        let r = byProduct.get(l.product_name);
+        if (!r) {
+          r = {
+            product_name: l.product_name,
+            unit: l.unit,
+            unit_price: Number(l.unit_price),
+            posted: 0,
+            returned: 0,
+            posted_value: 0,
+            returned_value: 0,
+          };
+          byProduct.set(l.product_name, r);
+        }
+        return r;
+      };
+      for (const l of posted.flat()) {
+        const r = row(l);
+        r.posted += Number(l.quantity);
+        r.posted_value += Number(l.line_total);
       }
-      return [...merged.values()].sort((a, b) => a.product_name.localeCompare(b.product_name));
+      for (const l of back.flat()) {
+        const r = row(l);
+        r.returned += Number(l.quantity);
+        r.returned_value += Number(l.line_total);
+      }
+      return [...byProduct.values()].sort((a, b) => a.product_name.localeCompare(b.product_name));
     },
   });
   const rows = lines.data ?? [];
-  const qty = rows.reduce((t, r) => t + Number(r.quantity), 0);
-  const value = rows.reduce((t, r) => t + Number(r.line_total), 0);
+  const sum = (k: "posted" | "returned" | "posted_value" | "returned_value") =>
+    rows.reduce((t, r) => t + r[k], 0);
   return (
     <div className="space-y-2">
       {lines.isLoading ? (
@@ -2694,56 +2731,56 @@ function RepDayPostingLines({
         <table className="w-full text-sm">
           <thead className="text-xs text-muted-foreground">
             <tr>
-              <th className="py-1 text-left font-medium">Product (all postings of the day)</th>
-              <th className="py-1 text-right font-medium">Qty</th>
+              <th className="py-1 text-left font-medium">Product</th>
+              <th className="py-1 text-right font-medium">Posted</th>
+              <th className="py-1 text-right font-medium">Returned</th>
+              <th className="py-1 text-right font-medium">Net</th>
               {showValues && <th className="py-1 text-right font-medium">Price</th>}
-              {showValues && <th className="py-1 text-right font-medium">Amount</th>}
+              {showValues && <th className="py-1 text-right font-medium">Posted value</th>}
+              {showValues && <th className="py-1 text-right font-medium">Returned value</th>}
+              {showValues && <th className="py-1 text-right font-medium">Net value</th>}
             </tr>
           </thead>
           <tbody>
-            {rows.map((r, i) => (
-              <tr key={i} className="border-t border-border/50">
+            {rows.map((r) => (
+              <tr key={r.product_name} className="border-t border-border/50">
                 <td className="py-1">{r.product_name}</td>
                 <td className="py-1 text-right">
-                  {num(Number(r.quantity))}{" "}
-                  <span className="text-xs text-muted-foreground">{r.unit}</span>
+                  {num(r.posted)} <span className="text-xs text-muted-foreground">{r.unit}</span>
                 </td>
-                {showValues && <td className="py-1 text-right">{money(Number(r.unit_price))}</td>}
-                {showValues && <td className="py-1 text-right">{money(Number(r.line_total))}</td>}
+                <td className="py-1 text-right">{r.returned ? num(r.returned) : "—"}</td>
+                <td className="py-1 text-right font-medium">{num(r.posted - r.returned)}</td>
+                {showValues && <td className="py-1 text-right">{money(r.unit_price)}</td>}
+                {showValues && <td className="py-1 text-right">{money(r.posted_value)}</td>}
+                {showValues && (
+                  <td className="py-1 text-right">
+                    {r.returned_value ? money(r.returned_value) : "—"}
+                  </td>
+                )}
+                {showValues && (
+                  <td className="py-1 text-right font-medium">
+                    {money(r.posted_value - r.returned_value)}
+                  </td>
+                )}
               </tr>
             ))}
             <tr className="border-t font-medium">
               <td className="py-1">Total</td>
-              <td className="py-1 text-right">{num(qty)}</td>
+              <td className="py-1 text-right">{num(sum("posted"))}</td>
+              <td className="py-1 text-right">{num(sum("returned"))}</td>
+              <td className="py-1 text-right">{num(sum("posted") - sum("returned"))}</td>
               {showValues && <td />}
-              {showValues && <td className="py-1 text-right">{money(value)}</td>}
+              {showValues && <td className="py-1 text-right">{money(sum("posted_value"))}</td>}
+              {showValues && <td className="py-1 text-right">{money(sum("returned_value"))}</td>}
+              {showValues && (
+                <td className="py-1 text-right">
+                  {money(sum("posted_value") - sum("returned_value"))}
+                </td>
+              )}
             </tr>
           </tbody>
         </table>
       )}
-      <div className="flex flex-wrap gap-2 text-xs">
-        {postings.map((p) => (
-          <span key={p.id} className="flex items-center gap-1 rounded border px-2 py-0.5">
-            <span className="font-mono">{p.reference}</span>
-            <span className="text-muted-foreground">
-              {new Date(p.date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-            </span>
-            {p.status === "reversed" && <Badge variant="destructive">reversed</Badge>}
-            {showValues && <span>{money(p.value)}</span>}
-            {showValues && (
-              <Button
-                size="icon"
-                variant="ghost"
-                className="h-6 w-6"
-                title={`Print ${p.reference}`}
-                onClick={() => onPrint(p.id)}
-              >
-                <Printer className="h-3.5 w-3.5" />
-              </Button>
-            )}
-          </span>
-        ))}
-      </div>
     </div>
   );
 }
@@ -2874,6 +2911,7 @@ export function RepActivityCard({
         ).map((r) => ({
           key: `r-${r.id}`,
           date: r.received_at ?? r.return_date,
+          day: r.return_date,
           kind: "Return" as const,
           lines: { kind: "return" as const, id: r.id },
           reference: r.return_number,
@@ -2909,40 +2947,50 @@ export function RepActivityCard({
       return rows.sort((a, b) => time(b) - time(a));
     },
   });
-  // A day's postings are ONE row: one click shows everything posted that day
-  // (user, 2026-11-03). The row sits where the day's latest posting was.
+  // A day is ONE row: everything posted to them that day and everything
+  // they returned (user, 2026-11-03). One click shows it all; Print gives the
+  // day's invoice. The row sits where the day's latest entry was.
   const rows = useMemo(() => {
     const out: RepActivity[] = [];
     const byDay = new Map<string, RepActivity>();
     for (const r of activity.data ?? []) {
       if (!showValues && r.kind === "Cash remitted") continue;
-      if (r.kind !== "Dispatch" || !r.day || r.lines?.kind !== "dispatch") {
+      const isPosting = r.kind === "Dispatch" && r.lines?.kind === "dispatch";
+      const isReturn = r.kind === "Return" && r.lines?.kind === "return";
+      if (!r.day || !r.lines || !(isPosting || isReturn)) {
         out.push(r);
         continue;
       }
-      const p = {
+      const item = {
         id: r.lines.id,
         reference: r.reference,
         status: r.status,
         value: r.value,
         date: r.date,
       };
-      const g = byDay.get(r.day);
-      if (g) g.dayPostings!.push(p);
-      else {
-        const row: RepActivity = { ...r, key: "day-" + r.day, dayPostings: [p] };
-        byDay.set(r.day, row);
-        out.push(row);
+      let g = byDay.get(r.day);
+      if (!g) {
+        g = { ...r, key: "day-" + r.day, dayPostings: [], dayReturns: [] };
+        byDay.set(r.day, g);
+        out.push(g);
       }
+      (isPosting ? g.dayPostings! : g.dayReturns!).push(item);
     }
     for (const g of byDay.values()) {
       const ps = g.dayPostings!;
+      const rs = g.dayReturns!;
       const live = ps.filter((p) => p.status !== "reversed");
-      if (ps.length > 1) {
-        g.reference = ps.length + " postings";
-        g.value = live.reduce((t, p) => t + p.value, 0);
-        g.status = live.length ? "posted" : "reversed";
-      }
+      const posted = live.reduce((t, p) => t + p.value, 0);
+      const returned = rs.reduce((t, p) => t + p.value, 0);
+      g.reference = [
+        ps.length ? ps.length + (ps.length === 1 ? " posting" : " postings") : null,
+        rs.length ? rs.length + (rs.length === 1 ? " return" : " returns") : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      // Net for the day: what went out less what came back.
+      g.value = posted - returned;
+      g.status = ps.length ? (live.length ? "posted" : "reversed") : "returned";
     }
     return out;
   }, [activity.data, showValues]);
@@ -3027,10 +3075,25 @@ export function RepActivityCard({
                       ) : (
                         <ChevronRight className="mr-1 inline h-3.5 w-3.5" />
                       ))}
-                    {new Date(r.date).toLocaleString()}
+                    {r.dayPostings && r.day
+                      ? new Date(`${r.day}T00:00:00`).toLocaleDateString(undefined, {
+                          weekday: "short",
+                          day: "numeric",
+                          month: "short",
+                          year: "numeric",
+                        })
+                      : new Date(r.date).toLocaleString()}
                   </TableCell>
                   <TableCell>
-                    <Badge variant="outline">{r.kind}</Badge>
+                    <Badge variant="outline">
+                      {r.dayPostings
+                        ? r.dayPostings.length && r.dayReturns?.length
+                          ? "Posted & returned"
+                          : r.dayPostings.length
+                            ? "Posted"
+                            : "Returned"
+                        : r.kind}
+                    </Badge>
                   </TableCell>
                   <TableCell className="font-mono text-xs">{r.reference}</TableCell>
                   <TableCell className="text-xs capitalize">
@@ -3040,7 +3103,7 @@ export function RepActivityCard({
                   {showValues && (
                     <TableCell>
                       {(r.kind === "Sale" ||
-                        r.kind === "Dispatch" ||
+                        !!r.dayPostings?.length ||
                         r.kind === "Cash remitted") && (
                         <Button
                           size="sm"
@@ -3051,11 +3114,12 @@ export function RepActivityCard({
                           }
                           onClick={(e) => {
                             e.stopPropagation();
-                            if (r.dayPostings && r.dayPostings.length > 1)
+                            if (r.dayPostings)
                               void printDispatchDayInvoice(
                                 r.dayPostings.map((p) => p.id),
                                 settings.data,
                                 "print",
+                                (r.dayReturns ?? []).map((p) => p.id),
                               );
                             else printVoucher(r);
                           }}
@@ -3070,11 +3134,11 @@ export function RepActivityCard({
                   <TableRow className="bg-muted/30 hover:bg-muted/30">
                     <TableCell />
                     <TableCell colSpan={cols - 1}>
-                      {r.dayPostings && r.dayPostings.length > 1 ? (
-                        <RepDayPostingLines
+                      {r.dayPostings ? (
+                        <RepDayLines
                           postings={r.dayPostings}
+                          returns={r.dayReturns ?? []}
                           showValues={showValues}
-                          onPrint={(id) => printDispatchInvoice({ id }, settings.data, "print")}
                         />
                       ) : (
                         <RepTransactionLines
