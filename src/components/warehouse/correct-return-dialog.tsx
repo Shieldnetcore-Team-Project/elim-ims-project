@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Loader2 } from "lucide-react";
+import { Loader2, Pencil } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { num } from "@/lib/format";
-import { ReturnDateField } from "@/components/shared/return-date";
+import { CorrectReturnDateButton, ReturnDateField } from "@/components/shared/return-date";
+import type { DayReturn } from "@/lib/day-returns";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -177,5 +178,122 @@ export function CorrectReturnDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// The returns already entered for a marketer / the shop on the chosen day,
+// inside the Return box: each can be corrected (figures, or removed) or moved
+// to its right day from here (user, 2026-11-03). Pick a day on the box's
+// calendar to see that day's returns.
+export function DayReturnsPanel({
+  party,
+  date,
+  earlier,
+  canCorrect,
+}: {
+  party: string;
+  date: string;
+  earlier: {
+    rows: DayReturn[];
+    isLoading: boolean;
+    error: Error | null;
+  };
+  canCorrect: boolean;
+}) {
+  const [correcting, setCorrecting] = useState<DayReturn | null>(null);
+  const day = new Date(`${date}T00:00:00`).toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+  if (earlier.error)
+    return (
+      <p className="text-xs text-destructive">
+        Couldn&apos;t load the returns already entered: {earlier.error.message}
+      </p>
+    );
+  if (earlier.isLoading) return null;
+  if (earlier.rows.length === 0)
+    return (
+      <p className="text-xs text-muted-foreground">
+        Nothing returned by {party} on {day} yet. To correct an earlier return, pick its day on the
+        calendar above.
+      </p>
+    );
+  return (
+    <div className="space-y-2 rounded-md border border-warning/40 bg-warning/5 p-2 text-xs">
+      <div className="font-medium">
+        Already entered for {day} — what you enter below adds to it (Total column).
+        {canCorrect && " Use ✎ to correct a wrong figure or remove it, or the calendar to move it."}
+      </div>
+      {earlier.rows.map((r) => {
+        const inPosting = r.carried && r.carried.status !== "reversed";
+        return (
+          <div
+            key={r.id}
+            className="flex flex-wrap items-center gap-2 rounded border bg-background p-1.5"
+          >
+            <span className="font-mono">{r.return_number}</span>
+            {r.received_at && (
+              <span className="text-muted-foreground">
+                {new Date(r.received_at).toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </span>
+            )}
+            <span className="flex-1">
+              {(r.rep_return_items ?? [])
+                .map(
+                  (i) => `${i.products?.name ?? "Product"} × ${num(Number(i.quantity_returned))}`,
+                )
+                .join(", ")}
+            </span>
+            {inPosting ? (
+              <span className="text-muted-foreground">
+                Added to {r.carried!.dispatch_number} — correct that posting
+              </span>
+            ) : (
+              canCorrect &&
+              r.status === "completed" && (
+                <span className="flex">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    title="Correct this return (wrong figure, or entered by mistake)"
+                    onClick={() => setCorrecting(r)}
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  <CorrectReturnDateButton
+                    kind="rep"
+                    reference={r.return_number}
+                    date={r.return_date}
+                  />
+                </span>
+              )
+            )}
+          </div>
+        );
+      })}
+      {correcting && (
+        <CorrectReturnDialog
+          ret={{
+            id: correcting.id,
+            return_number: correcting.return_number,
+            return_date: correcting.return_date,
+            party,
+            lines: (correcting.rep_return_items ?? []).map((i) => ({
+              product_id: i.product_id,
+              name: i.products?.name ?? "Product",
+              unit: i.products?.unit ?? "",
+              quantity: Number(i.quantity_returned),
+            })),
+          }}
+          onClose={() => setCorrecting(null)}
+        />
+      )}
+    </div>
   );
 }

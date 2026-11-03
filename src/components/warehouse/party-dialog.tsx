@@ -12,6 +12,7 @@ import { CustomerUnsoldDialog, RecordReturnDialog } from "@/components/jugs/dial
 import { LastSuppliedPanel } from "@/components/warehouse/last-supplied";
 import { ReturnDateField } from "@/components/shared/return-date";
 import { useDayReturns } from "@/lib/day-returns";
+import { DayReturnsPanel } from "@/components/warehouse/correct-return-dialog";
 import { useJugTypes, useMarketers } from "@/components/jugs/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -265,6 +266,7 @@ function HolderReturnDialog({
   const qc = useQueryClient();
   const [qty, setQty] = useState<Record<string, number>>({});
   // Yesterday's goods keyed in today go on yesterday (2026-11-03).
+  const perms = usePermissions();
   const [returnDate, setReturnDate] = useState(localDay());
   // What was already entered for this party on that day, to add up to it.
   const earlier = useDayReturns(party.id, returnDate);
@@ -337,12 +339,12 @@ function HolderReturnDialog({
         </DialogHeader>
         <LastSuppliedPanel kind="marketer" id={party.id} />
         <ReturnDateField value={returnDate} onChange={setReturnDate} />
-        {earlier.numbers.length > 0 && (
-          <div className="rounded-md border border-warning/40 bg-warning/5 p-2 text-xs">
-            Already entered for this day: {earlier.numbers.join(", ")}. What you enter now adds to
-            it (Total column).
-          </div>
-        )}
+        <DayReturnsPanel
+          party={party.name}
+          date={returnDate}
+          earlier={earlier}
+          canCorrect={perms.canSubmit("distribution")}
+        />
         <Table>
           <TableHeader>
             <TableRow>

@@ -6,13 +6,18 @@ import { useFactoryId, useFactorySettings } from "@/lib/use-factory";
 import { useMarketerStatement } from "@/lib/marketer-accounts";
 import { companyOf, generateMarketerStatementPdf } from "@/lib/marketer-pdf";
 import { PrintCopiesButton } from "@/components/shared/print-copies-button";
-import { printDispatchInvoice, printDispatchSlip } from "@/lib/dispatch-slip";
+import {
+  printDispatchDayInvoice,
+  printDispatchInvoice,
+  printDispatchSlip,
+} from "@/lib/dispatch-slip";
 import { printSaleInvoice } from "@/lib/invoice";
 import { generateReceiptPdf } from "@/lib/pdf";
 import { usePermissions } from "@/lib/permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { localDay } from "@/lib/production-shift";
 import { MoneyInput } from "@/components/ui/money-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -2554,6 +2559,9 @@ type RepActivity = {
   remarks?: string | null;
   // A posting, return or sale: its products show when the row is clicked.
   lines?: { kind: "dispatch" | "return" | "sale"; id: string };
+  // Postings: their day. A day's postings are one row (user, 2026-11-03).
+  day?: string;
+  dayPostings?: { id: string; reference: string; status: string; value: number; date: string }[];
 };
 
 type PostingLine = {
@@ -2635,6 +2643,111 @@ function RepTransactionLines({
   );
 }
 
+// All of a day's postings at once: the products added together, then each
+// posting with its own invoice (user, 2026-11-03).
+function RepDayPostingLines({
+  postings,
+  showValues,
+  onPrint,
+}: {
+  postings: NonNullable<RepActivity["dayPostings"]>;
+  showValues: boolean;
+  onPrint: (id: string) => void;
+}) {
+  const live = postings.filter((p) => p.status !== "reversed");
+  const lines = useQuery({
+    queryKey: ["rep-posting-lines", "day", live.map((p) => p.id).join(",")],
+    queryFn: async () => {
+      const all = await Promise.all(
+        live.map(async (p) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- RPC newer than the generated types
+          const { data, error } = await (supabase as any).rpc("rep_posting_lines", {
+            p_kind: "dispatch",
+            p_id: p.id,
+          });
+          if (error) throw error;
+          return (data ?? []) as PostingLine[];
+        }),
+      );
+      const merged = new Map<string, PostingLine>();
+      for (const l of all.flat()) {
+        const key = `${l.product_name}|${l.unit_price}`;
+        const m = merged.get(key);
+        if (m) {
+          m.quantity = Number(m.quantity) + Number(l.quantity);
+          m.line_total = Number(m.line_total) + Number(l.line_total);
+        } else merged.set(key, { ...l });
+      }
+      return [...merged.values()].sort((a, b) => a.product_name.localeCompare(b.product_name));
+    },
+  });
+  const rows = lines.data ?? [];
+  const qty = rows.reduce((t, r) => t + Number(r.quantity), 0);
+  const value = rows.reduce((t, r) => t + Number(r.line_total), 0);
+  return (
+    <div className="space-y-2">
+      {lines.isLoading ? (
+        <div className="py-2 text-xs text-muted-foreground">Loading products…</div>
+      ) : lines.isError ? (
+        <div className="py-2 text-xs text-destructive">{(lines.error as Error).message}</div>
+      ) : (
+        <table className="w-full text-sm">
+          <thead className="text-xs text-muted-foreground">
+            <tr>
+              <th className="py-1 text-left font-medium">Product (all postings of the day)</th>
+              <th className="py-1 text-right font-medium">Qty</th>
+              {showValues && <th className="py-1 text-right font-medium">Price</th>}
+              {showValues && <th className="py-1 text-right font-medium">Amount</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={i} className="border-t border-border/50">
+                <td className="py-1">{r.product_name}</td>
+                <td className="py-1 text-right">
+                  {num(Number(r.quantity))}{" "}
+                  <span className="text-xs text-muted-foreground">{r.unit}</span>
+                </td>
+                {showValues && <td className="py-1 text-right">{money(Number(r.unit_price))}</td>}
+                {showValues && <td className="py-1 text-right">{money(Number(r.line_total))}</td>}
+              </tr>
+            ))}
+            <tr className="border-t font-medium">
+              <td className="py-1">Total</td>
+              <td className="py-1 text-right">{num(qty)}</td>
+              {showValues && <td />}
+              {showValues && <td className="py-1 text-right">{money(value)}</td>}
+            </tr>
+          </tbody>
+        </table>
+      )}
+      <div className="flex flex-wrap gap-2 text-xs">
+        {postings.map((p) => (
+          <span key={p.id} className="flex items-center gap-1 rounded border px-2 py-0.5">
+            <span className="font-mono">{p.reference}</span>
+            <span className="text-muted-foreground">
+              {new Date(p.date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+            </span>
+            {p.status === "reversed" && <Badge variant="destructive">reversed</Badge>}
+            {showValues && <span>{money(p.value)}</span>}
+            {showValues && (
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-6 w-6"
+                title={`Print ${p.reference}`}
+                onClick={() => onPrint(p.id)}
+              >
+                <Printer className="h-3.5 w-3.5" />
+              </Button>
+            )}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function RepActivityCard({
   factoryId,
   repId,
@@ -2678,44 +2791,71 @@ export function RepActivityCard({
       "print",
     );
   };
+  // Calendar (2026-11-03): no dates = everything posted (and the latest 100
+  // of the rest); a day or range = everything dated then.
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const range = from ? { from, to: to && to >= from ? to : from } : null;
   const activity = useQuery({
-    queryKey: ["dist-rep-activity", repId],
+    queryKey: ["dist-rep-activity", repId, range?.from ?? null, range?.to ?? null],
     queryFn: async () => {
+      // Each kind by its own date column; a range lifts the 100-row cap.
+      const dated = <
+        Q extends { gte: (c: string, v: string) => Q; lte: (c: string, v: string) => Q },
+      >(
+        q: Q,
+        col: string,
+      ) => (range ? q.gte(col, range.from).lte(col, range.to) : q);
+      const cap = range ? 100000 : 100;
       const [dispatches, returns, sales, remits] = await Promise.all([
-        supabase
-          .from("stock_dispatches")
-          .select("id,dispatch_number,dispatch_date,created_at,status,total_value")
-          .eq("sales_rep_id", repId)
+        dated(
+          supabase
+            .from("stock_dispatches")
+            .select("id,dispatch_number,dispatch_date,created_at,status,total_value")
+            .eq("sales_rep_id", repId),
+          "dispatch_date",
+        )
           // Every posting, all time, so each one's invoice can be printed
           // (user, 2026-11-03); the other kinds show the latest 100.
           .order("created_at", { ascending: false }),
-        supabase
-          .from("rep_returns")
-          .select(
-            "id,return_number,return_date,received_at,status,rep_return_items(quantity_returned,unit_price)",
-          )
-          .eq("sales_rep_id", repId)
+        dated(
+          supabase
+            .from("rep_returns")
+            .select(
+              "id,return_number,return_date,received_at,status,rep_return_items(quantity_returned,unit_price)",
+            )
+            .eq("sales_rep_id", repId)
+            .neq("status", "cancelled"),
+          "return_date",
+        )
           .order("received_at", { ascending: false })
-          .limit(100),
-        supabase
-          .from("sales")
-          .select("id,invoice_number,sale_date,created_at,status,grand_total,is_pr")
-          .eq("sales_rep_id", repId)
-          .is("deleted_at", null)
+          .limit(cap),
+        dated(
+          supabase
+            .from("sales")
+            .select("id,invoice_number,sale_date,created_at,status,grand_total,is_pr")
+            .eq("sales_rep_id", repId)
+            .is("deleted_at", null),
+          "sale_date",
+        )
           .order("created_at", { ascending: false })
-          .limit(100),
-        supabase
-          .from("rep_remittances")
-          .select("id,remittance_number,remittance_date,created_at,amount,payment_method,remarks")
-          .eq("sales_rep_id", repId)
+          .limit(cap),
+        dated(
+          supabase
+            .from("rep_remittances")
+            .select("id,remittance_number,remittance_date,created_at,amount,payment_method,remarks")
+            .eq("sales_rep_id", repId),
+          "remittance_date",
+        )
           .order("created_at", { ascending: false })
-          .limit(100),
+          .limit(cap),
       ]);
       for (const r of [dispatches, returns, sales, remits]) if (r.error) throw r.error;
       const rows: RepActivity[] = [
         ...(dispatches.data ?? []).map((d) => ({
           key: `d-${d.id}`,
           date: d.created_at ?? d.dispatch_date,
+          day: d.dispatch_date,
           kind: "Dispatch" as const,
           reference: d.dispatch_number,
           status: d.status,
@@ -2769,7 +2909,43 @@ export function RepActivityCard({
       return rows.sort((a, b) => time(b) - time(a));
     },
   });
-  const rows = (activity.data ?? []).filter((r) => showValues || r.kind !== "Cash remitted");
+  // A day's postings are ONE row: one click shows everything posted that day
+  // (user, 2026-11-03). The row sits where the day's latest posting was.
+  const rows = useMemo(() => {
+    const out: RepActivity[] = [];
+    const byDay = new Map<string, RepActivity>();
+    for (const r of activity.data ?? []) {
+      if (!showValues && r.kind === "Cash remitted") continue;
+      if (r.kind !== "Dispatch" || !r.day || r.lines?.kind !== "dispatch") {
+        out.push(r);
+        continue;
+      }
+      const p = {
+        id: r.lines.id,
+        reference: r.reference,
+        status: r.status,
+        value: r.value,
+        date: r.date,
+      };
+      const g = byDay.get(r.day);
+      if (g) g.dayPostings!.push(p);
+      else {
+        const row: RepActivity = { ...r, key: "day-" + r.day, dayPostings: [p] };
+        byDay.set(r.day, row);
+        out.push(row);
+      }
+    }
+    for (const g of byDay.values()) {
+      const ps = g.dayPostings!;
+      const live = ps.filter((p) => p.status !== "reversed");
+      if (ps.length > 1) {
+        g.reference = ps.length + " postings";
+        g.value = live.reduce((t, p) => t + p.value, 0);
+        g.status = live.length ? "posted" : "reversed";
+      }
+    }
+    return out;
+  }, [activity.data, showValues]);
   // Rows opened to show their products.
   const [open, setOpen] = useState<Set<string>>(new Set());
   const toggle = (key: string) =>
@@ -2783,11 +2959,46 @@ export function RepActivityCard({
 
   return (
     <Card className="rounded-2xl">
-      <CardHeader>
-        <CardTitle>All activity</CardTitle>
-        <p className="text-sm text-muted-foreground">
-          Click a posting, return or sale to see the products on it.
-        </p>
+      <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 space-y-0">
+        <div>
+          <CardTitle>All postings</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Everything posted to {repName}, with returns, sales and cash handed in. Click one to see
+            its products; pick dates to see an earlier day.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            type="date"
+            className="w-40"
+            title="From"
+            value={from}
+            max={localDay()}
+            onChange={(e) => setFrom(e.target.value)}
+          />
+          <span className="text-sm text-muted-foreground">to</span>
+          <Input
+            type="date"
+            className="w-40"
+            title="To (leave empty for one day)"
+            value={to}
+            min={from || undefined}
+            max={localDay()}
+            onChange={(e) => setTo(e.target.value)}
+          />
+          {from && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setFrom("");
+                setTo("");
+              }}
+            >
+              All dates
+            </Button>
+          )}
+        </div>
       </CardHeader>
       <CardContent>
         <Table containerClassName="max-h-96">
@@ -2840,7 +3051,13 @@ export function RepActivityCard({
                           }
                           onClick={(e) => {
                             e.stopPropagation();
-                            printVoucher(r);
+                            if (r.dayPostings && r.dayPostings.length > 1)
+                              void printDispatchDayInvoice(
+                                r.dayPostings.map((p) => p.id),
+                                settings.data,
+                                "print",
+                              );
+                            else printVoucher(r);
                           }}
                         >
                           <Printer className="h-4 w-4" /> Print
@@ -2853,11 +3070,19 @@ export function RepActivityCard({
                   <TableRow className="bg-muted/30 hover:bg-muted/30">
                     <TableCell />
                     <TableCell colSpan={cols - 1}>
-                      <RepTransactionLines
-                        kind={r.lines.kind}
-                        id={r.lines.id}
-                        showValues={showValues}
-                      />
+                      {r.dayPostings && r.dayPostings.length > 1 ? (
+                        <RepDayPostingLines
+                          postings={r.dayPostings}
+                          showValues={showValues}
+                          onPrint={(id) => printDispatchInvoice({ id }, settings.data, "print")}
+                        />
+                      ) : (
+                        <RepTransactionLines
+                          kind={r.lines.kind}
+                          id={r.lines.id}
+                          showValues={showValues}
+                        />
+                      )}
                     </TableCell>
                   </TableRow>
                 )}
@@ -2873,7 +3098,9 @@ export function RepActivityCard({
                     ? "Loading…"
                     : activity.isError
                       ? "Couldn't load the activity."
-                      : "No activity yet."}
+                      : range
+                        ? "Nothing on these dates."
+                        : "No activity yet."}
                 </TableCell>
               </TableRow>
             )}
@@ -2935,6 +3162,13 @@ export function RepDetailsDialog({ factoryId, rep }: { factoryId: string; rep: R
         </DialogTitle>
       </DialogHeader>
       <div className="space-y-4">
+        {/* All that was posted to them comes first (user, 2026-11-03). */}
+        <RepActivityCard
+          factoryId={factoryId}
+          repId={rep.id}
+          repName={rep.full_name}
+          showValues={canAccount}
+        />
         {canAccount ? (
           <RepAccountView
             factoryId={factoryId}
@@ -2945,12 +3179,6 @@ export function RepDetailsDialog({ factoryId, rep }: { factoryId: string; rep: R
         ) : (
           <RepStockView repId={rep.id} />
         )}
-        <RepActivityCard
-          factoryId={factoryId}
-          repId={rep.id}
-          repName={rep.full_name}
-          showValues={canAccount}
-        />
       </div>
     </DialogContent>
   );

@@ -28,6 +28,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { FileText, HandCoins, Percent, Printer, Wallet } from "lucide-react";
+import { PartyPostingsReturns } from "@/components/accounting/party-postings-returns";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- sale_invoice_party is newer than the generated types
 const db = supabase as any;
@@ -247,6 +248,16 @@ export function CustomerActivityDialog({
             {range === "day" ? `on ${new Date(day).toLocaleDateString()}` : "on record"}.
           </DialogDescription>
         </DialogHeader>
+
+        {/* Everything supplied to them and everything returned, first (2026-11-03). */}
+        {customer && (
+          <PartyPostingsReturns
+            factoryId={factoryId}
+            customerName={customer}
+            showValues={perms.canSeeMoney}
+            currency={currency}
+          />
+        )}
 
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex gap-1">

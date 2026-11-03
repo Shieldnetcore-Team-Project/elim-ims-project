@@ -167,3 +167,66 @@ export async function printDispatchInvoice(
     action,
   );
 }
+
+// All of a marketer's / the shop's postings on one day as ONE invoice (user,
+// 2026-11-03): lines of the same product and price added together, every
+// posting number listed. Reversed postings are left out.
+export async function printDispatchDayInvoice(
+  ids: string[],
+  settings: Settings,
+  action: "download" | "print",
+) {
+  const all = await Promise.all(ids.map((id) => loadDispatch({ id })));
+  const live = all.filter((d): d is NonNullable<typeof d> => !!d && d.status !== "reversed");
+  if (live.length === 0) return;
+  if (live.length === 1)
+    return printDispatchInvoice({ id: ids[all.indexOf(live[0])] }, settings, action);
+  const first = live[0];
+  const lines = new Map<
+    string,
+    { name: string; quantity: number; unit_price: number; line_total: number }
+  >();
+  for (const d of live)
+    for (const it of d.items) {
+      const key = `${it.name}|${it.unit_price}`;
+      const l = lines.get(key) ?? {
+        name: it.name,
+        quantity: 0,
+        unit_price: it.unit_price,
+        line_total: 0,
+      };
+      l.quantity += Number(it.quantity);
+      l.line_total += Number(it.line_value);
+      lines.set(key, l);
+    }
+  const total = live.reduce((t, d) => t + Number(d.total_value), 0);
+  const latest = live
+    .map((d) => d.created_at ?? d.dispatch_date)
+    .sort()
+    .at(-1)!;
+  await generateDistributorInvoicePdf(
+    {
+      company: { ...companyOf(settings), website: settings?.website ?? null },
+      invoice_number: `${first.dispatch_number} +${live.length - 1}`,
+      issued_at: latest,
+      customer: {
+        name: first.sales_reps?.full_name ?? "—",
+        phone: first.sales_reps?.phone ?? null,
+      },
+      party_id: first.sales_reps?.code ?? null,
+      party_label: first.sales_reps?.kind === "outlet" ? "Retail Shop" : null,
+      delivery_method:
+        first.sales_reps?.kind === "outlet" ? "Company Delivery" : "Delivered by Marketer",
+      items: [...lines.values()],
+      subtotal: total,
+      discount: 0,
+      vat: 0,
+      vat_rate: null,
+      grand_total: total,
+      amount_paid: 0,
+      balance: total,
+      remarks: `${live.length} postings on ${first.dispatch_date}: ${live.map((d) => d.dispatch_number).join(", ")}`,
+    },
+    action,
+  );
+}
