@@ -8,8 +8,6 @@ import { CorrectReturnDateButton, ReturnDateField } from "@/components/shared/re
 import type { DayReturn } from "@/lib/day-returns";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -27,11 +25,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-// The Warehouse corrects a marketer's / the shop's return (correct_rep_return,
-// supabase/migrations/20261103100000_correct_rep_return.sql): the wrong one
-// is cancelled and the corrected one recorded in one step. Every line at 0
-// removes a return entered by mistake. A wrong product: set it to 0 here and
-// record the right product as a new return.
+// The Warehouse edits a marketer's / the shop's return in place
+// (correct_rep_return, supabase/migrations/20261103120000_edit_rep_return_in_place.sql):
+// the same return takes the new figures at once, stock and jugs move by the
+// difference, and the audit log keeps the old figures -- no reason asked, no
+// second record (user, 2026-11-03). Every line at 0 removes the return. A
+// wrong product: set it to 0 here and record the right product as a new return.
 
 export type CorrectableReturn = {
   id: string;
@@ -62,7 +61,6 @@ export function CorrectReturnDialog({
     Object.fromEntries(lines.map((l) => [l.product_id, l.quantity])),
   );
   const [date, setDate] = useState(ret.return_date.slice(0, 10));
-  const [reason, setReason] = useState("");
   const total = Object.values(qty).reduce((t, v) => t + v, 0);
   const changed =
     date !== ret.return_date.slice(0, 10) ||
@@ -75,7 +73,6 @@ export function CorrectReturnDialog({
         {
           p_id: ret.id,
           payload: {
-            reason,
             return_date: date,
             items: lines
               .map((l) => ({ product_id: l.product_id, quantity_returned: qty[l.product_id] ?? 0 }))
@@ -84,13 +81,13 @@ export function CorrectReturnDialog({
         } as never,
       );
       if (error) throw error;
-      return data as unknown as { cancelled: string; return_number: string | null };
+      return data as unknown as { return_number: string; removed: boolean };
     },
     onSuccess: (r) => {
       toast.success(
-        r.return_number
-          ? `${r.cancelled} corrected — now ${r.return_number}`
-          : `${r.cancelled} removed — the goods are back with ${ret.party}`,
+        r.removed
+          ? `${r.return_number} removed — the goods are back with ${ret.party}`
+          : `${r.return_number} updated`,
       );
       for (const key of [
         "dist-returns",
@@ -116,8 +113,8 @@ export function CorrectReturnDialog({
             Correct return {ret.return_number} — {ret.party}
           </DialogTitle>
           <DialogDescription>
-            Enter what really came back. The wrong entry is cancelled and the corrected one
-            recorded; stock and jugs follow. All lines at 0 removes the return.
+            Enter what really came back. The return is updated at once and stock and jugs follow.
+            All lines at 0 removes the return.
           </DialogDescription>
         </DialogHeader>
         <ReturnDateField value={date} onChange={setDate} />
@@ -154,26 +151,17 @@ export function CorrectReturnDialog({
             ))}
           </TableBody>
         </Table>
-        <div className="space-y-1">
-          <Label>Reason</Label>
-          <Textarea
-            rows={2}
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder="e.g. Counted 3, not 4"
-          />
-        </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
           <Button
             variant={total === 0 ? "destructive" : "default"}
-            disabled={!changed || !reason.trim() || save.isPending}
+            disabled={!changed || save.isPending}
             onClick={() => save.mutate()}
           >
             {save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            {total === 0 ? "Remove return" : "Save correction"}
+            {total === 0 ? "Remove return" : "Save"}
           </Button>
         </DialogFooter>
       </DialogContent>

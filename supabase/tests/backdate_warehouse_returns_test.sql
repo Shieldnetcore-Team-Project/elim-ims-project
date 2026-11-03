@@ -86,8 +86,6 @@ END $$;
 DO $$
 DECLARE v jsonb; e text; n text := (SELECT val FROM t_state WHERE k = 'rr1'); d2 date := pg_temp.today() - 2;
 BEGIN
-  e := pg_temp.err(format('SELECT public.correct_return_date(%L, %L, %L, %L)', 'rep', n, d2, ' '));
-  PERFORM pg_temp.check(e LIKE '%Say why%', 'reason required: ' || COALESCE(e, 'no error'));
   e := pg_temp.err(format('SELECT public.correct_return_date(%L, %L, %L, %L)', 'rep', n, pg_temp.today() + 1, 'x'));
   PERFORM pg_temp.check(e LIKE '%future%', 'no future correction');
   v := public.correct_return_date('rep', n, d2, 'Typed the wrong day');

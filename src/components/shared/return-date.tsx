@@ -8,7 +8,6 @@ import { num } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -115,12 +114,11 @@ function CorrectDateDialog({
 }) {
   const qc = useQueryClient();
   const [next, setNext] = useState(date);
-  const [reason, setReason] = useState("");
   const save = useMutation({
     mutationFn: async () => {
       const { data, error } = await supabase.rpc(
         "correct_return_date" as never,
-        { p_kind: kind, p_reference: reference, p_date: next, p_reason: reason } as never,
+        { p_kind: kind, p_reference: reference, p_date: next, p_reason: null } as never,
       );
       if (error) throw error;
       return data as unknown as { reference: string; return_date: string };
@@ -148,29 +146,17 @@ function CorrectDateDialog({
           <DialogTitle>Correct the date — {reference}</DialogTitle>
           <DialogDescription>
             Now dated {fmt(date)}. The return, its stock moves and its jugs all move to the new day;
-            quantities don&apos;t change. The change is recorded with your reason.
+            quantities don&apos;t change.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <ReturnDateField value={next} onChange={setNext} />
-          <div className="space-y-1">
-            <Label>Reason</Label>
-            <Textarea
-              rows={2}
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="e.g. Entered as today; the goods came back yesterday"
-            />
-          </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button
-            disabled={save.isPending || next === date || !reason.trim()}
-            onClick={() => save.mutate()}
-          >
+          <Button disabled={save.isPending || next === date} onClick={() => save.mutate()}>
             {save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Correct date
           </Button>
