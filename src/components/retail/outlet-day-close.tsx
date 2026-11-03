@@ -132,6 +132,10 @@ export type Recon = {
   submitted_at: string;
   received_cash: number | null;
   received_other: number | null;
+  // Accounts' physical count of what the shop sent back / wrote off
+  // (confirm_outlet_day_goods, 20261103150000).
+  accounts_goods?:
+    { product_id: string; name: string; unit: string; expected: number; counted: number }[] | null;
   accounts_notes: string | null;
   reviewed_at: string | null;
 };
@@ -865,11 +869,24 @@ function AccountsDayDialog({
   const [cash, setCash] = useState(0);
   const [other, setOther] = useState(0);
   const [notes, setNotes] = useState("");
+  // What the shop sent back or wrote off that day: Accounts count it.
+  const goodsLines = (rec?.figures.products ?? []).filter((p) => p.returned + p.damaged > 0);
+  const [goods, setGoods] = useState<Record<string, number>>({});
   useEffect(() => {
     if (!rec) return;
     setCash(rec.declared_cash);
     setOther(rec.declared_other);
+    setGoods(
+      Object.fromEntries(
+        (rec.figures.products ?? [])
+          .filter((p) => p.returned + p.damaged > 0)
+          .map((p) => [p.product_id, p.returned + p.damaged]),
+      ),
+    );
   }, [rec?.id, rec?.status]); // eslint-disable-line react-hooks/exhaustive-deps
+  const goodsOff = goodsLines.some(
+    (p) => Math.abs((goods[p.product_id] ?? 0) - (p.returned + p.damaged)) > 0.0005,
+  );
 
   const done = (msg: string) => {
     toast.success(msg);
@@ -879,10 +896,14 @@ function AccountsDayDialog({
   };
   const confirm = useMutation({
     mutationFn: () =>
-      rpc("confirm_outlet_day", {
+      rpc("confirm_outlet_day_goods", {
         p_id: rec!.id,
         p_received_cash: cash,
         p_received_other: other,
+        p_goods: goodsLines.map((p) => ({
+          product_id: p.product_id,
+          counted: goods[p.product_id] ?? 0,
+        })),
         p_notes: notes || null,
       }),
     onSuccess: () => done(`${fmtDay(date)} confirmed — remittance recorded`),
@@ -903,7 +924,8 @@ function AccountsDayDialog({
     (Math.abs(cash - rec.declared_cash) > 0.005 ||
       Math.abs(other - rec.declared_other) > 0.005 ||
       Math.abs(cash - m.cash_expected) > 0.005 ||
-      Math.abs(other - m.other_expected) > 0.005);
+      Math.abs(other - m.other_expected) > 0.005 ||
+      goodsOff);
   const busy = confirm.isPending || query.isPending;
 
   return (
@@ -933,6 +955,67 @@ function AccountsDayDialog({
             />
             <DispenserDay outletId={outletId} date={date} currency={currency} />
             {rec && rec.status !== "queried" && <SubmittedSummary rec={rec} currency={currency} />}
+            {(reviewing ? goodsLines.length > 0 : (rec?.accounts_goods ?? []).length > 0) && (
+              <div className="rounded-xl border p-3">
+                <div className="mb-2 text-sm font-medium">Goods sent back — physical count</div>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Product</TableHead>
+                      <TableHead className="text-right">Unsold returned</TableHead>
+                      <TableHead className="text-right">Damaged</TableHead>
+                      <TableHead className="text-right">Counted by Accounts</TableHead>
+                      <TableHead className="text-right">Difference</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {reviewing
+                      ? goodsLines.map((p) => {
+                          const d = (goods[p.product_id] ?? 0) - (p.returned + p.damaged);
+                          return (
+                            <TableRow key={p.product_id}>
+                              <TableCell className="font-medium">{p.name}</TableCell>
+                              <TableCell className="text-right">{num(p.returned)}</TableCell>
+                              <TableCell className="text-right">{num(p.damaged)}</TableCell>
+                              <TableCell className="text-right">
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  className="ml-auto h-8 w-24 text-right"
+                                  value={goods[p.product_id] ?? 0}
+                                  onChange={(e) =>
+                                    setGoods((g) => ({
+                                      ...g,
+                                      [p.product_id]: Math.max(0, Number(e.target.value) || 0),
+                                    }))
+                                  }
+                                />
+                              </TableCell>
+                              <TableCell className={`text-right font-medium ${diffClass(d)}`}>
+                                {signed(d, num)}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })
+                      : (rec?.accounts_goods ?? []).map((g) => {
+                          const d = Number(g.counted) - Number(g.expected);
+                          return (
+                            <TableRow key={g.product_id}>
+                              <TableCell className="font-medium">{g.name}</TableCell>
+                              <TableCell className="text-right" colSpan={2}>
+                                {num(Number(g.expected))} {g.unit} sent back
+                              </TableCell>
+                              <TableCell className="text-right">{num(Number(g.counted))}</TableCell>
+                              <TableCell className={`text-right font-medium ${diffClass(d)}`}>
+                                {signed(d, num)}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
             {rec?.status === "queried" && (
               <p className="text-sm text-muted-foreground">
                 Sent back to retail: “{rec.accounts_notes}”. Waiting for them to resubmit.

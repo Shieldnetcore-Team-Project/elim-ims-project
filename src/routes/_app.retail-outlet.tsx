@@ -31,7 +31,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Boxes, PackageOpen, ShoppingCart, Store, TrendingUp, Undo2 } from "lucide-react";
+import { Boxes, MoonStar, PackageOpen, ShoppingCart, Store, TrendingUp, Undo2 } from "lucide-react";
+import { EndOfDayDialog } from "@/components/retail/end-of-day-dialog";
 import { ReportActions } from "@/components/shared/report-actions";
 
 export const Route = createFileRoute("/_app/retail-outlet")({
@@ -120,6 +121,8 @@ function RetailOutletPage() {
   const [posOpen, setPosOpen] = useState(false);
   // End of business: unsold products back to the Warehouse (2026-11-02).
   const [returning, setReturning] = useState(false);
+  // End of day in one press: unsold back, damaged off, money to Accounts (2026-11-03).
+  const [closing, setClosing] = useState(false);
 
   useRealtimeInvalidate(
     ["rep_stock", "rep_stock_movements", "sales"],
@@ -336,6 +339,23 @@ function RetailOutletPage() {
               ))}
             </SelectContent>
           </Select>
+          {canSell && outletId && (
+            <Dialog open={closing} onOpenChange={setClosing}>
+              <DialogTrigger asChild>
+                <Button variant="default" className="gap-2">
+                  <MoonStar className="h-4 w-4" /> End of day → Accounts
+                </Button>
+              </DialogTrigger>
+              {closing && (
+                <EndOfDayDialog
+                  outletId={outletId}
+                  outletName={outlets.data?.find((o) => o.id === outletId)?.full_name ?? "the shop"}
+                  currency={settings.data?.currency ?? undefined}
+                  onDone={() => setClosing(false)}
+                />
+              )}
+            </Dialog>
+          )}
           {canSell && outletId && (
             <Dialog open={returning} onOpenChange={setReturning}>
               <DialogTrigger asChild>

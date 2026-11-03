@@ -2688,9 +2688,18 @@ function RepDayLines({
         posted_value: number;
         returned_value: number;
       };
+      // One row per product AND price: a product posted at two prices shows
+      // twice, so a wrong price can't hide behind another (2026-11-03).
+      // Returns join the row of the same product at their price, else the
+      // product's first row.
       const byProduct = new Map<string, Row>();
-      const row = (l: PostingLine) => {
-        let r = byProduct.get(l.product_name);
+      const row = (l: PostingLine, isReturn = false) => {
+        const key = `${l.product_name}|${Number(l.unit_price)}`;
+        let r =
+          byProduct.get(key) ??
+          (isReturn
+            ? [...byProduct.values()].find((x) => x.product_name === l.product_name)
+            : undefined);
         if (!r) {
           r = {
             product_name: l.product_name,
@@ -2701,7 +2710,7 @@ function RepDayLines({
             posted_value: 0,
             returned_value: 0,
           };
-          byProduct.set(l.product_name, r);
+          byProduct.set(key, r);
         }
         return r;
       };
@@ -2711,11 +2720,13 @@ function RepDayLines({
         r.posted_value += Number(l.line_total);
       }
       for (const l of back.flat()) {
-        const r = row(l);
+        const r = row(l, true);
         r.returned += Number(l.quantity);
         r.returned_value += Number(l.line_total);
       }
-      return [...byProduct.values()].sort((a, b) => a.product_name.localeCompare(b.product_name));
+      return [...byProduct.values()].sort(
+        (a, b) => a.product_name.localeCompare(b.product_name) || a.unit_price - b.unit_price,
+      );
     },
   });
   const rows = lines.data ?? [];
@@ -2743,7 +2754,7 @@ function RepDayLines({
           </thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.product_name} className="border-t border-border/50">
+              <tr key={`${r.product_name}|${r.unit_price}`} className="border-t border-border/50">
                 <td className="py-1">{r.product_name}</td>
                 <td className="py-1 text-right">
                   {num(r.posted)} <span className="text-xs text-muted-foreground">{r.unit}</span>

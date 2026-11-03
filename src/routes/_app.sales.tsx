@@ -162,6 +162,9 @@ type JugProduct = {
   per_unit: number;
   jar_price: number | null;
   with_jar_price: number | null;
+  // The empty-jug product on Costing (e.g. "Dispenser Empty"), whose price is
+  // the jug's price (20261103170000).
+  jar_product_name?: string | null;
 };
 // Full detail needed to re-open a still-pending sale in PosDialog for
 // editing — a superset of SaleRow's list-view fields.
@@ -1904,11 +1907,15 @@ export function PosDialog({
   // while editing but hasn't removed or refilled yet.
   const sellableCart = useMemo(() => cart.filter((c) => c.quantity > 0), [cart]);
 
-  // At the shop, every dispenser line must say what happens to its jar; a
-  // Permanent line is priced from the jug type (the server prices it too).
+  // Every new sale (shop, Warehouse posting, van) says what happens to a
+  // dispenser's jug: water only (empty in), water + jug, or return later
+  // (2026-11-03: one Dispenser Water product, the jug charged at the sale).
+  // A Permanent line is priced from the jug type (the server prices it too).
+  // An older sale being edited keeps its lines as they were.
+  const jugChoice = !editingSale;
   const jugProducts = useQuery({
     queryKey: ["jug-products", factoryId],
-    enabled: !!factoryId && retailMode,
+    enabled: !!factoryId && jugChoice,
     queryFn: async () => {
       const { data, error } = await supabase.rpc(
         "jug_products" as never,
@@ -1919,7 +1926,7 @@ export function PosDialog({
     },
   });
   const jugOf = (productId: string) =>
-    retailMode ? jugProducts.data?.find((j) => j.product_id === productId) : undefined;
+    jugChoice ? jugProducts.data?.find((j) => j.product_id === productId) : undefined;
   // Permanent: jug + water. Swap / Return later: the water only -- jug +
   // water less the jug (the product's own price is jug + water).
   const jarPrice = (productId: string, mode: JarMode, base: number) => {
@@ -1985,7 +1992,11 @@ export function PosDialog({
         ...prev,
         {
           product_id: p.id,
-          name: p.name,
+          // A water + jug line reads as the two Costing products.
+          name:
+            presetMode === "permanent" && jugOf(p.id)?.jar_product_name
+              ? `${p.name} + ${jugOf(p.id)!.jar_product_name}`
+              : p.name,
           unit: p.unit,
           // Starts empty: the user types the quantity straight in. A line
           // left empty is not sold (sellableCart).
@@ -2177,8 +2188,9 @@ export function PosDialog({
                       const base = Number(p.unit_price);
                       return (
                         [
-                          ["permanent", "Water + Jug"],
-                          ["swap", "Water only (empty jug in)"],
+                          // Named and priced as on Costing > Product Prices.
+                          ["permanent", `${p.name} + ${jugOf(p.id)?.jar_product_name ?? "Jug"}`],
+                          ["swap", `${p.name} (empty jug in)`],
                         ] as [JarMode, string][]
                       ).map(([mode, label]) => (
                         <SelectItem
@@ -2186,8 +2198,8 @@ export function PosDialog({
                           value={`${p.id}::${mode}`}
                           disabled={effStock(p) <= 0}
                         >
-                          {p.name} — {label} · {money(jarPrice(p.id, mode, base))} · {where}{" "}
-                          {num(effStock(p))} {p.unit}
+                          {label} · {money(jarPrice(p.id, mode, base))} · {where} {num(effStock(p))}{" "}
+                          {p.unit}
                         </SelectItem>
                       ));
                     }

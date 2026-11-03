@@ -255,16 +255,8 @@ export function RetailJars({ outletId, date }: { outletId: string; date: string 
                         {money(n(r.jar_price))}
                       </span>
                     )}
-                    {canPrice && (
-                      <Button
-                        variant="link"
-                        size="sm"
-                        className="h-auto px-1"
-                        onClick={() => setPriceFor(r)}
-                      >
-                        Edit
-                      </Button>
-                    )}
+                    {/* The jug's price is the empty-jug product's on Costing (2026-11-03). */}
+                    <div className="text-[11px] text-muted-foreground">Set on Costing</div>
                   </TableCell>
                 </TableRow>
               ))}
