@@ -24,6 +24,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { EarlierReturnsNote, ReturnDateField } from "@/components/shared/return-date";
 
 export type ShopStockLine = { product_id: string; name: string; unit: string; quantity: number };
 
@@ -45,6 +46,8 @@ export function ReturnToWarehouseDialog({
   const qc = useQueryClient();
   const [qty, setQty] = useState<Record<string, number>>({});
   const [notes, setNotes] = useState("");
+  // An earlier day's unsold keyed in late go on that day (2026-11-03).
+  const [returnDate, setReturnDate] = useState(localDay());
   const held = stock.filter((s) => s.quantity > 0);
   const items = held
     .map((s) => ({ product_id: s.product_id, quantity: qty[s.product_id] ?? 0 }))
@@ -59,7 +62,7 @@ export function ReturnToWarehouseDialog({
         {
           payload: {
             outlet_id: outletId,
-            return_date: localDay(),
+            return_date: returnDate,
             notes: notes || undefined,
             items,
           },
@@ -99,6 +102,8 @@ export function ReturnToWarehouseDialog({
         </DialogDescription>
       </DialogHeader>
       <div className="grid gap-3">
+        <ReturnDateField value={returnDate} onChange={setReturnDate} />
+        <EarlierReturnsNote holderId={outletId} date={returnDate} />
         <div className="flex justify-end">
           <Button size="sm" variant="outline" onClick={returnAll} disabled={held.length === 0}>
             Return everything

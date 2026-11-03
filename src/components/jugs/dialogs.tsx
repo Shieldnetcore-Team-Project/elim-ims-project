@@ -53,6 +53,7 @@ import {
   type Named,
   type ReportRow,
 } from "./api";
+import { EarlierReturnsNote, ReturnDateField } from "@/components/shared/return-date";
 
 function Field({
   label,
@@ -401,6 +402,8 @@ function MarketerUnsoldDialog({
     },
   });
   const held = (stock.data ?? []).filter((s) => dispenserIds.has(s.product_id));
+  // Yesterday's unsold keyed in today go on yesterday (2026-11-03).
+  const [unsoldDate, setUnsoldDate] = useState(localDay());
   const items = held
     .map((s) => ({ product_id: s.product_id, quantity_returned: qty[s.product_id] ?? 0 }))
     .filter((i) => i.quantity_returned > 0);
@@ -413,7 +416,7 @@ function MarketerUnsoldDialog({
         payload: {
           factory_id: factoryId,
           sales_rep_id: repId,
-          return_date: localDay(),
+          return_date: unsoldDate,
           notes: notes || undefined,
           items,
         },
@@ -456,6 +459,14 @@ function MarketerUnsoldDialog({
             </Select>
           </Field>
           {repId && <LastSuppliedPanel kind="marketer" id={repId} />}
+          {repId && <ReturnDateField value={unsoldDate} onChange={setUnsoldDate} />}
+          {repId && (
+            <EarlierReturnsNote
+              holderId={repId}
+              date={unsoldDate}
+              only={(id) => dispenserIds.has(id)}
+            />
+          )}
           {repId && (
             <Table>
               <TableHeader>

@@ -10,6 +10,8 @@ import { type Activity, KIND, scopeToMyProducts } from "@/components/warehouse/a
 import { useMyProductMatcher } from "@/lib/product-rules";
 import { CustomerUnsoldDialog, RecordReturnDialog } from "@/components/jugs/dialogs";
 import { LastSuppliedPanel } from "@/components/warehouse/last-supplied";
+import { ReturnDateField } from "@/components/shared/return-date";
+import { useDayReturns } from "@/lib/day-returns";
 import { useJugTypes, useMarketers } from "@/components/jugs/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -262,6 +264,10 @@ function HolderReturnDialog({
 }) {
   const qc = useQueryClient();
   const [qty, setQty] = useState<Record<string, number>>({});
+  // Yesterday's goods keyed in today go on yesterday (2026-11-03).
+  const [returnDate, setReturnDate] = useState(localDay());
+  // What was already entered for this party on that day, to add up to it.
+  const earlier = useDayReturns(party.id, returnDate);
   const stock = useQuery({
     queryKey: ["warehouse-party-van", party.id],
     queryFn: async () => {
@@ -295,7 +301,7 @@ function HolderReturnDialog({
         payload: {
           factory_id: factoryId,
           sales_rep_id: party.id,
-          return_date: localDay(),
+          return_date: returnDate,
           items,
         } as never,
       });
@@ -330,18 +336,29 @@ function HolderReturnDialog({
           </DialogDescription>
         </DialogHeader>
         <LastSuppliedPanel kind="marketer" id={party.id} />
+        <ReturnDateField value={returnDate} onChange={setReturnDate} />
+        {earlier.numbers.length > 0 && (
+          <div className="rounded-md border border-warning/40 bg-warning/5 p-2 text-xs">
+            Already entered for this day: {earlier.numbers.join(", ")}. What you enter now adds to
+            it (Total column).
+          </div>
+        )}
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>Product</TableHead>
               <TableHead className="text-right">Holding</TableHead>
+              {earlier.numbers.length > 0 && (
+                <TableHead className="text-right">Already returned</TableHead>
+              )}
               <TableHead className="w-28 text-right">Returning</TableHead>
+              {earlier.numbers.length > 0 && <TableHead className="text-right">Total</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
             {held.length === 0 && (
               <TableRow>
-                <TableCell colSpan={3} className="py-6 text-center text-muted-foreground">
+                <TableCell colSpan={5} className="py-6 text-center text-muted-foreground">
                   {stock.isLoading ? "Loading…" : "They hold nothing to return."}
                 </TableCell>
               </TableRow>
@@ -354,6 +371,11 @@ function HolderReturnDialog({
                   <TableCell className="text-right">
                     {num(s.quantity)} {s.unit}
                   </TableCell>
+                  {earlier.numbers.length > 0 && (
+                    <TableCell className="text-right text-muted-foreground">
+                      {num(earlier.byProduct.get(s.product_id) ?? 0)}
+                    </TableCell>
+                  )}
                   <TableCell className="text-right">
                     <Input
                       type="number"
@@ -369,9 +391,31 @@ function HolderReturnDialog({
                       <div className="text-[11px] text-destructive">More than held</div>
                     )}
                   </TableCell>
+                  {earlier.numbers.length > 0 && (
+                    <TableCell className="text-right font-semibold">
+                      {num((earlier.byProduct.get(s.product_id) ?? 0) + v)} {s.unit}
+                    </TableCell>
+                  )}
                 </TableRow>
               );
             })}
+            {/* Returned earlier that day and no longer held. */}
+            {[...earlier.byProduct]
+              .filter(
+                ([id]) =>
+                  !held.some((s) => s.product_id === id) && mine(earlier.names.get(id)?.name ?? ""),
+              )
+              .map(([id, q]) => (
+                <TableRow key={`earlier-${id}`} className="text-muted-foreground">
+                  <TableCell>{earlier.names.get(id)?.name ?? "Product"}</TableCell>
+                  <TableCell className="text-right">0</TableCell>
+                  <TableCell className="text-right">{num(q)}</TableCell>
+                  <TableCell className="text-right">—</TableCell>
+                  <TableCell className="text-right font-semibold">
+                    {num(q)} {earlier.names.get(id)?.unit ?? ""}
+                  </TableCell>
+                </TableRow>
+              ))}
           </TableBody>
         </Table>
         <DialogFooter>

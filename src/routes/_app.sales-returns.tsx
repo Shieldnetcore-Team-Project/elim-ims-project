@@ -55,6 +55,7 @@ import {
   startOfYear,
   format,
 } from "date-fns";
+import { CorrectReturnDateButton } from "@/components/shared/return-date";
 
 export const Route = createFileRoute("/_app/sales-returns")({
   head: () => ({
@@ -559,6 +560,14 @@ function SalesReturnsPage() {
                   </TableCell>
                   <TableCell>
                     <div className="flex justify-end gap-1">
+                      {/* A wrong date can be corrected: the whole return moves (2026-11-03). */}
+                      {row.status === "completed" && submitPerm && row.return_date && (
+                        <CorrectReturnDateButton
+                          kind="customer"
+                          reference={row.return_number}
+                          date={row.return_date}
+                        />
+                      )}
                       {row.status === "received" &&
                         inspectPerm &&
                         row.received_by !== currentUser.data && (

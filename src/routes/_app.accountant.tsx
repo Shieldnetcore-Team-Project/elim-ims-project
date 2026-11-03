@@ -84,6 +84,7 @@ type SaleRow = {
   id: string;
   invoice_number: string;
   sale_date: string;
+  created_at?: string | null;
   customer_name: string | null;
   grand_total: number;
   amount_paid: number;
@@ -105,6 +106,8 @@ type SaleRow = {
 type InvoiceGroup = {
   key: string;
   date: string;
+  // When the group's latest invoice was keyed in (sorting newest first).
+  at?: string | null;
   customer: string;
   walkIn: boolean;
   ids: string[];
@@ -150,6 +153,7 @@ function groupInvoices(sales: SaleRow[]): InvoiceGroup[] {
       };
       groups.set(key, g);
     }
+    if (s.created_at && (!g.at || s.created_at > g.at)) g.at = s.created_at;
     g.ids.push(s.id);
     g.numbers.push(s.invoice_number);
     g.total += Number(s.grand_total);
@@ -175,6 +179,7 @@ type PaymentRow = {
   id: string;
   receipt_number: string;
   payment_date: string;
+  created_at?: string | null;
   amount: number;
   payment_method: string;
   remarks: string | null;
@@ -254,6 +259,9 @@ type RemittanceRow = {
 type Activity = {
   key: string;
   date: string;
+  // The exact time, where the row has one: rows are sorted by it, newest
+  // first (a day-only date counts as that day's start).
+  at?: string | null;
   kind: "Invoice" | "Payment" | "Expense" | "Payroll" | "Posting" | "Return" | "Cash remitted";
   // Whose activity it is, for the filter: a marketer, a customer or
   // distributor, the Retail Shop, or the factory's own spending.
@@ -273,6 +281,10 @@ type Activity = {
   // A party's row stands for all their activity (2026-11-02): how many
   // transactions it gathers; the rest of the row is the latest one.
   count?: number;
+  // The newest posting / sale invoice among them: their Print buttons stay on
+  // the row whatever came after (a payment, a return...) -- 2026-11-03.
+  lastPostingId?: string;
+  lastInvoice?: InvoiceGroup;
   // What the eye opens on a customer's row: every invoice they have here,
   // from their whole history (print buttons keep the latest invoice).
   viewGroup?: InvoiceGroup;
@@ -288,7 +300,13 @@ type Activity = {
 function groupByParty(list: Activity[]): Activity[] {
   const out: Activity[] = [];
   const at = new Map<string, number>();
-  for (const a of list) {
+  for (const a0 of list) {
+    // The list is newest first, so the first of each is the newest.
+    const a: Activity = {
+      ...a0,
+      lastPostingId: a0.kind === "Posting" ? a0.key.slice("post-".length) : undefined,
+      lastInvoice: a0.kind === "Invoice" && a0.group && a0.group.ids.length ? a0.group : undefined,
+    };
     const key = a.repId
       ? `rep:${a.repId}`
       : a.party_type === "customer" && a.group && !a.group.walkIn && a.party !== "—"
@@ -310,6 +328,8 @@ function groupByParty(list: Activity[]): Activity[] {
     }
     const row = out[i];
     row.count = (row.count ?? 1) + 1;
+    row.lastPostingId ??= a.lastPostingId;
+    row.lastInvoice ??= a.lastInvoice;
     if (row.viewGroup && a.group)
       row.viewGroup = { ...row.viewGroup, ids: [...row.viewGroup.ids, ...a.group.ids] };
     else if (!row.viewGroup && a.group)
@@ -400,7 +420,7 @@ function AccountantPage() {
     let q = supabase
       .from("sales")
       .select(
-        "id,invoice_number,sale_date,customer_name,grand_total,amount_paid,balance,status,is_pr,sales_rep_id,account_rep_id,sale_items(quantity,products(name,unit))",
+        "id,invoice_number,sale_date,created_at,customer_name,grand_total,amount_paid,balance,status,is_pr,sales_rep_id,account_rep_id,sale_items(quantity,products(name,unit))",
       )
       .eq("factory_id", factoryId!)
       // Admins can also read soft-deleted sales; they aren't real invoices.
@@ -449,7 +469,7 @@ function AccountantPage() {
       const { data, error } = await supabase
         .from("payments_received")
         .select(
-          "id,receipt_number,payment_date,amount,payment_method,remarks,status,account_rep_id,customers(name),sales(invoice_number,customer_name)",
+          "id,receipt_number,payment_date,created_at,amount,payment_method,remarks,status,account_rep_id,customers(name),sales(invoice_number,customer_name)",
         )
         .eq("factory_id", factoryId!)
         .order("payment_date", { ascending: false })
@@ -617,6 +637,7 @@ function AccountantPage() {
         return {
           key: `inv-${g.key}`,
           date: g.date,
+          at: g.at,
           kind: "Invoice" as const,
           reference: g.numbers.length > 1 ? `${g.numbers.length} invoices` : g.numbers[0],
           party_type: (owner?.kind === "outlet"
@@ -644,6 +665,10 @@ function AccountantPage() {
         return {
           key: `pay-${k}`,
           date: p.payment_date,
+          at: ps.reduce<string | null>(
+            (m, x) => (x.created_at && (!m || x.created_at > m) ? x.created_at : m),
+            null,
+          ),
           kind: "Payment" as const,
           party_type: (owner?.kind === "outlet"
             ? "retail"
@@ -704,9 +729,8 @@ function AccountantPage() {
         date: p.at,
         kind: "Posting" as const,
         party_type: (p.kind === "retail" ? "retail" : "marketer") as PartyType,
-        // A shop posting keeps its own row (and Print button) rather than
-        // folding into one row for the shop.
-        repId: p.kind === "retail" ? undefined : p.party_id,
+        // One row per marketer / the shop; its name opens every posting.
+        repId: p.party_id,
         reference: p.reference,
         party: p.party,
         details: p.items ?? undefined,
@@ -745,7 +769,9 @@ function AccountantPage() {
         status: "received",
       })),
     ];
-    return rows.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+    // Newest first by the actual time (2026-11-03), not the text of the date.
+    const time = (a: Activity) => new Date(a.at ?? a.date).getTime() || 0;
+    return rows.sort((a, b) => time(b) - time(a));
   }, [
     invoiceGroups,
     payments.data,
@@ -978,15 +1004,16 @@ function AccountantPage() {
                               </Button>
                             )}
                             {/* The posting on the A4 invoice, as a distributor's sale. */}
-                            {a.kind === "Posting" && (
+                            {/* Always the newest posting's, and as often as needed. */}
+                            {a.lastPostingId && (
                               <>
                                 <Button
                                   variant="ghost"
                                   size="icon"
-                                  title="Print invoice"
+                                  title="Print invoice (latest posting)"
                                   onClick={() =>
                                     printDispatchInvoice(
-                                      { id: a.key.slice("post-".length) },
+                                      { id: a.lastPostingId! },
                                       settings.data,
                                       "print",
                                     )
@@ -997,10 +1024,10 @@ function AccountantPage() {
                                 <Button
                                   variant="ghost"
                                   size="icon"
-                                  title="Download invoice"
+                                  title="Download invoice (latest posting)"
                                   onClick={() =>
                                     printDispatchInvoice(
-                                      { id: a.key.slice("post-".length) },
+                                      { id: a.lastPostingId! },
                                       settings.data,
                                       "download",
                                     )
@@ -1023,38 +1050,39 @@ function AccountantPage() {
                                     <Eye className="h-4 w-4" />
                                   </Button>
                                 )}
-                                {a.group.ids.length > 0 && (
-                                  <>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      title={
-                                        a.group.ids.length > 1
-                                          ? "Print combined invoice"
-                                          : "Print invoice"
-                                      }
-                                      onClick={() =>
-                                        printSaleInvoice(a.group!.ids, settings.data, "print")
-                                      }
-                                    >
-                                      <Printer className="h-4 w-4" />
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      title={
-                                        a.group.ids.length > 1
-                                          ? "Download combined invoice"
-                                          : "Download invoice"
-                                      }
-                                      onClick={() =>
-                                        printSaleInvoice(a.group!.ids, settings.data, "download")
-                                      }
-                                    >
-                                      <Download className="h-4 w-4" />
-                                    </Button>
-                                  </>
-                                )}
+                              </>
+                            )}
+                            {/* The newest invoice's, whatever came after it. */}
+                            {a.lastInvoice && (
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  title={
+                                    a.lastInvoice.ids.length > 1
+                                      ? "Print combined invoice"
+                                      : "Print invoice"
+                                  }
+                                  onClick={() =>
+                                    printSaleInvoice(a.lastInvoice!.ids, settings.data, "print")
+                                  }
+                                >
+                                  <Printer className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  title={
+                                    a.lastInvoice.ids.length > 1
+                                      ? "Download combined invoice"
+                                      : "Download invoice"
+                                  }
+                                  onClick={() =>
+                                    printSaleInvoice(a.lastInvoice!.ids, settings.data, "download")
+                                  }
+                                >
+                                  <Download className="h-4 w-4" />
+                                </Button>
                               </>
                             )}
                             {a.payment && (

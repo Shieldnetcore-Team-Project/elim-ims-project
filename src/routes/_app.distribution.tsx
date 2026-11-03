@@ -64,6 +64,8 @@ import { fetchMyProductMatcher } from "@/lib/product-rules";
 import { QuickAddProductDialog, ADD_NEW_ITEM } from "@/components/shared/quick-add-item";
 import { requestDelete } from "@/lib/request-delete";
 import { RequestDeleteDialog } from "@/components/shared/request-delete-dialog";
+import { CorrectReturnDateButton } from "@/components/shared/return-date";
+import { CorrectReturnDialog } from "@/components/warehouse/correct-return-dialog";
 
 // The Distribution page moved to the Accountant page (user, 2026-11-02):
 // Reps & outlets and Cash remitted are its tabs there; dispatches are
@@ -1587,6 +1589,8 @@ export function ReturnsTab({
   const [inspectTarget, setInspectTarget] = useState<ReturnRow | null>(null);
   const [cancelTarget, setCancelTarget] = useState<ReturnRow | null>(null);
   const [carryTarget, setCarryTarget] = useState<ReturnRow | null>(null);
+  // Fix a wrong figure on a completed return (2026-11-03).
+  const [correctTarget, setCorrectTarget] = useState<ReturnRow | null>(null);
   const canSubmit = perms.canSubmit("distribution");
   // "Add products": send a marketer's returned (still on the van) products
   // back out to them in a new dispatch. Marketers only, not the retail shop.
@@ -1663,6 +1667,25 @@ export function ReturnsTab({
                 </TableCell>
                 <TableCell>
                   <div className="flex justify-end gap-1">
+                    {r.status === "completed" && canSubmit && !carriedOver(r) && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title="Correct this return (wrong figure, or entered by mistake)"
+                        onClick={() => setCorrectTarget(r)}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                    )}
+                    {/* A wrong date can be corrected (2026-11-03). */}
+                    {r.status === "completed" &&
+                      (canSubmit || perms.canSubmit("sales-returns")) && (
+                        <CorrectReturnDateButton
+                          kind="rep"
+                          reference={r.return_number}
+                          date={r.return_date}
+                        />
+                      )}
                     {r.status === "completed" &&
                       canCarry &&
                       r.sales_reps?.kind !== "outlet" &&
@@ -1736,6 +1759,23 @@ export function ReturnsTab({
           />
         )}
       </Dialog>
+      {correctTarget && (
+        <CorrectReturnDialog
+          ret={{
+            id: correctTarget.id,
+            return_number: correctTarget.return_number,
+            return_date: correctTarget.return_date,
+            party: correctTarget.sales_reps?.full_name ?? "the marketer",
+            lines: (correctTarget.rep_return_items ?? []).map((i) => ({
+              product_id: i.product_id,
+              name: i.products?.name ?? "Product",
+              unit: i.products?.unit ?? "",
+              quantity: Number(i.quantity_returned),
+            })),
+          }}
+          onClose={() => setCorrectTarget(null)}
+        />
+      )}
       <Dialog open={!!carryTarget} onOpenChange={(v) => !v && setCarryTarget(null)}>
         {carryTarget && (
           <CarryOverDialog
@@ -2646,8 +2686,9 @@ export function RepActivityCard({
           .from("stock_dispatches")
           .select("id,dispatch_number,dispatch_date,created_at,status,total_value")
           .eq("sales_rep_id", repId)
-          .order("created_at", { ascending: false })
-          .limit(100),
+          // Every posting, all time, so each one's invoice can be printed
+          // (user, 2026-11-03); the other kinds show the latest 100.
+          .order("created_at", { ascending: false }),
         supabase
           .from("rep_returns")
           .select(
@@ -2723,7 +2764,9 @@ export function RepActivityCard({
           remarks: m.remarks,
         })),
       ];
-      return rows.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+      // Newest first by the actual time, not the text of the date.
+      const time = (r: RepActivity) => new Date(r.date).getTime() || 0;
+      return rows.sort((a, b) => time(b) - time(a));
     },
   });
   const rows = (activity.data ?? []).filter((r) => showValues || r.kind !== "Cash remitted");
