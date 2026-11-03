@@ -150,7 +150,9 @@ type Movement = {
 
 function RetailSummaryPage() {
   const { data: factoryId } = useFactoryId();
-  const { tab } = Route.useSearch();
+  const { tab: tabParam } = Route.useSearch();
+  // Jars live in Dispenser Reports now (2026-11-03); old links land there.
+  const tab = tabParam === "jars" ? "dispensers" : tabParam;
   const currency = useFactorySettings(factoryId).data?.currency ?? "NGN";
   const [outletId, setOutletId] = useState("");
   const [date, setDate] = useState(lagosToday());
@@ -182,7 +184,6 @@ function RetailSummaryPage() {
 
   if (!factoryId) return null;
   const isLog = tab === "log";
-  const isJars = tab === "jars";
   const isActivity = tab === "activity";
   const isDispensers = tab === "dispensers";
   const outletName = outlets.data?.find((o) => o.id === outletId)?.full_name ?? "Retail Shop";
@@ -196,22 +197,18 @@ function RetailSummaryPage() {
               ? "Dispenser reports"
               : isActivity
                 ? "All activity"
-                : isJars
-                  ? "Dispenser jars"
-                  : isLog
-                    ? "Postings from the Warehouse"
-                    : "Transaction Summary"}
+                : isLog
+                  ? "Postings from the Warehouse"
+                  : "Transaction Summary"}
           </h1>
           <p className="text-sm text-muted-foreground">
             {isDispensers
-              ? "Dispenser sales by jar choice, water and permanent jug revenue, empties returned, sent to the Warehouse and still owed, and each day's cash-up."
+              ? "The shop's jars on the day chosen, then dispenser sales by jar choice, water and permanent jug revenue, empties returned, sent to the Warehouse and still owed, and each day's cash-up."
               : isActivity
                 ? "Everything at the shop: postings from the Warehouse, sales, customer returns, payments, returns to the Warehouse and cash handed in."
-                : isJars
-                  ? "Filled and empty jars at the shop, empties customers still owe, and empties sent to the Warehouse."
-                  : isLog
-                    ? "Products the Warehouse posted to the shop: who posted them, the day and the time."
-                    : "The shop's day: stock in and out per product, sales, and money by payment method."}
+                : isLog
+                  ? "Products the Warehouse posted to the shop: who posted them, the day and the time."
+                  : "The shop's day: stock in and out per product, sales, and money by payment method."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -229,15 +226,14 @@ function RetailSummaryPage() {
               </SelectContent>
             </Select>
           )}
-          {!isDispensers && (
-            <Input
-              type="date"
-              className="w-40"
-              value={date}
-              max={lagosToday()}
-              onChange={(e) => e.target.value && setDate(e.target.value)}
-            />
-          )}
+          {/* The day for the page -- on Dispenser Reports, the Jars section's day. */}
+          <Input
+            type="date"
+            className="w-40"
+            value={date}
+            max={lagosToday()}
+            onChange={(e) => e.target.value && setDate(e.target.value)}
+          />
         </div>
       </div>
 
@@ -248,11 +244,12 @@ function RetailSummaryPage() {
           </CardContent>
         </Card>
       ) : !outletId ? null : isDispensers ? (
-        <DispenserReports factoryId={factoryId} currency={currency} outletId={outletId} />
+        <div className="space-y-6">
+          <RetailJars outletId={outletId} date={date} />
+          <DispenserReports factoryId={factoryId} currency={currency} outletId={outletId} />
+        </div>
       ) : isActivity ? (
         <RetailActivity outletId={outletId} date={date} />
-      ) : isJars ? (
-        <RetailJars outletId={outletId} date={date} />
       ) : isLog ? (
         <PostingLog outletId={outletId} outletName={outletName} date={date} />
       ) : (

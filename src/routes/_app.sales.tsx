@@ -145,6 +145,9 @@ type CartItem = {
   key?: string;
 };
 const lineKey = (c: { key?: string; product_id: string }) => c.key ?? c.product_id;
+// "Dispenser Empty" and the like: an empty jug with no water.
+const isEmptyDispenser = (name: string) =>
+  /\bempty\b/i.test(name) && /dispenser|jug|jar/i.test(name);
 type JarMode = "swap" | "return_later" | "permanent";
 const JAR_MODE_LABEL: Record<JarMode, string> = {
   swap: "Swap — empty handed in",
@@ -1844,7 +1847,10 @@ export function PosDialog({
   // (20261101140000); the shop sells everything it holds.
   const mine = useMyProductMatcher();
   const visibleProducts = useMemo(() => {
-    const all = (products.data ?? []).filter((p) => retailMode || mine(p.name));
+    const all = (products.data ?? []).filter((p) =>
+      // The shop doesn't sell empty dispenser jugs (user, 2026-11-03).
+      retailMode ? !isEmptyDispenser(p.name) : mine(p.name),
+    );
     return categoryFilter === "all" ? all : all.filter((p) => p.category_id === categoryFilter);
   }, [products.data, categoryFilter, retailMode, mine]);
 

@@ -250,7 +250,7 @@ function AdminDashboard({ factoryId }: { factoryId: string }) {
         (r) => r.outstanding,
       ),
   });
-  // Same count as the Approval Center / notification bell: what is waiting on
+  // Same count as the notification bell: what is waiting on
   // this user, excluding their own submissions.
   const pendingApprovals = { data: usePendingAttention().total };
 
@@ -416,7 +416,7 @@ function AdminDashboard({ factoryId }: { factoryId: string }) {
           label="Pending Approvals"
           value={String(pendingApprovals.data ?? 0)}
           tone={(pendingApprovals.data ?? 0) > 0 ? "warning" : "success"}
-          hint="Waiting on you — see Approval Center"
+          hint="Waiting on you — see the bell"
         />
         <KPI
           icon={HandCoins}

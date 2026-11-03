@@ -53,7 +53,6 @@ import {
   Search,
   Wallet,
   Landmark,
-  CheckSquare,
 } from "lucide-react";
 
 export const Route = createFileRoute("/_app/accountant")({
@@ -949,7 +948,6 @@ function AccountantPage() {
     { label: "Debts & receivables", to: "/cash-ledger/debts", icon: Wallet, module: "debts" },
     { label: "Record expense", to: "/expenses", icon: Receipt, module: "expenses" },
     { label: "Payroll", to: "/payroll", icon: BadgeDollarSign, module: "payroll" },
-    { label: "Approvals", to: "/approvals", icon: CheckSquare, module: "approvals" },
     { label: "Finance overview", to: "/finance", icon: Landmark, module: "finance" },
     { label: "Financial reports", to: "/reports", icon: FileBarChart, module: "reports" },
   ];

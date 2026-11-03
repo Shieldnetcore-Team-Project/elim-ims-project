@@ -9,7 +9,6 @@ import {
   UserCog,
   FileBarChart,
   Calculator,
-  CheckSquare,
   HandCoins,
   FileStack,
   Landmark,
@@ -77,10 +76,7 @@ export type NavItem = { title: string; url: string; icon: typeof LayoutDashboard
 export const nav: { section: string; items: NavItem[] }[] = [
   {
     section: "Overview",
-    items: [
-      { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard, module: "dashboard" },
-      { title: "Approval Center", url: "/approvals", icon: CheckSquare, module: "approvals" },
-    ],
+    items: [{ title: "Dashboard", url: "/dashboard", icon: LayoutDashboard, module: "dashboard" }],
   },
   {
     section: "Operations",
@@ -108,7 +104,6 @@ export const nav: { section: string; items: NavItem[] }[] = [
             url: "/retail-summary",
             search: { tab: "log" },
           },
-          { label: "Jars", module: "sales", url: "/retail-summary", search: { tab: "jars" } },
           // Dispenser sales, empties and cash-ups over a period (2026-11-02).
           {
             label: "Dispenser Reports",

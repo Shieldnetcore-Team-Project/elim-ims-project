@@ -3,8 +3,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { usePermissions, useIsSuperAdmin } from "@/lib/permissions";
 import { useRealtimeInvalidate } from "@/lib/realtime";
 
-// Mirrors the queue definitions on the Approval Center page
-// (src/routes/_app.approvals.tsx) as lightweight counts, so the same "what's
+// The approval queues (the Approval Center page itself was removed on
+// 2026-11-03) as lightweight counts, so the same "what's
 // waiting on YOU, excluding your own submissions" logic can also drive the
 // sidebar badges and the notification bell without duplicating 15 full-row
 // queries. Each entry's `to` matches a real sidebar URL (src/lib/nav.ts) so
@@ -274,8 +274,8 @@ export function usePendingAttention() {
       to: "/finished-goods",
       query: stockFinished,
     },
-    // Role changes are reviewed in the Approval Center.
-    { key: "role-grants", label: "Role changes pending", to: "/approvals", query: roleGrants },
+    // Role changes are reviewed on Users (the Approval Center was removed, 2026-11-03).
+    { key: "role-grants", label: "Role changes pending", to: "/users", query: roleGrants },
     {
       key: "goods-receipts",
       label: "Goods receipts awaiting confirmation",
