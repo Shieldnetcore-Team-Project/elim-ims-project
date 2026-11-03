@@ -290,7 +290,8 @@ export const nav: { section: string; items: NavItem[] }[] = [
             label: "Retail cash-up",
             module: "finance",
             url: "/accountant",
-            search: { tab: "retail-cashup" },
+            // In the Retail daily tab since 2026-11-03.
+            search: { tab: "retail-daily" },
           },
           {
             label: "Cash remitted",

@@ -226,7 +226,7 @@ export function PostingsTab({ factoryId, currency }: { factoryId: string; curren
               Goods posted to marketers and distributors. Confirm each one and print its receipt,
               then enter the payment against it. Chairman's gifts are reviewed for the record only.
               Postings to the Company Retail Shop are on{" "}
-              <Link to="/accountant" search={{ tab: "retail-cashup" }} className="underline">
+              <Link to="/accountant" search={{ tab: "retail-daily" }} className="underline">
                 Retail cash-up
               </Link>
               .

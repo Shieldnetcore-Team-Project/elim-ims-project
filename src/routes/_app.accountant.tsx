@@ -24,6 +24,7 @@ import { PostingsTab } from "@/components/accounting/postings-tab";
 import { DistributorsTab } from "@/components/accounting/distributors-tab";
 import { RetailCashUpTab } from "@/components/retail/outlet-day-close";
 import { DispenserReports } from "@/components/retail/dispenser-reports";
+import { RetailDailyBook } from "@/components/accounting/retail-daily-book";
 import { CustomerActivityDialog } from "@/components/accounting/customer-activity-dialog";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -366,9 +367,15 @@ function AccountantPage() {
   const [month, setMonth] = useState(() => startOfToday().slice(0, 7));
   // Invoices tab calendar: empty = the latest 200; a day / range loads every
   // invoice dated then, so earlier invoices can be printed again (2026-11-03).
+  // All activity calendar (2026-11-03): empty = the latest of everything; a
+  // day / range = everything dated then (datedActivity below).
+  const [actFrom, setActFrom] = useState("");
+  const [actTo, setActTo] = useState("");
   const [invFrom, setInvFrom] = useState("");
   const [invTo, setInvTo] = useState("");
-  const { tab = "activity" } = Route.useSearch();
+  const { tab: tabParam = "activity" } = Route.useSearch();
+  // Retail cash-up lives in Retail daily now (2026-11-03); old links land there.
+  const tab = tabParam === "retail-cashup" ? "retail-daily" : tabParam;
   const navigate = useNavigate({ from: Route.fullPath });
   const setTab = (v: string) =>
     navigate({
@@ -574,6 +581,113 @@ function AccountantPage() {
     },
   });
 
+  const actRange = useMemo(
+    () => (actFrom ? { from: actFrom, to: actTo && actTo >= actFrom ? actTo : actFrom } : null),
+    [actFrom, actTo],
+  );
+  // Everything on the feed for the picked days, all of it (the live queries
+  // above keep only the latest). Only the All activity list reads this.
+  const datedActivity = useQuery({
+    queryKey: ["acct-activity-dated", factoryId, actRange?.from, actRange?.to],
+    enabled: !!factoryId && !!actRange,
+    queryFn: async () => {
+      const r = actRange!;
+      // Timestamps by Lagos day.
+      const dayStart = `${r.from}T00:00:00+01:00`;
+      const dayEnd = `${r.to}T23:59:59.999+01:00`;
+      const none = { data: [] as unknown[], error: null };
+      const [salesRows, pays, exps, prl, posts, rets, rems] = await Promise.all([
+        loadSales(r),
+        supabase
+          .from("payments_received")
+          .select(
+            "id,receipt_number,payment_date,created_at,amount,payment_method,remarks,status,account_rep_id,customers(name),sales(invoice_number,customer_name)",
+          )
+          .eq("factory_id", factoryId!)
+          .gte("payment_date", r.from)
+          .lte("payment_date", r.to)
+          .order("payment_date", { ascending: false }),
+        can("expenses")
+          ? supabase
+              .from("expenses")
+              .select(
+                "id,expense_date,description,amount,status,approval_status,expense_categories(name)",
+              )
+              .eq("factory_id", factoryId!)
+              .gte("expense_date", r.from)
+              .lte("expense_date", r.to)
+              .order("expense_date", { ascending: false })
+          : Promise.resolve(none),
+        can("payroll")
+          ? supabase
+              .from("payroll")
+              .select(
+                "id,submitted_at,period_month,period_year,net_salary,status,employees(full_name)",
+              )
+              .eq("factory_id", factoryId!)
+              .gte("submitted_at", dayStart)
+              .lte("submitted_at", dayEnd)
+              .order("submitted_at", { ascending: false })
+          : Promise.resolve(none),
+        canRepAccounts
+          ? supabase.rpc(
+              "accounting_postings_between" as never,
+              { p_factory: factoryId, p_from: r.from, p_to: r.to } as never,
+            )
+          : Promise.resolve(none),
+        canRepAccounts
+          ? supabase
+              .from("rep_returns")
+              .select(
+                "id,return_number,return_date,received_at,status,sales_rep_id,sales_reps(full_name,kind),rep_return_items(quantity_returned,unit_price)",
+              )
+              .eq("factory_id", factoryId!)
+              .neq("status", "cancelled")
+              .gte("return_date", r.from)
+              .lte("return_date", r.to)
+              .order("received_at", { ascending: false })
+          : Promise.resolve(none),
+        canRepAccounts
+          ? supabase
+              .from("rep_remittances")
+              .select(
+                "id,remittance_number,remittance_date,created_at,amount,payment_method,sales_rep_id,sales_reps(full_name,kind)",
+              )
+              .eq("factory_id", factoryId!)
+              .gte("remittance_date", r.from)
+              .lte("remittance_date", r.to)
+              .order("created_at", { ascending: false })
+          : Promise.resolve(none),
+      ]);
+      for (const x of [pays, exps, prl, posts, rets, rems]) if (x.error) throw x.error;
+      const retRows = (rets.data ?? []) as unknown as ReturnRow[];
+      // Product names through rep_posting_lines(): accountants can't read
+      // products directly.
+      const retLines = await Promise.all(
+        retRows.map((x) =>
+          supabase
+            .rpc("rep_posting_lines" as never, { p_kind: "return", p_id: x.id } as never)
+            .then(({ data: l }) =>
+              ((l ?? []) as unknown as { product_name: string; unit: string; quantity: number }[])
+                .map((y) => `${y.product_name} × ${Number(y.quantity).toLocaleString()} ${y.unit}`)
+                .join(" · "),
+            ),
+        ),
+      );
+      return {
+        invoiceGroups: groupInvoices(salesRows),
+        payments: (pays.data ?? []) as unknown as PaymentRow[],
+        expenses: (exps.data ?? []) as unknown as ExpenseRow[],
+        payroll: (prl.data ?? []) as unknown as PayrollRow[],
+        postings: ((posts.data ?? []) as unknown as PostingRow[]).filter(
+          (p) => p.posting_kind === "dispatch",
+        ),
+        returns: retRows.map((x, i) => ({ ...x, items: retLines[i] })),
+        remittances: (rems.data ?? []) as unknown as RemittanceRow[],
+      };
+    },
+  });
+
   const today = startOfToday();
   const monthStart = startOfMonth();
   const livePayments = (payments.data ?? []).filter(
@@ -597,6 +711,26 @@ function AccountantPage() {
   );
 
   const activity = useMemo<Activity[]>(() => {
+    // A picked day / range reads every record dated then; otherwise the latest.
+    const src = actRange
+      ? (datedActivity.data ?? {
+          invoiceGroups: [],
+          payments: [],
+          expenses: [],
+          payroll: [],
+          postings: [],
+          returns: [],
+          remittances: [],
+        })
+      : {
+          invoiceGroups,
+          payments: payments.data ?? [],
+          expenses: expenses.data ?? [],
+          payroll: payroll.data ?? [],
+          postings: postings.data ?? [],
+          returns: returns.data ?? [],
+          remittances: remittances.data ?? [],
+        };
     // One row per customer per day: their payments that day join their
     // invoice row (by the invoice paid, else by name), so the customer shows
     // once and the eye opens everything. Payments with no invoice that day
@@ -606,13 +740,13 @@ function AccountantPage() {
       (p.customers?.name ?? p.sales?.customer_name ?? "").trim().toLowerCase();
     const byNumber = new Map<string, InvoiceGroup>();
     const byName = new Map<string, InvoiceGroup>();
-    for (const g of invoiceGroups) {
+    for (const g of src.invoiceGroups) {
       for (const n of g.numbers) byNumber.set(n, g);
       if (!g.walkIn) byName.set(`${day(g.date)}|${g.customer.toLowerCase()}`, g);
     }
     const paidTo = new Map<string, PaymentRow[]>();
     const loose = new Map<string, PaymentRow[]>();
-    for (const p of payments.data ?? []) {
+    for (const p of src.payments) {
       const live = !["rejected", "reversed", "cancelled"].includes(p.status);
       const g =
         (live && p.sales?.invoice_number && byNumber.get(p.sales.invoice_number)) ||
@@ -627,7 +761,7 @@ function AccountantPage() {
     }
     const sum = (ps: PaymentRow[]) => ps.reduce((t, p) => t + Number(p.amount), 0);
     const rows: Activity[] = [
-      ...invoiceGroups.map((g) => {
+      ...src.invoiceGroups.map((g) => {
         const ps = paidTo.get(g.key) ?? [];
         // A sale on a marketer's account (their van sale, or their customer's)
         // is the marketer's activity: it goes on the marketer's row (user,
@@ -702,7 +836,7 @@ function AccountantPage() {
             : undefined,
         };
       }),
-      ...(expenses.data ?? []).map((e) => ({
+      ...src.expenses.map((e) => ({
         key: `exp-${e.id}`,
         date: e.expense_date,
         kind: "Expense" as const,
@@ -713,7 +847,7 @@ function AccountantPage() {
         direction: "out" as const,
         status: e.status ?? e.approval_status ?? "—",
       })),
-      ...(payroll.data ?? []).map((p) => ({
+      ...src.payroll.map((p) => ({
         key: `pr-${p.id}`,
         date: p.submitted_at,
         kind: "Payroll" as const,
@@ -724,7 +858,7 @@ function AccountantPage() {
         direction: "out" as const,
         status: p.status,
       })),
-      ...(postings.data ?? []).map((p) => ({
+      ...src.postings.map((p) => ({
         key: `post-${p.posting_id}`,
         date: p.at,
         kind: "Posting" as const,
@@ -738,7 +872,7 @@ function AccountantPage() {
         direction: "in" as const,
         status: p.status,
       })),
-      ...(returns.data ?? []).map((r) => ({
+      ...src.returns.map((r) => ({
         key: `ret-${r.id}`,
         date: r.received_at ?? r.return_date,
         kind: "Return" as const,
@@ -755,7 +889,7 @@ function AccountantPage() {
         direction: "out" as const,
         status: r.status,
       })),
-      ...(remittances.data ?? []).map((m) => ({
+      ...src.remittances.map((m) => ({
         key: `rem-${m.id}`,
         date: m.created_at ?? m.remittance_date,
         kind: "Cash remitted" as const,
@@ -773,6 +907,8 @@ function AccountantPage() {
     const time = (a: Activity) => new Date(a.at ?? a.date).getTime() || 0;
     return rows.sort((a, b) => time(b) - time(a));
   }, [
+    actRange,
+    datedActivity.data,
     invoiceGroups,
     payments.data,
     expenses.data,
@@ -868,7 +1004,7 @@ function AccountantPage() {
           <TabsList className="flex-wrap">
             <TabsTrigger value="activity">All activity</TabsTrigger>
             <TabsTrigger value="postings">Postings to assess</TabsTrigger>
-            <TabsTrigger value="retail-cashup">Retail cash-up</TabsTrigger>
+            <TabsTrigger value="retail-daily">Retail daily</TabsTrigger>
             <TabsTrigger value="dispensers">Dispenser sales</TabsTrigger>
             <TabsTrigger value="invoices">Invoices</TabsTrigger>
             <TabsTrigger value="payments">Payments received</TabsTrigger>
@@ -896,7 +1032,52 @@ function AccountantPage() {
         <TabsContent value="activity">
           <Card className="rounded-2xl">
             <CardHeader className="space-y-3">
-              <CardTitle>All transactions</CardTitle>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <CardTitle>All transactions</CardTitle>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Input
+                    type="date"
+                    className="w-40"
+                    title="From"
+                    value={actFrom}
+                    max={startOfToday()}
+                    onChange={(e) => setActFrom(e.target.value)}
+                  />
+                  <span className="text-sm text-muted-foreground">to</span>
+                  <Input
+                    type="date"
+                    className="w-40"
+                    title="To (leave empty for one day)"
+                    value={actTo}
+                    min={actFrom || undefined}
+                    max={startOfToday()}
+                    onChange={(e) => setActTo(e.target.value)}
+                  />
+                  {actFrom ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setActFrom("");
+                        setActTo("");
+                      }}
+                    >
+                      Latest
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+              {actRange && (
+                <p className="text-xs text-muted-foreground">
+                  {datedActivity.isLoading
+                    ? "Loading everything on these dates…"
+                    : datedActivity.isError
+                      ? `Couldn't load these dates: ${(datedActivity.error as Error).message}`
+                      : actRange.from === actRange.to
+                        ? `Everything on ${new Date(`${actRange.from}T00:00:00`).toLocaleDateString()}.`
+                        : `Everything from ${new Date(`${actRange.from}T00:00:00`).toLocaleDateString()} to ${new Date(`${actRange.to}T00:00:00`).toLocaleDateString()}.`}
+                </p>
+              )}
               <div className="flex flex-wrap gap-1">
                 {PARTY_FILTERS.map((p) => (
                   <Button
@@ -1148,8 +1329,11 @@ function AccountantPage() {
           </TabsContent>
         )}
 
-        <TabsContent value="retail-cashup">
+        {/* The shop in one place (2026-11-03): its cash-up, then day by day what was
+            posted, sent back and sold, with invoices. */}
+        <TabsContent value="retail-daily" className="space-y-4">
           <RetailCashUpTab factoryId={factoryId} currency={currency} />
+          <RetailDailyBook factoryId={factoryId} currency={currency} />
         </TabsContent>
 
         <TabsContent value="dispensers">
