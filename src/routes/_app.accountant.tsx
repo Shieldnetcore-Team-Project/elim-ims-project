@@ -54,6 +54,8 @@ import {
   Wallet,
   Landmark,
 } from "lucide-react";
+import { PostingDiscountButton } from "@/components/accounting/posting-discount-dialog";
+import { useCanDiscountPostings } from "@/lib/posting-discount";
 
 export const Route = createFileRoute("/_app/accountant")({
   head: () => ({
@@ -373,6 +375,8 @@ function AccountantPage() {
   const [invFrom, setInvFrom] = useState("");
   const [invTo, setInvTo] = useState("");
   const { tab: tabParam = "activity" } = Route.useSearch();
+  // Accounts' discount per pack on the shop's postings (2026-11-03).
+  const canDiscount = useCanDiscountPostings();
   // Retail cash-up lives in Retail daily now (2026-11-03); old links land there.
   const tab = tabParam === "retail-cashup" ? "retail-daily" : tabParam;
   const navigate = useNavigate({ from: Route.fullPath });
@@ -1184,6 +1188,13 @@ function AccountantPage() {
                             )}
                             {/* The posting on the A4 invoice, as a distributor's sale. */}
                             {/* Always the newest posting's, and as often as needed. */}
+                            {a.lastPostingId && a.party_type === "retail" && canDiscount && (
+                              <PostingDiscountButton
+                                dispatchIds={[a.lastPostingId]}
+                                title={`${a.party} (latest posting)`}
+                                size="icon"
+                              />
+                            )}
                             {a.lastPostingId && (
                               <>
                                 <Button

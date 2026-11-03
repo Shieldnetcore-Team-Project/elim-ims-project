@@ -27,6 +27,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { PostingDiscountButton } from "@/components/accounting/posting-discount-dialog";
+import { useCanDiscountPostings } from "@/lib/posting-discount";
 
 // Accountant > Retail daily (user, 2026-11-03): the Retail Shop day by day --
 // everything the Warehouse posted to it (dispensers, bottles, sachets), what
@@ -78,6 +80,7 @@ const n = (v: unknown) => Number(v ?? 0);
 export function RetailDailyBook({ factoryId, currency }: { factoryId: string; currency?: string }) {
   const settings = useFactorySettings(factoryId).data;
   const showValues = usePermissions().canSeeMoney;
+  const canDiscount = useCanDiscountPostings();
   const [outletId, setOutletId] = useState("");
   // One day at a time, today first; the calendar picks another (2026-11-03).
   const [day, setDay] = useState(lagosToday());
@@ -249,6 +252,12 @@ export function RetailDailyBook({ factoryId, currency }: { factoryId: string; cu
                 >
                   <Printer className="h-4 w-4" /> Print posting invoice
                 </Button>
+                {canDiscount && (
+                  <PostingDiscountButton
+                    dispatchIds={d.postingIds}
+                    title={`${shopName}, ${fmtDay(d.day)}`}
+                  />
+                )}
                 <Button
                   size="sm"
                   variant="outline"

@@ -71,6 +71,8 @@ import { requestDelete } from "@/lib/request-delete";
 import { RequestDeleteDialog } from "@/components/shared/request-delete-dialog";
 import { CorrectReturnDateButton } from "@/components/shared/return-date";
 import { CorrectReturnDialog } from "@/components/warehouse/correct-return-dialog";
+import { PostingDiscountButton } from "@/components/accounting/posting-discount-dialog";
+import { useCanDiscountPostings } from "@/lib/posting-discount";
 
 // The Distribution page moved to the Accountant page (user, 2026-11-02):
 // Reps & outlets and Cash remitted are its tabs there; dispatches are
@@ -2804,13 +2806,17 @@ export function RepActivityCard({
   repId,
   repName,
   showValues,
+  allowDiscount = false,
 }: {
   factoryId: string;
   repId: string;
   repName: string;
   showValues: boolean;
+  // Accounts' discount per pack on the day's postings (the shop, 2026-11-03).
+  allowDiscount?: boolean;
 }) {
   const settings = useFactorySettings(factoryId);
+  const canDiscount = useCanDiscountPostings() && allowDiscount;
   // Print a voucher for one transaction, to hand over there and then: the
   // invoice for a sale, a receipt for cash the marketer remitted.
   const printVoucher = (r: RepActivity) => {
@@ -3141,6 +3147,15 @@ export function RepActivityCard({
                           <Printer className="h-4 w-4" /> Print
                         </Button>
                       )}
+                      {canDiscount && !!r.dayPostings?.length && (
+                        <PostingDiscountButton
+                          dispatchIds={r.dayPostings
+                            .filter((p) => p.status !== "reversed")
+                            .map((p) => p.id)}
+                          title={`${repName}, ${r.day ?? ""}`}
+                          size="icon"
+                        />
+                      )}
                     </TableCell>
                   )}
                 </TableRow>
@@ -3246,6 +3261,7 @@ export function RepDetailsDialog({ factoryId, rep }: { factoryId: string; rep: R
           repId={rep.id}
           repName={rep.full_name}
           showValues={canAccount}
+          allowDiscount={rep.kind === "outlet"}
         />
         {canAccount ? (
           <RepAccountView
