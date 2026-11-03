@@ -2312,7 +2312,10 @@ export function PosDialog({
                         value={c.unit_price}
                         onChange={(v) => updatePrice(lineKey(c), v)}
                         className="h-8"
-                        disabled={c.jar_mode === "permanent"}
+                        // At the shop the price is Costing's, never typed over
+                        // (2026-11-03); price changes go through Accounts'
+                        // discount / surcharge on the sale.
+                        disabled={c.jar_mode === "permanent" || retailMode}
                       />
                       {c.jar_mode === "permanent" && jugOf(c.product_id)?.jar_price != null && (
                         <div className="mt-1 text-xs text-muted-foreground">

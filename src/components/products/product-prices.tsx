@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pencil, Plus, Save, Search, Tag, Trash2 } from "lucide-react";
+import { AlertTriangle, Pencil, Plus, Save, Search, Tag, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useIsAdmin } from "@/lib/permissions";
@@ -19,6 +19,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { MoneyInput } from "@/components/ui/money-input";
 import {
   Table,
@@ -51,6 +53,15 @@ export function ProductPricesCard({ factoryId }: { factoryId: string }) {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<PriceRow | null>(null);
   const [deleting, setDeleting] = useState<PriceRow | null>(null);
+  // Every price change is confirmed first (user, 2026-11-03: Dispenser Water
+  // was priced wrongly for a while and every posting kept the wrong price).
+  const [confirming, setConfirming] = useState(false);
+  // "The old price was a mistake": also correct postings and returns made at
+  // it since this day (reprice_posted_lines, 20261103190000).
+  const [fixOld, setFixOld] = useState(false);
+  const [fixFrom, setFixFrom] = useState(() =>
+    new Date().toLocaleDateString("en-CA", { timeZone: "Africa/Lagos" }),
+  );
 
   const products = useQuery({
     queryKey: ["product-prices", factoryId],
@@ -109,6 +120,21 @@ export function ProductPricesCard({ factoryId }: { factoryId: string }) {
     (p) => drafts[p.id] !== undefined && drafts[p.id] !== Number(p.unit_price),
   );
 
+  // What looks wrong about a new price: a big jump, or the same price as
+  // another product (e.g. Dispenser Water typed at Dispenser Empty's price).
+  const warningsFor = (p: PriceRow) => {
+    const old = Number(p.unit_price);
+    const next = drafts[p.id];
+    const out: string[] = [];
+    if (old > 0 && Math.abs(next - old) / old > 0.5)
+      out.push(`${next > old ? "up" : "down"} ${Math.round((Math.abs(next - old) / old) * 100)}%`);
+    const same = (products.data ?? [])
+      .filter((o) => o.id !== p.id && priceOf(o) === next)
+      .map((o) => o.name);
+    if (same.length) out.push(`same price as ${same.join(", ")}`);
+    return out;
+  };
+
   const invalidate = () => {
     for (const key of [
       "product-prices",
@@ -147,17 +173,40 @@ export function ProductPricesCard({ factoryId }: { factoryId: string }) {
 
   const save = useMutation({
     mutationFn: async () => {
-      if (changed.length === 0) return 0;
+      if (changed.length === 0) return { n: 0, fixed: 0 };
       const { data, error } = await supabase.rpc(
         "set_product_prices" as never,
         { p_prices: changed.map((p) => ({ id: p.id, unit_price: drafts[p.id] })) } as never,
       );
       if (error) throw error;
-      return (data as unknown as { changed?: number })?.changed ?? changed.length;
+      const n = (data as unknown as { changed?: number })?.changed ?? changed.length;
+      // The old price was a mistake: postings and returns made at it follow.
+      let fixed = 0;
+      if (fixOld)
+        for (const p of changed) {
+          const { data: lines, error: e2 } = await supabase.rpc(
+            "reprice_posted_lines" as never,
+            {
+              p_product: p.id,
+              p_reason: `Price corrected on Costing: ${Number(p.unit_price)} -> ${drafts[p.id]}`,
+              p_dry_run: false,
+              p_from: fixFrom,
+              p_old_price: Number(p.unit_price),
+            } as never,
+          );
+          if (e2) throw e2;
+          fixed += ((lines ?? []) as unknown[]).length;
+        }
+      return { n, fixed };
     },
-    onSuccess: (n) => {
-      toast.success(n === 1 ? "1 price saved" : `${n} prices saved`);
+    onSuccess: ({ n, fixed }) => {
+      toast.success(
+        (n === 1 ? "1 price saved" : `${n} prices saved`) +
+          (fixOld ? ` — ${fixed} posting / return line(s) corrected` : ""),
+      );
       setDrafts({});
+      setConfirming(false);
+      setFixOld(false);
       invalidate();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -165,6 +214,78 @@ export function ProductPricesCard({ factoryId }: { factoryId: string }) {
 
   return (
     <Card className="rounded-2xl">
+      <AlertDialog open={confirming} onOpenChange={(o) => !save.isPending && setConfirming(o)}>
+        <AlertDialogContent className="max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Save {changed.length === 1 ? "this price" : "these prices"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              New postings, sales and returns use the new price from now on.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-2 text-sm">
+            {changed.map((p) => {
+              const w = warningsFor(p);
+              return (
+                <div key={p.id} className="rounded-md border p-2">
+                  <div className="flex justify-between gap-2">
+                    <span className="font-medium">{p.name}</span>
+                    <span>
+                      {money(Number(p.unit_price))} → <b>{money(drafts[p.id])}</b>
+                    </span>
+                  </div>
+                  {w.length > 0 && (
+                    <div className="mt-1 flex items-center gap-1 text-xs text-warning">
+                      <AlertTriangle className="h-3.5 w-3.5" /> Check: {w.join("; ")}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            <div className="space-y-2 rounded-md border p-2">
+              <div className="flex items-start gap-2">
+                <Checkbox
+                  id="fix-old-price"
+                  checked={fixOld}
+                  onCheckedChange={(v) => setFixOld(v === true)}
+                />
+                <Label htmlFor="fix-old-price" className="text-sm font-normal leading-snug">
+                  The old price was a mistake: also correct postings and returns made at the old
+                  price
+                </Label>
+              </div>
+              {fixOld && (
+                <div className="flex items-center gap-2 pl-6 text-xs">
+                  since
+                  <Input
+                    type="date"
+                    className="h-8 w-40"
+                    value={fixFrom}
+                    max={new Date().toLocaleDateString("en-CA", { timeZone: "Africa/Lagos" })}
+                    onChange={(e) => e.target.value && setFixFrom(e.target.value)}
+                  />
+                  <span className="text-muted-foreground">
+                    (marketers&apos; and the shop&apos;s accounts follow)
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={save.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={save.isPending}
+              onClick={(e) => {
+                e.preventDefault();
+                save.mutate();
+              }}
+            >
+              {save.isPending ? "Saving…" : "Save prices"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 space-y-0">
         <div>
           <CardTitle className="flex items-center gap-2">
@@ -192,7 +313,7 @@ export function ProductPricesCard({ factoryId }: { factoryId: string }) {
             <Button
               className="gap-2"
               disabled={changed.length === 0 || save.isPending}
-              onClick={() => save.mutate()}
+              onClick={() => setConfirming(true)}
             >
               <Save className="h-4 w-4" /> {save.isPending ? "Saving…" : "Save changes"}
             </Button>

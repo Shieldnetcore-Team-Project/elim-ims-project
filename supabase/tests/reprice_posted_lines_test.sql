@@ -56,3 +56,28 @@ BEGIN
   SELECT count(*) INTO n FROM public.reprice_posted_lines(p, NULL, true);
   PERFORM pg_temp.check(n = 0, 'nothing left to fix');
 END $$;
+
+-- @@ Test 2: a mistake fixed on Costing corrects only lines at the wrong price, since the day chosen (20261103190000)
+DO $$
+DECLARE n int; f uuid := 'f4100000-0000-0000-0000-000000000001'; m uuid := 'c4100000-0000-0000-0000-000000000001';
+  p uuid := 'b4100000-0000-0000-0000-000000000001';
+BEGIN
+  -- A genuine price of 1,500 for a while (one posting), then a mistake: 3,000 (two postings).
+  UPDATE products SET unit_price = 1500 WHERE id = p;
+  PERFORM public.create_stock_dispatch(jsonb_build_object('factory_id', f, 'sales_rep_id', m,
+    'items', jsonb_build_array(jsonb_build_object('product_id', p, 'quantity', 1))));
+  UPDATE products SET unit_price = 3000 WHERE id = p;
+  PERFORM public.create_stock_dispatch(jsonb_build_object('factory_id', f, 'sales_rep_id', m,
+    'items', jsonb_build_array(jsonb_build_object('product_id', p, 'quantity', 2))));
+  -- Put right on Costing: 1,500; correct what went out at 3,000 since today.
+  UPDATE products SET unit_price = 1500 WHERE id = p;
+  SELECT count(*) INTO n FROM public.reprice_posted_lines(p, NULL, true, public._lagos_today(), 3000);
+  PERFORM pg_temp.check(n = 1, 'only the posting at 3,000: ' || n);
+  PERFORM public.reprice_posted_lines(p, 'Price corrected on Costing', false, public._lagos_today(), 3000);
+  PERFORM pg_temp.check(NOT EXISTS (SELECT 1 FROM stock_dispatch_items WHERE product_id = p AND unit_price = 3000),
+                        'nothing left at 3,000');
+  PERFORM pg_temp.check((SELECT count(*) FROM stock_dispatch_items WHERE product_id = p AND unit_price = 1200) = 2,
+                        'the earlier 1,200 postings untouched (old price filter)');
+  PERFORM pg_temp.check((SELECT count(*) FROM stock_dispatch_items WHERE product_id = p AND unit_price = 1500) = 2,
+                        'the genuine 1,500 posting and the corrected one');
+END $$;

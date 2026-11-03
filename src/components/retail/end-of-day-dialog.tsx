@@ -160,7 +160,7 @@ export function EndOfDayDialog({
   return (
     <DialogContent className="max-h-[92vh] max-w-3xl overflow-y-auto">
       <DialogHeader>
-        <DialogTitle>End of day — {outletName}</DialogTitle>
+        <DialogTitle>Post Balance — {outletName}</DialogTitle>
         <DialogDescription>
           Unsold products go back to the Warehouse, damaged ones come off the shop, and the
           day&apos;s money goes to Accounts.

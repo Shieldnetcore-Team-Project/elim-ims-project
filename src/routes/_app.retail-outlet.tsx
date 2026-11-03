@@ -31,7 +31,17 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Boxes, MoonStar, PackageOpen, ShoppingCart, Store, TrendingUp, Undo2 } from "lucide-react";
+import {
+  Banknote,
+  Boxes,
+  CreditCard,
+  MoonStar,
+  PackageOpen,
+  ShoppingCart,
+  Store,
+  TrendingUp,
+  Undo2,
+} from "lucide-react";
 import { EndOfDayDialog } from "@/components/retail/end-of-day-dialog";
 import { ReportActions } from "@/components/shared/report-actions";
 
@@ -201,6 +211,32 @@ function RetailOutletPage() {
     },
   });
 
+  // Money the shop took over the period, by payment method (outlet_takings,
+  // 20261103200000): Cash on one card, POS / transfer on the other.
+  const takings = useQuery({
+    queryKey: ["outlet-sales", "takings", outletId, period],
+    enabled: !!outletId,
+    queryFn: async () => {
+      const day = (d: Date) => d.toLocaleDateString("en-CA");
+      const { data, error } = await supabase.rpc(
+        "outlet_takings" as never,
+        {
+          p_outlet: outletId,
+          p_from: from ? day(from) : "2000-01-01",
+          p_to: day(new Date()),
+        } as never,
+      );
+      if (error) throw error;
+      return (data ?? []) as unknown as { payment_method: string; amount: number }[];
+    },
+  });
+  const takenBy = (m: string) =>
+    (takings.data ?? [])
+      .filter((t) => t.payment_method === m)
+      .reduce((s, t) => s + Number(t.amount), 0);
+  const nonCash = (takings.data ?? []).filter((t) => t.payment_method !== "cash");
+  const nonCashTotal = nonCash.reduce((s, t) => s + Number(t.amount), 0);
+
   const sales = useQuery({
     queryKey: ["outlet-sales", outletId, period],
     enabled: !!outletId,
@@ -343,7 +379,7 @@ function RetailOutletPage() {
             <Dialog open={closing} onOpenChange={setClosing}>
               <DialogTrigger asChild>
                 <Button variant="default" className="gap-2">
-                  <MoonStar className="h-4 w-4" /> End of day → Accounts
+                  <MoonStar className="h-4 w-4" /> Post Balance
                 </Button>
               </DialogTrigger>
               {closing && (
@@ -424,6 +460,29 @@ function RetailOutletPage() {
           value={money(salesValue)}
           hint={`Outlet sales, ${periodLabel}`}
           tone="success"
+        />
+      </div>
+
+      {/* How the shop was paid (2026-11-03). */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <KPI
+          icon={Banknote}
+          label="Sales via Cash"
+          value={money(takenBy("cash"))}
+          hint={`Cash taken, ${periodLabel}`}
+          tone="success"
+        />
+        <KPI
+          icon={CreditCard}
+          label="Sales via POS / transfer"
+          value={money(nonCashTotal)}
+          hint={
+            nonCash.length
+              ? nonCash
+                  .map((t) => `${t.payment_method.toUpperCase()} ${money(Number(t.amount))}`)
+                  .join(" · ")
+              : `POS / card / transfer, ${periodLabel}`
+          }
         />
       </div>
 

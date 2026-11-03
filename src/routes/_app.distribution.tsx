@@ -2351,6 +2351,9 @@ type AccountSummary = {
   // Empty jugs QC counted back, credited at the jug price (20261101100000).
   empty_jugs_returned?: number;
   empty_jugs_value?: number;
+  // Rule A (20261103210000): jugs that went out and haven't come back.
+  jugs_owed?: number;
+  jugs_owed_value?: number;
   net_balance_owed: number;
 };
 
@@ -3336,9 +3339,18 @@ export function RepAccountView({
         { label: "Goods out (dispatched value)", value: s.goods_out_value },
         { label: "Less: accepted returns", value: -s.accepted_only_value },
         { label: "Less: damage/rejects written off", value: -s.written_off_value },
+        // Old jug credits (before 2026-11-03), only where there are any.
+        ...(Number(s.empty_jugs_value ?? 0) !== 0
+          ? [
+              {
+                label: `Less: empty jugs returned, counted by QC (${num(Number(s.empty_jugs_returned ?? 0))})`,
+                value: -Number(s.empty_jugs_value ?? 0),
+              },
+            ]
+          : []),
         {
-          label: `Less: empty jugs returned, counted by QC (${num(Number(s.empty_jugs_returned ?? 0))})`,
-          value: -Number(s.empty_jugs_value ?? 0),
+          label: `Add: jugs not brought back (${num(Number(s.jugs_owed ?? 0))} × jug price)`,
+          value: Number(s.jugs_owed_value ?? 0),
         },
         { label: "Less: cash remitted", value: -s.cash_remitted },
         { label: "Less: customer credit outstanding", value: -s.credit_outstanding },

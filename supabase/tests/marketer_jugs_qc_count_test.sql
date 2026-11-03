@@ -45,7 +45,7 @@ CREATE OR REPLACE FUNCTION pg_temp.acct() RETURNS jsonb LANGUAGE sql AS $$
   SELECT public.rep_account_summary('c3800000-0000-0000-0000-000000000001', NULL, NULL)
 $$;
 
--- @@ Test 1: posted at N4,200 a dispenser
+-- @@ Test 1: posted at the Costing price, N1,200 a dispenser (rule A, 20261103210000)
 DO $$
 DECLARE v jsonb;
   f uuid := 'f3800000-0000-0000-0000-000000000001'; r uuid := 'c3800000-0000-0000-0000-000000000001';
@@ -53,9 +53,9 @@ BEGIN
   PERFORM set_config('test.uid', 'a3800000-0000-0000-0000-000000000001', false);
   v := public.create_stock_dispatch(jsonb_build_object('factory_id', f, 'sales_rep_id', r,
     'items', jsonb_build_array(jsonb_build_object('product_id', 'b3800000-0000-0000-0000-000000000001', 'quantity', 10))));
-  PERFORM pg_temp.check((SELECT unit_price FROM stock_dispatch_items WHERE dispatch_id = (v->>'id')::uuid) = 4200, 'line at 4200');
-  PERFORM pg_temp.check((SELECT total_value FROM stock_dispatches WHERE id = (v->>'id')::uuid) = 42000, 'total 42000');
-  PERFORM pg_temp.check((pg_temp.acct()->>'goods_out_value')::numeric = 42000, 'account goods out');
+  PERFORM pg_temp.check((SELECT unit_price FROM stock_dispatch_items WHERE dispatch_id = (v->>'id')::uuid) = 1200, 'line at 1200');
+  PERFORM pg_temp.check((SELECT total_value FROM stock_dispatches WHERE id = (v->>'id')::uuid) = 12000, 'total 12000');
+  PERFORM pg_temp.check((pg_temp.acct()->>'goods_out_value')::numeric = 12000, 'account goods out');
 END $$;
 
 -- @@ Test 2: 6 sold water-only, 2 unsold back at the posted price; 6 empties recorded, the Warehouse can't count them
@@ -69,7 +69,7 @@ BEGIN
   PERFORM public.create_rep_return(jsonb_build_object('factory_id', f, 'sales_rep_id', r,
     'items', jsonb_build_array(jsonb_build_object('product_id', 'b3800000-0000-0000-0000-000000000001', 'quantity_returned', 2))));
   PERFORM pg_temp.check((SELECT i.unit_price FROM rep_return_items i JOIN rep_returns rr ON rr.id = i.rep_return_id
-                          WHERE rr.sales_rep_id = r LIMIT 1) = 4200, 'unsold back at 4200');
+                          WHERE rr.sales_rep_id = r LIMIT 1) = 1200, 'unsold back at 1200');
   v := public.record_jug_return(jsonb_build_object('sales_rep_id', r,
     'container_type_id', 'e3800000-0000-0000-0000-000000000001', 'quantity', 6));
   BEGIN
@@ -79,7 +79,7 @@ BEGIN
   PERFORM pg_temp.check(ok, 'Warehouse cannot count');
 END $$;
 
--- @@ Test 3: QC counts 5 of 6 -> 5 credited at N3,000, an accepted QC consignment, the missing jug stays owed
+-- @@ Test 3: QC counts 5 of 6 -> an accepted QC consignment; the jugs not back (2 on the van + 1 missing) owed at N3,000
 DO $$
 DECLARE j uuid; a jsonb; b record; ok boolean := false;
   r uuid := 'c3800000-0000-0000-0000-000000000001';
@@ -101,9 +101,10 @@ BEGIN
   INSERT INTO rep_remittances(factory_id, remittance_number, sales_rep_id, amount, payment_method, remittance_date)
   VALUES ('f3800000-0000-0000-0000-000000000001', 'MJ-REM-1', r, 7200, 'cash', CURRENT_DATE);
   a := pg_temp.acct();
-  PERFORM pg_temp.check((a->>'empty_jugs_returned')::numeric = 5 AND (a->>'empty_jugs_value')::numeric = 15000,
-                        'jug credit: ' || a::text);
-  PERFORM pg_temp.check((a->>'net_balance_owed')::numeric = 42000 - 8400 - 15000 - 7200,
+  PERFORM pg_temp.check((a->>'empty_jugs_value')::numeric = 0 AND (a->>'jugs_owed')::numeric = 3
+                        AND (a->>'jugs_owed_value')::numeric = 9000, 'jugs owed, no credit: ' || a::text);
+  -- The same balance as under the old rule: 12,000 - 2,400 + 9,000 - 7,200.
+  PERFORM pg_temp.check((a->>'net_balance_owed')::numeric = 12000 - 2400 + 9000 - 7200,
                         'owed 11400 (2 on the van + 1 missing jug): ' || (a->>'net_balance_owed'));
 END $$;
 
