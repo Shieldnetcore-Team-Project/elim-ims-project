@@ -10,6 +10,7 @@ import { KPI } from "@/lib/dashboard-kit";
 import { money } from "@/lib/format";
 import { fetchSaleLines, printSaleInvoice } from "@/lib/invoice";
 import { printMonthlySales } from "@/lib/monthly-sales-pdf";
+import { printDayPostings } from "@/lib/day-postings-pdf";
 import { generateReceiptPdf } from "@/lib/pdf";
 import {
   AccountsTab,
@@ -18,7 +19,9 @@ import {
   RepsTab,
   type Rep,
 } from "@/routes/_app.distribution";
-import { printDispatchInvoice } from "@/lib/dispatch-slip";
+import { printDispatchDayInvoice, printDispatchInvoice } from "@/lib/dispatch-slip";
+import { localDay } from "@/lib/production-shift";
+import { PartyPostingsReturns } from "@/components/accounting/party-postings-returns";
 import { CustomersPage } from "@/routes/_app.customers";
 import { PostingsTab } from "@/components/accounting/postings-tab";
 import { DistributorsTab } from "@/components/accounting/distributors-tab";
@@ -26,7 +29,13 @@ import { RetailCashUpTab } from "@/components/retail/outlet-day-close";
 import { DispenserReports } from "@/components/retail/dispenser-reports";
 import { RetailDailyBook } from "@/components/accounting/retail-daily-book";
 import { CustomerActivityDialog } from "@/components/accounting/customer-activity-dialog";
-import { Dialog } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -290,10 +299,39 @@ type Activity = {
   // What the eye opens on a customer's row: every invoice they have here,
   // from their whole history (print buttons keep the latest invoice).
   viewGroup?: InvoiceGroup;
+  // The party's day (2026-11-04): one row per party per day, gathering every
+  // posting / invoice / return that day, printed as ONE invoice.
+  day?: string;
+  dayPostingIds?: string[];
+  dayReturnIds?: string[];
+  dayInvoiceIds?: string[];
+  dayQty?: Map<string, number>;
+  dayValue?: number;
   amount: number;
   direction: "in" | "out";
   status: string;
 };
+
+// "YYYY-MM-DD" in local time, for a date or a timestamp.
+const dayOf = (d: string) => (/^\d{4}-\d{2}-\d{2}$/.test(d) ? d : localDay(new Date(d)));
+
+// "Name × 1,234 Unit · ..." (posting items / invoice products) into the
+// day's quantities, keyed "Name|Unit".
+function addProductText(qty: Map<string, number>, text: string | undefined) {
+  for (const part of (text ?? "").split(" · ")) {
+    const m = /^(.*?) × ([\d,.]+)(?: (.+))?$/.exec(part.trim());
+    if (!m) continue;
+    const key = `${m[1]}|${m[3] ?? ""}`;
+    qty.set(key, (qty.get(key) ?? 0) + Number(m[2].replace(/,/g, "")));
+  }
+}
+const productText = (qty: Map<string, number>) =>
+  [...qty]
+    .map(([k, n]) => {
+      const [name, unit] = k.split("|");
+      return `${name} × ${n.toLocaleString()}${unit ? ` ${unit}` : ""}`;
+    })
+    .join(" · ");
 
 // One row per marketer and per customer (user, 2026-11-02): the latest
 // activity stands for them, with how many there are; the eye opens all of
@@ -309,27 +347,50 @@ function groupByParty(list: Activity[]): Activity[] {
       lastPostingId: a0.kind === "Posting" ? a0.key.slice("post-".length) : undefined,
       lastInvoice: a0.kind === "Invoice" && a0.group && a0.group.ids.length ? a0.group : undefined,
     };
-    const key = a.repId
+    const party = a.repId
       ? `rep:${a.repId}`
       : a.party_type === "customer" && a.group && !a.group.walkIn && a.party !== "—"
         ? `customer:${a.party.trim().toLowerCase()}`
         : null;
-    if (!key) {
+    if (!party) {
       out.push(a);
       continue;
     }
-    const i = at.get(key);
+    // One row per party per day (2026-11-04).
+    const day = dayOf(a.date);
+    const key = `${party}|${day}`;
+    let i = at.get(key);
     if (i === undefined) {
-      at.set(key, out.length);
+      i = out.length;
+      at.set(key, i);
       out.push({
         ...a,
-        count: 1,
+        count: 0,
+        day,
+        dayPostingIds: [],
+        dayReturnIds: [],
+        dayInvoiceIds: [],
+        dayQty: new Map(),
+        dayValue: 0,
         viewGroup: a.group ? { ...a.group, ids: [...a.group.ids], allHistory: true } : undefined,
       });
-      continue;
     }
     const row = out[i];
-    row.count = (row.count ?? 1) + 1;
+    // What the day's invoice is made of: postings (marketer / shop), the
+    // distributor's own invoices (not a marketer's van sales), returns.
+    if (a0.kind === "Posting" && a0.status !== "reversed") {
+      row.dayPostingIds!.push(a0.key.slice("post-".length));
+      addProductText(row.dayQty!, a0.details);
+      row.dayValue! += a0.amount;
+    } else if (a0.kind === "Return") {
+      row.dayReturnIds!.push(a0.key.slice("ret-".length));
+    } else if (a0.kind === "Invoice" && !a0.repId && a0.group && !a0.group.is_pr) {
+      row.dayInvoiceIds!.push(...a0.group.ids);
+      addProductText(row.dayQty!, a0.group.products);
+      row.dayValue! += a0.amount;
+    }
+    row.count = (row.count ?? 0) + 1;
+    if (row.count === 1) continue;
     row.lastPostingId ??= a.lastPostingId;
     row.lastInvoice ??= a.lastInvoice;
     if (row.viewGroup && a.group)
@@ -364,6 +425,13 @@ function AccountantPage() {
   // All activity: whose rows to show, and the marketer / shop account open.
   const [party, setParty] = useState<PartyType | "all">("all");
   const [repViewing, setRepViewing] = useState<string | null>(null);
+  // A party's day row opened: every posting that day, its products, print.
+  const [dayViewing, setDayViewing] = useState<{
+    party: string;
+    day: string;
+    repId?: string;
+    customer?: string;
+  } | null>(null);
   // Monthly accumulated sales PDF: "YYYY-MM", this month by default.
   const [month, setMonth] = useState(() => startOfToday().slice(0, 7));
   // Invoices tab calendar: empty = the latest 200; a day / range loads every
@@ -1067,6 +1135,41 @@ function AccountantPage() {
                       Latest
                     </Button>
                   ) : null}
+                  {/* All posted to marketers, distributors and the shop on the
+                      day picked (today when none), on one report. */}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                    title={`Print all postings on ${actRange ? "the dates picked" : "today"}`}
+                    onClick={() =>
+                      void printDayPostings(
+                        factoryId,
+                        actRange?.from ?? startOfToday(),
+                        actRange?.to ?? null,
+                        settings.data,
+                        "print",
+                      )
+                    }
+                  >
+                    <Printer className="h-4 w-4" /> Print postings
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    title={`Download all postings on ${actRange ? "the dates picked" : "today"}`}
+                    onClick={() =>
+                      void printDayPostings(
+                        factoryId,
+                        actRange?.from ?? startOfToday(),
+                        actRange?.to ?? null,
+                        settings.data,
+                        "download",
+                      )
+                    }
+                  >
+                    <Download className="h-4 w-4" />
+                  </Button>
                 </div>
               </div>
               {actRange && (
@@ -1135,10 +1238,18 @@ function AccountantPage() {
                             <button
                               type="button"
                               className="text-left font-medium text-primary hover:underline"
+                              title="See everything posted to them this day"
                               onClick={() =>
-                                a.repId
-                                  ? setRepViewing(a.repId)
-                                  : setViewing((a.viewGroup ?? a.group)!)
+                                a.day
+                                  ? setDayViewing({
+                                      party: a.party,
+                                      day: a.day,
+                                      repId: a.repId,
+                                      customer: a.repId ? undefined : a.party,
+                                    })
+                                  : a.repId
+                                    ? setRepViewing(a.repId)
+                                    : setViewing((a.viewGroup ?? a.group)!)
                               }
                             >
                               {a.party}
@@ -1148,11 +1259,21 @@ function AccountantPage() {
                           )}
                           {(a.count ?? 1) > 1 && (
                             <div className="text-xs font-medium text-muted-foreground">
-                              Latest of {a.count} activities — click to see them all
+                              {a.count} activities this day
+                              {(a.dayPostingIds?.length ?? 0) + (a.dayInvoiceIds?.length ?? 0) > 1
+                                ? ` (${(a.dayPostingIds?.length ?? 0) + (a.dayInvoiceIds?.length ?? 0)} postings)`
+                                : ""}{" "}
+                              — click to see them all
                             </div>
                           )}
-                          {a.details && (
-                            <div className="text-xs text-muted-foreground">{a.details}</div>
+                          {a.dayQty && a.dayQty.size > 0 ? (
+                            <div className="text-xs text-muted-foreground">
+                              {productText(a.dayQty)}
+                            </div>
+                          ) : (
+                            a.details && (
+                              <div className="text-xs text-muted-foreground">{a.details}</div>
+                            )
                           )}
                           {a.paid !== undefined && a.group && (
                             <div className="text-xs text-success">
@@ -1163,10 +1284,17 @@ function AccountantPage() {
                           )}
                         </TableCell>
                         <TableCell
-                          className={`text-right font-medium ${a.direction === "out" ? "text-destructive" : ""}`}
+                          className={`text-right font-medium ${a.direction === "out" && !a.dayValue ? "text-destructive" : ""}`}
                         >
-                          {a.direction === "out" ? "−" : ""}
-                          {money(a.amount, currency)}
+                          {a.dayValue ? (
+                            // The day's postings together.
+                            money(a.dayValue, currency)
+                          ) : (
+                            <>
+                              {a.direction === "out" ? "−" : ""}
+                              {money(a.amount, currency)}
+                            </>
+                          )}
                         </TableCell>
                         <TableCell>
                           <Badge variant={statusVariant(a.status)} className="capitalize">
@@ -1188,14 +1316,51 @@ function AccountantPage() {
                             )}
                             {/* The posting on the A4 invoice, as a distributor's sale. */}
                             {/* Always the newest posting's, and as often as needed. */}
-                            {a.lastPostingId && a.party_type === "retail" && canDiscount && (
-                              <PostingDiscountButton
-                                dispatchIds={[a.lastPostingId]}
-                                title={`${a.party} (latest posting)`}
-                                size="icon"
-                              />
+                            {a.dayPostingIds &&
+                              a.dayPostingIds.length > 0 &&
+                              a.party_type === "retail" &&
+                              canDiscount && (
+                                <PostingDiscountButton
+                                  dispatchIds={a.dayPostingIds}
+                                  title={`${a.party} (${a.day})`}
+                                  size="icon"
+                                />
+                              )}
+                            {a.dayPostingIds && a.dayPostingIds.length > 0 && (
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  title="Print the whole day's invoice"
+                                  onClick={() =>
+                                    void printDispatchDayInvoice(
+                                      a.dayPostingIds!,
+                                      settings.data,
+                                      "print",
+                                      a.dayReturnIds,
+                                    )
+                                  }
+                                >
+                                  <Printer className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  title="Download the whole day's invoice"
+                                  onClick={() =>
+                                    void printDispatchDayInvoice(
+                                      a.dayPostingIds!,
+                                      settings.data,
+                                      "download",
+                                      a.dayReturnIds,
+                                    )
+                                  }
+                                >
+                                  <Download className="h-4 w-4" />
+                                </Button>
+                              </>
                             )}
-                            {a.lastPostingId && (
+                            {a.lastPostingId && !a.dayPostingIds?.length && (
                               <>
                                 <Button
                                   variant="ghost"
@@ -1243,18 +1408,14 @@ function AccountantPage() {
                               </>
                             )}
                             {/* The newest invoice's, whatever came after it. */}
-                            {a.lastInvoice && (
+                            {a.dayInvoiceIds && a.dayInvoiceIds.length > 0 && (
                               <>
                                 <Button
                                   variant="ghost"
                                   size="icon"
-                                  title={
-                                    a.lastInvoice.ids.length > 1
-                                      ? "Print combined invoice"
-                                      : "Print invoice"
-                                  }
+                                  title="Print the whole day's invoice"
                                   onClick={() =>
-                                    printSaleInvoice(a.lastInvoice!.ids, settings.data, "print")
+                                    printSaleInvoice(a.dayInvoiceIds!, settings.data, "print")
                                   }
                                 >
                                   <Printer className="h-4 w-4" />
@@ -1262,19 +1423,53 @@ function AccountantPage() {
                                 <Button
                                   variant="ghost"
                                   size="icon"
-                                  title={
-                                    a.lastInvoice.ids.length > 1
-                                      ? "Download combined invoice"
-                                      : "Download invoice"
-                                  }
+                                  title="Download the whole day's invoice"
                                   onClick={() =>
-                                    printSaleInvoice(a.lastInvoice!.ids, settings.data, "download")
+                                    printSaleInvoice(a.dayInvoiceIds!, settings.data, "download")
                                   }
                                 >
                                   <Download className="h-4 w-4" />
                                 </Button>
                               </>
                             )}
+                            {a.lastInvoice &&
+                              !a.dayInvoiceIds?.length &&
+                              !a.dayPostingIds?.length && (
+                                <>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    title={
+                                      a.lastInvoice.ids.length > 1
+                                        ? "Print combined invoice"
+                                        : "Print invoice"
+                                    }
+                                    onClick={() =>
+                                      printSaleInvoice(a.lastInvoice!.ids, settings.data, "print")
+                                    }
+                                  >
+                                    <Printer className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    title={
+                                      a.lastInvoice.ids.length > 1
+                                        ? "Download combined invoice"
+                                        : "Download invoice"
+                                    }
+                                    onClick={() =>
+                                      printSaleInvoice(
+                                        a.lastInvoice!.ids,
+                                        settings.data,
+                                        "download",
+                                      )
+                                    }
+                                  >
+                                    <Download className="h-4 w-4" />
+                                  </Button>
+                                </>
+                              )}
                             {a.payment && (
                               <>
                                 <Button
@@ -1606,6 +1801,52 @@ function AccountantPage() {
         </TabsContent>
       </Tabs>
 
+      {dayViewing && (
+        <Dialog open onOpenChange={(v) => !v && setDayViewing(null)}>
+          <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>{dayViewing.party}</DialogTitle>
+              <DialogDescription>
+                Everything posted on{" "}
+                {new Date(`${dayViewing.day}T12:00:00`).toLocaleDateString(undefined, {
+                  weekday: "long",
+                  day: "numeric",
+                  month: "long",
+                  year: "numeric",
+                })}{" "}
+                — products, each posting, and one invoice for the whole day (Print day).
+              </DialogDescription>
+            </DialogHeader>
+            <PartyPostingsReturns
+              factoryId={factoryId}
+              repId={dayViewing.repId}
+              customerName={dayViewing.customer}
+              day={dayViewing.day}
+              showValues={perms.canSeeMoney}
+              currency={currency}
+            />
+            <div className="flex justify-end">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const d = dayViewing;
+                  setDayViewing(null);
+                  if (d.repId) setRepViewing(d.repId);
+                  else {
+                    const g = invoiceGroups.find(
+                      (x) => !x.walkIn && x.customer.toLowerCase() === d.party.toLowerCase(),
+                    );
+                    if (g) setViewing({ ...g, allHistory: true });
+                  }
+                }}
+              >
+                Open full account
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
       {repViewing && (reps.data ?? []).some((r) => r.id === repViewing) && (
         <Dialog open onOpenChange={(v) => !v && setRepViewing(null)}>
           <RepDetailsDialog

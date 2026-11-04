@@ -5,7 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useFactorySettings } from "@/lib/use-factory";
 import { useRealtimeInvalidate } from "@/lib/realtime";
 import { money, num } from "@/lib/format";
-import { printDispatchInvoice } from "@/lib/dispatch-slip";
+import { printDispatchDayInvoice, printDispatchInvoice } from "@/lib/dispatch-slip";
 import { printSaleInvoice } from "@/lib/invoice";
 import { localDay } from "@/lib/production-shift";
 import { Badge } from "@/components/ui/badge";
@@ -56,7 +56,10 @@ export function PartyPostingsReturns({
   customerName,
   showValues,
   currency,
+  day,
 }: {
+  // Opened on one day (All activity's day row); the calendar still changes it.
+  day?: string;
   factoryId: string;
   // A marketer / the shop by id, or a distributor by name.
   repId?: string;
@@ -67,7 +70,7 @@ export function PartyPostingsReturns({
   const settings = useFactorySettings(factoryId).data;
   const [shown, setShown] = useState({ posting: PAGE, return: PAGE });
   // Calendar: empty = all time; a day / range = what is dated then.
-  const [from, setFrom] = useState("");
+  const [from, setFrom] = useState(day ?? "");
   const [to, setTo] = useState("");
   useRealtimeInvalidate(
     ["stock_dispatches", "rep_returns", "sales", "sales_returns"],
@@ -120,60 +123,135 @@ export function PartyPostingsReturns({
       ? printDispatchInvoice({ id: g.id }, settings, mode)
       : printSaleInvoice(g.id, settings, mode);
 
+  // A whole day on one invoice (user, 2026-11-04): every posting that day,
+  // lines of the same product and price added together; for a marketer /
+  // the shop the day's returns come off as minus lines. Reversed postings
+  // are left out.
+  const byDay = useMemo(() => {
+    const m = new Map<string, { postings: Group[]; returns: Group[] }>();
+    for (const g of groups) {
+      const d = m.get(g.day) ?? { postings: [], returns: [] };
+      if (g.status !== "reversed") (g.kind === "posting" ? d.postings : d.returns).push(g);
+      m.set(g.day, d);
+    }
+    return m;
+  }, [groups]);
+  const printDay = (day: string, mode: "print" | "download") => {
+    const d = byDay.get(day);
+    if (!d || d.postings.length === 0) return;
+    const ids = d.postings.map((g) => g.id);
+    return repId
+      ? printDispatchDayInvoice(
+          ids,
+          settings,
+          mode,
+          d.returns.map((g) => g.id),
+        )
+      : printSaleInvoice(ids, settings, mode);
+  };
+  const dayLabel = (day: string) =>
+    new Date(`${day}T12:00:00`).toLocaleDateString(undefined, {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+  const dayHeader = (day: string) => {
+    const d = byDay.get(day);
+    const count = d?.postings.length ?? 0;
+    const back = d?.returns.length ?? 0;
+    const value = d?.postings.reduce((t, p) => t + p.value, 0) ?? 0;
+    return (
+      <div className="flex flex-wrap items-center gap-2 rounded-lg bg-muted/60 px-2 py-1 text-xs">
+        <span className="font-semibold">{dayLabel(day)}</span>
+        <span className="text-muted-foreground">
+          {num(count)} posting{count === 1 ? "" : "s"}
+          {repId && back > 0 ? ` · ${num(back)} return${back === 1 ? "" : "s"}` : ""}
+        </span>
+        {showValues && <span className="font-medium">{money(value, currency)}</span>}
+        {count > 0 && (
+          <span className="ml-auto flex items-center gap-1">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1 px-2"
+              title="Print one invoice for the whole day"
+              onClick={() => void printDay(day, "print")}
+            >
+              <Printer className="h-3.5 w-3.5" /> Print day
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              title="Download one invoice for the whole day"
+              onClick={() => void printDay(day, "download")}
+            >
+              <Download className="h-4 w-4" />
+            </Button>
+          </span>
+        )}
+      </div>
+    );
+  };
+
   const list = (items: Group[], kind: Group["kind"]) => (
     <div className="space-y-2">
-      {items.slice(0, shown[kind]).map((g) => (
-        <div key={g.id} className="rounded-lg border p-2 text-sm">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="whitespace-nowrap text-xs text-muted-foreground">
-              {new Date(g.at).toLocaleString()}
-            </span>
-            <span className="font-mono text-xs">{g.reference}</span>
-            <Badge
-              variant={g.status === "reversed" ? "destructive" : "outline"}
-              className="capitalize"
-            >
-              {g.status.replace(/_/g, " ")}
-            </Badge>
-            {g.note && <span className="text-xs text-muted-foreground">{g.note}</span>}
-            <span className="ml-auto flex items-center gap-1">
-              {showValues && <span className="font-medium">{money(g.value, currency)}</span>}
-              {kind === "posting" && (
-                <>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7"
-                    title="Print invoice"
-                    onClick={() => print(g, "print")}
-                  >
-                    <Printer className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7"
-                    title="Download invoice"
-                    onClick={() => print(g, "download")}
-                  >
-                    <Download className="h-4 w-4" />
-                  </Button>
-                </>
-              )}
-            </span>
-          </div>
-          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs">
-            {g.lines.map((l, i) => (
-              <span key={i}>
-                {l.product_name} <b>× {num(n(l.quantity))}</b> {l.unit}
-                {showValues && l.unit_price != null && (
-                  <span className="text-muted-foreground">
-                    {" "}
-                    @ {money(n(l.unit_price), currency)}
-                  </span>
+      {items.slice(0, shown[kind]).map((g, idx, arr) => (
+        <div key={g.id} className="space-y-2">
+          {kind === "posting" && (idx === 0 || arr[idx - 1].day !== g.day) && dayHeader(g.day)}
+          <div className="rounded-lg border p-2 text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="whitespace-nowrap text-xs text-muted-foreground">
+                {new Date(g.at).toLocaleString()}
+              </span>
+              <span className="font-mono text-xs">{g.reference}</span>
+              <Badge
+                variant={g.status === "reversed" ? "destructive" : "outline"}
+                className="capitalize"
+              >
+                {g.status.replace(/_/g, " ")}
+              </Badge>
+              {g.note && <span className="text-xs text-muted-foreground">{g.note}</span>}
+              <span className="ml-auto flex items-center gap-1">
+                {showValues && <span className="font-medium">{money(g.value, currency)}</span>}
+                {kind === "posting" && (
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      title="Print invoice"
+                      onClick={() => print(g, "print")}
+                    >
+                      <Printer className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      title="Download invoice"
+                      onClick={() => print(g, "download")}
+                    >
+                      <Download className="h-4 w-4" />
+                    </Button>
+                  </>
                 )}
               </span>
-            ))}
+            </div>
+            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs">
+              {g.lines.map((l, i) => (
+                <span key={i}>
+                  {l.product_name} <b>× {num(n(l.quantity))}</b> {l.unit}
+                  {showValues && l.unit_price != null && (
+                    <span className="text-muted-foreground">
+                      {" "}
+                      @ {money(n(l.unit_price), currency)}
+                    </span>
+                  )}
+                </span>
+              ))}
+            </div>
           </div>
         </div>
       ))}
