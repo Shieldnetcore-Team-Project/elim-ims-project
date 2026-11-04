@@ -8,6 +8,7 @@ import { localDay } from "@/lib/production-shift";
 import { num } from "@/lib/format";
 import { type Activity, KIND, scopeToMyProducts } from "@/components/warehouse/activity";
 import { useMyProductMatcher } from "@/lib/product-rules";
+import { CancelPostingButton, useCanCancelPosting } from "@/components/warehouse/cancel-posting";
 import { CustomerUnsoldDialog, RecordReturnDialog } from "@/components/jugs/dialogs";
 import { LastSuppliedPanel } from "@/components/warehouse/last-supplied";
 import { ReturnDateField } from "@/components/shared/return-date";
@@ -64,6 +65,7 @@ export function WarehousePartyDialog({
   const marketers = useMarketers(factoryId);
   // Only the products this Warehouse officer handles (2026-11-02).
   const mine = useMyProductMatcher();
+  const canCancel = useCanCancelPosting();
   const types = useJugTypes(factoryId);
 
   const history = useQuery({
@@ -185,6 +187,7 @@ export function WarehousePartyDialog({
                     <TableHead>Reference</TableHead>
                     <TableHead>Products</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -205,12 +208,17 @@ export function WarehousePartyDialog({
                             {a.status.replace(/_/g, " ")}
                           </Badge>
                         </TableCell>
+                        <TableCell className="text-right">
+                          {canCancel(a) && (
+                            <CancelPostingButton factoryId={factoryId} activity={a} />
+                          )}
+                        </TableCell>
                       </TableRow>
                     );
                   })}
                   {scopeToMyProducts(history.data ?? [], mine).length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={5} className="py-6 text-center text-muted-foreground">
+                      <TableCell colSpan={6} className="py-6 text-center text-muted-foreground">
                         {history.isLoading
                           ? "Loading…"
                           : history.isError

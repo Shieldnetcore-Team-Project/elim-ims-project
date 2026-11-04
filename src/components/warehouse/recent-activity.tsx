@@ -18,6 +18,7 @@ import {
   CorrectDistributorPostingDialog,
 } from "@/components/warehouse/correct-posting";
 import { usePermissions } from "@/lib/permissions";
+import { CancelPostingButton, useCanCancelPosting } from "@/components/warehouse/cancel-posting";
 import { type Party, WarehousePartyDialog } from "@/components/warehouse/party-dialog";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -113,6 +114,7 @@ export function WarehouseRecentActivity({ factoryId }: { factoryId: string }) {
       ? perms.canWrite("sales")
       : (a.kind === "marketer" || a.kind === "retail") && perms.can("distribution", "create"));
   const [correcting, setCorrecting] = useState<Activity | null>(null);
+  const canCancel = useCanCancelPosting();
   const print = (a: Activity, copies: number) =>
     printWarehouseActivity(a, factoryId, settings.data, copies);
 
@@ -206,6 +208,7 @@ export function WarehouseRecentActivity({ factoryId }: { factoryId: string }) {
                         <Pencil className="h-4 w-4" />
                       </Button>
                     )}
+                    {canCancel(a) && <CancelPostingButton factoryId={factoryId} activity={a} />}
                   </TableCell>
                 </TableRow>
               );

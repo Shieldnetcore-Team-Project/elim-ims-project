@@ -23,7 +23,7 @@
 
 CREATE TABLE IF NOT EXISTS public.user_product_rules (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  user_id uuid NOT NULL REFERENCES authusers(id) ON DELETE CASCADE,
   name_pattern text NOT NULL CHECK (btrim(name_pattern) <> ''),
   label text,
   created_at timestamptz NOT NULL DEFAULT now(),

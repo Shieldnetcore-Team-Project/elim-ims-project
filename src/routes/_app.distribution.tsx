@@ -454,6 +454,8 @@ type OpenReturn = {
     product_id: string;
     quantity_returned: number;
     accepted_quantity: number | null;
+    // Per line (20261104110000): the posting that carried it back on.
+    carried?: { status: string } | null;
   }[];
 };
 
@@ -605,23 +607,41 @@ function NewDispatchDialog({
   // 2026-10-31). Each can be left out with its tick box.
   const repKind = reps.find((r) => r.id === repId)?.kind ?? kind;
   const openReturns = useQuery({
-    queryKey: ["dispatch-open-returns", factoryId, repId],
+    queryKey: ["dispatch-open-returns", factoryId, repId, products.map((p) => p.id).join(",")],
     // The Retail Shop returns unsold products at close of business too (2026-11-02).
     enabled: !!repId && !carryReturn && (repKind === "rep" || repKind === "outlet"),
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("rep_returns")
-        .select(
-          "id,return_number,return_date,carried:stock_dispatches!rep_returns_carried_dispatch_id_fkey(status),rep_return_items(product_id,quantity_returned,accepted_quantity)",
-        )
-        .eq("factory_id", factoryId)
-        .eq("sales_rep_id", repId)
-        .eq("status", "completed")
-        .order("received_at");
+      const read = (lineCarry: boolean) =>
+        supabase
+          .from("rep_returns")
+          .select(
+            `id,return_number,return_date,carried:stock_dispatches!rep_returns_carried_dispatch_id_fkey(status),rep_return_items(product_id,quantity_returned,accepted_quantity${
+              lineCarry
+                ? ",carried:stock_dispatches!rep_return_items_carried_dispatch_id_fkey(status)"
+                : ""
+            })`,
+          )
+          .eq("factory_id", factoryId)
+          .eq("sales_rep_id", repId)
+          .eq("status", "completed")
+          .order("received_at");
+      let { data, error } = await read(true);
+      // Before 20261104110000 is in: whole returns only.
+      if (error) ({ data, error } = await read(false));
       if (error) throw error;
-      return ((data ?? []) as unknown as OpenReturn[]).filter(
-        (r) => !r.carried || r.carried.status === "reversed",
-      );
+      const open = (c?: { status: string } | null) => !c || c.status === "reversed";
+      // Only the lines still open and handled by this Warehouse officer
+      // (products is their list): Kemi's bottles, Gideon's dispensers and
+      // sachet -- the rest stays for the other officer (2026-11-04).
+      return ((data ?? []) as unknown as OpenReturn[])
+        .filter((r) => open(r.carried))
+        .map((r) => ({
+          ...r,
+          rep_return_items: r.rep_return_items.filter(
+            (it) => open(it.carried) && products.some((p) => p.id === it.product_id),
+          ),
+        }))
+        .filter((r) => r.rep_return_items.length > 0);
     },
   });
   const [skipped, setSkipped] = useState<Set<string>>(new Set());
