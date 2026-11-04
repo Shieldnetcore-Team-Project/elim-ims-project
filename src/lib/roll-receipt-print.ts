@@ -192,26 +192,29 @@ td, th { padding: 0.4mm 0; vertical-align: top; word-break: break-word; }
    printer would emphasise: the title, amount to pay, thanks, copy label. */
 /* Enlarged 2026-11-02 (user: bigger, so it prints clean and clear), then
    again the same day: body 4mm, Transaction Details 3.6mm, headings 3.1mm,
-   title 4mm at double height. Same layout and weights as before. */
+   title 4mm at double height. Same layout and weights as before.
+   2026-11-04 (user, for Kemi's Warehouse slips): every size one point
+   (0.35mm) smaller -- body 3.65mm, Transaction Details 3.25mm, headings
+   2.75mm, title 3.65mm at double height. */
 .slip {
   font-family: Consolas, "Lucida Console", "Courier New", Courier, monospace;
-  font-weight: 400; -webkit-text-stroke: 0; font-size: 4mm; line-height: 4.8mm;
+  font-weight: 400; -webkit-text-stroke: 0; font-size: 3.65mm; line-height: 4.4mm;
 }
 .slip .small, .slip .split, .slip .parties, .slip .totals .strong td,
-.slip .thanks, .slip .copy-label { font-size: 4mm; line-height: 4.8mm; letter-spacing: 0; }
+.slip .thanks, .slip .copy-label { font-size: 3.65mm; line-height: 4.4mm; letter-spacing: 0; }
 /* At this size "Marketer/Dist.:" is wider than its column: let labels wrap. */
 .slip .parties tr:first-child td { white-space: normal; }
 .slip .parties .v td, .slip .strong, .slip .thanks, .slip .copy-label {
   font-weight: 700; -webkit-text-stroke: 0;
 }
-.slip .fb, .slip .items { font-size: 3.6mm; line-height: 4.3mm; }
-.slip .items th { font-size: 3.1mm; line-height: 3.7mm; }
+.slip .fb, .slip .items { font-size: 3.25mm; line-height: 3.9mm; }
+.slip .items th { font-size: 2.75mm; line-height: 3.3mm; }
 .slip h1 {
-  font-size: 4mm; line-height: 9.6mm; font-weight: 700; letter-spacing: 0;
+  font-size: 3.65mm; line-height: 8.8mm; font-weight: 700; letter-spacing: 0;
   -webkit-text-stroke: 0; margin: 2mm 0;
 }
 .slip h1 span {
-  display: inline-block; vertical-align: top; line-height: 4.8mm;
+  display: inline-block; vertical-align: top; line-height: 4.4mm;
   transform: scaleY(2); transform-origin: 50% 0;
 }
 /* The Retail Shop's sale receipt (user, 2026-11-02): every size one point

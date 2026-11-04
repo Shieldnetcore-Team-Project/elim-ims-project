@@ -398,9 +398,10 @@ function AddReportDialog({ factoryId, onDone }: { factoryId: string; onDone: () 
         />
       </div>
       <p className="text-xs text-muted-foreground">
-        Opening starts from the material&apos;s last balance. For blown bottles from QC, Qty In
-        starts with the bottles you received from QC since the last entry. Qty Used includes the
-        damaged ones; enter how many were damaged in Damages. Balance = Opening + Qty In − Qty Used.
+        Opening starts from the material&apos;s last balance. Qty In starts with what came in since
+        the last entry: the bottles you received from QC, or what the Store issued to Production.
+        Qty Used includes the damaged ones; enter how many were damaged in Damages. Balance =
+        Opening + Qty In − Qty Used.
       </p>
       <div className="overflow-x-auto">
         <Table>
@@ -429,7 +430,8 @@ function AddReportDialog({ factoryId, onDone }: { factoryId: string; onDone: () 
                           material_id: v,
                           kind: o?.kind ?? "material",
                           opening: Number(o?.last_balance ?? 0),
-                          // Bottles received from QC since the last entry.
+                          // Bottles received from QC / materials the Store issued
+                          // to Production since the last entry (20261104200000).
                           qty_in: Number(o?.received_since ?? 0),
                         });
                       }}
@@ -460,8 +462,8 @@ function AddReportDialog({ factoryId, onDone }: { factoryId: string; onDone: () 
                               {group.map((o) => (
                                 <SelectItem key={o.material_id} value={o.material_id}>
                                   {o.material_name}
-                                  {o.kind === "bottle" && o.received_since > 0
-                                    ? ` (${num(Number(o.received_since))} received)`
+                                  {o.received_since > 0
+                                    ? ` (${num(Number(o.received_since))} ${o.kind === "bottle" ? "received" : "issued by Store"})`
                                     : o.detail && o.kind !== "bottle"
                                       ? ` (${o.detail})`
                                       : ""}{" "}

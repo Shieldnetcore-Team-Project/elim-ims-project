@@ -7,6 +7,7 @@ import { usePermissions } from "@/lib/permissions";
 import { useRealtimeInvalidate } from "@/lib/realtime";
 import { useCurrentUserName } from "@/lib/use-current-user";
 import { num } from "@/lib/format";
+import { useMyProductMatcher } from "@/lib/product-rules";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -117,7 +118,10 @@ export function HallStockSummary({ factoryId }: { factoryId: string }) {
   const hall = useHallStock(factoryId);
   const [releaseFor, setReleaseFor] = useState<HallRow | null>(null);
   useRealtimeInvalidate(["production", "production_releases"], [["production-hall"]]);
-  const rows = (hall.data ?? []).filter((r) => Number(r.in_hall) > 0);
+  // Only the products this person makes (Ruth, Blessing: bottle water;
+  // Gideon: dispensers and sachet), 2026-11-04.
+  const mine = useMyProductMatcher();
+  const rows = (hall.data ?? []).filter((r) => Number(r.in_hall) > 0 && mine(r.product_name));
   return (
     <Card className="rounded-2xl">
       <CardHeader className="pb-2">
@@ -296,9 +300,13 @@ export function ProductionHall({ factoryId }: { factoryId: string }) {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const mine = useMyProductMatcher();
   const rows = (hall.data ?? []).filter(
-    (r) => Number(r.produced) > 0 || Number(r.in_hall) !== 0 || Number(r.released) > 0,
+    (r) =>
+      (Number(r.produced) > 0 || Number(r.in_hall) !== 0 || Number(r.released) > 0) &&
+      mine(r.product_name),
   );
+  const myReleases = (releases.data ?? []).filter((r) => mine(r.products?.name ?? ""));
   const totalInHall = rows.reduce((t, r) => t + Number(r.in_hall), 0);
   const withCleared = rows.some((r) => Number(r.cleared ?? 0) > 0);
 
@@ -389,7 +397,7 @@ export function ProductionHall({ factoryId }: { factoryId: string }) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(releases.data ?? []).map((r) => {
+              {myReleases.map((r) => {
                 const st = RELEASE_STATUS[r.status] ?? {
                   label: r.status,
                   variant: "outline" as const,
@@ -464,7 +472,7 @@ export function ProductionHall({ factoryId }: { factoryId: string }) {
                   </TableRow>
                 );
               })}
-              {(releases.data ?? []).length === 0 && (
+              {myReleases.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={6} className="py-6 text-center text-muted-foreground">
                     Nothing released yet.
