@@ -578,6 +578,10 @@ function RecordMovementDialog({
   const [holderId, setHolderId] = useState("");
   const [quantity, setQuantity] = useState("");
   const [notes, setNotes] = useState("");
+  // Back-dating (user, 2026-11-04): jugs brought back on an earlier day are
+  // recorded on that day (20261104160000).
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "Africa/Lagos" });
+  const [date, setDate] = useState(today);
   const spec = KINDS.find((k) => k.value === kind)!;
   const list = holderType === "customer" ? customers : holderType === "sales_rep" ? reps : [];
 
@@ -592,12 +596,13 @@ function RecordMovementDialog({
           holder_id: spec.needsHolder && holderType !== "walk_in" ? holderId : null,
           quantity: Number(quantity),
           notes: notes || null,
-        },
+          movement_date: date,
+        } as never,
       });
       if (error) throw error;
     },
     onSuccess: () => {
-      toast.success("Movement recorded");
+      toast.success(date === today ? "Movement recorded" : `Movement recorded on ${date}`);
       qc.invalidateQueries({ queryKey: ["container-balances"] });
       qc.invalidateQueries({ queryKey: ["container-movements"] });
       onDone();
@@ -625,6 +630,21 @@ function RecordMovementDialog({
               ))}
             </SelectContent>
           </Select>
+        </div>
+        <div>
+          <Label>Date</Label>
+          <Input
+            type="date"
+            className="w-44"
+            value={date}
+            max={today}
+            onChange={(e) => e.target.value && setDate(e.target.value)}
+          />
+          {date !== today && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Recorded on {date} — the reports put it on that day.
+            </p>
+          )}
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
