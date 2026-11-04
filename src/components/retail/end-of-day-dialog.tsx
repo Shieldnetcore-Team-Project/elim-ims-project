@@ -80,23 +80,44 @@ export function EndOfDayDialog({
       return data as unknown as DayResponse;
     },
   });
+  // A past day: its unsold stayed at the shop overnight and have since been
+  // sold or sent back, so only what the shop still holds now can go back.
+  const isPast = date < lagosToday();
+  const now = useQuery({
+    queryKey: ["outlet-day", outletId, lagosToday()],
+    enabled: isPast,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc(
+        "outlet_day_figures" as never,
+        { p_outlet: outletId, p_date: lagosToday() } as never,
+      );
+      if (error) throw error;
+      return data as unknown as DayResponse;
+    },
+  });
+  const nowHeld = (id: string) =>
+    n(now.data?.live.products.find((p) => p.product_id === id)?.closing);
   const live = day.data?.live;
   const held = (live?.products ?? []).filter((p) => n(p.closing) > 0);
+  const canReturn = (p: DayProduct) =>
+    isPast ? Math.min(n(p.closing), nowHeld(p.product_id)) : n(p.closing);
+  const tooMany = (p: DayProduct) =>
+    (unsold[p.product_id] ?? 0) + (damaged[p.product_id] ?? 0) > canReturn(p);
   const closed = day.data?.reconciliation && day.data.reconciliation.status !== "queried";
 
   // A new day starts from: everything unsold goes back, the money as taken.
   useEffect(() => {
     if (!live) return;
-    setUnsold(Object.fromEntries(held.map((p) => [p.product_id, n(p.closing)])));
+    setUnsold(Object.fromEntries(held.map((p) => [p.product_id, isPast ? 0 : n(p.closing)])));
     setDamaged({});
     setCash(n(live.money.cash_expected));
     setOther(n(live.money.other_expected));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [live]);
+  }, [live, isPast]);
 
   const left = (p: DayProduct) =>
     n(p.closing) - (unsold[p.product_id] ?? 0) - (damaged[p.product_id] ?? 0);
-  const over = held.some((p) => left(p) < 0);
+  const over = held.some(tooMany);
   const moneyOff =
     !!live &&
     (Math.abs(cash - n(live.money.cash_expected)) > 0.005 ||
@@ -207,6 +228,7 @@ export function EndOfDayDialog({
               <TableRow>
                 <TableHead>Product</TableHead>
                 <TableHead className="text-right">At the shop</TableHead>
+                {isPast && <TableHead className="text-right">There now</TableHead>}
                 <TableHead className="text-right">Unsold → Warehouse</TableHead>
                 <TableHead className="text-right">Damaged</TableHead>
                 <TableHead className="text-right">Left at shop</TableHead>
@@ -219,6 +241,9 @@ export function EndOfDayDialog({
                   <TableCell className="text-right">
                     {num(n(p.closing))} {p.unit}
                   </TableCell>
+                  {isPast && (
+                    <TableCell className="text-right">{num(nowHeld(p.product_id))}</TableCell>
+                  )}
                   <TableCell className="text-right">
                     {qtyInput(unsold[p.product_id], (v) =>
                       setUnsold((m) => ({ ...m, [p.product_id]: v })),
@@ -230,7 +255,7 @@ export function EndOfDayDialog({
                     )}
                   </TableCell>
                   <TableCell
-                    className={`text-right font-medium ${left(p) < 0 ? "text-destructive" : ""}`}
+                    className={`text-right font-medium ${tooMany(p) ? "text-destructive" : ""}`}
                   >
                     {num(left(p))}
                   </TableCell>
@@ -238,13 +263,22 @@ export function EndOfDayDialog({
               ))}
               {held.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={5} className="py-4 text-center text-muted-foreground">
+                  <TableCell
+                    colSpan={isPast ? 6 : 5}
+                    className="py-4 text-center text-muted-foreground"
+                  >
                     Nothing left at the shop.
                   </TableCell>
                 </TableRow>
               )}
             </TableBody>
           </Table>
+          {isPast && held.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              A past day: what was left that evening stayed at the shop. Return only what is still
+              there now (&quot;There now&quot;); otherwise leave 0 and just post the money.
+            </p>
+          )}
 
           <div className="grid gap-3 md:grid-cols-3">
             <div className="space-y-1">
@@ -284,6 +318,7 @@ export function EndOfDayDialog({
           className="gap-2"
           disabled={
             !live ||
+            (isPast && now.isLoading) ||
             !!closed ||
             (live?.pending_sales ?? 0) > 0 ||
             over ||
