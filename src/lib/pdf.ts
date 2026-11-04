@@ -1248,6 +1248,8 @@ export async function generateDispatchSlipPdf(
     posted_by?: string | null;
     currency?: string;
     quantities_only?: boolean;
+    // A footer per copy, e.g. Warehouse Copy / Marketer Copy.
+    copy_labels?: string[];
   },
   action: PdfAction = "download",
   copies = 1,
@@ -1275,6 +1277,7 @@ export async function generateDispatchSlipPdf(
         opts.status === "posted" ? null : `Status: ${opts.status.replace(/_/g, " ").toUpperCase()}`,
       file_name: opts.dispatch_number,
       quantities_only: opts.quantities_only,
+      copy_labels: opts.copy_labels,
     },
     action,
     copies,

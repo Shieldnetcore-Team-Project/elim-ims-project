@@ -2,7 +2,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { generateDispatchSlipPdf } from "@/lib/pdf";
 import { generateDistributorInvoicePdf } from "@/lib/distributor-invoice";
-import { INVOICE_COMPANY_NAME } from "@/lib/invoice";
+import { INVOICE_COMPANY_NAME, warehouseSlipLabels } from "@/lib/invoice";
 import type { Database } from "@/integrations/supabase/types";
 
 type Settings = Database["public"]["Tables"]["settings"]["Row"] | null | undefined;
@@ -89,6 +89,9 @@ export async function printDispatchSlip(
   copies = 1,
   // Items and quantities only (printed outside Accounts).
   quantitiesOnly = false,
+  // The Warehouse's labelled copies (Warehouse Copy, then Marketer / Retail
+  // Shop Copy), 2026-11-04.
+  labelled = false,
 ) {
   const d = await loadDispatch(ref);
   if (!d) return;
@@ -120,6 +123,9 @@ export async function printDispatchSlip(
       posted_by: postedBy,
       currency: settings?.currency ?? "NGN",
       quantities_only: quantitiesOnly,
+      copy_labels: labelled
+        ? warehouseSlipLabels(d.sales_reps?.kind === "outlet" ? "retail" : "marketer")
+        : undefined,
     },
     action,
     copies,

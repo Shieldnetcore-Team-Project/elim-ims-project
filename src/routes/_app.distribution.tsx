@@ -11,7 +11,7 @@ import {
   printDispatchInvoice,
   printDispatchSlip,
 } from "@/lib/dispatch-slip";
-import { printSaleInvoice } from "@/lib/invoice";
+import { printSaleInvoice, WAREHOUSE_SLIP_COPIES } from "@/lib/invoice";
 import { generateReceiptPdf } from "@/lib/pdf";
 import { usePermissions } from "@/lib/permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -65,7 +65,7 @@ import { money, num } from "@/lib/format";
 import { exportCsv } from "@/lib/export";
 import { toast } from "sonner";
 import { logAudit } from "@/lib/audit";
-import { fetchMyProductMatcher } from "@/lib/product-rules";
+import { fetchMyProductMatcher, useMyProductMatcher } from "@/lib/product-rules";
 import { QuickAddProductDialog, ADD_NEW_ITEM } from "@/components/shared/quick-add-item";
 import { requestDelete } from "@/lib/request-delete";
 import { RequestDeleteDialog } from "@/components/shared/request-delete-dialog";
@@ -454,6 +454,7 @@ type OpenReturn = {
     product_id: string;
     quantity_returned: number;
     accepted_quantity: number | null;
+    products?: { name: string } | null;
     // Per line (20261104110000): the posting that carried it back on.
     carried?: { status: string } | null;
   }[];
@@ -568,7 +569,7 @@ function LineEditor({
 function NewDispatchDialog({
   factoryId,
   reps,
-  products,
+  products: allProducts,
   onDone,
   kind,
   fixedRepId,
@@ -590,6 +591,11 @@ function NewDispatchDialog({
   // Render just the form, for use inside another dialog.
   embedded?: boolean;
 }) {
+  // Only the products this Warehouse officer handles (Kemi bottles, Gideon
+  // dispensers and sachet), whatever list was passed in (2026-11-04: a
+  // shared cache once handed the Retail Shop form every product).
+  const mine = useMyProductMatcher();
+  const products = allProducts.filter((p) => mine(p.name));
   const [pickedRepId, setRepId] = useState(kind && reps.length === 1 ? reps[0].id : "");
   const repId = fixedRepId ?? pickedRepId;
   const holderLabel =
@@ -607,7 +613,7 @@ function NewDispatchDialog({
   // 2026-10-31). Each can be left out with its tick box.
   const repKind = reps.find((r) => r.id === repId)?.kind ?? kind;
   const openReturns = useQuery({
-    queryKey: ["dispatch-open-returns", factoryId, repId, products.map((p) => p.id).join(",")],
+    queryKey: ["dispatch-open-returns", factoryId, repId],
     // The Retail Shop returns unsold products at close of business too (2026-11-02).
     enabled: !!repId && !carryReturn && (repKind === "rep" || repKind === "outlet"),
     queryFn: async () => {
@@ -615,7 +621,7 @@ function NewDispatchDialog({
         supabase
           .from("rep_returns")
           .select(
-            `id,return_number,return_date,carried:stock_dispatches!rep_returns_carried_dispatch_id_fkey(status),rep_return_items(product_id,quantity_returned,accepted_quantity${
+            `id,return_number,return_date,carried:stock_dispatches!rep_returns_carried_dispatch_id_fkey(status),rep_return_items(product_id,quantity_returned,accepted_quantity,products(name)${
               lineCarry
                 ? ",carried:stock_dispatches!rep_return_items_carried_dispatch_id_fkey(status)"
                 : ""
@@ -627,21 +633,30 @@ function NewDispatchDialog({
           .order("received_at");
       let { data, error } = await read(true);
       // Before 20261104110000 is in: whole returns only.
+      const perLine = !error;
       if (error) ({ data, error } = await read(false));
       if (error) throw error;
+      // The officer's own products, read fresh (not the on-screen default
+      // that allows everything until the rules have loaded).
+      const handles = await fetchMyProductMatcher();
+      const isMine = (it: { products?: { name: string } | null }) =>
+        !!it.products?.name && handles(it.products.name);
       const open = (c?: { status: string } | null) => !c || c.status === "reversed";
       // Only the lines still open and handled by this Warehouse officer
       // (products is their list): Kemi's bottles, Gideon's dispensers and
       // sachet -- the rest stays for the other officer (2026-11-04).
-      return ((data ?? []) as unknown as OpenReturn[])
-        .filter((r) => open(r.carried))
-        .map((r) => ({
-          ...r,
-          rep_return_items: r.rep_return_items.filter(
-            (it) => open(it.carried) && products.some((p) => p.id === it.product_id),
-          ),
-        }))
-        .filter((r) => r.rep_return_items.length > 0);
+      return (
+        ((data ?? []) as unknown as OpenReturn[])
+          .filter((r) => open(r.carried))
+          // Without the per-line update a return is carried whole, so one
+          // with another officer's products is left for them / an Admin.
+          .filter((r) => perLine || r.rep_return_items.every(isMine))
+          .map((r) => ({
+            ...r,
+            rep_return_items: r.rep_return_items.filter((it) => open(it.carried) && isMine(it)),
+          }))
+          .filter((r) => r.rep_return_items.length > 0)
+      );
     },
   });
   const [skipped, setSkipped] = useState<Set<string>>(new Set());
@@ -1419,8 +1434,16 @@ function MarketerPostingsCard({
                 </TableCell>
                 <TableCell className="whitespace-nowrap text-right">
                   <PrintCopiesButton
+                    defaultCopies={WAREHOUSE_SLIP_COPIES}
                     onPrint={(copies) =>
-                      printDispatchSlip({ id: d.id }, settings.data, "print", copies, !showValues)
+                      printDispatchSlip(
+                        { id: d.id },
+                        settings.data,
+                        "print",
+                        copies,
+                        !showValues,
+                        true,
+                      )
                     }
                   />
                   {d.status === "posted" && canCorrect && (

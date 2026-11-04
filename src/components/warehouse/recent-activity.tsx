@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useRealtimeInvalidate } from "@/lib/realtime";
 import { useFactorySettings } from "@/lib/use-factory";
 import { PrintCopiesButton } from "@/components/shared/print-copies-button";
+import { WAREHOUSE_SLIP_COPIES } from "@/lib/invoice";
 import {
   type Activity,
   hasSlip,
@@ -196,7 +197,12 @@ export function WarehouseRecentActivity({ factoryId }: { factoryId: string }) {
                         <Eye className="h-4 w-4" />
                       </Button>
                     )}
-                    {hasSlip(a) && <PrintCopiesButton onPrint={(copies) => print(a, copies)} />}
+                    {hasSlip(a) && (
+                      <PrintCopiesButton
+                        defaultCopies={WAREHOUSE_SLIP_COPIES}
+                        onPrint={(copies) => print(a, copies)}
+                      />
+                    )}
                     {canCorrect(a) && (
                       <Button
                         variant="ghost"

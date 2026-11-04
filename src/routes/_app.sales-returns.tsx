@@ -214,7 +214,9 @@ function SalesReturnsPage() {
     },
   });
   const distProducts = useQuery({
-    queryKey: ["dist-products", factoryId],
+    // Its own key: the Warehouse posting forms' "dist-products" list is
+    // limited to the officer's products (2026-11-04), this one is not.
+    queryKey: ["sales-returns-products", factoryId],
     enabled: !!factoryId,
     queryFn: async () => {
       const { data, error } = await supabase
@@ -344,7 +346,12 @@ function SalesReturnsPage() {
           distributorsOnly
           onClose={() => setDistributorOpen(false)}
           onDone={() => {
-            for (const key of ["sales-returns-list", "products-for-returns", "dist-products"])
+            for (const key of [
+              "sales-returns-list",
+              "products-for-returns",
+              "dist-products",
+              "sales-returns-products",
+            ])
               qc.invalidateQueries({ queryKey: [key] });
           }}
         />

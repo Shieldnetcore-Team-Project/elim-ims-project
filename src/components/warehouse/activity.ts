@@ -1,7 +1,7 @@
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { printDispatchSlip } from "@/lib/dispatch-slip";
-import { printSaleInvoice } from "@/lib/invoice";
+import { printSaleInvoice, warehouseSlipLabels } from "@/lib/invoice";
 
 // Shared by the Warehouse's Recent activity card and its Activity Log tab.
 export type Activity = {
@@ -55,7 +55,7 @@ export async function printWarehouseActivity(
   copies: number,
 ) {
   if (a.kind === "marketer" || a.kind === "retail") {
-    await printDispatchSlip({ number: a.reference }, settings, "print", copies);
+    await printDispatchSlip({ number: a.reference }, settings, "print", copies, false, true);
     return;
   }
   const { data, error } = await supabase
@@ -68,7 +68,14 @@ export async function printWarehouseActivity(
     toast.error(error?.message ?? "Invoice not found");
     return;
   }
-  await printSaleInvoice(data.id, settings, "print", "roll", copies);
+  await printSaleInvoice(
+    data.id,
+    settings,
+    "print",
+    "roll",
+    copies,
+    warehouseSlipLabels("customer"),
+  );
 }
 
 // Each Warehouse officer sees only the products they handle (user,

@@ -73,6 +73,21 @@ export async function fetchSaleLines(saleIds: string[]): Promise<Map<string, Sal
 export const SALE_SLIP_LABELS = ["*** Sales-Rep Copy ***", "*** Customer Copy ***"];
 export const REPRINT_LABEL = "*** Reprint ***";
 
+// The Warehouse's slips (user, 2026-11-04): two copies in the same order as
+// the shop's -- the Warehouse's own copy first, then the one for whoever the
+// goods went to -- each its own print job, so the printer cuts between them.
+export const WAREHOUSE_SLIP_COPIES = 2;
+export function warehouseSlipLabels(to: "marketer" | "retail" | "customer"): string[] {
+  return [
+    "*** Warehouse Copy ***",
+    to === "marketer"
+      ? "*** Marketer Copy ***"
+      : to === "retail"
+        ? "*** Retail Shop Copy ***"
+        : "*** Customer Copy ***",
+  ];
+}
+
 // What happened to the dispenser jars on a shop sale (user, 2026-10-31), for
 // the receipt: each choice, the jar part of a permanent sale, and how many
 // empties the customer must bring back. Null when no line has a jar choice.

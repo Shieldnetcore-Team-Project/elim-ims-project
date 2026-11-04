@@ -12,12 +12,15 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 export function PrintCopiesButton({
   onPrint,
   title = "Print",
+  defaultCopies = 1,
 }: {
   onPrint: (copies: number) => void | Promise<void>;
   title?: string;
+  // The Warehouse's slips start at 2 (its copy, then the receiver's).
+  defaultCopies?: number;
 }) {
   const [open, setOpen] = useState(false);
-  const [copies, setCopies] = useState(1);
+  const [copies, setCopies] = useState(defaultCopies);
   const go = () => {
     const n = Math.min(Math.max(Math.floor(copies) || 1, 1), 20);
     setOpen(false);
@@ -52,8 +55,7 @@ export function PrintCopiesButton({
           />
           {copies > 1 && (
             <p className="text-[11px] text-muted-foreground">
-              All copies print together, one after the other — cut along each &quot;cut here&quot;
-              line.
+              Each copy prints on its own and is cut off before the next.
             </p>
           )}
           <Button type="submit" size="sm" className="gap-1">

@@ -10,6 +10,7 @@ import { useRealtimeInvalidate } from "@/lib/realtime";
 import { num } from "@/lib/format";
 import { DatePicker } from "@/components/shared/date-picker";
 import { PrintCopiesButton } from "@/components/shared/print-copies-button";
+import { WAREHOUSE_SLIP_COPIES } from "@/lib/invoice";
 import { ReportActions } from "@/components/shared/report-actions";
 import {
   type Activity,
@@ -318,6 +319,7 @@ function WarehouseActivityPage() {
                     <TableCell className="text-right">
                       {hasSlip(a) && (
                         <PrintCopiesButton
+                          defaultCopies={WAREHOUSE_SLIP_COPIES}
                           onPrint={(copies) =>
                             printWarehouseActivity(a, factoryId, settings.data, copies)
                           }
