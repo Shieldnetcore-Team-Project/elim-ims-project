@@ -10,6 +10,9 @@ import { num } from "@/lib/format";
 import { generateProductionStockReportPdf } from "@/lib/pdf";
 import { exportCsv } from "@/lib/export";
 import { useMyProductMatcher } from "@/lib/product-rules";
+import { PAGES, usePageAccess } from "@/lib/page-access";
+import { useIsAdmin } from "@/lib/permissions";
+import { QcReportsTab } from "@/components/qc/qc-reports";
 import { SHIFT_LABEL, type ProductionShift as Shift } from "@/lib/production-shift";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -122,6 +125,12 @@ function ProductionReportPage() {
   const today = localDay(new Date());
   const [from, setFrom] = useState(today);
   const [to, setTo] = useState(today);
+  const { canPage } = usePageAccess();
+  const qcReportsPage = PAGES.find((p) => p.entry === "Production" && p.label === "QC Reports");
+  // Admin / Chairman always; otherwise whoever is ticked (Retshak).
+  const isAdmin = useIsAdmin();
+  const qcReports = isAdmin || (!!qcReportsPage && canPage(qcReportsPage));
+  const [view, setView] = useState<"products" | "qc">("products");
 
   useRealtimeInvalidate(
     ["production", "production_releases"],
@@ -347,122 +356,150 @@ function ProductionReportPage() {
             and the closing balance that opens the next day.
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" className="gap-2" onClick={() => print("print")}>
-            <Printer className="h-4 w-4" /> Print
-          </Button>
-          <Button variant="outline" className="gap-2" onClick={() => print("download")}>
-            <Download className="h-4 w-4" /> PDF
-          </Button>
-        </div>
+        {view === "products" && (
+          <div className="flex gap-2">
+            <Button variant="outline" className="gap-2" onClick={() => print("print")}>
+              <Printer className="h-4 w-4" /> Print
+            </Button>
+            <Button variant="outline" className="gap-2" onClick={() => print("download")}>
+              <Download className="h-4 w-4" /> PDF
+            </Button>
+          </div>
+        )}
       </div>
 
-      <Card className="rounded-2xl">
-        <CardContent className="flex flex-wrap items-end gap-3 p-4">
-          <div>
-            <Label className="text-xs">From</Label>
-            <Input type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} />
-          </div>
-          <div>
-            <Label className="text-xs">To</Label>
-            <Input type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} />
-          </div>
-          {quick.map((q) => (
+      {/* Products Report / QC Reports (user, 2026-11-04: at the top, easy to find). */}
+      {qcReports && (
+        <div className="flex w-fit rounded-md border p-0.5">
+          {(
+            [
+              ["products", "Products Report"],
+              ["qc", "QC Reports"],
+            ] as const
+          ).map(([v, label]) => (
             <Button
-              key={q.label}
+              key={v}
               size="sm"
-              variant={from === q.from && to === q.to ? "default" : "outline"}
-              onClick={() => {
-                setFrom(q.from);
-                setTo(q.to);
-              }}
+              variant={view === v ? "default" : "ghost"}
+              className="h-8 px-4"
+              onClick={() => setView(v)}
             >
-              {q.label}
+              {label}
             </Button>
           ))}
-        </CardContent>
-      </Card>
+        </div>
+      )}
 
-      <Card className="rounded-2xl">
-        <CardHeader>
-          <CardTitle className="text-base">
-            Production Department: Products Report from {from} to {to}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-12">S/N</TableHead>
-                <TableHead>Product</TableHead>
-                <TableHead className="text-right">Opening</TableHead>
-                <TableHead className="text-right">Produced</TableHead>
-                <TableHead className="text-right">Total</TableHead>
-                <TableHead className="text-right">Released</TableHead>
-                {withCleared && <TableHead className="text-right">Cleared</TableHead>}
-                <TableHead className="text-right">Balance</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {shownRows.map((r, i) => (
-                <TableRow key={r.product + i}>
-                  <TableCell>{i + 1}</TableCell>
-                  <TableCell className="font-medium">{r.product}</TableCell>
-                  <TableCell className="text-right">{num(r.opening)}</TableCell>
-                  <TableCell className="text-right">{num(r.produced)}</TableCell>
-                  <TableCell className="text-right">{num(r.total)}</TableCell>
-                  <TableCell className="text-right">{num(r.released)}</TableCell>
-                  {withCleared && <TableCell className="text-right">{num(r.cleared)}</TableCell>}
-                  <TableCell
-                    className={`text-right font-semibold ${r.balance > 0 ? "text-warning" : ""}`}
-                  >
-                    {num(r.balance)}
-                  </TableCell>
-                </TableRow>
-              ))}
-              {shownRows.length === 0 && (
+      {qcReports && view === "qc" && factoryId && <QcReportsTab factoryId={factoryId} />}
+
+      <div className={view === "qc" ? "hidden" : "space-y-6"}>
+        <Card className="rounded-2xl">
+          <CardContent className="flex flex-wrap items-end gap-3 p-4">
+            <div>
+              <Label className="text-xs">From</Label>
+              <Input type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} />
+            </div>
+            <div>
+              <Label className="text-xs">To</Label>
+              <Input type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} />
+            </div>
+            {quick.map((q) => (
+              <Button
+                key={q.label}
+                size="sm"
+                variant={from === q.from && to === q.to ? "default" : "outline"}
+                onClick={() => {
+                  setFrom(q.from);
+                  setTo(q.to);
+                }}
+              >
+                {q.label}
+              </Button>
+            ))}
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-2xl">
+          <CardHeader>
+            <CardTitle className="text-base">
+              Production Department: Products Report from {from} to {to}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="overflow-x-auto">
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell
-                    colSpan={withCleared ? 8 : 7}
-                    className="py-8 text-center text-muted-foreground"
-                  >
-                    {batches.isLoading ? "Loading…" : "No products yet."}
-                  </TableCell>
+                  <TableHead className="w-12">S/N</TableHead>
+                  <TableHead>Product</TableHead>
+                  <TableHead className="text-right">Opening</TableHead>
+                  <TableHead className="text-right">Produced</TableHead>
+                  <TableHead className="text-right">Total</TableHead>
+                  <TableHead className="text-right">Released</TableHead>
+                  {withCleared && <TableHead className="text-right">Cleared</TableHead>}
+                  <TableHead className="text-right">Balance</TableHead>
                 </TableRow>
+              </TableHeader>
+              <TableBody>
+                {shownRows.map((r, i) => (
+                  <TableRow key={r.product + i}>
+                    <TableCell>{i + 1}</TableCell>
+                    <TableCell className="font-medium">{r.product}</TableCell>
+                    <TableCell className="text-right">{num(r.opening)}</TableCell>
+                    <TableCell className="text-right">{num(r.produced)}</TableCell>
+                    <TableCell className="text-right">{num(r.total)}</TableCell>
+                    <TableCell className="text-right">{num(r.released)}</TableCell>
+                    {withCleared && <TableCell className="text-right">{num(r.cleared)}</TableCell>}
+                    <TableCell
+                      className={`text-right font-semibold ${r.balance > 0 ? "text-warning" : ""}`}
+                    >
+                      {num(r.balance)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {shownRows.length === 0 && (
+                  <TableRow>
+                    <TableCell
+                      colSpan={withCleared ? 8 : 7}
+                      className="py-8 text-center text-muted-foreground"
+                    >
+                      {batches.isLoading ? "Loading…" : "No products yet."}
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+              {shownRows.length > 0 && (
+                <TableFooter>
+                  <TableRow>
+                    <TableCell colSpan={2}>Total</TableCell>
+                    <TableCell className="text-right">{num(sum("opening"))}</TableCell>
+                    <TableCell className="text-right">{num(sum("produced"))}</TableCell>
+                    <TableCell className="text-right">{num(sum("total"))}</TableCell>
+                    <TableCell className="text-right">{num(sum("released"))}</TableCell>
+                    {withCleared && (
+                      <TableCell className="text-right">{num(sum("cleared"))}</TableCell>
+                    )}
+                    <TableCell className="text-right">{num(sum("balance"))}</TableCell>
+                  </TableRow>
+                </TableFooter>
               )}
-            </TableBody>
-            {shownRows.length > 0 && (
-              <TableFooter>
-                <TableRow>
-                  <TableCell colSpan={2}>Total</TableCell>
-                  <TableCell className="text-right">{num(sum("opening"))}</TableCell>
-                  <TableCell className="text-right">{num(sum("produced"))}</TableCell>
-                  <TableCell className="text-right">{num(sum("total"))}</TableCell>
-                  <TableCell className="text-right">{num(sum("released"))}</TableCell>
-                  {withCleared && (
-                    <TableCell className="text-right">{num(sum("cleared"))}</TableCell>
-                  )}
-                  <TableCell className="text-right">{num(sum("balance"))}</TableCell>
-                </TableRow>
-              </TableFooter>
-            )}
-          </Table>
-          <p className="mt-3 text-xs text-muted-foreground">
-            Produced counts by production date; Released counts by the day Production released it to
-            the Warehouse. Production after the Warehouse closes is released the next morning, so it
-            shows as that day&apos;s Balance and the next day&apos;s Opening.
-          </p>
-        </CardContent>
-      </Card>
+            </Table>
+            <p className="mt-3 text-xs text-muted-foreground">
+              Produced counts by production date; Released counts by the day Production released it
+              to the Warehouse. Production after the Warehouse closes is released the next morning,
+              so it shows as that day&apos;s Balance and the next day&apos;s Opening.
+            </p>
+          </CardContent>
+        </Card>
 
-      <ProductTypeSummary
-        batches={(batches.data ?? []).filter((b) => mine(b.products?.name ?? ""))}
-        products={(products.data ?? []).filter((p) => mine(p.name))}
-        from={from}
-        to={to}
-      />
+        <ProductTypeSummary
+          batches={(batches.data ?? []).filter((b) => mine(b.products?.name ?? ""))}
+          products={(products.data ?? []).filter((p) => mine(p.name))}
+          from={from}
+          to={to}
+        />
 
-      <ShiftBreakdown batches={batches.data ?? []} from={from} to={to} mine={mine} />
+        <ShiftBreakdown batches={batches.data ?? []} from={from} to={to} mine={mine} />
+      </div>
     </div>
   );
 }

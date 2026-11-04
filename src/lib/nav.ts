@@ -41,6 +41,9 @@ export type NavTab = {
   url?: string;
   search?: Record<string, string>;
   inBar?: boolean;
+  // Shown only to someone ticked for it (Admin Panel -> Users -> Pages),
+  // never just by having the module (2026-11-04: Production › QC Reports).
+  explicit?: boolean;
 };
 
 // A page can sit under more than one entry (Orders is in both Retail and
@@ -130,6 +133,15 @@ export const nav: { section: string; items: NavItem[] }[] = [
             url: "/production-requests",
           },
           { label: "Products Report", module: "production", url: "/production-report" },
+          // QC's Reports for the production manager (Retshak), 2026-11-04 --
+          // a section of Products Report, given person by person.
+          {
+            label: "QC Reports",
+            module: "production",
+            url: "/production-report",
+            inBar: false,
+            explicit: true,
+          },
         ],
       },
       {

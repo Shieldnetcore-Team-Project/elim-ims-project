@@ -22,6 +22,8 @@ export type Page = {
   module: ModuleKey;
   url?: string;
   search?: Record<string, string>;
+  // Only for someone ticked for it (NavTab.explicit).
+  explicit?: boolean;
 };
 
 export const pageIdFor = (item: NavItem, tab?: NavTab) =>
@@ -32,6 +34,7 @@ export const PAGES: Page[] = nav.flatMap((group) =>
     item.tabs
       ? item.tabs.map((t) => ({
           id: pageIdFor(item, t),
+          explicit: t.explicit,
           section: group.section,
           entry: item.title,
           label: t.label,
@@ -177,11 +180,13 @@ export function useMyPageAccess() {
 // (ticking a page grants that too, so its data loads).
 export function pageAllowed(
   decisions: Map<string, boolean> | undefined,
-  page: Pick<Page, "id" | "module">,
+  page: Pick<Page, "id" | "module"> & { explicit?: boolean },
   canView: (m: ModuleKey) => boolean,
 ): boolean {
   const d = decisions?.get(page.id);
   if (d === false) return false;
+  // An explicit page needs its own tick.
+  if (page.explicit && d !== true) return false;
   return canView(page.module);
 }
 
@@ -209,7 +214,8 @@ export function usePageAccess() {
   const perms = usePermissions();
   const decisions = useMyPageAccess();
   const canView = (m: ModuleKey) => perms.can(m, "view");
-  const canPage = (page: Pick<Page, "id" | "module">) => pageAllowed(decisions.data, page, canView);
+  const canPage = (page: Pick<Page, "id" | "module"> & { explicit?: boolean }) =>
+    pageAllowed(decisions.data, page, canView);
   const canEntry = (title: string) => pagesOfEntry(title).some(canPage);
   const canOpen = (pathname: string, search: Record<string, unknown>) =>
     openAllowed(pathname, search, canPage);
