@@ -28,3 +28,15 @@ export function useMyProductMatcher(): (name: string) => boolean {
   });
   return q.data ?? (() => true);
 }
+
+// What finished product line a QC item (empty bottle, preform, jug) feeds,
+// so the item can be checked against the person's product rules (user,
+// 2026-11-04: Ruth sees only what QC sends for bottle water). Jugs go to
+// dispenser production, sachet film to sachet, everything else QC hands
+// over (blown bottles, preforms, caps) to bottle water.
+export function qcItemLine(name: string): string {
+  const n = name.toLowerCase();
+  if (/jug|dispenser/.test(n)) return "Dispenser Water";
+  if (/sachet/.test(n)) return "Sachet Water";
+  return "Bottle Water";
+}

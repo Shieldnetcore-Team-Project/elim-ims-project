@@ -12,6 +12,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { usePermissions } from "@/lib/permissions";
+import { qcItemLine, useMyProductMatcher } from "@/lib/product-rules";
 import { num } from "@/lib/format";
 import { useMyUserId, usePreformLive, useTransfers, useUserNames, type Transfer } from "./api";
 import { RejectDialog, ReceiveDialog, RejectionsCard, useRejectedByTransfer } from "./transfers";
@@ -38,8 +39,12 @@ export function PmBottlesFromQc({
   const me = useMyUserId();
   const transfers = useTransfers(canView ? factoryId : undefined);
   const rejected = useRejectedByTransfer(canView ? factoryId : undefined);
+  // Only what QC sends for the products this person makes (Ruth, Blessing:
+  // bottle water; dispenser / sachet production see none of it), 2026-11-04.
+  const mine = useMyProductMatcher();
   const rows = (transfers.data ?? [])
     .filter((t) => ["dispatched", "received", "discrepancy"].includes(t.status))
+    .filter((t) => mine(qcItemLine(t.product?.name ?? "")))
     .slice(0, 30);
   const pending = rows.filter((t) => t.status === "dispatched");
   const names = useUserNames(rows.flatMap((t) => [t.sent_by, t.received_by]));
