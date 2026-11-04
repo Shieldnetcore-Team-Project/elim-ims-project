@@ -175,10 +175,10 @@ export async function printDispatchInvoice(
 }
 
 // A marketer's / the shop's whole day as ONE invoice (user, 2026-11-03):
-// everything posted (lines of the same product and price added together)
-// and, as minus lines, everything they returned that day; the total is the
-// net. Every posting / return number is listed. Reversed postings are left
-// out.
+// everything posted (lines of the same product and price added together).
+// What they returned that day is taken off the matching product's line --
+// never printed as a line of its own (user, 2026-11-04) -- and a line left
+// at 0 drops off; the total is the net. Reversed postings are left out.
 export async function printDispatchDayInvoice(
   ids: string[],
   settings: Settings,
@@ -207,36 +207,30 @@ export async function printDispatchDayInvoice(
       lines.set(key, l);
     }
   // The day's returns, through rep_posting_lines (Accounts can't read
-  // products directly), as minus lines.
-  const back = new Map<string, Item>();
-  const returnNumbers: string[] = [];
+  // products directly), come off the posted lines of the same product.
+  const returnedQty = new Map<string, number>();
   for (const id of returnIds) {
-    const [{ data: rl }, { data: rr }] = await Promise.all([
-      supabase.rpc("rep_posting_lines" as never, { p_kind: "return", p_id: id } as never),
-      supabase.from("rep_returns").select("return_number").eq("id", id).maybeSingle(),
-    ]);
-    if (rr) returnNumbers.push((rr as { return_number: string }).return_number);
-    for (const l of (rl ?? []) as unknown as {
-      product_name: string;
-      quantity: number;
-      unit_price: number;
-      line_total: number;
-    }[]) {
-      const key = `${l.product_name}|${l.unit_price}`;
-      const b = back.get(key) ?? {
-        name: `Returned: ${l.product_name}`,
-        quantity: 0,
-        unit_price: Number(l.unit_price),
-        line_total: 0,
-      };
-      b.quantity -= Number(l.quantity);
-      b.line_total -= Number(l.line_total);
-      back.set(key, b);
+    const { data: rl } = await supabase.rpc(
+      "rep_posting_lines" as never,
+      { p_kind: "return", p_id: id } as never,
+    );
+    for (const l of (rl ?? []) as unknown as { product_name: string; quantity: number }[])
+      returnedQty.set(l.product_name, (returnedQty.get(l.product_name) ?? 0) + Number(l.quantity));
+  }
+  for (const [name, qty] of returnedQty) {
+    let left = qty;
+    for (const l of lines.values()) {
+      if (left <= 0) break;
+      if (l.name !== name || l.quantity <= 0) continue;
+      const take = Math.min(left, l.quantity);
+      l.quantity -= take;
+      l.line_total -= take * l.unit_price;
+      left -= take;
     }
   }
-  const posted = live.reduce((t, d) => t + Number(d.total_value), 0);
-  const returned = -[...back.values()].reduce((t, b) => t + b.line_total, 0);
-  const net = posted - returned;
+  for (const [k, l] of lines) if (l.quantity <= 0) lines.delete(k);
+  if (lines.size === 0) return;
+  const net = [...lines.values()].reduce((t, l) => t + l.line_total, 0);
   const latest = live
     .map((d) => d.created_at ?? d.dispatch_date)
     .sort()
@@ -255,7 +249,7 @@ export async function printDispatchDayInvoice(
       party_label: first.sales_reps?.kind === "outlet" ? "Retail Shop" : null,
       delivery_method:
         first.sales_reps?.kind === "outlet" ? "Company Delivery" : "Delivered by Marketer",
-      items: [...lines.values(), ...back.values()],
+      items: [...lines.values()],
       subtotal: net,
       discount: 0,
       vat: 0,
@@ -263,12 +257,7 @@ export async function printDispatchDayInvoice(
       grand_total: net,
       amount_paid: 0,
       balance: net,
-      remarks: [
-        `${first.dispatch_date}: posted ${live.map((d) => d.dispatch_number).join(", ")}`,
-        returnNumbers.length ? `returned ${returnNumbers.join(", ")}` : null,
-      ]
-        .filter(Boolean)
-        .join("; "),
+      remarks: `${first.dispatch_date}: posted ${live.map((d) => d.dispatch_number).join(", ")}`,
     },
     action,
   );
