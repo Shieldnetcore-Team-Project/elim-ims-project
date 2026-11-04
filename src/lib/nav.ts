@@ -175,6 +175,14 @@ export const nav: { section: string; items: NavItem[] }[] = [
             url: "/quality-control",
             search: { tab: "jugs" },
           },
+          {
+            // Moved from the Warehouse (2026-11-04; page access moved by
+            // 20261104260000).
+            label: "Dispenser & jugs",
+            module: "distribution",
+            url: "/quality-control",
+            search: { tab: "dispenser-jugs" },
+          },
         ],
       },
       {
@@ -222,7 +230,6 @@ export const nav: { section: string; items: NavItem[] }[] = [
           { label: "Returns", module: "sales-returns", url: "/sales-returns" },
           // "Reps & outlet stock" moved to the Accountant page (2026-11-02); the
           // Warehouse posts to marketers from Stock's Post menu.
-          { label: "Dispenser & jugs", module: "distribution", url: "/jug-accountability" },
           // "Customers" moved to the Accountant page (2026-11-02).
           {
             label: "Finished Products",

@@ -326,44 +326,79 @@ export function ReceiveUnsoldDialog({
 }) {
   // Marketers only: the Retail Shop no longer returns (20261104130000).
   const marketers = allMarketers.filter((m) => m.kind !== "outlet");
-  // From a marketer, or from any customer (user, 2026-11-02).
-  const [from, setFrom] = useState<"rep" | "customer">(presetCustomerId ? "customer" : "rep");
-  const toggle = (
+  // One list: every marketer and every Distributor/Office Delivery customer
+  // (user, 2026-11-04).
+  const distributors = useQuery({
+    queryKey: ["jug", "customers", factoryId, true],
+    queryFn: async () => {
+      const { data, error } = await db
+        .from("customers")
+        .select("id,name,phone,registered,sales_rep_id")
+        .eq("factory_id", factoryId)
+        .is("removed_at", null)
+        .order("name");
+      if (error) throw error;
+      return (
+        (data ?? []) as {
+          id: string;
+          name: string;
+          registered: boolean;
+          sales_rep_id: string | null;
+        }[]
+      ).filter((c) => c.registered && !c.sales_rep_id);
+    },
+  });
+  const [party, setParty] = useState(
+    presetCustomerId ? `cust:${presetCustomerId}` : presetRepId ? `rep:${presetRepId}` : "",
+  );
+  const [kind, id] = party ? (party.split(":") as ["rep" | "cust", string]) : ["rep", ""];
+  const picker = (
     <Field label="From">
-      <div className="flex gap-1">
-        <Button
-          type="button"
-          size="sm"
-          variant={from === "rep" ? "default" : "outline"}
-          onClick={() => setFrom("rep")}
-        >
-          Marketer
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant={from === "customer" ? "default" : "outline"}
-          onClick={() => setFrom("customer")}
-        >
-          Customer
-        </Button>
-      </div>
+      <Select value={party} onValueChange={setParty}>
+        <SelectTrigger>
+          <SelectValue placeholder="Choose a marketer or distributor" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectGroup>
+            <SelectLabel>Marketers</SelectLabel>
+            {marketers.map((m) => (
+              <SelectItem key={m.id} value={`rep:${m.id}`}>
+                {m.code ? `${m.code} · ` : ""}
+                {m.name}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+          <SelectGroup>
+            <SelectLabel>Distributors</SelectLabel>
+            {(distributors.data ?? []).map((c) => (
+              <SelectItem key={c.id} value={`cust:${c.id}`}>
+                {c.name}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
     </Field>
   );
-  return from === "rep" ? (
+  return kind === "cust" ? (
+    <CustomerUnsoldDialog
+      key={party}
+      factoryId={factoryId}
+      onClose={onClose}
+      toggle={picker}
+      presetCustomerId={id}
+      distributorsOnly
+      hidePicker
+    />
+  ) : (
     <MarketerUnsoldDialog
+      key={party}
       factoryId={factoryId}
       marketers={marketers}
       onClose={onClose}
-      toggle={toggle}
-      presetRepId={presetRepId}
-    />
-  ) : (
-    <CustomerUnsoldDialog
-      factoryId={factoryId}
-      onClose={onClose}
-      toggle={toggle}
-      presetCustomerId={presetCustomerId}
+      toggle={picker}
+      presetRepId={id || undefined}
+      hidePicker
     />
   );
 }
@@ -374,12 +409,15 @@ function MarketerUnsoldDialog({
   onClose,
   toggle,
   presetRepId,
+  hidePicker = false,
 }: {
   factoryId: string;
   marketers: Named[];
   onClose: () => void;
   toggle: React.ReactNode;
   presetRepId?: string;
+  // The From list above already picked the marketer.
+  hidePicker?: boolean;
 }) {
   const [repId, setRepId] = useState(presetRepId ?? "");
   const [qty, setQty] = useState<Record<string, number | null>>({});
@@ -452,27 +490,29 @@ function MarketerUnsoldDialog({
         </DialogHeader>
         <div className="grid gap-3">
           {toggle}
-          <Field label="Marketer">
-            <Select
-              value={repId}
-              onValueChange={(v) => {
-                setRepId(v);
-                setQty({});
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Choose" />
-              </SelectTrigger>
-              <SelectContent>
-                {marketers.map((m) => (
-                  <SelectItem key={m.id} value={m.id}>
-                    {m.code ? `${m.code} · ` : ""}
-                    {m.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
+          {!hidePicker && (
+            <Field label="Marketer">
+              <Select
+                value={repId}
+                onValueChange={(v) => {
+                  setRepId(v);
+                  setQty({});
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Choose" />
+                </SelectTrigger>
+                <SelectContent>
+                  {marketers.map((m) => (
+                    <SelectItem key={m.id} value={m.id}>
+                      {m.code ? `${m.code} · ` : ""}
+                      {m.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+          )}
           {repId && <LastSuppliedPanel kind="marketer" id={repId} />}
           {repId && <ReturnDateField value={unsoldDate} onChange={setUnsoldDate} />}
           {repId && (
@@ -561,10 +601,13 @@ export function CustomerUnsoldDialog({
   distributorsOnly = false,
   onDone,
   presetCustomerId,
+  hidePicker = false,
 }: {
   factoryId: string;
   onClose: () => void;
   toggle?: React.ReactNode;
+  // The From list above already picked the customer.
+  hidePicker?: boolean;
   allProducts?: boolean;
   distributorsOnly?: boolean;
   onDone?: () => void;
@@ -687,33 +730,35 @@ export function CustomerUnsoldDialog({
         </DialogHeader>
         <div className="grid gap-3">
           {toggle}
-          <Field label="Customer">
-            <Input
-              placeholder="Search name or phone…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-            <Select
-              value={customerId}
-              onValueChange={(v) => {
-                setCustomerId(v);
-                setQty({});
-                setManual([]);
-              }}
-            >
-              <SelectTrigger className="mt-1">
-                <SelectValue placeholder={customers.isLoading ? "Loading…" : "Choose"} />
-              </SelectTrigger>
-              <SelectContent>
-                {shown.slice(0, 200).map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.name}
-                    {c.phone ? ` · ${c.phone}` : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
+          {!hidePicker && (
+            <Field label="Customer">
+              <Input
+                placeholder="Search name or phone…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+              <Select
+                value={customerId}
+                onValueChange={(v) => {
+                  setCustomerId(v);
+                  setQty({});
+                  setManual([]);
+                }}
+              >
+                <SelectTrigger className="mt-1">
+                  <SelectValue placeholder={customers.isLoading ? "Loading…" : "Choose"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {shown.slice(0, 200).map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}
+                      {c.phone ? ` · ${c.phone}` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+          )}
           {customerId && <LastSuppliedPanel kind="customer" id={customerId} />}
           {customerId && (
             <Table>

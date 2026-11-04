@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { RequireAccess } from "@/components/layout/require-access";
+import { RemittanceCommission } from "@/components/accounting/remittance-commission";
 import { SectionTabs } from "@/components/layout/section-tabs";
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -183,6 +184,9 @@ function PerformancePage() {
           </Button>
         </div>
       </div>
+
+      {/* Commission on remittances, by achievement band (2026-11-04). */}
+      {factoryId && rangeOk && <RemittanceCommission factoryId={factoryId} from={from} to={to} />}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Kpi icon={TrendingUp} label="Marketer sales" value={money(totals.value)} />

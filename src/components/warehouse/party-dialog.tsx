@@ -9,7 +9,7 @@ import { num } from "@/lib/format";
 import { type Activity, KIND, scopeToMyProducts } from "@/components/warehouse/activity";
 import { useMyProductMatcher } from "@/lib/product-rules";
 import { CancelPostingButton, useCanCancelPosting } from "@/components/warehouse/cancel-posting";
-import { CustomerUnsoldDialog } from "@/components/jugs/dialogs";
+import { CustomerUnsoldDialog, ReceiveUnsoldDialog } from "@/components/jugs/dialogs";
 import { LastSuppliedPanel } from "@/components/warehouse/last-supplied";
 import { ReturnDateField } from "@/components/shared/return-date";
 import { useDayReturns } from "@/lib/day-returns";
@@ -66,7 +66,11 @@ export function WarehousePartyDialog({
   // the empty-jug price (record_sold_dispenser_jugs). Marketers' empties
   // still come back through Warehouse -> Dispenser & jugs -> Returns.
   const canSoldRight = !holder && perms.can("sales", "create");
-  const [act, setAct] = useState<"products" | "jugs" | null>(null);
+  const [act, setAct] = useState<"products" | "jugs" | "unsold" | null>(null);
+  // Receive unsold dispensers from any marketer or distributor (2026-11-04).
+  const canUnsold =
+    party.type !== "retail" &&
+    (perms.can("distribution", "submit") || perms.can("sales-returns", "submit"));
   const marketers = useMarketers(factoryId);
   // Only the products this Warehouse officer handles (2026-11-02).
   const mine = useMyProductMatcher();
@@ -141,6 +145,11 @@ export function WarehousePartyDialog({
             {canReturn && (
               <Button className="gap-2" onClick={() => setAct("products")}>
                 <Undo2 className="h-4 w-4" /> Return products
+              </Button>
+            )}
+            {canUnsold && mine("Dispenser Water") && (
+              <Button variant="outline" className="gap-2" onClick={() => setAct("unsold")}>
+                <Undo2 className="h-4 w-4" /> Receive unsold dispensers
               </Button>
             )}
             {canSoldRight && mine("Dispenser Water") && (
@@ -248,6 +257,15 @@ export function WarehousePartyDialog({
           allProducts
           distributorsOnly
           presetCustomerId={party.id}
+          onClose={() => setAct(null)}
+        />
+      )}
+      {act === "unsold" && (
+        <ReceiveUnsoldDialog
+          factoryId={factoryId}
+          marketers={(marketers.data ?? []).filter((m) => m.active)}
+          presetRepId={party.type === "marketer" ? party.id : undefined}
+          presetCustomerId={party.type === "distributor" ? party.id : undefined}
           onClose={() => setAct(null)}
         />
       )}

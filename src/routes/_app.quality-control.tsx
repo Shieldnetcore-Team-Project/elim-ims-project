@@ -45,7 +45,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { num } from "@/lib/format";
 import { toast } from "sonner";
-import { ClipboardCheck, PackageCheck, Search } from "lucide-react";
+import { ClipboardCheck, PackageCheck, Search, Undo2 } from "lucide-react";
 import { useRealtimeInvalidate } from "@/lib/realtime";
 import { useCurrentUserName } from "@/lib/use-current-user";
 import { AddMaterialDialog, MaterialCombobox } from "@/components/shared/material-picker";
@@ -54,6 +54,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { QcJugRegister } from "@/components/qc/jug-register";
 import { QcJugReturnsToCount } from "@/components/qc/jug-returns-to-count";
 import { BottleTrackingPanel } from "@/components/qc/bottle-tracking";
+import { ReceiveUnsoldDialog } from "@/components/jugs/dialogs";
+import { JugAccountabilityPage } from "@/components/jugs/jug-accountability-page";
+import { useMarketers } from "@/components/jugs/api";
 import { GoodBottlesPanel } from "@/components/qc/good-bottles";
 import { ReceivedFromStorePanel } from "@/components/qc/received-from-store";
 import { QcPreformsPanel } from "@/components/qc/qc-preforms";
@@ -87,6 +90,8 @@ const QC_TABS = [
   "jugs",
   "good-bottles",
   "bottle-tracking",
+  // Dispenser & jugs, moved here from the Warehouse (2026-11-04).
+  "dispenser-jugs",
   "reports",
 ] as const;
 type QcTab = (typeof QC_TABS)[number];
@@ -209,10 +214,13 @@ function QualityControlPage() {
     // has that page.
     ...(pageOk("Inspections") || pageOk("Dispenser") ? (["jugs"] as const) : []),
     ...(pageOk("Good bottles") ? (["good-bottles"] as const) : []),
+    ...(pageOk("Dispenser & jugs") ? (["dispenser-jugs"] as const) : []),
     // The printed QC sheets (preform and bottles), for whoever works QC.
     ...(pageOk("Inspections") || pageOk("Good bottles") ? (["reports"] as const) : []),
   ];
   const showInspections = tabs.includes("orders");
+  const [unsoldOpen, setUnsoldOpen] = useState(false);
+  const jugMarketers = useMarketers(showInspections ? (factoryId ?? undefined) : undefined);
   const wanted = tab === "bottle-tracking" ? "jugs" : tab;
   const current = wanted && tabs.includes(wanted) ? wanted : tabs[0];
   const setTab = (t: QcTab) =>
@@ -366,6 +374,9 @@ function QualityControlPage() {
           {!showInspections && tabs.includes("jugs") && (
             <TabsTrigger value="jugs">Dispenser</TabsTrigger>
           )}
+          {tabs.includes("dispenser-jugs") && (
+            <TabsTrigger value="dispenser-jugs">Dispenser &amp; jugs</TabsTrigger>
+          )}
           {tabs.includes("reports") && <TabsTrigger value="reports">Reports</TabsTrigger>}
         </TabsList>
         <TabsContent value="received">
@@ -376,6 +387,9 @@ function QualityControlPage() {
         </TabsContent>
         <TabsContent value="good-bottles">
           {factoryId && <GoodBottlesPanel factoryId={factoryId} />}
+        </TabsContent>
+        <TabsContent value="dispenser-jugs">
+          {tabs.includes("dispenser-jugs") && <JugAccountabilityPage />}
         </TabsContent>
         <TabsContent value="reports">
           {factoryId && <QcReportsTab factoryId={factoryId} />}
@@ -391,6 +405,24 @@ function QualityControlPage() {
               {pageOk("Dispenser") && <BottleTrackingPanel />}
               {showInspections && (
                 <>
+                  {/* QC receives unsold dispensers from any marketer or
+                      distributor too (user, 2026-11-04). */}
+                  <div className="flex justify-end">
+                    <Button
+                      variant="secondary"
+                      className="gap-2"
+                      onClick={() => setUnsoldOpen(true)}
+                    >
+                      <Undo2 className="h-4 w-4" /> Receive unsold dispensers
+                    </Button>
+                  </div>
+                  {unsoldOpen && (
+                    <ReceiveUnsoldDialog
+                      factoryId={factoryId}
+                      marketers={(jugMarketers.data ?? []).filter((m) => m.active)}
+                      onClose={() => setUnsoldOpen(false)}
+                    />
+                  )}
                   <QcJugReturnsToCount factoryId={factoryId} />
                   <QcJugRegister factoryId={factoryId} />
                 </>

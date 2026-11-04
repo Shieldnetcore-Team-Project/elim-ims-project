@@ -12,7 +12,60 @@ import { Toaster } from "@/components/ui/sonner";
 
 import appCss from "../styles.css?url";
 
+// The splash comes off whatever the app shows -- a page, "not found" or the
+// error screen -- so an error is never hidden behind "Loading your
+// workspace…" (2026-11-04).
+function useRemoveSplash() {
+  useEffect(() => {
+    const splash = document.getElementById("app-splash");
+    if (!splash) return;
+    splash.style.transition = "opacity 300ms ease";
+    splash.style.opacity = "0";
+    const timer = setTimeout(() => splash.remove(), 300);
+    return () => clearTimeout(timer);
+  }, []);
+}
+
+// Runs before the app's code: after a new deploy an open tab can ask for app
+// files that no longer exist, and the app never starts. Such a load failure
+// reloads the page once (fresh files); and if the app still hasn't started
+// after 15 seconds, the splash offers a Reload button.
+const SPLASH_GUARD = `(function(){
+  var KEY = "elim-reloaded-at";
+  function reloadOnce() {
+    try {
+      var last = Number(sessionStorage.getItem(KEY) || 0);
+      if (Date.now() - last < 60000) return;
+      sessionStorage.setItem(KEY, String(Date.now()));
+    } catch (e) {}
+    location.reload();
+  }
+  function isLoadFailure(msg) {
+    return /dynamically imported module|Importing a module script failed|ChunkLoadError|Loading chunk/i.test(msg || "");
+  }
+  window.addEventListener("error", function (e) {
+    var t = e && e.target;
+    if (t && (t.tagName === "SCRIPT" || t.tagName === "LINK")) reloadOnce();
+    else if (e && isLoadFailure(e.message)) reloadOnce();
+  }, true);
+  window.addEventListener("unhandledrejection", function (e) {
+    var r = e && e.reason;
+    if (isLoadFailure(r && (r.message || String(r)))) reloadOnce();
+  });
+  setTimeout(function () {
+    var s = document.getElementById("app-splash");
+    if (!s || document.getElementById("app-splash-slow")) return;
+    var d = document.createElement("div");
+    d.id = "app-splash-slow";
+    d.style.cssText = "text-align:center;color:rgba(255,255,255,.8);font:14px system-ui,sans-serif";
+    d.innerHTML = 'Taking longer than usual.<br><button style="margin-top:10px;padding:8px 18px;border-radius:8px;border:0;background:#38bdf8;color:#0b1b3a;font-weight:600;cursor:pointer">Reload</button>';
+    d.querySelector("button").onclick = function () { location.reload(); };
+    s.appendChild(d);
+  }, 15000);
+})();`;
+
 function NotFoundComponent() {
+  useRemoveSplash();
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
@@ -36,6 +89,7 @@ function NotFoundComponent() {
 
 function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   console.error(error);
+  useRemoveSplash();
   const router = useRouter();
 
   return (
@@ -77,7 +131,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { title: "Elim Table Water — Factory Management & Inventory System" },
       {
         name: "description",
-        content: "Enterprise inventory, sales, production, payroll, and reporting for the Water Factory.",
+        content:
+          "Enterprise inventory, sales, production, payroll, and reporting for the Water Factory.",
       },
       {
         property: "og:title",
@@ -85,7 +140,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       },
       {
         property: "og:description",
-        content: "One platform for the factory. Secure roles, real-time dashboards, complete audit history.",
+        content:
+          "One platform for the factory. Secure roles, real-time dashboards, complete audit history.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -135,6 +191,7 @@ function RootShell({ children }: { children: ReactNode }) {
         <noscript>
           <style>{`#app-splash { display: none; }`}</style>
         </noscript>
+        <script dangerouslySetInnerHTML={{ __html: SPLASH_GUARD }} />
         {children}
         <Scripts />
       </body>
@@ -144,15 +201,7 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
-
-  useEffect(() => {
-    const splash = document.getElementById("app-splash");
-    if (!splash) return;
-    splash.style.transition = "opacity 300ms ease";
-    splash.style.opacity = "0";
-    const timer = setTimeout(() => splash.remove(), 300);
-    return () => clearTimeout(timer);
-  }, []);
+  useRemoveSplash();
 
   return (
     <QueryClientProvider client={queryClient}>
