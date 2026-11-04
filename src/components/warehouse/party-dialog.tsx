@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Loader2, Undo2 } from "lucide-react";
+import { HandCoins, Loader2, Undo2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { usePermissions } from "@/lib/permissions";
 import { localDay } from "@/lib/production-shift";
@@ -9,7 +9,7 @@ import { num } from "@/lib/format";
 import { type Activity, KIND, scopeToMyProducts } from "@/components/warehouse/activity";
 import { useMyProductMatcher } from "@/lib/product-rules";
 import { CancelPostingButton, useCanCancelPosting } from "@/components/warehouse/cancel-posting";
-import { CustomerUnsoldDialog, RecordReturnDialog } from "@/components/jugs/dialogs";
+import { CustomerUnsoldDialog } from "@/components/jugs/dialogs";
 import { LastSuppliedPanel } from "@/components/warehouse/last-supplied";
 import { ReturnDateField } from "@/components/shared/return-date";
 import { useDayReturns } from "@/lib/day-returns";
@@ -61,7 +61,11 @@ export function WarehousePartyDialog({
   const canReturn = holder
     ? party.type === "marketer" && perms.can("distribution", "submit")
     : perms.can("sales-returns", "submit") || perms.can("distribution", "submit");
-  const canJugs = perms.can("distribution", "create") || perms.can("sales", "create");
+  // "Record sold Dispenser + Water" replaces "Return empty Dispenser Jugs"
+  // (user, 2026-11-04): a distributor's customers kept the jugs -- billed at
+  // the empty-jug price (record_sold_dispenser_jugs). Marketers' empties
+  // still come back through Warehouse -> Dispenser & jugs -> Returns.
+  const canSoldRight = !holder && perms.can("sales", "create");
   const [act, setAct] = useState<"products" | "jugs" | null>(null);
   const marketers = useMarketers(factoryId);
   // Only the products this Warehouse officer handles (2026-11-02).
@@ -139,9 +143,9 @@ export function WarehousePartyDialog({
                 <Undo2 className="h-4 w-4" /> Return products
               </Button>
             )}
-            {canJugs && (types.data ?? []).length > 0 && (
+            {canSoldRight && mine("Dispenser Water") && (
               <Button variant="outline" className="gap-2" onClick={() => setAct("jugs")}>
-                <Undo2 className="h-4 w-4" /> Return empty Dispenser Jugs
+                <HandCoins className="h-4 w-4" /> Record sold Dispenser + Water
               </Button>
             )}
           </div>
@@ -247,16 +251,7 @@ export function WarehousePartyDialog({
           onClose={() => setAct(null)}
         />
       )}
-      {act === "jugs" && (
-        <RecordReturnDialog
-          factoryId={factoryId}
-          marketers={(marketers.data ?? []).filter((m) => m.active)}
-          types={(types.data ?? []).filter((t) => t.active)}
-          initialRepId={holder ? party.id : undefined}
-          initialCustomerId={holder ? undefined : party.id}
-          onClose={() => setAct(null)}
-        />
-      )}
+      {act === "jugs" && <SoldJugsDialog party={party} onClose={() => setAct(null)} />}
     </>
   );
 }
@@ -439,6 +434,87 @@ function HolderReturnDialog({
           >
             {save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Return {total > 0 ? num(total) : ""}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// The distributor sold dispensers with the jug: their customers keep the
+// jugs, which are billed to the distributor at the empty-jug price.
+function SoldJugsDialog({ party, onClose }: { party: Party; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [qty, setQty] = useState("");
+  const [date, setDate] = useState(localDay());
+  const save = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.rpc(
+        "record_sold_dispenser_jugs" as never,
+        { payload: { customer_id: party.id, quantity: Number(qty), sale_date: date } } as never,
+      );
+      if (error) {
+        if (/could not find the function/i.test(error.message))
+          throw new Error(
+            "The update is not in the database yet -- run supabase/migrations/20261104230000_record_sold_dispenser_jugs.sql in the SQL Editor.",
+          );
+        throw error;
+      }
+      return data as unknown as { invoice_number: string; quantity: number };
+    },
+    onSuccess: (r) => {
+      toast.success(
+        `${num(r.quantity)} sold Dispenser + Water recorded — invoice ${r.invoice_number} to Accounts`,
+      );
+      for (const k of [
+        "warehouse-transactions",
+        "warehouse-party",
+        "warehouse-party-holding",
+        "jug",
+        "container-balances",
+      ])
+        void qc.invalidateQueries({ queryKey: [k] });
+      onClose();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  return (
+    <Dialog open onOpenChange={(o) => !o && !save.isPending && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Record sold Dispenser + Water</DialogTitle>
+          <DialogDescription>
+            {party.name} sold dispensers with the jug — their customers keep the jugs. Each jug is
+            billed to {party.name} at the empty-jug price, on an invoice Accounts confirms, and no
+            longer owed back.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <label className="text-sm font-medium">Dispensers sold with the jug</label>
+            <Input type="number" min={1} value={qty} onChange={(e) => setQty(e.target.value)} />
+          </div>
+          <div className="space-y-1">
+            <label className="text-sm font-medium">Date</label>
+            <Input
+              type="date"
+              value={date}
+              max={localDay()}
+              onChange={(e) => e.target.value && setDate(e.target.value)}
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={save.isPending}>
+            Cancel
+          </Button>
+          <Button
+            className="gap-2"
+            disabled={!(Number(qty) > 0) || save.isPending}
+            onClick={() => save.mutate()}
+          >
+            {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+            Record
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -312,15 +312,22 @@ export function RecordReturnDialog({
 // moved marketer -> Warehouse on the container ledger (counted as Received).
 export function ReceiveUnsoldDialog({
   factoryId,
-  marketers,
+  marketers: allMarketers,
   onClose,
+  presetRepId,
+  presetCustomerId,
 }: {
   factoryId: string;
-  marketers: Named[];
+  marketers: (Named & { kind?: string })[];
   onClose: () => void;
+  // Opened from a marketer's / a distributor's window (2026-11-04).
+  presetRepId?: string;
+  presetCustomerId?: string;
 }) {
-  // From a marketer / the shop, or from any customer (user, 2026-11-02).
-  const [from, setFrom] = useState<"rep" | "customer">("rep");
+  // Marketers only: the Retail Shop no longer returns (20261104130000).
+  const marketers = allMarketers.filter((m) => m.kind !== "outlet");
+  // From a marketer, or from any customer (user, 2026-11-02).
+  const [from, setFrom] = useState<"rep" | "customer">(presetCustomerId ? "customer" : "rep");
   const toggle = (
     <Field label="From">
       <div className="flex gap-1">
@@ -330,7 +337,7 @@ export function ReceiveUnsoldDialog({
           variant={from === "rep" ? "default" : "outline"}
           onClick={() => setFrom("rep")}
         >
-          Marketer / shop
+          Marketer
         </Button>
         <Button
           type="button"
@@ -349,9 +356,15 @@ export function ReceiveUnsoldDialog({
       marketers={marketers}
       onClose={onClose}
       toggle={toggle}
+      presetRepId={presetRepId}
     />
   ) : (
-    <CustomerUnsoldDialog factoryId={factoryId} onClose={onClose} toggle={toggle} />
+    <CustomerUnsoldDialog
+      factoryId={factoryId}
+      onClose={onClose}
+      toggle={toggle}
+      presetCustomerId={presetCustomerId}
+    />
   );
 }
 
@@ -360,13 +373,15 @@ function MarketerUnsoldDialog({
   marketers,
   onClose,
   toggle,
+  presetRepId,
 }: {
   factoryId: string;
   marketers: Named[];
   onClose: () => void;
   toggle: React.ReactNode;
+  presetRepId?: string;
 }) {
-  const [repId, setRepId] = useState("");
+  const [repId, setRepId] = useState(presetRepId ?? "");
   const [qty, setQty] = useState<Record<string, number | null>>({});
   const [notes, setNotes] = useState("");
   const links = useProductLinks(factoryId);
@@ -437,7 +452,7 @@ function MarketerUnsoldDialog({
         </DialogHeader>
         <div className="grid gap-3">
           {toggle}
-          <Field label="Marketer / outlet">
+          <Field label="Marketer">
             <Select
               value={repId}
               onValueChange={(v) => {

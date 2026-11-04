@@ -443,7 +443,9 @@ function RepDialog({
 
 /* ------------------------------------------------------------- Dispatches --- */
 
-type Line = { product_id: string; quantity: number };
+// discount / surcharge: per pack, on a Warehouse posting (2026-11-04); the
+// line posts at price - discount + surcharge.
+type Line = { product_id: string; quantity: number; discount?: number; surcharge?: number };
 // A marketer's completed return not yet carried into a posting.
 type OpenReturn = {
   id: string;
@@ -469,6 +471,23 @@ const mergeLines = (lines: Line[]) => {
   return [...byProduct].map(([product_id, quantity]) => ({ product_id, quantity }));
 };
 
+const linePrice = (price: number, l: Line) =>
+  Math.max(0, price - (l.discount ?? 0) + (l.surcharge ?? 0));
+
+// A posting's lines: one per product and discount / surcharge, so a line
+// with a discount keeps its own price (2026-11-04).
+const mergePostingLines = (lines: Line[]) => {
+  const by = new Map<string, Line>();
+  for (const l of lines) {
+    if (!l.product_id || !(l.quantity > 0)) continue;
+    const key = `${l.product_id}|${l.discount ?? 0}|${l.surcharge ?? 0}`;
+    const g = by.get(key) ?? { ...l, quantity: 0 };
+    g.quantity += l.quantity;
+    by.set(key, g);
+  }
+  return [...by.values()];
+};
+
 function LineEditor({
   products,
   lines,
@@ -476,12 +495,15 @@ function LineEditor({
   stockOf,
   qtyLabel = "Qty",
   factoryId,
+  adjustable = false,
 }: {
   products: Product[];
   lines: Line[];
   setLines: (l: Line[]) => void;
   stockOf: (productId: string) => number;
   qtyLabel?: string;
+  // Discount / surcharge per pack on each line (a posting).
+  adjustable?: boolean;
   // When set, the product dropdown offers "+ Add new product…".
   factoryId?: string;
 }) {
@@ -538,9 +560,25 @@ function LineEditor({
                 onChange={(v) => update(i, { quantity: v })}
               />
             </div>
+            {adjustable &&
+              (
+                [
+                  ["discount", "Discount/pack"],
+                  ["surcharge", "Surcharge/pack"],
+                ] as const
+              ).map(([k, label]) => (
+                <div key={k} className="w-28">
+                  <Label className="text-xs">{label}</Label>
+                  <MoneyInput
+                    min={0}
+                    value={l[k] ?? 0}
+                    onChange={(v) => update(i, { [k]: Math.max(0, v) })}
+                  />
+                </div>
+              ))}
             {showValues && (
               <div className="w-24 pb-2 text-right text-xs text-muted-foreground">
-                {p ? money(p.unit_price * (l.quantity || 0)) : "—"}
+                {p ? money(linePrice(p.unit_price, l) * (l.quantity || 0)) : "—"}
               </div>
             )}
             <Button variant="ghost" size="icon" onClick={() => remove(i)}>
@@ -676,7 +714,7 @@ function NewDispatchDialog({
     () =>
       [...lines, ...carriedLines].reduce((sum, l) => {
         const p = products.find((x) => x.id === l.product_id);
-        return sum + (p ? p.unit_price * (l.quantity || 0) : 0);
+        return sum + (p ? linePrice(p.unit_price, l) * (l.quantity || 0) : 0);
       }, 0),
     [lines, carriedLines, products],
   );
@@ -684,17 +722,37 @@ function NewDispatchDialog({
   const submit = useMutation({
     mutationFn: async () => {
       if (!repId) throw new Error(`Select a ${holderLabel.toLowerCase()}`);
-      const clean = mergeLines([...lines, ...carriedLines]);
+      const clean = mergePostingLines([...lines, ...carriedLines]);
       if (clean.length === 0) throw new Error("Add at least one product line");
+      const priceOf = (id: string) => products.find((p) => p.id === id)?.unit_price ?? 0;
+      // What was taken off / added per pack, in the notes for Accounts.
+      const adjNote = clean
+        .filter((l) => (l.discount ?? 0) > 0 || (l.surcharge ?? 0) > 0)
+        .map(
+          (l) =>
+            `${productName(l.product_id)}: ${[
+              (l.discount ?? 0) > 0 ? `discount ${money(l.discount!)}` : null,
+              (l.surcharge ?? 0) > 0 ? `surcharge ${money(l.surcharge!)}` : null,
+            ]
+              .filter(Boolean)
+              .join(", ")} per pack`,
+        )
+        .join(" · ");
       const { data, error } = await supabase.rpc("create_stock_dispatch", {
         payload: {
           factory_id: factoryId,
           sales_rep_id: repId,
           dispatch_date: date,
-          notes: notes || undefined,
+          notes: [notes, adjNote].filter(Boolean).join(" · ") || undefined,
           carry_return_id: carryReturn?.id,
           carry_return_ids: carried.map((r) => r.id),
-          items: clean.map((l) => ({ product_id: l.product_id, quantity: l.quantity })),
+          items: clean.map((l) => ({
+            product_id: l.product_id,
+            quantity: l.quantity,
+            ...((l.discount ?? 0) > 0 || (l.surcharge ?? 0) > 0
+              ? { unit_price: linePrice(priceOf(l.product_id), l) }
+              : {}),
+          })),
         } as never,
       });
       if (error) throw error;
@@ -801,6 +859,7 @@ function NewDispatchDialog({
             setLines={setLines}
             stockOf={(id) => products.find((p) => p.id === id)?.current_stock ?? 0}
             factoryId={factoryId}
+            adjustable
           />
         </div>
 

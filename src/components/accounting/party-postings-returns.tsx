@@ -1,6 +1,13 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Download, PackageCheck, Printer, Undo2 } from "lucide-react";
+import { Download, HandCoins, PackageCheck, Percent, Printer, Undo2 } from "lucide-react";
+import { toast } from "sonner";
+import { usePermissions } from "@/lib/permissions";
+import { Dialog } from "@/components/ui/dialog";
+import { SaleAdjustDialog } from "@/components/accounting/sale-adjust-dialog";
+import { CustomerPaymentDialog } from "@/components/accounting/customer-payment-dialog";
+import { PostingDiscountButton } from "@/components/accounting/posting-discount-dialog";
+import { useCanDiscountPostings } from "@/lib/posting-discount";
 import { supabase } from "@/integrations/supabase/client";
 import { useFactorySettings } from "@/lib/use-factory";
 import { useRealtimeInvalidate } from "@/lib/realtime";
@@ -68,6 +75,43 @@ export function PartyPostingsReturns({
   currency?: string;
 }) {
   const settings = useFactorySettings(factoryId).data;
+  // A distributor's invoice: Accounts gives a discount per product and takes
+  // payment here, before printing (user, 2026-11-04).
+  const perms = usePermissions();
+  const canPay = !repId && (perms.canWrite("payments") || perms.canWrite("debts"));
+  // A marketer's / the shop's posting: a discount per product (2026-11-04).
+  const canDiscountPosting = useCanDiscountPostings() && !!repId;
+  const [discounting, setDiscounting] = useState<{ id: string; invoice_number: string } | null>(
+    null,
+  );
+  const [paying, setPaying] = useState<{
+    id: string;
+    invoice_number: string;
+    customer_id: string;
+    balance: number;
+  } | null>(null);
+  const openPay = async (g: Group) => {
+    const { data, error } = await supabase
+      .from("sales")
+      .select("id,invoice_number,customer_id,balance")
+      .eq("id", g.id)
+      .maybeSingle();
+    if (error || !data) {
+      toast.error(error?.message ?? "Invoice not found");
+      return;
+    }
+    const s = data as {
+      id: string;
+      invoice_number: string;
+      customer_id: string | null;
+      balance: number;
+    };
+    if (!s.customer_id) {
+      toast.error("This invoice has no customer account to pay into");
+      return;
+    }
+    setPaying({ ...s, customer_id: s.customer_id, balance: Number(s.balance) });
+  };
   const [shown, setShown] = useState({ posting: PAGE, return: PAGE });
   // Calendar: empty = all time; a day / range = what is dated then.
   const [from, setFrom] = useState(day ?? "");
@@ -215,6 +259,31 @@ export function PartyPostingsReturns({
               {g.note && <span className="text-xs text-muted-foreground">{g.note}</span>}
               <span className="ml-auto flex items-center gap-1">
                 {showValues && <span className="font-medium">{money(g.value, currency)}</span>}
+                {kind === "posting" && canDiscountPosting && g.status === "posted" && (
+                  <PostingDiscountButton dispatchIds={[g.id]} title={g.reference} size="icon" />
+                )}
+                {kind === "posting" && canPay && g.status === "posted" && (
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      title="Discount / surcharge per product"
+                      onClick={() => setDiscounting({ id: g.id, invoice_number: g.reference })}
+                    >
+                      <Percent className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      title="Receive payment on this invoice"
+                      onClick={() => void openPay(g)}
+                    >
+                      <HandCoins className="h-4 w-4" />
+                    </Button>
+                  </>
+                )}
                 {kind === "posting" && (
                   <>
                     <Button
@@ -349,6 +418,33 @@ export function PartyPostingsReturns({
           <TabsContent value="return">{list(returns, "return")}</TabsContent>
         </Tabs>
       </CardContent>
+      <Dialog open={!!discounting} onOpenChange={(v) => !v && setDiscounting(null)}>
+        {discounting && (
+          <SaleAdjustDialog
+            sale={discounting}
+            currency={currency ?? "NGN"}
+            onDone={() => {
+              setDiscounting(null);
+              void q.refetch();
+            }}
+          />
+        )}
+      </Dialog>
+      <Dialog open={!!paying} onOpenChange={(v) => !v && setPaying(null)}>
+        {paying && (
+          <CustomerPaymentDialog
+            factoryId={factoryId}
+            customerId={paying.customer_id}
+            customerName={customerName ?? ""}
+            owed={paying.balance}
+            sale={{ id: paying.id, invoice_number: paying.invoice_number }}
+            onDone={() => {
+              setPaying(null);
+              void q.refetch();
+            }}
+          />
+        )}
+      </Dialog>
     </Card>
   );
 }

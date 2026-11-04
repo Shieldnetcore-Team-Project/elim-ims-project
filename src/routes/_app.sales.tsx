@@ -47,6 +47,7 @@ import {
   HandCoins,
   History,
   ShoppingCart,
+  Percent,
   Check,
   X,
   Ban,
@@ -61,6 +62,7 @@ import { toast } from "sonner";
 import { generateInvoicePdf } from "@/lib/pdf";
 import { INVOICE_COMPANY_NAME, printSaleInvoice, printShopSaleSlips } from "@/lib/invoice";
 import { PrintCopiesButton } from "@/components/shared/print-copies-button";
+import { SaleAdjustDialog } from "@/components/accounting/sale-adjust-dialog";
 import { ReportActions } from "@/components/shared/report-actions";
 import { logAudit } from "@/lib/audit";
 import { useMyProductMatcher } from "@/lib/product-rules";
@@ -143,7 +145,14 @@ type CartItem = {
   // Line id: the same dispenser can be on two lines at the shop (Water +
   // Jug, Water only); other lines are keyed by their product.
   key?: string;
+  // Warehouse posting to a distributor (user, 2026-11-04): per pack, off /
+  // on the price; the line posts at price - discount + surcharge.
+  discount?: number;
+  surcharge?: number;
 };
+// The price a line posts at.
+const netPrice = (c: Pick<CartItem, "unit_price" | "discount" | "surcharge">) =>
+  Math.max(0, c.unit_price - (c.discount ?? 0) + (c.surcharge ?? 0));
 const lineKey = (c: { key?: string; product_id: string }) => c.key ?? c.product_id;
 // "Dispenser Empty" and the like: an empty jug with no water.
 const isEmptyDispenser = (name: string) =>
@@ -255,6 +264,11 @@ function SalesPage() {
   const [advanceOpen, setAdvanceOpen] = useState(false);
   const [payTarget, setPayTarget] = useState<SaleRow | null>(null);
   const [historyTarget, setHistoryTarget] = useState<{ id: string; name: string } | null>(null);
+  // Accounts' discount per product on a shop sale (adjust_sale_lines).
+  const canDiscountSale = canWrite("payments") || canWrite("debts");
+  const [discounting, setDiscounting] = useState<{ id: string; invoice_number: string } | null>(
+    null,
+  );
   const [approveTarget, setApproveTarget] = useState<SaleRow | null>(null);
   const [rejectTarget, setRejectTarget] = useState<SaleRow | null>(null);
   const [cancelTarget, setCancelTarget] = useState<SaleRow | null>(null);
@@ -644,6 +658,17 @@ function SalesPage() {
                 <History className="h-4 w-4" /> History
               </Button>
             )}
+            {/* A discount per product on a posted shop sale (user, 2026-11-04). */}
+            {canDiscountSale && s.status === "posted" && (
+              <Button
+                variant="ghost"
+                size="icon"
+                title="Discount / surcharge per product"
+                onClick={() => setDiscounting({ id: s.id, invoice_number: s.invoice_number })}
+              >
+                <Percent className="h-4 w-4" />
+              </Button>
+            )}
             <PrintCopiesButton
               title="Print receipt"
               onPrint={(copies) => openInvoice(s.id, "print", copies)}
@@ -1016,6 +1041,18 @@ function SalesPage() {
         )}
       </Dialog>
 
+      <Dialog open={!!discounting} onOpenChange={(v) => !v && setDiscounting(null)}>
+        {discounting && (
+          <SaleAdjustDialog
+            sale={discounting}
+            currency={settings.data?.currency ?? "NGN"}
+            onDone={() => {
+              setDiscounting(null);
+              qc.invalidateQueries({ queryKey: ["sales-list"] });
+            }}
+          />
+        )}
+      </Dialog>
       <Dialog open={!!historyTarget} onOpenChange={(v) => !v && setHistoryTarget(null)}>
         {historyTarget && (
           <CustomerAccountDialog customerId={historyTarget.id} customerName={historyTarget.name} />
@@ -1858,7 +1895,7 @@ export function PosDialog({
   }, [products.data, categoryFilter, retailMode, mine]);
 
   const totals = useMemo(() => {
-    const subtotal = cart.reduce((s, i) => s + i.quantity * i.unit_price, 0);
+    const subtotal = cart.reduce((s, i) => s + i.quantity * netPrice(i), 0);
     const packs = cart.reduce((s, i) => s + i.quantity, 0);
     // Percentage discount is always taken off the subtotal, not off a
     // previously-discounted amount -- there's only ever one discount here.
@@ -2062,11 +2099,25 @@ export function PosDialog({
         sales_person: salesPerson || null,
         sales_rep_id: repMode ? salesRepId : null,
         is_pr: isPr,
-        remarks: remarks || null,
+        // What was taken off / added per pack, for Accounts (2026-11-04).
+        remarks:
+          [
+            remarks,
+            ...sellableCart
+              .filter((c) => (c.discount ?? 0) > 0 || (c.surcharge ?? 0) > 0)
+              .map(
+                (c) =>
+                  `${c.name}: ${(c.discount ?? 0) > 0 ? `discount ${money(c.discount!)}` : ""}${
+                    (c.discount ?? 0) > 0 && (c.surcharge ?? 0) > 0 ? ", " : ""
+                  }${(c.surcharge ?? 0) > 0 ? `surcharge ${money(c.surcharge!)}` : ""} per pack`,
+              ),
+          ]
+            .filter(Boolean)
+            .join(" · ") || null,
         items: sellableCart.map((c) => ({
           product_id: c.product_id,
           quantity: c.quantity,
-          unit_price: c.unit_price,
+          unit_price: netPrice(c),
           ...(c.jar_mode ? { jar_mode: c.jar_mode } : {}),
         })),
       };
@@ -2146,8 +2197,8 @@ export function PosDialog({
           name: c.name,
           quantity: c.quantity,
           unit: c.unit,
-          unit_price: c.unit_price,
-          line_total: c.quantity * c.unit_price,
+          unit_price: netPrice(c),
+          line_total: c.quantity * netPrice(c),
         })),
         subtotal: totals.subtotal,
         discount: totals.discount,
@@ -2325,8 +2376,34 @@ export function PosDialog({
                           incl. jar {money(Number(jugOf(c.product_id)!.jar_price))}
                         </div>
                       )}
+                      {warehousePosting && !retailMode && (
+                        <div className="mt-1 grid grid-cols-2 gap-1">
+                          {(
+                            [
+                              ["discount", "Discount"],
+                              ["surcharge", "Surcharge"],
+                            ] as const
+                          ).map(([k, label]) => (
+                            <div key={k}>
+                              <div className="text-[10px] text-muted-foreground">{label}/pack</div>
+                              <MoneyInput
+                                min={0}
+                                value={c[k] ?? 0}
+                                onChange={(v) =>
+                                  setCart((prev) =>
+                                    prev.map((x) =>
+                                      lineKey(x) === lineKey(c) ? { ...x, [k]: Math.max(0, v) } : x,
+                                    ),
+                                  )
+                                }
+                                className="h-7 text-xs"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </TableCell>
-                    <TableCell className="text-right">{money(c.quantity * c.unit_price)}</TableCell>
+                    <TableCell className="text-right">{money(c.quantity * netPrice(c))}</TableCell>
                     <TableCell>
                       <Button
                         variant="ghost"

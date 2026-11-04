@@ -1318,7 +1318,7 @@ function AccountantPage() {
                             {/* Always the newest posting's, and as often as needed. */}
                             {a.dayPostingIds &&
                               a.dayPostingIds.length > 0 &&
-                              a.party_type === "retail" &&
+                              // The shop and every marketer (user, 2026-11-04).
                               canDiscount && (
                                 <PostingDiscountButton
                                   dispatchIds={a.dayPostingIds}
