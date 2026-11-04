@@ -4,6 +4,15 @@ import { Download, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DatePicker } from "@/components/shared/date-picker";
 import { Label } from "@/components/ui/label";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableFooter,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { rpc } from "@/components/preform/api";
 import { splitBags } from "@/lib/preform-units";
 import { localDay } from "@/lib/production-shift";
@@ -13,7 +22,8 @@ import { qcLetterheadPdf, sheetCompany, type QcPdfReport } from "./qc-report-pdf
 
 // Quality Control → Reports: pick Preform or Bottle, a From and To date (one
 // day = the same date twice) and Print; the sheet prints as the factory's own
-// (logo, address, contacts, title, blue header row). No on-screen preview.
+// (logo, address, contacts, title, blue header row). The same table shows on
+// screen first (2026-11-04).
 //   Preform report  qc_preform_report  From Store, Pieces, Opening, Total,
 //                   Blown, Damages, Expected Bottles (= Blown − Damages),
 //                   Balance (= Total − Blown)
@@ -44,11 +54,45 @@ type BottleRow = {
   released: number;
   balance: number;
 };
-type Which = "preform" | "bottle";
+// Jugs (user, 2026-11-04), on the same letterhead:
+//   Jugs posted & returned  jug_accountability_report  per marketer / the
+//                   shop and day: Opening, Loaded, Total, Jug Water sold,
+//                   Returned, Expected empties, Received, Outstanding
+//   Where the jugs are      jug_locations (20261104120000), at the end of
+//                   the To date: Store, QC, Production, Warehouse,
+//                   marketers, customers, walk-in, total
+type JugReportRow = {
+  report_date: string;
+  rep_code: string | null;
+  rep_name: string;
+  container_name: string;
+  opening: number;
+  loaded: number;
+  total: number;
+  jug_water_sold: number;
+  returned: number;
+  expected_empties: number;
+  received: number;
+  outstanding: number;
+};
+type JugPlaceRow = {
+  container_name: string;
+  store: number;
+  qc: number;
+  production: number;
+  warehouse: number;
+  marketers: number;
+  customers: number;
+  walk_in: number;
+  total: number;
+};
+type Which = "preform" | "bottle" | "jugs" | "jug_places";
 type Sheet = {
   title: string;
   columns: { key: string; label: string }[];
   rows: Record<string, string | number>[];
+  // Columns added up on a Total row.
+  sum?: string[];
 };
 
 const n = (v: unknown) => Number(v ?? 0);
@@ -90,9 +134,26 @@ export function QcReportsTab({ factoryId }: { factoryId: string }) {
       rpc<BottleRow[]>("qc_bottle_report", { p_factory: factoryId, p_from: from, p_to: to }),
   });
 
+  const jugs = useQuery({
+    queryKey: ["qc-reports", "jugs", factoryId, from, to],
+    enabled: ok && which === "jugs",
+    queryFn: () =>
+      rpc<JugReportRow[]>("jug_accountability_report", {
+        p_factory: factoryId,
+        p_from: from,
+        p_to: to,
+        p_container_type: null,
+      }),
+  });
+  const jugPlaces = useQuery({
+    queryKey: ["qc-reports", "jug-places", factoryId, to],
+    enabled: ok && which === "jug_places",
+    queryFn: () => rpc<JugPlaceRow[]>("jug_locations", { p_factory: factoryId, p_at: to }),
+  });
+
   const company = sheetCompany(settings.data);
   const period = `FROM ${from} TO ${to}`;
-  const sheets: Record<Which, Sheet> = {
+  const sheets: Partial<Record<Which, Sheet>> & Record<"preform" | "bottle", Sheet> = {
     preform: {
       title: `Quality Control Department: Preform Report ${period}`,
       columns: [
@@ -148,24 +209,167 @@ export function QcReportsTab({ factoryId }: { factoryId: string }) {
         })),
     },
   };
-  const current = which === "preform" ? preforms : bottles;
+  // Old and New Jug together, as "Dispenser" (user, 2026-11-04: not split
+  // into new and old on the report): one row per marketer / shop and day.
+  const dispenser = (name: string) => (/jug|dispenser/i.test(name) ? "Dispenser" : name);
+  const jugRows = [
+    ...(jugs.data ?? [])
+      .reduce((m, r) => {
+        const key = `${r.report_date}|${r.rep_name}|${r.rep_code ?? ""}|${dispenser(r.container_name)}`;
+        const g = m.get(key) ?? {
+          ...r,
+          container_name: dispenser(r.container_name),
+          opening: 0,
+          loaded: 0,
+          total: 0,
+          jug_water_sold: 0,
+          returned: 0,
+          expected_empties: 0,
+          received: 0,
+          outstanding: 0,
+        };
+        for (const k of [
+          "opening",
+          "loaded",
+          "total",
+          "jug_water_sold",
+          "returned",
+          "expected_empties",
+          "received",
+          "outstanding",
+        ] as const)
+          g[k] = n(g[k]) + n(r[k]);
+        return m.set(key, g);
+      }, new Map<string, JugReportRow>())
+      .values(),
+  ].filter(
+    (r) => n(r.opening) || n(r.loaded) || n(r.returned) || n(r.received) || n(r.outstanding),
+  );
+  sheets.jugs = {
+    title: `Quality Control Department: Jugs Posted & Returned ${period}`,
+    columns: [
+      { key: "sn", label: "S/N" },
+      { key: "date", label: "Date" },
+      { key: "name", label: "Marketer / Shop" },
+      { key: "jug", label: "Dispenser" },
+      { key: "opening", label: "Opening" },
+      { key: "loaded", label: "Loaded" },
+      { key: "total", label: "Total" },
+      { key: "sold", label: "Jug Water Sold" },
+      { key: "returned", label: "Returned" },
+      { key: "expected", label: "Expected Empties" },
+      { key: "received", label: "Received" },
+      { key: "outstanding", label: "Outstanding" },
+    ],
+    sum: ["loaded", "sold", "returned", "expected", "received"],
+    rows: jugRows.map((r, i) => ({
+      sn: i + 1,
+      date: r.report_date,
+      name: r.rep_code ? `${r.rep_name} (${r.rep_code})` : r.rep_name,
+      jug: r.container_name,
+      opening: n(r.opening),
+      loaded: n(r.loaded),
+      total: n(r.total),
+      sold: n(r.jug_water_sold),
+      returned: n(r.returned),
+      expected: n(r.expected_empties),
+      received: n(r.received),
+      outstanding: n(r.outstanding),
+    })),
+  };
+  sheets.jug_places = {
+    title: `Quality Control Department: Where the Jugs Are AT ${to}`,
+    columns: [
+      { key: "sn", label: "S/N" },
+      { key: "jug", label: "Dispenser" },
+      { key: "store", label: "Store" },
+      { key: "qc", label: "QC" },
+      { key: "production", label: "Production" },
+      { key: "warehouse", label: "Warehouse" },
+      { key: "marketers", label: "Marketers / Shop" },
+      { key: "customers", label: "Customers" },
+      { key: "walk_in", label: "Walk-in" },
+      { key: "total", label: "Total" },
+    ],
+    sum: ["store", "qc", "production", "warehouse", "marketers", "customers", "walk_in", "total"],
+    rows: [
+      ...(jugPlaces.data ?? [])
+        .reduce((m, r) => {
+          const name = dispenser(r.container_name);
+          const g = m.get(name) ?? {
+            ...r,
+            container_name: name,
+            store: 0,
+            qc: 0,
+            production: 0,
+            warehouse: 0,
+            marketers: 0,
+            customers: 0,
+            walk_in: 0,
+            total: 0,
+          };
+          for (const k of [
+            "store",
+            "qc",
+            "production",
+            "warehouse",
+            "marketers",
+            "customers",
+            "walk_in",
+            "total",
+          ] as const)
+            g[k] = n(g[k]) + n(r[k]);
+          return m.set(name, g);
+        }, new Map<string, JugPlaceRow>())
+        .values(),
+    ].map((r, i) => ({
+      sn: i + 1,
+      jug: r.container_name,
+      store: n(r.store),
+      qc: n(r.qc),
+      production: n(r.production),
+      warehouse: n(r.warehouse),
+      marketers: n(r.marketers),
+      customers: n(r.customers),
+      walk_in: n(r.walk_in),
+      total: n(r.total),
+    })),
+  };
+  const current = { preform: preforms, bottle: bottles, jugs, jug_places: jugPlaces }[which];
   const loading = current.isLoading;
   const error = current.error as Error | null;
   const fileBase = `qc-${which}-report-${from}-to-${to}`;
 
+  // The same rows on screen and on paper (user, 2026-11-04: QC sees the
+  // period's figures before printing).
+  const sheet = sheets[which];
+  const fmt = (v: string | number) => (typeof v === "number" ? v.toLocaleString("en-US") : v);
+  const foot = sheet?.sum
+    ? sheet.columns.map((c, i) =>
+        i === 1
+          ? "Total"
+          : sheet.sum!.includes(c.key)
+            ? fmt(sheet.rows.reduce((t, r) => t + n(r[c.key]), 0))
+            : "",
+      )
+    : undefined;
+  const cells = (r: Record<string, string | number>) =>
+    (sheet?.columns ?? []).map((c) => (c.key === "sn" ? (r.sn ?? "") : fmt(r[c.key] ?? "")));
+
   const pdf = (action: PdfAction) => {
-    const sheet = sheets[which];
+    if (!sheet) return;
     const reports: QcPdfReport[] = [
       {
         title: sheet.title,
         columns: sheet.columns.map((c) => ({ label: c.label })),
-        rows: sheet.rows.map((r) => sheet.columns.map((c) => r[c.key] ?? "")),
+        rows: sheet.rows.map(cells),
+        foot,
       },
     ];
     void qcLetterheadPdf({ company, reports, filename: fileBase }, action);
   };
 
-  const count = sheets[which].rows.length;
+  const count = sheets[which]?.rows.length ?? 0;
   const status = !ok
     ? "The To date is before the From date."
     : loading
@@ -173,9 +377,12 @@ export function QcReportsTab({ factoryId }: { factoryId: string }) {
       : error
         ? error.message
         : count === 0
-          ? which === "preform"
-            ? "No preforms received or blown in this period."
-            : "No good bottles stocked or released in this period."
+          ? {
+              preform: "No preforms received or blown in this period.",
+              bottle: "No good bottles stocked or released in this period.",
+              jugs: "No jugs posted to or returned by marketers or the shop in this period.",
+              jug_places: "No jug types are set up.",
+            }[which]
           : null;
 
   return (
@@ -188,6 +395,8 @@ export function QcReportsTab({ factoryId }: { factoryId: string }) {
           options={[
             ["preform", "Preform"],
             ["bottle", "Bottle"],
+            ["jugs", "Jugs posted & returned"],
+            ["jug_places", "Where the jugs are"],
           ]}
         />
         <div>
@@ -214,6 +423,44 @@ export function QcReportsTab({ factoryId }: { factoryId: string }) {
           <Download className="h-4 w-4" /> Download
         </Button>
       </div>
+      {!status && sheet && (
+        <div className="overflow-x-auto rounded-xl border">
+          <p className="border-b px-3 py-2 text-sm font-semibold uppercase">{sheet.title}</p>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                {sheet.columns.map((c) => (
+                  <TableHead key={c.key} className={c.key === "sn" ? "w-12" : undefined}>
+                    {c.label}
+                  </TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {sheet.rows.map((r, i) => (
+                <TableRow key={i}>
+                  {cells(r).map((v, j) => (
+                    <TableCell key={j} className="whitespace-nowrap">
+                      {v}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))}
+            </TableBody>
+            {foot && (
+              <TableFooter>
+                <TableRow>
+                  {foot.map((v, j) => (
+                    <TableCell key={j} className="whitespace-nowrap font-semibold">
+                      {v}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              </TableFooter>
+            )}
+          </Table>
+        </div>
+      )}
       {status && (
         <p className={`text-sm ${error || !ok ? "text-destructive" : "text-muted-foreground"}`}>
           {status}
@@ -223,7 +470,7 @@ export function QcReportsTab({ factoryId }: { factoryId: string }) {
   );
 }
 
-// Two-way switch (Preform / Bottle).
+// Report switch (Preform / Bottle / the two jug reports).
 function Choice<T extends string>({
   label,
   value,
@@ -238,7 +485,7 @@ function Choice<T extends string>({
   return (
     <div>
       <Label className="text-xs">{label}</Label>
-      <div className="flex rounded-md border p-0.5">
+      <div className="flex flex-wrap rounded-md border p-0.5">
         {options.map(([v, text]) => (
           <Button
             key={v}

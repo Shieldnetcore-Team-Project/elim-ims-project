@@ -614,8 +614,9 @@ function NewDispatchDialog({
   const repKind = reps.find((r) => r.id === repId)?.kind ?? kind;
   const openReturns = useQuery({
     queryKey: ["dispatch-open-returns", factoryId, repId],
-    // The Retail Shop returns unsold products at close of business too (2026-11-02).
-    enabled: !!repId && !carryReturn && (repKind === "rep" || repKind === "outlet"),
+    // Marketers only: the Retail Shop no longer returns unsold products
+    // (user, 2026-11-04), so a posting to it carries no returns.
+    enabled: !!repId && !carryReturn && repKind === "rep",
     queryFn: async () => {
       const read = (lineCarry: boolean) =>
         supabase

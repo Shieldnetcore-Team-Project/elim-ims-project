@@ -164,8 +164,11 @@ BEGIN
   PERFORM public.verify_jug_return(pg_temp.id('ret1'), 58, 'Two jugs not on the van');
   e := pg_temp.err(format($q$SELECT public.verify_jug_return('%s', 58, 'again')$q$, pg_temp.id('ret1')));
   PERFORM pg_temp.check(e LIKE '%already verified%', 'a return is received once');
-  PERFORM pg_temp.check((SELECT COUNT(*) FROM container_movements WHERE reference = (SELECT reference FROM jug_returns WHERE id = pg_temp.id('ret1'))) = 1,
+  -- The count back (source 'return'), then on to QC (20261104120000).
+  PERFORM pg_temp.check((SELECT COUNT(*) FROM container_movements WHERE source = 'return' AND reference = (SELECT reference FROM jug_returns WHERE id = pg_temp.id('ret1'))) = 1,
                         'one ledger move');
+  PERFORM pg_temp.check((SELECT COUNT(*) FROM container_movements WHERE source = 'qc_accept' AND to_type = 'qc' AND reference = (SELECT reference FROM jug_returns WHERE id = pg_temp.id('ret1'))) = 1,
+                        'the counted empties go on to QC');
   SELECT * INTO r FROM public.jug_accountability_report('f5000000-0000-0000-0000-000000000001', pg_temp.today(), pg_temp.today());
   PERFORM pg_temp.check(r.returned = 60 AND r.received = 58 AND r.outstanding = 33,
                         format('returned 60, received 58, outstanding %s', r.outstanding));
@@ -225,8 +228,9 @@ DECLARE o record; e text;
 BEGIN
   PERFORM pg_temp.as_user('2');
   SELECT * INTO o FROM public.jug_overview('f5000000-0000-0000-0000-000000000001', pg_temp.today() - 1, pg_temp.today());
-  -- 300 bought; 49 + 50 out; 58 back; 5 + 3 with customers; 2 lost.
-  PERFORM pg_temp.check(o.in_warehouse = 300 - 49 - 50 + 58, 'warehouse jugs ' || o.in_warehouse);
+  -- 300 bought; 49 + 50 out; 58 back, gone on to QC (20261104120000); 5 + 3
+  -- with customers; 2 lost.
+  PERFORM pg_temp.check(o.in_warehouse = 300 - 49 - 50, 'warehouse jugs ' || o.in_warehouse);
   PERFORM pg_temp.check(o.with_marketers = 31 AND o.with_customers = 8 AND o.written_off_total = 2, 'marketers / customers / written off');
   PERFORM pg_temp.check(o.in_circulation = 300 - 2, 'every jug accounted for: ' || o.in_circulation);
   PERFORM pg_temp.check(o.filled_in_warehouse = 60 + 14 AND o.empty_in_warehouse = o.in_warehouse - 74, 'filled vs empty in the warehouse');

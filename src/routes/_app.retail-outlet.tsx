@@ -11,7 +11,6 @@ import { KPI } from "@/lib/dashboard-kit";
 import { money, num } from "@/lib/format";
 import { PosDialog } from "./_app.sales";
 import { RetailDayClose } from "@/components/retail/outlet-day-close";
-import { ReturnToWarehouseDialog } from "@/components/retail/return-to-warehouse-dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogTrigger } from "@/components/ui/dialog";
@@ -40,7 +39,6 @@ import {
   ShoppingCart,
   Store,
   TrendingUp,
-  Undo2,
 } from "lucide-react";
 import { EndOfDayDialog } from "@/components/retail/end-of-day-dialog";
 import { ReportActions } from "@/components/shared/report-actions";
@@ -130,7 +128,6 @@ function RetailOutletPage() {
   const [period, setPeriod] = useState<Period>("today");
   const [posOpen, setPosOpen] = useState(false);
   // End of business: unsold products back to the Warehouse (2026-11-02).
-  const [returning, setReturning] = useState(false);
   // End of day in one press: unsold back, damaged off, money to Accounts (2026-11-03).
   const [closing, setClosing] = useState(false);
 
@@ -392,28 +389,8 @@ function RetailOutletPage() {
               )}
             </Dialog>
           )}
-          {canSell && outletId && (
-            <Dialog open={returning} onOpenChange={setReturning}>
-              <DialogTrigger asChild>
-                <Button variant="outline" className="gap-2">
-                  <Undo2 className="h-4 w-4" /> Return unsold to Warehouse
-                </Button>
-              </DialogTrigger>
-              {returning && (
-                <ReturnToWarehouseDialog
-                  outletId={outletId}
-                  outletName={outlets.data?.find((o) => o.id === outletId)?.full_name ?? "the shop"}
-                  stock={(stock.data ?? []).map((r) => ({
-                    product_id: r.product_id,
-                    name: r.products?.name ?? "—",
-                    unit: r.products?.unit ?? "",
-                    quantity: Number(r.quantity),
-                  }))}
-                  onDone={() => setReturning(false)}
-                />
-              )}
-            </Dialog>
-          )}
+          {/* No "Return unsold to Warehouse" (user, 2026-11-04): the shop keeps
+              what it has not sold and posts only the day's money. */}
           {canSell && outletId && (
             <Dialog open={posOpen} onOpenChange={setPosOpen}>
               <DialogTrigger asChild>

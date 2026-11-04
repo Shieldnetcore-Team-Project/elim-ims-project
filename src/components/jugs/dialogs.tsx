@@ -982,9 +982,9 @@ export function AdjustDialog({
 }
 
 // ------------------------------------------------------------ new jugs in
-// New jugs bought in, counted into the Warehouse (receive_new_jugs): a
-// "Bought in" ledger move from outside, so they show as empty jugs in the
-// Warehouse ready for filling.
+// New jugs bought in, counted into the Store (receive_new_jugs; the Store
+// since 20261104120000): a "Bought in" ledger move from outside. The Store
+// then sends them to QC or issues them to Production.
 export function ReceiveNewJugsDialog({
   factoryId,
   types,
@@ -1013,7 +1013,7 @@ export function ReceiveNewJugsDialog({
         p_reference: reference,
         p_notes: notes,
       }),
-    `${num(qty ?? 0)} jugs received into the Warehouse`,
+    `${num(qty ?? 0)} jugs received into the Store`,
   );
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -1021,8 +1021,8 @@ export function ReceiveNewJugsDialog({
         <DialogHeader>
           <DialogTitle>Receive new jugs</DialogTitle>
           <DialogDescription>
-            Count the new jugs delivered and stock them into the Warehouse as empties ready for
-            filling.
+            Count the new jugs delivered. They go into the Store, which sends them to QC or issues
+            them to Production.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">

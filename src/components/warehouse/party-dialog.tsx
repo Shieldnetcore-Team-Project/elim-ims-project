@@ -57,8 +57,9 @@ export function WarehousePartyDialog({
 }) {
   const perms = usePermissions();
   const holder = party.type !== "distributor";
+  // The Retail Shop no longer returns unsold products (user, 2026-11-04).
   const canReturn = holder
-    ? perms.can("distribution", "submit")
+    ? party.type === "marketer" && perms.can("distribution", "submit")
     : perms.can("sales-returns", "submit") || perms.can("distribution", "submit");
   const canJugs = perms.can("distribution", "create") || perms.can("sales", "create");
   const [act, setAct] = useState<"products" | "jugs" | null>(null);

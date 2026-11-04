@@ -29,28 +29,17 @@ CREATE OR REPLACE FUNCTION pg_temp.err(p_sql text) RETURNS text LANGUAGE plpgsql
 BEGIN EXECUTE p_sql; RETURN NULL; EXCEPTION WHEN OTHERS THEN RETURN SQLERRM; END;
 $$;
 
--- @@ Test 1: unsold back into the Warehouse; the next posting carries it out again
+-- @@ Test 1: the shop no longer returns unsold products (20261104130000)
 DO $$
-DECLARE r jsonb; d jsonb; ret uuid;
+DECLARE e text;
 BEGIN
   PERFORM set_config('test.uid', 'ab000000-0000-0000-0000-000000000001', false);
-  r := public.return_shop_stock_to_warehouse(jsonb_build_object(
+  e := pg_temp.err($q$SELECT public.return_shop_stock_to_warehouse(jsonb_build_object(
          'outlet_id', 'eb000000-0000-0000-0000-000000000001',
-         'items', jsonb_build_array(jsonb_build_object('product_id', 'db000000-0000-0000-0000-000000000001', 'quantity', 15))));
-  PERFORM pg_temp.check((r->>'units')::numeric = 15, r::text);
-  PERFORM pg_temp.check((SELECT quantity FROM rep_stock WHERE sales_rep_id = 'eb000000-0000-0000-0000-000000000001') = 5, 'shop 5 left');
-  PERFORM pg_temp.check((SELECT current_stock FROM products WHERE id = 'db000000-0000-0000-0000-000000000001') = 115, 'Warehouse +15');
-  ret := (r->>'id')::uuid;
-  PERFORM pg_temp.check((SELECT status FROM rep_returns WHERE id = ret) = 'completed'
-                        AND (SELECT carried_dispatch_id FROM rep_returns WHERE id = ret) IS NULL, 'open for the next posting');
-  -- Next day's posting: the return plus 10 more.
-  d := public.create_stock_dispatch(jsonb_build_object(
-         'factory_id', 'fb000000-0000-0000-0000-000000000001', 'sales_rep_id', 'eb000000-0000-0000-0000-000000000001',
-         'carry_return_ids', jsonb_build_array(ret),
-         'items', jsonb_build_array(jsonb_build_object('product_id', 'db000000-0000-0000-0000-000000000001', 'quantity', 25))));
-  PERFORM pg_temp.check((SELECT carried_dispatch_id FROM rep_returns WHERE id = ret) = (d->>'id')::uuid, 'carried');
-  PERFORM pg_temp.check((SELECT quantity FROM rep_stock WHERE sales_rep_id = 'eb000000-0000-0000-0000-000000000001') = 30, 'shop 30');
-  PERFORM pg_temp.check((SELECT current_stock FROM products WHERE id = 'db000000-0000-0000-0000-000000000001') = 90, 'Warehouse 100 - 10');
+         'items', jsonb_build_array(jsonb_build_object('product_id', 'db000000-0000-0000-0000-000000000001', 'quantity', 15))))$q$);
+  PERFORM pg_temp.check(e LIKE '%no longer returns%', 'refused: ' || COALESCE(e, 'no error'));
+  PERFORM pg_temp.check((SELECT quantity FROM rep_stock WHERE sales_rep_id = 'eb000000-0000-0000-0000-000000000001') = 20, 'shop keeps its 20');
+  PERFORM pg_temp.check((SELECT current_stock FROM products WHERE id = 'db000000-0000-0000-0000-000000000001') = 100, 'Warehouse unchanged');
 END $$;
 
 -- @@ Test 2: more than held, a closed day, a marketer id and no rights are refused

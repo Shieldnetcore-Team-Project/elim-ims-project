@@ -1992,11 +1992,13 @@ export function PosDialog({
         ...prev,
         {
           product_id: p.id,
-          // A water + jug line reads as the two Costing products.
+          // Named as in the product list (user, 2026-11-04).
           name:
-            presetMode === "permanent" && jugOf(p.id)?.jar_product_name
-              ? `${p.name} + ${jugOf(p.id)!.jar_product_name}`
-              : p.name,
+            presetMode === "permanent"
+              ? "Dispenser + Water"
+              : presetMode === "swap"
+                ? "Dispenser Water Only"
+                : p.name,
           unit: p.unit,
           // Starts empty: the user types the quantity straight in. A line
           // left empty is not sold (sellableCart).
@@ -2188,9 +2190,10 @@ export function PosDialog({
                       const base = Number(p.unit_price);
                       return (
                         [
-                          // Named and priced as on Costing > Product Prices.
-                          ["permanent", `${p.name} + ${jugOf(p.id)?.jar_product_name ?? "Jug"}`],
-                          ["swap", `${p.name} (empty jug in)`],
+                          // Named as the shop asks (user, 2026-11-04), priced as on
+                          // Costing > Product Prices.
+                          ["permanent", "Dispenser + Water"],
+                          ["swap", "Dispenser Water Only"],
                         ] as [JarMode, string][]
                       ).map(([mode, label]) => (
                         <SelectItem

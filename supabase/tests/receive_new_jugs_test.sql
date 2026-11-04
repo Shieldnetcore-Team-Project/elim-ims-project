@@ -30,7 +30,7 @@ CREATE OR REPLACE FUNCTION pg_temp.err(p_sql text) RETURNS text LANGUAGE plpgsql
 BEGIN EXECUTE p_sql; RETURN NULL; EXCEPTION WHEN OTHERS THEN RETURN SQLERRM; END;
 $$;
 
--- @@ Test 1: the Warehouse receives 50 New Jugs -- a "Bought in" move into the Warehouse
+-- @@ Test 1: 50 New Jugs received -- a "Bought in" move into the Store (20261104120000)
 DO $$
 DECLARE f uuid; v uuid; m container_movements%ROWTYPE;
 BEGIN
@@ -38,7 +38,7 @@ BEGIN
   PERFORM set_config('test.uid', '8b000000-0000-0000-0000-000000000001', false);
   v := public.receive_new_jugs(f, pg_temp.jug('New Dispenser Jug'), 50, '  DN-0457 ', 'From supplier');
   SELECT * INTO m FROM container_movements WHERE id = v;
-  PERFORM pg_temp.check(m.source = 'purchase' AND m.from_type = 'external' AND m.to_type = 'warehouse'
+  PERFORM pg_temp.check(m.source = 'purchase' AND m.from_type = 'external' AND m.to_type = 'store'
                         AND m.quantity = 50 AND m.reference = 'DN-0457' AND m.notes = 'From supplier'
                         AND m.created_by = '8b000000-0000-0000-0000-000000000001', 'movement written');
   PERFORM pg_temp.check(EXISTS (SELECT 1 FROM audit_logs WHERE action = 'receive_new_jugs' AND entity_id = v::text), 'audited');

@@ -191,7 +191,11 @@ BEGIN
   PERFORM pg_temp.check((d->>'empties_at_shop')::numeric = 0 AND (d->>'sent_unconfirmed')::numeric = 0
                         AND (d->>'confirmed_by_warehouse')::numeric = 18 AND (d->>'transfer_short')::numeric = 0,
                         'shop empties 0, 18 confirmed: ' || d::text);
-  PERFORM pg_temp.check(pg_temp.wh_jugs() = wh_before + 18, '8. Warehouse empties +18: ' || wh_before || ' -> ' || pg_temp.wh_jugs());
+  -- Counted empties pass through the Warehouse straight on to QC (20261104120000).
+  PERFORM pg_temp.check(pg_temp.wh_jugs() = wh_before, '8. Warehouse unchanged, empties on to QC: ' || wh_before || ' -> ' || pg_temp.wh_jugs());
+  PERFORM pg_temp.check((SELECT COALESCE(SUM(balance), 0) FROM container_balances
+                          WHERE holder_type = 'qc' AND container_type_id = 'e3300000-0000-0000-0000-000000000001') = 18,
+                        '8. the 18 empties are at QC');
 END $$;
 
 -- @@ Test 6: the cashier submits; only Accounts confirms; a difference needs a note

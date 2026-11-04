@@ -104,6 +104,13 @@ export const SOURCE_LABEL: Record<string, string> = {
   lost: "Written off (lost)",
   purchase: "Bought in",
   damaged: "Damaged (written off)",
+  qc_accept: "Taken in by QC",
+  qc_damaged: "Damaged at QC (written off)",
+  qc_to_production: "QC to Production (good jugs)",
+  store_to_production: "Store issued to Production",
+  production_release: "Filled dispensers to the Warehouse",
+  production_release_reversal: "Release reversed",
+  count: "Stock count correction",
 };
 
 export const ROLE_LABEL: Record<JugRole, string> = {

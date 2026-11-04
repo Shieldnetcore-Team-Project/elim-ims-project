@@ -203,14 +203,18 @@ function QualityControlPage() {
     ...(pageOk("Inspections") ? (["received"] as const) : []),
     // QC's preform store: what the Store issued her for blowing, blown, damages.
     ...(pageOk("Good bottles") ? (["preforms"] as const) : []),
-    ...(pageOk("Inspections") ? (["orders", "inspections", "jugs"] as const) : []),
+    ...(pageOk("Inspections") ? (["orders", "inspections"] as const) : []),
+    // Dispenser (2026-11-04): the old "Old & New Jugs" and "Bottle tracking"
+    // tabs in one -- QC's jug work for QC, the dispenser tracking for whoever
+    // has that page.
+    ...(pageOk("Inspections") || pageOk("Dispenser") ? (["jugs"] as const) : []),
     ...(pageOk("Good bottles") ? (["good-bottles"] as const) : []),
-    ...(pageOk("Bottle tracking") ? (["bottle-tracking"] as const) : []),
     // The printed QC sheets (preform and bottles), for whoever works QC.
     ...(pageOk("Inspections") || pageOk("Good bottles") ? (["reports"] as const) : []),
   ];
   const showInspections = tabs.includes("orders");
-  const current = tab && tabs.includes(tab) ? tab : tabs[0];
+  const wanted = tab === "bottle-tracking" ? "jugs" : tab;
+  const current = wanted && tabs.includes(wanted) ? wanted : tabs[0];
   const setTab = (t: QcTab) =>
     navigate({ search: { tab: t === tabs[0] ? undefined : t }, replace: true });
   usePreformLive();
@@ -343,7 +347,7 @@ function QualityControlPage() {
               {tabs.includes("preforms") && <TabsTrigger value="preforms">Preforms</TabsTrigger>}
               <TabsTrigger value="orders">Purchase Orders</TabsTrigger>
               <TabsTrigger value="inspections">Inspections</TabsTrigger>
-              <TabsTrigger value="jugs">Old &amp; New Jugs</TabsTrigger>
+              <TabsTrigger value="jugs">Dispenser</TabsTrigger>
             </>
           )}
           {!showInspections && tabs.includes("preforms") && (
@@ -359,8 +363,8 @@ function QualityControlPage() {
               )}
             </TabsTrigger>
           )}
-          {tabs.includes("bottle-tracking") && (
-            <TabsTrigger value="bottle-tracking">Bottle tracking</TabsTrigger>
+          {!showInspections && tabs.includes("jugs") && (
+            <TabsTrigger value="jugs">Dispenser</TabsTrigger>
           )}
           {tabs.includes("reports") && <TabsTrigger value="reports">Reports</TabsTrigger>}
         </TabsList>
@@ -373,9 +377,6 @@ function QualityControlPage() {
         <TabsContent value="good-bottles">
           {factoryId && <GoodBottlesPanel factoryId={factoryId} />}
         </TabsContent>
-        <TabsContent value="bottle-tracking">
-          <BottleTrackingPanel />
-        </TabsContent>
         <TabsContent value="reports">
           {factoryId && <QcReportsTab factoryId={factoryId} />}
         </TabsContent>
@@ -387,8 +388,13 @@ function QualityControlPage() {
         <TabsContent value="jugs">
           {factoryId && (
             <div className="space-y-6">
-              <QcJugReturnsToCount factoryId={factoryId} />
-              <QcJugRegister factoryId={factoryId} />
+              {pageOk("Dispenser") && <BottleTrackingPanel />}
+              {showInspections && (
+                <>
+                  <QcJugReturnsToCount factoryId={factoryId} />
+                  <QcJugRegister factoryId={factoryId} />
+                </>
+              )}
             </div>
           )}
         </TabsContent>

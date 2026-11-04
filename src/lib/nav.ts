@@ -156,10 +156,12 @@ export const nav: { section: string; items: NavItem[] }[] = [
             search: { tab: "good-bottles" },
           },
           {
-            label: "Bottle tracking",
+            // Was "Bottle tracking" (renamed 2026-11-04, page access moved by
+            // 20261104150000).
+            label: "Dispenser",
             module: "distribution",
             url: "/quality-control",
-            search: { tab: "bottle-tracking" },
+            search: { tab: "jugs" },
           },
         ],
       },

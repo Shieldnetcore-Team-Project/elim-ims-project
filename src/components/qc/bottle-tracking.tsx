@@ -41,9 +41,18 @@ import { ReportActions } from "@/components/shared/report-actions";
 // Sales, dispatches to marketers and returns move them automatically; this
 // tab records the rest by hand -- empties brought back, containers issued,
 // lost, damaged or bought in (20260928140000_container_tracking.sql). Shown
-// on the Quality Control page (Bottle tracking tab).
+// on the Quality Control page (Dispenser tab, 2026-11-04; was Bottle tracking).
 
-type HolderType = "warehouse" | "customer" | "sales_rep" | "walk_in" | "external";
+type HolderType =
+  | "warehouse"
+  | "customer"
+  | "sales_rep"
+  | "walk_in"
+  | "external"
+  // The jug route (20261104120000): Store -> QC -> Production -> Warehouse.
+  | "store"
+  | "qc"
+  | "production";
 type ContainerType = { id: string; name: string; active: boolean };
 type Balance = {
   container_type_id: string;
@@ -80,6 +89,13 @@ const SOURCE_LABELS: Record<string, string> = {
   lost: "Lost (written off)",
   purchase: "Bought in",
   damaged: "Damaged (written off)",
+  qc_accept: "Taken in by QC",
+  qc_damaged: "Damaged at QC (written off)",
+  qc_to_production: "QC to Production (good jugs)",
+  store_to_production: "Store issued to Production",
+  production_release: "Filled dispensers to the Warehouse",
+  production_release_reversal: "Release reversed",
+  count: "Stock count correction",
 };
 
 export function BottleTrackingPanel() {
@@ -171,22 +187,64 @@ export function BottleTrackingPanel() {
   const typeName = (id: string) => typeList.find((t) => t.id === id)?.name ?? "Container";
   const holderName = (type: HolderType, id: string | null) => {
     if (type === "warehouse") return "Warehouse";
+    if (type === "store") return "Store";
+    if (type === "qc") return "Quality Control";
+    if (type === "production") return "Production";
     if (type === "walk_in") return "Walk-in sales";
     if (type === "external") return "Outside (bought / written off)";
     const list = type === "customer" ? customers.data : reps.data;
     return list?.find((x) => x.id === id)?.name ?? (type === "customer" ? "Customer" : "Marketer");
   };
 
-  // Where each container type is: warehouse / customers / marketers / walk-in.
+  // Exact figures (jug_places_now, 20261104140000; user 2026-11-04): the
+  // Warehouse from its dispenser stock, everyone else at 0 or above.
+  const places = useQuery({
+    queryKey: ["container-balances", "places", factoryId],
+    enabled: !!factoryId,
+    retry: false,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc(
+        "jug_places_now" as never,
+        { p_factory: factoryId } as never,
+      );
+      if (error) throw error;
+      return (data ?? []) as unknown as {
+        container_type_id: string;
+        store: number;
+        qc: number;
+        production: number;
+        warehouse: number;
+        customers: number;
+        marketers: number;
+        walk_in: number;
+      }[];
+    },
+  });
+
+  // Where each container type is: Store / QC / Production / Warehouse /
+  // customers / marketers / walk-in. Before the update is in: the ledger.
   const summary = useMemo(() => {
     const out = new Map<string, Record<string, number>>();
+    if (places.data) {
+      for (const r of places.data)
+        out.set(r.container_type_id, {
+          store: Number(r.store),
+          qc: Number(r.qc),
+          production: Number(r.production),
+          warehouse: Number(r.warehouse),
+          customer: Number(r.customers),
+          sales_rep: Number(r.marketers),
+          walk_in: Number(r.walk_in),
+        });
+      return out;
+    }
     for (const b of balances.data ?? []) {
       const row = out.get(b.container_type_id) ?? {};
       row[b.holder_type] = (row[b.holder_type] ?? 0) + Number(b.balance);
       out.set(b.container_type_id, row);
     }
     return out;
-  }, [balances.data]);
+  }, [places.data, balances.data]);
 
   // Per customer / marketer, one column per container type.
   const holders = useMemo(() => {
@@ -208,15 +266,28 @@ export function BottleTrackingPanel() {
   }, [balances.data, holderFilter, q, customers.data, reps.data]);
 
   const activeTypes = typeList.filter((t) => t.active);
+  // Old and New Jug are one thing to the factory: "Dispenser" (user,
+  // 2026-11-04). Any other container type keeps its own line.
+  const groups = useMemo(() => {
+    const m = new Map<string, { key: string; name: string; ids: string[]; active: boolean }>();
+    for (const t of types.data ?? []) {
+      const name = /jug|dispenser/i.test(t.name) ? "Dispenser" : t.name;
+      const g = m.get(name) ?? { key: name, name, ids: [], active: false };
+      g.ids.push(t.id);
+      g.active ||= t.active;
+      m.set(name, g);
+    }
+    return [...m.values()];
+  }, [types.data]);
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold tracking-tight">Bottle Tracking</h2>
+          <h2 className="text-lg font-semibold tracking-tight">Dispenser tracking</h2>
           <p className="text-sm text-muted-foreground">
-            Returnable containers: what's in the warehouse and who is holding the rest. Sales,
-            marketer dispatches and returns move them automatically.
+            Where every dispenser is: the Store, QC, Production, the Warehouse and who is holding
+            the rest. Postings, sales and returns move them automatically.
           </p>
         </div>
         {canRecord && factoryId && activeTypes.length > 0 && (
@@ -261,6 +332,9 @@ export function BottleTrackingPanel() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Container</TableHead>
+                  <TableHead className="text-right">In Store</TableHead>
+                  <TableHead className="text-right">At QC</TableHead>
+                  <TableHead className="text-right">In Production</TableHead>
                   <TableHead className="text-right">In warehouse</TableHead>
                   <TableHead className="text-right">With customers</TableHead>
                   <TableHead className="text-right">With marketers</TableHead>
@@ -269,14 +343,18 @@ export function BottleTrackingPanel() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {typeList.map((t) => {
-                  const s = summary.get(t.id) ?? {};
-                  const w = s.warehouse ?? 0;
-                  const c = s.customer ?? 0;
-                  const r = s.sales_rep ?? 0;
-                  const wi = s.walk_in ?? 0;
+                {groups.map((t) => {
+                  const sum = (k: string) =>
+                    t.ids.reduce((x, id) => x + (summary.get(id)?.[k] ?? 0), 0);
+                  const w = sum("warehouse");
+                  const c = sum("customer");
+                  const r = sum("sales_rep");
+                  const wi = sum("walk_in");
+                  const st = sum("store");
+                  const qcN = sum("qc");
+                  const pr = sum("production");
                   return (
-                    <TableRow key={t.id}>
+                    <TableRow key={t.key}>
                       <TableCell className="font-medium">
                         {t.name}
                         {!t.active && (
@@ -285,12 +363,15 @@ export function BottleTrackingPanel() {
                           </Badge>
                         )}
                       </TableCell>
+                      <TableCell className="text-right">{num(st)}</TableCell>
+                      <TableCell className="text-right">{num(qcN)}</TableCell>
+                      <TableCell className="text-right">{num(pr)}</TableCell>
                       <TableCell className="text-right">{num(w)}</TableCell>
                       <TableCell className="text-right">{num(c)}</TableCell>
                       <TableCell className="text-right">{num(r)}</TableCell>
                       <TableCell className="text-right">{num(wi)}</TableCell>
                       <TableCell className="text-right font-semibold">
-                        {num(w + c + r + wi)}
+                        {num(st + qcN + pr + w + c + r + wi)}
                       </TableCell>
                     </TableRow>
                   );
@@ -305,10 +386,9 @@ export function BottleTrackingPanel() {
         <Card className="rounded-2xl">
           <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
             <div>
-              <CardTitle>Who is holding containers</CardTitle>
+              <CardTitle>Who is holding dispensers</CardTitle>
               <p className="text-sm text-muted-foreground">
-                A negative number means more came back than was recorded going out — usually
-                containers given out before tracking started.
+                Marketers, the shop and customers, with the dispensers each one holds.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -342,8 +422,8 @@ export function BottleTrackingPanel() {
                 <TableRow>
                   <TableHead>Name</TableHead>
                   <TableHead>Type</TableHead>
-                  {typeList.map((t) => (
-                    <TableHead key={t.id} className="text-right">
+                  {groups.map((t) => (
+                    <TableHead key={t.key} className="text-right">
                       {t.name}
                     </TableHead>
                   ))}
@@ -353,7 +433,7 @@ export function BottleTrackingPanel() {
                 {holders.length === 0 && (
                   <TableRow>
                     <TableCell
-                      colSpan={2 + typeList.length}
+                      colSpan={2 + groups.length}
                       className="py-8 text-center text-muted-foreground"
                     >
                       Nobody is holding containers.
@@ -368,11 +448,11 @@ export function BottleTrackingPanel() {
                         {h.type === "customer" ? "Customer" : "Marketer"}
                       </Badge>
                     </TableCell>
-                    {typeList.map((t) => {
-                      const v = h.counts[t.id] ?? 0;
+                    {groups.map((t) => {
+                      const v = t.ids.reduce((x, id) => x + (h.counts[id] ?? 0), 0);
                       return (
                         <TableCell
-                          key={t.id}
+                          key={t.key}
                           className={`text-right ${v < 0 ? "text-destructive" : ""}`}
                         >
                           {v === 0 ? "—" : num(v)}
