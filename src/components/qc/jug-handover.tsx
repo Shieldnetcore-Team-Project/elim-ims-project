@@ -84,7 +84,7 @@ export function WarehouseJugsToQc({ factoryId }: { factoryId: string }) {
         </div>
         {canSend && (
           <Button className="gap-2" onClick={() => setSending(true)}>
-            <Send className="h-4 w-4" /> Send jugs to QC
+            <Send className="h-4 w-4" /> Send jugs to PM
           </Button>
         )}
       </CardHeader>
@@ -191,7 +191,7 @@ function SendDialog({ factoryId, onClose }: { factoryId: string; onClose: () => 
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Send jugs to QC</DialogTitle>
+          <DialogTitle>Send jugs to PM</DialogTitle>
           <DialogDescription>
             QC counts what arrives and accepts it, then verifies the jugs.
           </DialogDescription>
@@ -229,7 +229,7 @@ function SendDialog({ factoryId, onClose }: { factoryId: string; onClose: () => 
             onClick={() => send.mutate(undefined, { onSuccess: onClose })}
           >
             {send.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Send to QC
+            Send to PM
           </Button>
         </DialogFooter>
       </DialogContent>

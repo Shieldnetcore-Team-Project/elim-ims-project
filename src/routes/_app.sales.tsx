@@ -2032,7 +2032,7 @@ export function PosDialog({
           // Named as in the product list (user, 2026-11-04).
           name:
             presetMode === "permanent"
-              ? "Dispenser + Water"
+              ? "Jug + Water"
               : presetMode === "swap"
                 ? "Dispenser Water Only"
                 : p.name,
@@ -2243,7 +2243,7 @@ export function PosDialog({
                         [
                           // Named as the shop asks (user, 2026-11-04), priced as on
                           // Costing > Product Prices.
-                          ["permanent", "Dispenser + Water"],
+                          ["permanent", "Jug + Water"],
                           ["swap", "Dispenser Water Only"],
                         ] as [JarMode, string][]
                       ).map(([mode, label]) => (
