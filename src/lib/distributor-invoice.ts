@@ -132,8 +132,8 @@ export async function generateDistributorInvoicePdf(
   const billed = (
     [
       (data.customer.name || "Walk-in customer").toUpperCase(),
-      data.customer.address?.toUpperCase(),
-      data.customer.phone,
+      data.customer.phone && `Contact: ${data.customer.phone}`,
+      data.customer.address && `Address: ${data.customer.address}`,
     ].filter(Boolean) as string[]
   ).flatMap((l) => doc.splitTextToSize(l, boxW - 10) as string[]);
   const boxH = barH + 8 + Math.max(3, billed.length) * 14;
@@ -243,7 +243,7 @@ export async function generateDistributorInvoicePdf(
         ["Amount Paid", `N${fig(data.amount_paid)}`],
         ["Balance Due", `N${fig(data.balance)}`],
       ];
-  if (y + totals.length * tRow + 40 > H) {
+  if (y + totals.length * tRow + 70 > H) {
     doc.addPage();
     y = M;
   }
@@ -256,12 +256,26 @@ export async function generateDistributorInvoicePdf(
   });
   doc.line(tSplit, y, tSplit, y + totals.length * tRow);
 
+  let remarksLines: string[] = [];
   if (data.remarks) {
     doc.setFont("times", "normal");
     doc.setFontSize(10);
-    const lines = doc.splitTextToSize(`Remarks: ${data.remarks}`, tLeft - M - 12) as string[];
-    lines.forEach((ln, i) => doc.text(ln, M, y + 12 + i * 12));
+    remarksLines = doc.splitTextToSize(`Remarks: ${data.remarks}`, tLeft - M - 12) as string[];
+    remarksLines.forEach((ln, i) => doc.text(ln, M, y + 12 + i * 12));
   }
+
+  let signatureY = Math.max(
+    y + totals.length * tRow + 24,
+    y + 12 + remarksLines.length * 12 + 12,
+  );
+  if (signatureY + 28 > H) {
+    doc.addPage();
+    signatureY = M + 20;
+  }
+  doc.setFont("times", "normal");
+  doc.setFontSize(10);
+  doc.line(M, signatureY, M + 170, signatureY);
+  doc.text("Authorized Signature", M, signatureY + 14);
 
   if (action === "download") {
     doc.save(`${data.invoice_number.replace(/[\\/]/g, "-")}.pdf`);

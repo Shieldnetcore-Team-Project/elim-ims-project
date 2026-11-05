@@ -2,6 +2,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { generateInvoicePdf } from "@/lib/pdf";
 import { generateDistributorInvoicePdf } from "@/lib/distributor-invoice";
+import { visibleInvoiceRemarks } from "@/lib/invoice-remarks";
 import type { Database } from "@/integrations/supabase/types";
 
 type Settings = Database["public"]["Tables"]["settings"]["Row"] | null | undefined;
@@ -212,18 +213,15 @@ export async function printSaleInvoice(
     amount_paid: sum("amount_paid"),
     balance: sum("balance"),
   };
-  const remarks =
-    [
-      combined
-        ? `Combined invoice for ${String(s.sale_date).slice(0, 10)} covering ${sales.length} invoices: ${sales
-            .map((x) => x.invoice_number)
-            .join(", ")}`
-        : null,
-      ...new Set(sales.map((x) => x.remarks as string | null).filter(Boolean)),
-      jarNote(sales),
-    ]
-      .filter(Boolean)
-      .join(". ") || null;
+  const remarks = visibleInvoiceRemarks([
+    combined
+      ? `Combined invoice for ${String(s.sale_date).slice(0, 10)} covering ${sales.length} invoices: ${sales
+          .map((x) => x.invoice_number)
+          .join(", ")}`
+      : null,
+    ...sales.map((x) => x.remarks as string | null),
+    jarNote(sales),
+  ]);
   // A combined invoice is for the day, so it prints the date only.
   const issuedAt = combined ? String(s.sale_date).slice(0, 10) : (s.created_at ?? s.sale_date);
   const company = {
@@ -249,6 +247,7 @@ export async function printSaleInvoice(
   const customer = (party?.customer ?? null) as {
     code: string | null;
     registered: boolean;
+    phone: string | null;
     address: string | null;
   } | null;
   const isDistributor = !!customer?.registered;
@@ -269,7 +268,7 @@ export async function printSaleInvoice(
         issued_at: issuedAt,
         customer: {
           name: s.customer_name,
-          phone: s.customer_phone,
+          phone: s.customer_phone ?? customer?.phone,
           address: s.customer_address ?? customer?.address,
         },
         party_id: partyIsDistributor ? (customer?.code ?? null) : (marketer?.code ?? null),
