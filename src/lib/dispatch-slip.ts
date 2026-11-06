@@ -92,6 +92,8 @@ export async function printDispatchSlip(
   // The Warehouse's labelled copies (Warehouse Copy, then Marketer / Retail
   // Shop Copy), 2026-11-04.
   labelled = false,
+  smallPrint = false,
+  copyLabels?: string[],
 ) {
   const d = await loadDispatch(ref);
   if (!d) return;
@@ -123,9 +125,12 @@ export async function printDispatchSlip(
       posted_by: postedBy,
       currency: settings?.currency ?? "NGN",
       quantities_only: quantitiesOnly,
-      copy_labels: labelled
-        ? warehouseSlipLabels(d.sales_reps?.kind === "outlet" ? "retail" : "marketer")
-        : undefined,
+      copy_labels:
+        copyLabels ??
+        (labelled
+          ? warehouseSlipLabels(d.sales_reps?.kind === "outlet" ? "retail" : "marketer")
+          : undefined),
+      small_print: smallPrint,
     },
     action,
     copies,

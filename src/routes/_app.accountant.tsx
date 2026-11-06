@@ -464,7 +464,7 @@ function AccountantPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("sales_reps")
-        .select("id,code,full_name,phone,status,employee_id,remarks,kind")
+        .select("id,code,full_name,phone,status,employee_id,remarks,kind,commission_tier")
         .eq("factory_id", factoryId!)
         .order("full_name");
       if (error) throw error;

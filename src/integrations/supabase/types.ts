@@ -3408,6 +3408,7 @@ export type Database = {
       sales_reps: {
         Row: {
           code: string | null
+          commission_tier: string | null
           created_at: string
           employee_id: string | null
           factory_id: string
@@ -3422,6 +3423,7 @@ export type Database = {
         }
         Insert: {
           code?: string | null
+          commission_tier?: string | null
           created_at?: string
           employee_id?: string | null
           factory_id: string
@@ -3436,6 +3438,7 @@ export type Database = {
         }
         Update: {
           code?: string | null
+          commission_tier?: string | null
           created_at?: string
           employee_id?: string | null
           factory_id?: string
@@ -4595,6 +4598,38 @@ export type Database = {
           sales_value: number
           units_returned: number
           units_sold: number
+        }[]
+      }
+      marketer_monthly_tier_commission: {
+        Args: { p_factory: string; p_from: string; p_to: string }
+        Returns: {
+          achievement: number | null
+          code: string | null
+          commission: number
+          eligible_value: number
+          marketer: string
+          month: string
+          net_posted: number
+          posted: number
+          remitted: number
+          returned: number
+          sales_rep_id: string
+          target: number
+          tier: string | null
+        }[]
+      }
+      marketer_remittance_activity: {
+        Args: { p_factory: string; p_from: string; p_to: string }
+        Returns: {
+          amount: number
+          created_at: string
+          id: string
+          marketer: string
+          payment_method: string
+          remittance_date: string
+          remittance_number: string
+          remarks: string | null
+          sales_rep_id: string
         }[]
       }
       has_permission:

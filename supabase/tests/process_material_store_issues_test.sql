@@ -9,6 +9,7 @@ DELETE FROM user_roles WHERE user_id = 'a9a00000-0000-0000-0000-000000000001';
 INSERT INTO user_roles(user_id, role) VALUES ('a9a00000-0000-0000-0000-000000000001', 'super_admin');
 INSERT INTO raw_materials(id, factory_id, name, unit, current_stock) VALUES
   ('c9a00000-0000-0000-0000-000000000001', 'f9a00000-0000-0000-0000-000000000001', 'PS YUNO MOLD', 'Piece', 100000);
+UPDATE raw_materials SET active = false WHERE id = 'c9a00000-0000-0000-0000-000000000001';
 SELECT set_config('test.uid', 'a9a00000-0000-0000-0000-000000000001', false);
 
 CREATE OR REPLACE FUNCTION pg_temp.check(p_ok boolean, p_msg text) RETURNS void LANGUAGE plpgsql AS $$

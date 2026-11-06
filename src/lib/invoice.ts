@@ -145,6 +145,7 @@ export async function printSaleInvoice(
   copies = 1,
   // Slim receipt only: a footer per copy ("*** Customer Copy ***", ...).
   copyLabels?: string[],
+  smallPrint = false,
 ) {
   const ids = Array.isArray(saleId) ? saleId : [saleId];
   const { data, error } = await supabase
@@ -306,12 +307,17 @@ export async function printSaleInvoice(
       sales_person: poster,
       retail: seller?.kind === "outlet",
       copy_labels: copyLabels,
-      customer: { name: s.customer_name, phone: s.customer_phone, address: s.customer_address },
+      customer: {
+        name: s.customer_name,
+        phone: s.customer_phone ?? customer?.phone,
+        address: s.customer_address ?? customer?.address,
+      },
       items: lines,
       ...totals,
       currency: settings?.currency ?? "NGN",
       remarks,
       is_pr: s.is_pr,
+      small_print: smallPrint,
     },
     action,
     paper,

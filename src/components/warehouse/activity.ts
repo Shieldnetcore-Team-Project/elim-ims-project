@@ -1,7 +1,12 @@
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { printDispatchSlip } from "@/lib/dispatch-slip";
-import { printSaleInvoice, warehouseSlipLabels } from "@/lib/invoice";
+import {
+  printSaleInvoice,
+  REPRINT_LABEL,
+  WAREHOUSE_SLIP_COPIES,
+  warehouseSlipLabels,
+} from "@/lib/invoice";
 
 // Shared by the Warehouse's Recent activity card and its Activity Log tab.
 export type Activity = {
@@ -54,8 +59,37 @@ export async function printWarehouseActivity(
   settings: Parameters<typeof printSaleInvoice>[1],
   copies: number,
 ) {
-  if (a.kind === "marketer" || a.kind === "retail") {
-    await printDispatchSlip({ number: a.reference }, settings, "print", copies, false, true);
+  const isDispatch = a.kind === "marketer" || a.kind === "retail";
+  const { data: firstPrint, error: claimError } = await supabase.rpc(
+    "claim_warehouse_slip" as never,
+    {
+      p_factory: factoryId,
+      p_document_kind: isDispatch ? "dispatch" : "sale",
+      p_reference: a.reference,
+    } as never,
+  );
+  if (claimError) {
+    toast.error(`Couldn't record this print: ${claimError.message}`);
+    return;
+  }
+
+  const labels =
+    firstPrint === true
+      ? warehouseSlipLabels(isDispatch ? (a.kind === "retail" ? "retail" : "marketer") : "customer")
+      : [REPRINT_LABEL];
+  const printCount = firstPrint === true ? WAREHOUSE_SLIP_COPIES : copies;
+
+  if (isDispatch) {
+    await printDispatchSlip(
+      { number: a.reference },
+      settings,
+      "print",
+      printCount,
+      false,
+      true,
+      true,
+      labels,
+    );
     return;
   }
   const { data, error } = await supabase
@@ -68,14 +102,7 @@ export async function printWarehouseActivity(
     toast.error(error?.message ?? "Invoice not found");
     return;
   }
-  await printSaleInvoice(
-    data.id,
-    settings,
-    "print",
-    "roll",
-    copies,
-    warehouseSlipLabels("customer"),
-  );
+  await printSaleInvoice(data.id, settings, "print", "roll", printCount, labels, true);
 }
 
 // Each Warehouse officer sees only the products they handle (user,

@@ -3,14 +3,12 @@ import { RequireAccess } from "@/components/layout/require-access";
 import { RemittanceCommission } from "@/components/accounting/remittance-commission";
 import { SectionTabs } from "@/components/layout/section-tabs";
 import { useMemo, useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useFactoryId } from "@/lib/use-factory";
-import { usePermissions } from "@/lib/permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { MoneyInput } from "@/components/ui/money-input";
 import { Label } from "@/components/ui/label";
 import {
   Table,
@@ -20,25 +18,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { money, num } from "@/lib/format";
 import { exportCsv } from "@/lib/export";
 import { useRealtimeInvalidate } from "@/lib/realtime";
-import { toast } from "sonner";
-import { Award, Banknote, Download, Package, Pencil, TrendingUp } from "lucide-react";
+import { Award, Banknote, Download, Package, TrendingUp } from "lucide-react";
 
-// Marketer (sales rep) performance and commission. Commission is a fixed
-// amount per unit, set per product, captured on each rep sale when it is
-// approved, less the commission on units customers returned
-// (20260928130000_marketer_commission.sql). Paying it out is done through
-// Payroll or Expenses; this page works out what is owed.
+// Marketer performance and monthly target-based commission.
 export const Route = createFileRoute("/_app/marketer-performance")({
   head: () => ({
     meta: [
@@ -67,14 +53,33 @@ type PerfRow = {
   units_returned: number;
   commission_reversed: number;
   net_commission: number;
-  cash_remitted: number;
 };
 
-type RateRow = {
+type RemittanceActivity = {
   id: string;
-  name: string;
-  unit: string | null;
-  product_commission_rates: { amount_per_unit: number; updated_at: string } | null;
+  sales_rep_id: string;
+  marketer: string;
+  remittance_number: string;
+  remittance_date: string;
+  created_at: string;
+  amount: number;
+  payment_method: string;
+  remarks: string | null;
+};
+
+type TierCommissionRow = {
+  month: string;
+  sales_rep_id: string;
+  marketer: string;
+  tier: "A" | "B" | null;
+  target: number;
+  posted: number;
+  returned: number;
+  net_posted: number;
+  remitted: number;
+  eligible_value: number;
+  achievement: number | null;
+  commission: number;
 };
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
@@ -85,17 +90,20 @@ const monthStart = () => {
 
 function PerformancePage() {
   const { data: factoryId } = useFactoryId();
-  const { canApprove } = usePermissions();
-  const canSetRates = canApprove("distribution");
-  const qc = useQueryClient();
   const [from, setFrom] = useState(monthStart);
   const [to, setTo] = useState(() => iso(new Date()));
-  const [editing, setEditing] = useState<RateRow | null>(null);
-  const rangeOk = !!from && !!to && from <= to;
+  const rangeDays = (Date.parse(to) - Date.parse(from)) / 86_400_000;
+  const rangeOk = !!from && !!to && from <= to && rangeDays <= 366;
+  const rangeError =
+    !from || !to || from > to
+      ? "Pick a valid date range."
+      : rangeDays > 366
+        ? "Select a date range of no more than one year."
+        : "";
 
   useRealtimeInvalidate(
-    ["sales", "sales_returns", "rep_remittances", "product_commission_rates"],
-    [["marketer-performance"], ["commission-rates"]],
+    ["sales", "sales_returns", "rep_remittances", "stock_dispatches", "rep_returns", "sales_reps"],
+    [["marketer-performance"], ["marketer-tier-commission"], ["marketer-remittance-activity"]],
   );
 
   const perf = useQuery({
@@ -112,36 +120,67 @@ function PerformancePage() {
     },
   });
 
-  const rates = useQuery({
-    queryKey: ["commission-rates", factoryId],
-    enabled: !!factoryId,
+  const tierCommission = useQuery({
+    queryKey: ["marketer-tier-commission", factoryId, from, to],
+    enabled: !!factoryId && rangeOk,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("products")
-        .select("id,name,unit,product_commission_rates(amount_per_unit,updated_at)")
-        .eq("factory_id", factoryId!)
-        .eq("active", true)
-        .eq("product_type", "finished")
-        .order("name");
+      const { data, error } = await supabase.rpc("marketer_monthly_tier_commission", {
+        p_factory: factoryId!,
+        p_from: from,
+        p_to: to,
+      });
       if (error) throw error;
-      return (data ?? []) as unknown as RateRow[];
+      return (data ?? []) as TierCommissionRow[];
+    },
+  });
+  const remittanceActivity = useQuery({
+    queryKey: ["marketer-remittance-activity", factoryId, from, to],
+    enabled: !!factoryId && rangeOk,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("marketer_remittance_activity", {
+        p_factory: factoryId!,
+        p_from: from,
+        p_to: to,
+      });
+      if (error) throw error;
+      return (data ?? []) as RemittanceActivity[];
     },
   });
 
   const rows = useMemo(() => perf.data ?? [], [perf.data]);
+  const tierRows = useMemo(() => tierCommission.data ?? [], [tierCommission.data]);
+  const remittances = useMemo(() => remittanceActivity.data ?? [], [remittanceActivity.data]);
+  const remittedByRep = useMemo(() => {
+    const totals = new Map<string, number>();
+    for (const remittance of remittances) {
+      totals.set(
+        remittance.sales_rep_id,
+        (totals.get(remittance.sales_rep_id) ?? 0) + Number(remittance.amount),
+      );
+    }
+    return totals;
+  }, [remittances]);
+  const tierByRep = useMemo(() => {
+    const totals = new Map<string, number>();
+    for (const r of tierRows) {
+      totals.set(r.sales_rep_id, (totals.get(r.sales_rep_id) ?? 0) + Number(r.commission));
+    }
+    return totals;
+  }, [tierRows]);
   const totals = rows.reduce(
     (t, r) => ({
       value: t.value + Number(r.sales_value),
       units: t.units + Number(r.units_sold),
-      commission: t.commission + Number(r.net_commission),
-      remitted: t.remitted + Number(r.cash_remitted),
+      legacyCommission: t.legacyCommission + Number(r.net_commission),
     }),
-    { value: 0, units: 0, commission: 0, remitted: 0 },
+    { value: 0, units: 0, legacyCommission: 0 },
+  );
+  const totalRemitted = remittances.reduce(
+    (total, remittance) => total + Number(remittance.amount),
+    0,
   );
   const top = rows.find((r) => Number(r.sales_value) > 0);
-  const unrated = (rates.data ?? []).filter(
-    (p) => Number(p.product_commission_rates?.amount_per_unit ?? 0) === 0,
-  ).length;
+  const tierCommissionTotal = tierRows.reduce((total, r) => total + Number(r.commission), 0);
 
   const exportRows = () =>
     exportCsv(
@@ -151,13 +190,16 @@ function PerformancePage() {
         { key: "sales_count", label: "Sales" },
         { key: "units_sold", label: "Units sold" },
         { key: "sales_value", label: "Sales value" },
-        { key: "commission_earned", label: "Commission earned" },
-        { key: "units_returned", label: "Units returned" },
-        { key: "commission_reversed", label: "Commission on returns" },
-        { key: "net_commission", label: "Net commission" },
+        { key: "legacy_commission", label: "Legacy per-unit commission" },
+        { key: "tier_commission", label: "Monthly tier commission" },
         { key: "cash_remitted", label: "Cash remitted" },
       ],
-      rows.map((r) => ({ ...r })),
+      rows.map((r) => ({
+        ...r,
+        legacy_commission: Number(r.net_commission),
+        tier_commission: tierByRep.get(r.sales_rep_id) ?? 0,
+        cash_remitted: remittedByRep.get(r.sales_rep_id) ?? 0,
+      })),
     );
 
   return (
@@ -166,8 +208,10 @@ function PerformancePage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Performance &amp; Commission</h1>
           <p className="text-sm text-muted-foreground">
-            What each marketer sold in the period and the commission they earned: a fixed amount per
-            unit, less units customers returned.
+            Monthly target commissions are paid in full when the assigned target is remitted, capped
+            at posted value after returns. Daily remittance commission is shown separately.
+            Remittance figures and receipts below are pulled from each marketer&apos;s account
+            ledger. Previously earned per-unit commission remains listed as a historical balance.
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-2">
@@ -179,20 +223,27 @@ function PerformancePage() {
             <Label className="text-xs">To</Label>
             <Input type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} />
           </div>
-          <Button variant="outline" className="gap-2" disabled={!rows.length} onClick={exportRows}>
+          <Button
+            variant="outline"
+            className="gap-2"
+            disabled={!rangeOk || !rows.length}
+            onClick={exportRows}
+          >
             <Download className="h-4 w-4" /> CSV
           </Button>
         </div>
       </div>
+      {rangeError && <p className="text-sm text-destructive">{rangeError}</p>}
 
       {/* Commission on remittances, by achievement band (2026-11-04). */}
       {factoryId && rangeOk && <RemittanceCommission factoryId={factoryId} from={from} to={to} />}
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <Kpi icon={TrendingUp} label="Marketer sales" value={money(totals.value)} />
         <Kpi icon={Package} label="Units sold" value={num(totals.units)} />
-        <Kpi icon={Award} label="Commission due" value={money(totals.commission)} />
-        <Kpi icon={Banknote} label="Cash remitted" value={money(totals.remitted)} />
+        <Kpi icon={Award} label="Legacy per-unit balance" value={money(totals.legacyCommission)} />
+        <Kpi icon={Award} label="Monthly tier commission" value={money(tierCommissionTotal)} />
+        <Kpi icon={Banknote} label="Cash remitted" value={money(totalRemitted)} />
       </div>
 
       <Card className="rounded-2xl">
@@ -212,18 +263,17 @@ function PerformancePage() {
                 <TableHead className="text-right">Sales</TableHead>
                 <TableHead className="text-right">Units sold</TableHead>
                 <TableHead className="text-right">Sales value</TableHead>
-                <TableHead className="text-right">Commission</TableHead>
-                <TableHead className="text-right">Returned</TableHead>
-                <TableHead className="text-right">Net commission</TableHead>
+                <TableHead className="text-right">Legacy per-unit balance</TableHead>
+                <TableHead className="text-right">Monthly tier commission</TableHead>
                 <TableHead className="text-right">Cash remitted</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {rows.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
+                  <TableCell colSpan={7} className="py-10 text-center text-muted-foreground">
                     {!rangeOk
-                      ? "Pick a valid date range."
+                      ? rangeError
                       : perf.isLoading
                         ? "Loading…"
                         : "No marketers yet. Add them under Distribution → Sales Reps."}
@@ -243,20 +293,13 @@ function PerformancePage() {
                   <TableCell className="text-right">{r.sales_count}</TableCell>
                   <TableCell className="text-right">{num(Number(r.units_sold))}</TableCell>
                   <TableCell className="text-right">{money(Number(r.sales_value))}</TableCell>
-                  <TableCell className="text-right">{money(Number(r.commission_earned))}</TableCell>
-                  <TableCell className="text-right">
-                    {Number(r.units_returned) > 0 ? (
-                      <span className="text-destructive">
-                        {num(Number(r.units_returned))} (−{money(Number(r.commission_reversed))})
-                      </span>
-                    ) : (
-                      "—"
-                    )}
-                  </TableCell>
+                  <TableCell className="text-right">{money(Number(r.net_commission))}</TableCell>
                   <TableCell className="text-right font-semibold">
-                    {money(Number(r.net_commission))}
+                    {money(tierByRep.get(r.sales_rep_id) ?? 0)}
                   </TableCell>
-                  <TableCell className="text-right">{money(Number(r.cash_remitted))}</TableCell>
+                  <TableCell className="text-right">
+                    {money(remittedByRep.get(r.sales_rep_id) ?? 0)}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -266,132 +309,126 @@ function PerformancePage() {
 
       <Card className="rounded-2xl">
         <CardHeader>
-          <CardTitle>Commission rates</CardTitle>
+          <CardTitle>Remittance activity</CardTitle>
           <p className="text-sm text-muted-foreground">
-            Amount a marketer earns per unit sold. A new rate applies to sales approved from now on;
-            commission already earned keeps the rate it was earned at.
-            {unrated > 0 && ` ${unrated} product(s) have no rate and earn no commission.`}
+            Individual cash remittances recorded in marketers&apos; accounts for the selected date
+            range. Total: {money(totalRemitted)}.
           </p>
         </CardHeader>
         <CardContent className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Product</TableHead>
-                <TableHead className="text-right">Commission per unit</TableHead>
-                <TableHead>Last changed</TableHead>
-                <TableHead className="w-12" />
+                <TableHead>Date</TableHead>
+                <TableHead>Marketer</TableHead>
+                <TableHead>Reference</TableHead>
+                <TableHead>Payment method</TableHead>
+                <TableHead>Remarks</TableHead>
+                <TableHead className="text-right">Amount remitted</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(rates.data ?? []).length === 0 && (
+              {remittances.map((remittance) => (
+                <TableRow key={remittance.id}>
+                  <TableCell className="whitespace-nowrap">
+                    {new Date(`${remittance.remittance_date}T00:00:00`).toLocaleDateString()}
+                  </TableCell>
+                  <TableCell className="font-medium">{remittance.marketer}</TableCell>
+                  <TableCell className="font-mono text-xs">
+                    {remittance.remittance_number}
+                  </TableCell>
+                  <TableCell className="capitalize">
+                    {remittance.payment_method.replace(/_/g, " ")}
+                  </TableCell>
+                  <TableCell>{remittance.remarks || "—"}</TableCell>
+                  <TableCell className="text-right font-semibold">
+                    {money(Number(remittance.amount))}
+                  </TableCell>
+                </TableRow>
+              ))}
+              {remittances.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
-                    {rates.isLoading ? "Loading…" : "No products to show."}
+                  <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
+                    {rangeError ||
+                      (remittanceActivity.isLoading
+                        ? "Loading account remittances…"
+                        : remittanceActivity.isError
+                          ? (remittanceActivity.error as Error).message
+                          : "No remittances in this date range.")}
                   </TableCell>
                 </TableRow>
               )}
-              {(rates.data ?? []).map((p) => {
-                const rate = p.product_commission_rates;
-                return (
-                  <TableRow key={p.id}>
-                    <TableCell>
-                      {p.name}
-                      {p.unit && <span className="text-muted-foreground"> · per {p.unit}</span>}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {rate && Number(rate.amount_per_unit) > 0 ? (
-                        money(Number(rate.amount_per_unit))
-                      ) : (
-                        <span className="text-muted-foreground">None</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {rate ? new Date(rate.updated_at).toLocaleDateString() : "—"}
-                    </TableCell>
-                    <TableCell>
-                      {canSetRates && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          title="Set commission"
-                          onClick={() => setEditing(p)}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
             </TableBody>
           </Table>
         </CardContent>
       </Card>
 
-      <Dialog open={!!editing} onOpenChange={(v) => !v && setEditing(null)}>
-        {editing && (
-          <RateDialog
-            product={editing}
-            onDone={() => {
-              setEditing(null);
-              qc.invalidateQueries({ queryKey: ["commission-rates"] });
-            }}
-          />
-        )}
-      </Dialog>
+      <Card className="rounded-2xl">
+        <CardHeader>
+          <CardTitle>Monthly tier commission</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Each calendar month touched by the selected date range is evaluated in full. Eligible
+            value is remittances capped at posted value after returns; the full commission is paid
+            once Status A reaches ₦22,000,000 or Status B reaches ₦11,000,000.
+          </p>
+        </CardHeader>
+        <CardContent className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Month</TableHead>
+                <TableHead>Marketer</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Target</TableHead>
+                <TableHead className="text-right">Net posted</TableHead>
+                <TableHead className="text-right">Remitted</TableHead>
+                <TableHead className="text-right">Progress</TableHead>
+                <TableHead className="text-right">Commission</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {tierRows.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
+                    {rangeError ||
+                      (tierCommission.isLoading
+                        ? "Loading…"
+                        : tierCommission.isError
+                          ? (tierCommission.error as Error).message
+                          : "No marketers to show.")}
+                  </TableCell>
+                </TableRow>
+              )}
+              {tierRows.map((r) => (
+                <TableRow key={`${r.month}-${r.sales_rep_id}`}>
+                  <TableCell>
+                    {new Date(`${r.month}T00:00:00`).toLocaleDateString(undefined, {
+                      month: "long",
+                      year: "numeric",
+                    })}
+                  </TableCell>
+                  <TableCell className="font-medium">{r.marketer}</TableCell>
+                  <TableCell>
+                    {r.tier ? <Badge variant="outline">Status {r.tier}</Badge> : "Unassigned"}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {r.target ? money(Number(r.target)) : "—"}
+                  </TableCell>
+                  <TableCell className="text-right">{money(Number(r.net_posted))}</TableCell>
+                  <TableCell className="text-right">{money(Number(r.remitted))}</TableCell>
+                  <TableCell className="text-right">
+                    {r.achievement == null ? "—" : `${Number(r.achievement).toFixed(2)}%`}
+                  </TableCell>
+                  <TableCell className="text-right font-semibold">
+                    {money(Number(r.commission))}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
     </div>
-  );
-}
-
-function RateDialog({ product, onDone }: { product: RateRow; onDone: () => void }) {
-  const [amount, setAmount] = useState(
-    String(Number(product.product_commission_rates?.amount_per_unit ?? 0)),
-  );
-  const [reason, setReason] = useState("");
-  const save = useMutation({
-    mutationFn: async () => {
-      const value = Number(amount);
-      if (!Number.isFinite(value) || value < 0) throw new Error("Commission must be 0 or more");
-      const { error } = await supabase.rpc("set_product_commission", {
-        p_product: product.id,
-        p_amount: value,
-        p_reason: reason.trim() || undefined,
-      });
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      toast.success("Commission rate saved");
-      onDone();
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
-  return (
-    <DialogContent>
-      <DialogHeader>
-        <DialogTitle>Commission — {product.name}</DialogTitle>
-      </DialogHeader>
-      <div className="grid gap-3">
-        <div>
-          <Label>Amount per {product.unit ?? "unit"}</Label>
-          <MoneyInput value={Number(amount) || 0} onChange={(v) => setAmount(v ? String(v) : "")} />
-        </div>
-        <div>
-          <Label>Reason (optional)</Label>
-          <Input value={reason} onChange={(e) => setReason(e.target.value)} />
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Applies to marketer sales approved from now on. Set 0 to stop paying commission on this
-          product.
-        </p>
-      </div>
-      <DialogFooter>
-        <Button disabled={save.isPending} onClick={() => save.mutate()}>
-          {save.isPending ? "Saving…" : "Save rate"}
-        </Button>
-      </DialogFooter>
-    </DialogContent>
   );
 }
 

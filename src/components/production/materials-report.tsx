@@ -8,6 +8,7 @@ import { useFactorySettings } from "@/lib/use-factory";
 import { localDay } from "@/lib/production-shift";
 import { num } from "@/lib/format";
 import { generateReportPdf } from "@/lib/pdf";
+import { useRealtimeInvalidate } from "@/lib/realtime";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -100,6 +101,7 @@ export function ProductionMaterialsReport({ factoryId }: { factoryId: string }) 
   const canAdd = can("production", "create");
   const canEdit = canAdd || can("production", "edit");
   const settings = useFactorySettings(factoryId);
+  useRealtimeInvalidate(["raw_material_movements"], [["production-material-options", factoryId]]);
   const [date, setDate] = useState(localDay());
   const [q, setQ] = useState("");
   const [adding, setAdding] = useState(false);
@@ -463,7 +465,7 @@ function AddReportDialog({ factoryId, onDone }: { factoryId: string; onDone: () 
                                 <SelectItem key={o.material_id} value={o.material_id}>
                                   {o.material_name}
                                   {o.received_since > 0
-                                    ? ` (${num(Number(o.received_since))} ${o.kind === "bottle" ? "received" : "issued by Store"})`
+                                    ? ` (${num(Number(o.received_since))})`
                                     : o.detail && o.kind !== "bottle"
                                       ? ` (${o.detail})`
                                       : ""}{" "}

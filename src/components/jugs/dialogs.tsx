@@ -722,11 +722,13 @@ export function CustomerUnsoldDialog({
           <DialogTitle>
             {allProducts ? "Return from Distributor/Office Delivery" : "Receive unsold dispensers"}
           </DialogTitle>
-          <DialogDescription>
-            {allProducts
-              ? "Products a Distributor/Office Delivery customer brings back. They go back into Warehouse stock at once; what the customer owes comes down first and the rest is kept as their credit."
-              : "Filled dispenser jugs any customer brings back unsold -- a distributor, a marketer's customer or a retail customer. They go back into Warehouse finished goods, the jugs count as Received, and the customer's account is credited."}
-          </DialogDescription>
+          {!allProducts && (
+            <DialogDescription>
+              Filled dispenser jugs any customer brings back unsold -- a distributor, a marketer's
+              customer or a retail customer. They go back into Warehouse finished goods, the jugs
+              count as Received, and the customer's account is credited.
+            </DialogDescription>
+          )}
         </DialogHeader>
         <div className="grid gap-3">
           {toggle}

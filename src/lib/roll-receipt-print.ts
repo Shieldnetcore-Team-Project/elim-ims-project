@@ -74,7 +74,7 @@ function receiptHtml(r: RollReceipt, logo: string, label?: string) {
   const row = (label: string, value: string, bold = false) =>
     `<tr class="${bold ? "strong" : ""}"><td>${esc(label)}</td><td class="r">${esc(value)}</td></tr>`;
   return `
-<section class="receipt slip${r.compact ? " compact" : ""}">
+<section class="receipt slip${r.compact ? " compact" : ""}${r.small_print ? " small-print" : ""}">
   ${logo ? `<img class="logo" src="${esc(logo)}" alt="" />` : ""}
   ${r.company.address ? `<div class="c small">${esc(r.company.address)}</div>` : ""}
   ${r.company.phone ? `<div class="c small">${esc(r.company.phone)}</div>` : ""}
@@ -82,7 +82,7 @@ function receiptHtml(r: RollReceipt, logo: string, label?: string) {
   <h1><span>${esc(r.title)}</span></h1>
   <table class="parties">
     <tr><td>Trans. ID:</td><td>Sales Rep.:</td><td>${esc(r.party_label)}:</td></tr>
-    <tr class="v"><td>${esc(r.trans_id)}</td><td>${esc(r.sales_rep || "—")}</td><td>${esc(r.party)}</td></tr>
+    <tr class="v"><td>${esc(r.trans_id)}</td><td>${esc(r.sales_rep || "—")}</td><td>${esc(r.party)}${r.party_contact ? `<div class="party-detail">Contact: ${esc(r.party_contact)}</div>` : ""}${r.party_address ? `<div class="party-detail">Address: ${esc(r.party_address)}</div>` : ""}</td></tr>
   </table>
   <div class="gap fb">Transaction Details</div>
   <table class="items">
@@ -228,6 +228,16 @@ td, th { padding: 0.4mm 0; vertical-align: top; word-break: break-word; }
 .slip.compact .items th { font-size: 2.75mm; line-height: 3.3mm; }
 .slip.compact h1 { font-size: 3.65mm; line-height: 8.8mm; }
 .slip.compact h1 span { line-height: 4.4mm; }
+/* Warehouse activity receipts use smaller type to fit long customer details. */
+.slip.small-print { font-size: 3.3mm; line-height: 4mm; }
+.slip.small-print .small, .slip.small-print .split, .slip.small-print .parties,
+.slip.small-print .totals .strong td, .slip.small-print .thanks,
+.slip.small-print .copy-label { font-size: 3.3mm; line-height: 4mm; }
+.slip.small-print .fb, .slip.small-print .items { font-size: 2.95mm; line-height: 3.5mm; }
+.slip.small-print .items th { font-size: 2.5mm; line-height: 3mm; }
+.slip.small-print h1 { font-size: 3.3mm; line-height: 8mm; }
+.slip.small-print h1 span { line-height: 4mm; }
+.party-detail { font-weight: 400; }
 `;
 
 // Each copy is its own print job, one after the other, so the printer cuts

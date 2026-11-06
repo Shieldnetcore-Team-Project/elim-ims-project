@@ -41,6 +41,8 @@ export type InvoiceData = {
   // Slim receipt only: a footer per copy, e.g. "*** Sales-Rep Copy ***" then
   // "*** Customer Copy ***"; the last one repeats for any further copies.
   copy_labels?: string[];
+  // Warehouse Activity's thermal receipt: smaller type to fit more comfortably.
+  small_print?: boolean;
 };
 
 export type PdfAction = "download" | "print" | "preview";
@@ -171,6 +173,9 @@ export type RollReceipt = {
   // The Retail Shop's sale receipt (user, 2026-11-02): type one point
   // smaller and no extra inch of blank roll at the end.
   compact?: boolean;
+  small_print?: boolean;
+  party_contact?: string | null;
+  party_address?: string | null;
 };
 
 export async function generateRollReceiptPdf(
@@ -191,6 +196,7 @@ export async function generateRollReceiptPdf(
   const right = W - M;
   const contentW = W - M * 2;
   const center = W / 2;
+  const scale = r.small_print ? 0.9 : 1;
   const amt = (n: number) => Math.round(n).toLocaleString("en-US", { maximumFractionDigits: 0 });
   const naira = (n: number) => `N${amt(n)}`;
   const day = r.at.getDate();
@@ -213,13 +219,13 @@ export async function generateRollReceiptPdf(
     let y = M;
     const font = (size: number, bold = false) => {
       doc.setFont("courier", bold ? "bold" : "normal");
-      doc.setFontSize(size);
+      doc.setFontSize(size * scale);
     };
     const centred = (text: string, size: number, bold = false) => {
       font(size, bold);
       (doc.splitTextToSize(text, contentW) as string[]).forEach((ln) => {
         doc.text(ln, center, y, { align: "center" });
-        y += size + 2;
+        y += size * scale + 2;
       });
     };
 
@@ -254,7 +260,19 @@ export async function generateRollReceiptPdf(
     font(6.5);
     cols.forEach((c) => doc.text(c.label, c.x, y));
     y += 9;
-    const values = cols.map((c) => doc.splitTextToSize(c.value, c.w) as string[]);
+    const values = cols.map((c, i) => {
+      const details =
+        i === 2
+          ? [
+              r.party,
+              r.party_contact && `Contact: ${r.party_contact}`,
+              r.party_address && `Address: ${r.party_address}`,
+            ]
+              .filter(Boolean)
+              .flatMap((line) => doc.splitTextToSize(line!, c.w) as string[])
+          : (doc.splitTextToSize(c.value, c.w) as string[]);
+      return details;
+    });
     values.forEach((lines, i) => lines.forEach((ln, j) => doc.text(ln, cols[i].x, y + j * 8)));
     y += Math.max(...values.map((v) => v.length)) * 8 + 10;
 
@@ -382,6 +400,9 @@ export async function generateInvoicePdf(
         file_name: data.invoice_number,
         copy_labels: data.copy_labels,
         compact: data.retail,
+        small_print: data.small_print,
+        party_contact: data.customer.phone,
+        party_address: data.customer.address,
       },
       action,
       copies,
@@ -453,7 +474,8 @@ export async function generateInvoicePdf(
     y += fz(12);
 
     left(`Customer: ${data.customer.name || "Walk-in"}`, 11);
-    if (data.customer.phone) left(`Phone: ${data.customer.phone}`, 11);
+    if (data.customer.phone) left(`Contact: ${data.customer.phone}`, 11);
+    if (data.customer.address) left(`Address: ${data.customer.address}`, 11);
 
     doc.line(M, y, W - M, y);
     y += fz(12);
@@ -1250,6 +1272,7 @@ export async function generateDispatchSlipPdf(
     quantities_only?: boolean;
     // A footer per copy, e.g. Warehouse Copy / Marketer Copy.
     copy_labels?: string[];
+    small_print?: boolean;
   },
   action: PdfAction = "download",
   copies = 1,
@@ -1277,6 +1300,7 @@ export async function generateDispatchSlipPdf(
         opts.status === "posted" ? null : `Status: ${opts.status.replace(/_/g, " ").toUpperCase()}`,
       file_name: opts.dispatch_number,
       quantities_only: opts.quantities_only,
+      small_print: opts.small_print,
       copy_labels: opts.copy_labels,
     },
     action,

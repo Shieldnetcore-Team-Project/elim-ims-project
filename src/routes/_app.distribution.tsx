@@ -64,6 +64,7 @@ import {
 import { money, num } from "@/lib/format";
 import { exportCsv } from "@/lib/export";
 import { toast } from "sonner";
+import { useRealtimeInvalidate } from "@/lib/realtime";
 import { logAudit } from "@/lib/audit";
 import { fetchMyProductMatcher, useMyProductMatcher } from "@/lib/product-rules";
 import { QuickAddProductDialog, ADD_NEW_ITEM } from "@/components/shared/quick-add-item";
@@ -110,6 +111,7 @@ export type Rep = {
   status: string;
   employee_id: string | null;
   remarks: string | null;
+  commission_tier?: "A" | "B" | null;
   // 'rep' is a field sales rep; 'outlet' is the company's own retail outlet.
   // Both hold stock dispatched from the Warehouse and sell from it.
   kind: "rep" | "outlet";
@@ -202,7 +204,10 @@ export function RepsTab({
   const canEdit = perms.canEdit("distribution");
   const canDelete = perms.canDelete("distribution");
 
-  const refresh = () => qc.invalidateQueries({ queryKey: ["dist-reps"] });
+  const refresh = () => {
+    void qc.invalidateQueries({ queryKey: ["dist-reps"] });
+    void qc.invalidateQueries({ queryKey: ["marketer-tier-commission"] });
+  };
 
   const del = useMutation({
     mutationFn: async ({ id, reason }: { id: string; reason: string }) => {
@@ -241,6 +246,7 @@ export function RepsTab({
               <TableHead>Name</TableHead>
               <TableHead>Type</TableHead>
               <TableHead>Phone</TableHead>
+              <TableHead>Commission tier</TableHead>
               <TableHead>Status</TableHead>
               <TableHead></TableHead>
             </TableRow>
@@ -261,6 +267,15 @@ export function RepsTab({
                   </Badge>
                 </TableCell>
                 <TableCell>{r.phone ?? "—"}</TableCell>
+                <TableCell>
+                  {r.kind === "rep" && r.commission_tier ? (
+                    <Badge variant="outline">Status {r.commission_tier}</Badge>
+                  ) : r.kind === "rep" ? (
+                    <span className="text-muted-foreground">Unassigned</span>
+                  ) : (
+                    "—"
+                  )}
+                </TableCell>
                 <TableCell>
                   <Badge variant={r.status === "active" ? "secondary" : "outline"}>
                     {r.status}
@@ -297,7 +312,7 @@ export function RepsTab({
             ))}
             {reps.length === 0 && (
               <TableRow>
-                <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
+                <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
                   No sales reps or outlets yet.
                 </TableCell>
               </TableRow>
@@ -351,6 +366,7 @@ function RepDialog({
   const [status, setStatus] = useState(rep?.status ?? "active");
   const [remarks, setRemarks] = useState(rep?.remarks ?? "");
   const [kind, setKind] = useState<Rep["kind"]>(rep?.kind ?? "rep");
+  const [commissionTier, setCommissionTier] = useState(rep?.commission_tier ?? "");
 
   const save = useMutation({
     mutationFn: async () => {
@@ -362,7 +378,11 @@ function RepDialog({
         status,
         kind,
         remarks: remarks.trim() || null,
+        commission_tier: kind === "rep" ? commissionTier || null : null,
       };
+      if (kind === "rep" && !commissionTier) {
+        throw new Error("Choose a commission status for this marketer");
+      }
       if (rep) {
         const { error } = await supabase.from("sales_reps").update(body).eq("id", rep.id);
         if (error) throw error;
@@ -426,6 +446,24 @@ function RepDialog({
             </SelectContent>
           </Select>
         </div>
+        {kind === "rep" && (
+          <div>
+            <Label>Commission status</Label>
+            <Select value={commissionTier} onValueChange={setCommissionTier}>
+              <SelectTrigger>
+                <SelectValue placeholder="Choose Status A or B" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="A">
+                  Status A — ₦22,000,000 target · ₦200,000 commission
+                </SelectItem>
+                <SelectItem value="B">
+                  Status B — ₦11,000,000 target · ₦90,000 commission
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
         <div>
           <Label>Remarks</Label>
           <Textarea value={remarks} onChange={(e) => setRemarks(e.target.value)} />
@@ -909,7 +947,7 @@ function useDispatchPickers(factoryId: string) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("sales_reps")
-        .select("id,code,full_name,phone,status,employee_id,remarks,kind")
+        .select("id,code,full_name,phone,status,employee_id,remarks,kind,commission_tier")
         .eq("factory_id", factoryId)
         .order("full_name");
       if (error) throw error;
@@ -3642,10 +3680,20 @@ type PerfRow = {
   net_commission: number;
 };
 
-// This marketer's line of Performance & Commission (marketer_performance):
-// what they sold in the period and the commission earned — a fixed amount per
-// unit, less units customers returned. With no dates picked on the account it
-// covers the current month (the RPC needs a range).
+type TierCommissionRow = {
+  month: string;
+  sales_rep_id: string;
+  marketer: string;
+  tier: "A" | "B" | null;
+  target: number;
+  net_posted: number;
+  remitted: number;
+  achievement: number | null;
+  commission: number;
+};
+
+// The marketer's monthly target commission; sales statistics continue to
+// follow the account's selected date range.
 function RepPerformanceCard({
   factoryId,
   repId,
@@ -3657,6 +3705,10 @@ function RepPerformanceCard({
   from: string;
   to: string;
 }) {
+  useRealtimeInvalidate(
+    ["sales", "sales_returns", "rep_remittances", "stock_dispatches", "rep_returns", "sales_reps"],
+    [["marketer-performance"], ["marketer-tier-commission"]],
+  );
   const today = new Date().toISOString().slice(0, 10);
   const pFrom = from || `${today.slice(0, 8)}01`;
   const pTo = to || today;
@@ -3673,7 +3725,21 @@ function RepPerformanceCard({
       return (data ?? []) as PerfRow[];
     },
   });
+  const tierCommission = useQuery({
+    queryKey: ["marketer-tier-commission", factoryId, pFrom, pTo],
+    enabled: pFrom <= pTo,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("marketer_monthly_tier_commission", {
+        p_factory: factoryId,
+        p_from: pFrom,
+        p_to: pTo,
+      });
+      if (error) throw error;
+      return (data ?? []) as TierCommissionRow[];
+    },
+  });
   const r = (perf.data ?? []).find((x) => x.sales_rep_id === repId);
+  const tierRows = (tierCommission.data ?? []).filter((x) => x.sales_rep_id === repId);
 
   return (
     <Card className="rounded-2xl">
@@ -3682,8 +3748,8 @@ function RepPerformanceCard({
         <p className="text-sm text-muted-foreground">
           What this marketer sold from {new Date(pFrom).toLocaleDateString()} to{" "}
           {new Date(pTo).toLocaleDateString()}
-          {!from && !to && " (this month — pick dates above to change)"} and the commission earned:
-          a fixed amount per unit, less units customers returned.
+          {!from && !to && " (this month — pick dates above to change)"}. Monthly tier commission
+          requires the full target to be remitted, capped at posted value after returns.
         </p>
       </CardHeader>
       <CardContent>
@@ -3692,22 +3758,73 @@ function RepPerformanceCard({
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
           </div>
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <Stat
               label="Sales · units sold"
               value={`${r?.sales_count ?? 0} · ${num(Number(r?.units_sold ?? 0))}`}
             />
             <Stat label="Sales value" value={money(Number(r?.sales_value ?? 0))} />
-            <Stat label="Commission earned" value={money(Number(r?.commission_earned ?? 0))} />
             <Stat
-              label="Units returned (commission off)"
-              value={`${num(Number(r?.units_returned ?? 0))} · −${money(Number(r?.commission_reversed ?? 0))}`}
+              label="Legacy per-unit commission balance"
+              value={money(Number(r?.net_commission ?? 0))}
             />
             <Stat
-              label="Net commission due"
-              value={money(Number(r?.net_commission ?? 0))}
+              label="Monthly tier commission due"
+              value={money(tierRows.reduce((total, row) => total + Number(row.commission), 0))}
               tone="ok"
             />
+          </div>
+        )}
+        {tierCommission.isError ? (
+          <p className="mt-4 text-sm text-destructive">
+            Could not load monthly commission: {(tierCommission.error as Error).message}
+          </p>
+        ) : (
+          <div className="mt-4 overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Month</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Target</TableHead>
+                  <TableHead className="text-right">Net posted</TableHead>
+                  <TableHead className="text-right">Remitted</TableHead>
+                  <TableHead className="text-right">Progress</TableHead>
+                  <TableHead className="text-right">Commission</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {tierRows.map((row) => (
+                  <TableRow key={row.month}>
+                    <TableCell>
+                      {new Date(`${row.month}T00:00:00`).toLocaleDateString(undefined, {
+                        month: "long",
+                        year: "numeric",
+                      })}
+                    </TableCell>
+                    <TableCell>{row.tier ? `Status ${row.tier}` : "Unassigned"}</TableCell>
+                    <TableCell className="text-right">
+                      {row.target ? money(Number(row.target)) : "—"}
+                    </TableCell>
+                    <TableCell className="text-right">{money(Number(row.net_posted))}</TableCell>
+                    <TableCell className="text-right">{money(Number(row.remitted))}</TableCell>
+                    <TableCell className="text-right">
+                      {row.achievement == null ? "—" : `${Number(row.achievement).toFixed(2)}%`}
+                    </TableCell>
+                    <TableCell className="text-right font-semibold">
+                      {money(Number(row.commission))}
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {tierRows.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center text-muted-foreground">
+                      {tierCommission.isLoading ? "Loading…" : "No monthly commission details."}
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
           </div>
         )}
       </CardContent>
