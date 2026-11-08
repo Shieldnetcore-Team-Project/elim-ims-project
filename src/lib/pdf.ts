@@ -1317,6 +1317,8 @@ export type WarehouseReportRow = {
   returned: number;
   sold: number;
   empty_jug_sold: number;
+  // Stock corrections in the range (20261108100000); may be absent.
+  adjusted?: number;
   balance: number;
 };
 
@@ -1384,6 +1386,7 @@ export async function generateWarehouseProductsReportPdf(
   y += 12;
 
   const n = (v: number) => (v ? v.toLocaleString() : "0");
+  const anyAdj = opts.rows.some((r) => Number(r.adjusted ?? 0) !== 0);
   autoTable(doc, {
     startY: y,
     margin: { left: 30, right: 30 },
@@ -1399,6 +1402,7 @@ export async function generateWarehouseProductsReportPdf(
         "Quantity Returned",
         "Quantity Sold",
         "Empty Jug Sold",
+        ...(anyAdj ? ["Adjusted"] : []),
         "Balance",
       ],
     ],
@@ -1413,6 +1417,7 @@ export async function generateWarehouseProductsReportPdf(
       n(r.returned),
       n(r.sold),
       r.empty_jug_sold ? r.empty_jug_sold.toLocaleString() : "",
+      ...(anyAdj ? [n(Number(r.adjusted ?? 0))] : []),
       n(r.balance),
     ]),
     theme: "grid",

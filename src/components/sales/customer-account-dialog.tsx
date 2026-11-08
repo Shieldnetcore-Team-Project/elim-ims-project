@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { saleLineName } from "@/lib/sale-line-name";
 import { useFactoryId, useFactorySettings } from "@/lib/use-factory";
 import { DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -55,6 +56,7 @@ type CustomerItemRow = {
   quantity: number;
   unit_price: number;
   line_total: number;
+  jar_mode?: string | null;
   products: { name: string; unit: string } | null;
 };
 type CustomerPaymentRow = {
@@ -119,7 +121,7 @@ export function CustomerAccountDialog({
     queryFn: async () => {
       const { data, error } = await supabase
         .from("sale_items")
-        .select("sale_id,quantity,unit_price,line_total,products(name,unit)")
+        .select("sale_id,quantity,unit_price,line_total,jar_mode,products(name,unit)")
         .in("sale_id", saleIds);
       if (error) throw error;
       return (data ?? []) as unknown as CustomerItemRow[];
@@ -373,7 +375,7 @@ export function CustomerAccountDialog({
                       </TableCell>
                       <TableCell>{inv?.sale_date ?? "—"}</TableCell>
                       <TableCell>
-                        {it.products?.name ?? "—"}
+                        {saleLineName(it.products?.name, it.jar_mode)}
                         {it.products?.unit ? ` (${it.products.unit})` : ""}
                       </TableCell>
                       <TableCell className="text-right">{num(Number(it.quantity))}</TableCell>

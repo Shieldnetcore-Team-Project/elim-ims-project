@@ -3407,6 +3407,7 @@ export type Database = {
       }
       sales_reps: {
         Row: {
+          address: string | null
           code: string | null
           commission_tier: string | null
           created_at: string
@@ -3422,6 +3423,7 @@ export type Database = {
           user_id: string | null
         }
         Insert: {
+          address?: string | null
           code?: string | null
           commission_tier?: string | null
           created_at?: string
@@ -3437,6 +3439,7 @@ export type Database = {
           user_id?: string | null
         }
         Update: {
+          address?: string | null
           code?: string | null
           commission_tier?: string | null
           created_at?: string

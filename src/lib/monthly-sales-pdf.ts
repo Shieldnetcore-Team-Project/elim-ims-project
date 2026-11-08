@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { drawLogoHeader, pdfMoney, type PdfAction } from "./pdf";
 import { fetchSaleLines } from "./invoice";
+import { saleLineName } from "./sale-line-name";
 import type { Database } from "@/integrations/supabase/types";
 
 type Settings = Database["public"]["Tables"]["settings"]["Row"] | null | undefined;
@@ -17,7 +18,12 @@ type Sale = {
   amount_paid: number;
   balance: number;
   sale_items:
-    | { quantity: number; line_total: number; products: { name: string; unit: string } | null }[]
+    | {
+        quantity: number;
+        line_total: number;
+        jar_mode?: string | null;
+        products: { name: string; unit: string } | null;
+      }[]
     | null;
 };
 
@@ -43,7 +49,7 @@ export async function printMonthlySales(
     let q = supabase
       .from("sales")
       .select(
-        "id,invoice_number,sale_date,customer_name,grand_total,amount_paid,balance,sale_items(quantity,line_total,products(name,unit))",
+        "id,invoice_number,sale_date,customer_name,grand_total,amount_paid,balance,sale_items(quantity,line_total,jar_mode,products(name,unit))",
       )
       .eq("factory_id", factoryId)
       .is("deleted_at", null)
@@ -118,7 +124,7 @@ export async function printMonthlySales(
     const c = customers.get(ck)!;
     add(c, s);
     for (const it of s.sale_items ?? []) {
-      const pname = it.products?.name ?? "Item";
+      const pname = saleLineName(it.products?.name ?? "Item", it.jar_mode);
       const unit = it.products?.unit ?? "";
       const p = products.get(pname) ?? { name: pname, unit, qty: 0, amount: 0 };
       p.qty += Number(it.quantity);
@@ -198,7 +204,10 @@ export async function printMonthlySales(
         s.sale_date.slice(0, 10),
         s.invoice_number,
         (s.sale_items ?? [])
-          .map((it) => `${it.products?.name ?? "Item"} × ${num(Number(it.quantity))}`)
+          .map(
+            (it) =>
+              `${saleLineName(it.products?.name ?? "Item", it.jar_mode)} × ${num(Number(it.quantity))}`,
+          )
           .join(", "),
         cash(Number(s.grand_total)),
         cash(Number(s.amount_paid)),

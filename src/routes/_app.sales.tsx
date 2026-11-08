@@ -13,6 +13,7 @@ import { MoneyInput } from "@/components/ui/money-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
+import { saleLineName } from "@/lib/sale-line-name";
 import {
   Table,
   TableBody,
@@ -129,7 +130,11 @@ type SaleRow = {
   // (Accountant → Postings), not this page.
   is_warehouse_posting?: boolean;
   // Only fetched for search matching — not rendered as a column.
-  sale_items?: { quantity: number; products: { name: string; unit: string } | null }[];
+  sale_items?: {
+    quantity: number;
+    jar_mode?: string | null;
+    products: { name: string; unit: string } | null;
+  }[];
 };
 type CartItem = {
   product_id: string;
@@ -206,7 +211,7 @@ function ItemsBought({ sales }: { sales: SaleRow[] }) {
   const byName = new Map<string, { qty: number; unit: string }>();
   for (const s of sales)
     for (const it of s.sale_items ?? []) {
-      const name = it.products?.name ?? "—";
+      const name = saleLineName(it.products?.name, it.jar_mode);
       const r = byName.get(name) ?? { qty: 0, unit: it.products?.unit ?? "" };
       r.qty += Number(it.quantity);
       byName.set(name, r);
@@ -314,7 +319,7 @@ function SalesPage() {
       let query = supabase
         .from("sales")
         .select(
-          "id,invoice_number,sale_date,customer_id,customer_name,grand_total,amount_paid,balance,credit_applied,payment_method,created_at,is_pr,status,created_by,rejected_reason,sales_person,is_warehouse_posting,sale_items(quantity,products(name,unit))",
+          "id,invoice_number,sale_date,customer_id,customer_name,grand_total,amount_paid,balance,credit_applied,payment_method,created_at,is_pr,status,created_by,rejected_reason,sales_person,is_warehouse_posting,sale_items(quantity,jar_mode,products(name,unit))",
         )
         .eq("factory_id", factoryId!)
         // Super admins can also read soft-deleted sales (Admin → Deleted
@@ -334,7 +339,9 @@ function SalesPage() {
       s.invoice_number.toLowerCase().includes(query) ||
       (s.customer_name ?? "").toLowerCase().includes(query) ||
       (s.sales_person ?? "").toLowerCase().includes(query) ||
-      (s.sale_items ?? []).some((it) => (it.products?.name ?? "").toLowerCase().includes(query))
+      (s.sale_items ?? []).some((it) =>
+        saleLineName(it.products?.name, it.jar_mode).toLowerCase().includes(query),
+      )
     );
   });
 
@@ -848,7 +855,10 @@ function SalesPage() {
                 when: new Date(s.created_at).toLocaleString(),
                 customer: s.customer_name ?? "Walk-in",
                 products: (s.sale_items ?? [])
-                  .map((it) => `${it.products?.name ?? "—"} × ${num(Number(it.quantity))}`)
+                  .map(
+                    (it) =>
+                      `${saleLineName(it.products?.name, it.jar_mode)} × ${num(Number(it.quantity))}`,
+                  )
                   .join(", "),
                 total: money(Number(s.grand_total)),
                 paid: money(Number(s.amount_paid)),

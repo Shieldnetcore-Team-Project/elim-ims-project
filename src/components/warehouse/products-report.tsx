@@ -69,12 +69,14 @@ function ReportDialog({ factoryId }: { factoryId: string }) {
           returned: Number(r.returned),
           sold: Number(r.sold),
           empty_jug_sold: Number(r.empty_jug_sold),
+          adjusted: Number(r.adjusted ?? 0),
           balance: Number(r.balance),
         }))
         .sort((a, b) => rank(a.product_name) - rank(b.product_name));
     },
   });
   const rows = report.data ?? [];
+  const anyAdj = rows.some((r) => r.adjusted !== 0);
 
   const print = (action: "print" | "download") =>
     generateWarehouseProductsReportPdf(
@@ -142,6 +144,7 @@ function ReportDialog({ factoryId }: { factoryId: string }) {
               <TableHead className="text-right">Quantity Returned</TableHead>
               <TableHead className="text-right">Quantity Sold</TableHead>
               <TableHead className="text-right">Empty Jug Sold</TableHead>
+              {anyAdj && <TableHead className="text-right">Adjusted</TableHead>}
               <TableHead className="text-right">Balance</TableHead>
             </TableRow>
           </TableHeader>
@@ -160,12 +163,16 @@ function ReportDialog({ factoryId }: { factoryId: string }) {
                 <TableCell className="text-right">
                   {r.empty_jug_sold ? num(r.empty_jug_sold) : ""}
                 </TableCell>
+                {anyAdj && <TableCell className="text-right">{num(r.adjusted)}</TableCell>}
                 <TableCell className="text-right font-semibold">{num(r.balance)}</TableCell>
               </TableRow>
             ))}
             {rows.length === 0 && (
               <TableRow>
-                <TableCell colSpan={11} className="py-8 text-center text-muted-foreground">
+                <TableCell
+                  colSpan={anyAdj ? 12 : 11}
+                  className="py-8 text-center text-muted-foreground"
+                >
                   {report.isLoading
                     ? "Loading…"
                     : report.isError

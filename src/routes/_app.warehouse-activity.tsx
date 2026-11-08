@@ -1,7 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Search } from "lucide-react";
+import { Pencil, Search } from "lucide-react";
+import { usePermissions } from "@/lib/permissions";
+import { Dialog } from "@/components/ui/dialog";
+import {
+  CorrectDispatchPostingDialog,
+  CorrectDistributorPostingDialog,
+} from "@/components/warehouse/correct-posting";
 import { RequireAccess } from "@/components/layout/require-access";
 import { SectionTabs } from "@/components/layout/section-tabs";
 import { supabase } from "@/integrations/supabase/client";
@@ -82,6 +88,15 @@ const fmtDay = (d: string) =>
 function WarehouseActivityPage() {
   const { data: factoryId } = useFactoryId();
   const settings = useFactorySettings(factoryId);
+  // Correct and repost a posting from the log too (user, 2026-11-08): change
+  // the products, the date (back-date) and give the reason.
+  const perms = usePermissions();
+  const canCorrect = (a: Activity) =>
+    a.status === "posted" &&
+    (a.kind === "distributor"
+      ? perms.canWrite("sales")
+      : (a.kind === "marketer" || a.kind === "retail") && perms.can("distribution", "create"));
+  const [correcting, setCorrecting] = useState<Activity | null>(null);
   const today = lagosToday();
   const [from, setFrom] = useState(today);
   const [to, setTo] = useState(today);
@@ -325,6 +340,17 @@ function WarehouseActivityPage() {
                           }
                         />
                       )}
+                      {canCorrect(a) && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="Correct, re-date and repost"
+                          aria-label="Correct and repost"
+                          onClick={() => setCorrecting(a)}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                      )}
                     </TableCell>
                   </TableRow>
                 );
@@ -344,6 +370,22 @@ function WarehouseActivityPage() {
           </Table>
         </CardContent>
       </Card>
+      <Dialog open={!!correcting} onOpenChange={(v) => !v && setCorrecting(null)}>
+        {correcting?.kind === "distributor" && (
+          <CorrectDistributorPostingDialog
+            factoryId={factoryId}
+            invoiceNumber={correcting.reference}
+            onDone={() => setCorrecting(null)}
+          />
+        )}
+        {(correcting?.kind === "marketer" || correcting?.kind === "retail") && (
+          <CorrectDispatchPostingDialog
+            factoryId={factoryId}
+            dispatchNumber={correcting.reference}
+            onDone={() => setCorrecting(null)}
+          />
+        )}
+      </Dialog>
     </div>
   );
 }

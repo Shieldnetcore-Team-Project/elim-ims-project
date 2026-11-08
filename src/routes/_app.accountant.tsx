@@ -65,6 +65,7 @@ import {
 } from "lucide-react";
 import { PostingDiscountButton } from "@/components/accounting/posting-discount-dialog";
 import { useCanDiscountPostings } from "@/lib/posting-discount";
+import { saleLineName } from "@/lib/sale-line-name";
 
 export const Route = createFileRoute("/_app/accountant")({
   head: () => ({
@@ -107,7 +108,13 @@ type SaleRow = {
   // Whose account the sale is on: the marketer who sold it, else the
   // customer's marketer at the time (stamped by the database).
   account_rep_id: string | null;
-  sale_items: { quantity: number; products: { name: string; unit: string } | null }[] | null;
+  sale_items:
+    | {
+        quantity: number;
+        jar_mode?: string | null;
+        products: { name: string; unit: string } | null;
+      }[]
+    | null;
 };
 
 // One customer's invoices for one day. Marketers and distributors take
@@ -171,7 +178,9 @@ function groupInvoices(sales: SaleRow[]): InvoiceGroup[] {
     g.paid += Number(s.amount_paid);
     g.balance += Number(s.balance);
     for (const it of s.sale_items ?? []) {
-      const label = [it.products?.name ?? "Item", it.products?.unit].filter(Boolean).join("|");
+      const label = [saleLineName(it.products?.name ?? "Item", it.jar_mode), it.products?.unit]
+        .filter(Boolean)
+        .join("|");
       g.qty.set(label, (g.qty.get(label) ?? 0) + Number(it.quantity));
     }
   }
@@ -464,7 +473,7 @@ function AccountantPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("sales_reps")
-        .select("id,code,full_name,phone,status,employee_id,remarks,kind,commission_tier")
+        .select("*")
         .eq("factory_id", factoryId!)
         .order("full_name");
       if (error) throw error;
@@ -498,7 +507,7 @@ function AccountantPage() {
     let q = supabase
       .from("sales")
       .select(
-        "id,invoice_number,sale_date,created_at,customer_name,grand_total,amount_paid,balance,status,is_pr,sales_rep_id,account_rep_id,sale_items(quantity,products(name,unit))",
+        "id,invoice_number,sale_date,created_at,customer_name,grand_total,amount_paid,balance,status,is_pr,sales_rep_id,account_rep_id,sale_items(quantity,jar_mode,products(name,unit))",
       )
       .eq("factory_id", factoryId!)
       // Admins can also read soft-deleted sales; they aren't real invoices.

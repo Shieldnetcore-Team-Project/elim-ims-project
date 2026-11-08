@@ -54,6 +54,7 @@ import {
   Eye,
 } from "lucide-react";
 import { generateReceiptPdf, generateDebtStatementPdf } from "@/lib/pdf";
+import { saleLineName } from "@/lib/sale-line-name";
 import { CustomerProfileDialog, type Customer } from "@/routes/_app.customers";
 
 export const Route = createFileRoute("/_app/cash-ledger/debts")({
@@ -87,6 +88,7 @@ type Debt = {
       quantity: number;
       unit_price: number;
       line_total: number;
+      jar_mode?: string | null;
       products: { name: string } | null;
     }[];
   } | null;
@@ -160,7 +162,7 @@ function DebtsPage() {
           id,total_amount,amount_paid,outstanding,status,customer_id,sale_id,created_at,
           writeoff_status,writeoff_requested_by,writeoff_reason,
           customers(name,phone,address),
-          sales(invoice_number, sale_items(quantity,unit_price,line_total,products(name)))
+          sales(invoice_number, sale_items(quantity,unit_price,line_total,jar_mode,products(name)))
         `,
         )
         .eq("factory_id", factoryId!)
@@ -388,7 +390,7 @@ function DebtsPage() {
       },
       invoice_number: debt.sales?.invoice_number,
       products: (debt.sales?.sale_items ?? []).map((it) => ({
-        name: it.products?.name ?? "—",
+        name: saleLineName(it.products?.name, it.jar_mode),
         quantity: Number(it.quantity),
         unit_price: Number(it.unit_price),
         line_total: Number(it.line_total),

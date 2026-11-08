@@ -28,13 +28,14 @@ type GiftProduct = {
   id: string;
   name: string;
   unit: string;
-  cost_price: number;
+  unit_price: number;
   current_stock: number;
 };
 type GiftLine = { product_id: string; quantity: number };
 
 // Warehouse → Post → Others → Chairman's gift. The warehouse manager picks
-// the products and quantities; the unit cost comes from the product. Posting
+// the products and quantities; each is valued at its selling price (the
+// price the Warehouse / Retail Shop post at; user, 2026-11-08). Posting
 // takes the stock out of the Warehouse and sends the gift to Accounting
 // (Accountant → Postings) to review and record. No sale, nothing to pay, and
 // never revenue (post_chairmans_gift).
@@ -50,7 +51,7 @@ export function ChairmansGiftDialog({
     queryFn: async () => {
       const { data, error } = await supabase
         .from("products")
-        .select("id,name,unit,cost_price,current_stock")
+        .select("id,name,unit,unit_price,current_stock")
         .eq("factory_id", factoryId)
         .eq("active", true)
         .eq("product_type", "finished")
@@ -67,7 +68,7 @@ export function ChairmansGiftDialog({
   const byId = useMemo(() => new Map((products.data ?? []).map((p) => [p.id, p])), [products.data]);
   const total = lines.reduce((t, l) => {
     const p = byId.get(l.product_id);
-    return t + (p ? Number(p.cost_price) * (l.quantity || 0) : 0);
+    return t + (p ? Number(p.unit_price) * (l.quantity || 0) : 0);
   }, 0);
   const update = (i: number, patch: Partial<GiftLine>) =>
     setLines(lines.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
@@ -133,7 +134,7 @@ export function ChairmansGiftDialog({
           <div className="grid grid-cols-[1fr_6rem_7rem_7rem_2rem] gap-2 text-xs text-muted-foreground">
             <span>Product</span>
             <span>Qty</span>
-            <span className="text-right">Unit cost</span>
+            <span className="text-right">Price</span>
             <span className="text-right">Value</span>
             <span />
           </div>
@@ -160,10 +161,10 @@ export function ChairmansGiftDialog({
                   onChange={(e) => update(i, { quantity: Number(e.target.value) })}
                 />
                 <div className="text-right text-sm text-muted-foreground">
-                  {p ? money(Number(p.cost_price)) : "—"}
+                  {p ? money(Number(p.unit_price)) : "—"}
                 </div>
                 <div className="text-right text-sm font-medium">
-                  {p ? money(Number(p.cost_price) * (l.quantity || 0)) : "—"}
+                  {p ? money(Number(p.unit_price) * (l.quantity || 0)) : "—"}
                 </div>
                 <Button
                   size="icon"
@@ -193,7 +194,7 @@ export function ChairmansGiftDialog({
         </div>
 
         <div className="flex justify-between border-t pt-2 text-sm font-medium">
-          <span>Value of products given out (at cost)</span>
+          <span>Worth of products given out (at selling price — not revenue)</span>
           <span>{money(total)}</span>
         </div>
       </div>

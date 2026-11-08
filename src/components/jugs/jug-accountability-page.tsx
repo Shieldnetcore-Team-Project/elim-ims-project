@@ -71,6 +71,7 @@ import {
   RowDetailDialog,
 } from "@/components/jugs/dialogs";
 import { WarehouseJugsToQc } from "@/components/qc/jug-handover";
+import { jugTypeLabel } from "@/lib/jug-type-label";
 
 const TABS = ["report", "jugs", "returns", "setup"] as const;
 type Tab = (typeof TABS)[number];
@@ -216,7 +217,7 @@ export function JugAccountabilityPage() {
     date: r.report_date,
     code: r.rep_code ?? "",
     name: r.rep_name,
-    jug: r.container_name,
+    jug: jugTypeLabel(r.container_name),
     opening: r.opening,
     loaded: r.loaded,
     total: r.total,
@@ -324,7 +325,7 @@ export function JugAccountabilityPage() {
                 <SelectItem value="all">All jug types</SelectItem>
                 {(types.data ?? []).map((t) => (
                   <SelectItem key={t.id} value={t.id}>
-                    {t.name}
+                    {jugTypeLabel(t.name)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -516,7 +517,7 @@ export function JugAccountabilityPage() {
                         {r.rep_name}
                         {(types.data ?? []).length > 1 && (
                           <div className="text-[11px] text-muted-foreground">
-                            {r.container_name}
+                            {jugTypeLabel(r.container_name)}
                           </div>
                         )}
                       </TableCell>
@@ -735,7 +736,7 @@ function JugsPanel({
       {overview.map((o) => (
         <Card key={o.container_type_id} className="rounded-2xl">
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">{o.container_name}</CardTitle>
+            <CardTitle className="text-base">{jugTypeLabel(o.container_name)}</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-3 text-sm sm:grid-cols-3 lg:grid-cols-6">
             {(

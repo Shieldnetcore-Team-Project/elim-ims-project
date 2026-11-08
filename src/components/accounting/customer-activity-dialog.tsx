@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/table";
 import { FileText, HandCoins, Percent, Printer, Wallet } from "lucide-react";
 import { PartyPostingsReturns } from "@/components/accounting/party-postings-returns";
+import { saleLineName } from "@/lib/sale-line-name";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- sale_invoice_party is newer than the generated types
 const db = supabase as any;
@@ -53,6 +54,7 @@ type Sale = {
         unit_price: number;
         unit_discount?: number;
         unit_surcharge?: number;
+        jar_mode?: string | null;
         products: { name: string; unit: string } | null;
       }[]
     | null;
@@ -130,7 +132,7 @@ export function CustomerActivityDialog({
       let q = supabase
         .from("sales")
         .select(
-          "id,invoice_number,sale_date,created_at,customer_id,grand_total,discount,amount_paid,balance,status,is_pr,sale_items(quantity,unit_price,products(name,unit))",
+          "id,invoice_number,sale_date,created_at,customer_id,grand_total,discount,amount_paid,balance,status,is_pr,sale_items(quantity,unit_price,jar_mode,products(name,unit))",
         )
         .eq("factory_id", factoryId)
         .is("deleted_at", null);
@@ -155,6 +157,7 @@ export function CustomerActivityDialog({
                 unit_price: l.unit_price,
                 unit_discount: l.unit_discount ?? 0,
                 unit_surcharge: l.unit_surcharge ?? 0,
+                jar_mode: null,
                 products: { name: l.name, unit: l.unit },
               })),
             }
@@ -352,7 +355,8 @@ export function CustomerActivityDialog({
                   <TableCell className="text-xs">
                     {(s.sale_items ?? []).map((it, i) => (
                       <div key={i}>
-                        {it.products?.name ?? "Item"} × {Number(it.quantity).toLocaleString()}
+                        {saleLineName(it.products?.name ?? "Item", it.jar_mode)} ×{" "}
+                        {Number(it.quantity).toLocaleString()}
                         {it.products?.unit ? ` ${it.products.unit}` : ""}{" "}
                         <span className="text-muted-foreground">
                           @ {money(it.unit_price, currency)}

@@ -4,6 +4,7 @@ import { generateInvoicePdf } from "@/lib/pdf";
 import { generateDistributorInvoicePdf } from "@/lib/distributor-invoice";
 import { visibleInvoiceRemarks } from "@/lib/invoice-remarks";
 import type { Database } from "@/integrations/supabase/types";
+import { saleLineName } from "@/lib/sale-line-name";
 
 type Settings = Database["public"]["Tables"]["settings"]["Row"] | null | undefined;
 
@@ -49,10 +50,11 @@ export async function fetchSaleLines(saleIds: string[]): Promise<Map<string, Sal
     surcharge?: number;
     unit_discount?: number;
     unit_surcharge?: number;
+    jar_mode?: string | null;
   }[]) {
     const list = out.get(r.sale_id) ?? [];
     list.push({
-      name: r.product_name,
+      name: saleLineName(r.product_name, r.jar_mode),
       quantity: Number(r.quantity),
       unit: r.unit,
       unit_price: Number(r.unit_price),
@@ -173,7 +175,7 @@ export async function printSaleInvoice(
   for (const sale of sales) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const own: SaleLine[] = ((sale.sale_items ?? []) as any[]).map((it) => ({
-      name: it.products?.name ?? "-",
+      name: saleLineName(it.products?.name ?? "-", it.jar_mode),
       quantity: Number(it.quantity),
       unit: it.products?.unit ?? "",
       unit_price: Number(it.unit_price),

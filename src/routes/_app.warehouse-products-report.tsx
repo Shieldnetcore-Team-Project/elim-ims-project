@@ -7,7 +7,7 @@ import { SectionTabs } from "@/components/layout/section-tabs";
 import { supabase } from "@/integrations/supabase/client";
 import { useFactoryId } from "@/lib/use-factory";
 import { useRealtimeInvalidate } from "@/lib/realtime";
-import { num } from "@/lib/format";
+import { money, num } from "@/lib/format";
 import { DatePicker } from "@/components/shared/date-picker";
 import { ReportActions } from "@/components/shared/report-actions";
 import { Input } from "@/components/ui/input";
@@ -80,7 +80,12 @@ function ProductsReportPage() {
   const [date, setDate] = useState(today);
   const [q, setQ] = useState("");
 
-  useRealtimeInvalidate(["inventory_movements", "products"], [["warehouse-products-report"]]);
+  useRealtimeInvalidate(
+    ["inventory_movements", "products"],
+    [["warehouse-products-report"], ["warehouse-gift-details"]],
+  );
+  // Which gift lines to show: every product, or the one clicked.
+  const [giftProduct, setGiftProduct] = useState<string | null>(null);
 
   const report = useQuery({
     queryKey: ["warehouse-products-report", factoryId, date],
@@ -224,7 +229,25 @@ function ProductsReportPage() {
                   <TableCell className="text-right">{num(r.total)}</TableCell>
                   <TableCell className="text-right">{num(r.qty_out)}</TableCell>
                   <TableCell className="text-right">{num(r.returned)}</TableCell>
-                  <TableCell className="text-right">{num(r.gift)}</TableCell>
+                  <TableCell className="text-right">
+                    {r.gift > 0 ? (
+                      <button
+                        type="button"
+                        className="font-medium text-primary underline-offset-2 hover:underline"
+                        title="See the gifts / samples"
+                        onClick={() => {
+                          setGiftProduct(r.product_id);
+                          document
+                            .getElementById("gift-details")
+                            ?.scrollIntoView({ behavior: "smooth" });
+                        }}
+                      >
+                        {num(r.gift)}
+                      </button>
+                    ) : (
+                      num(r.gift)
+                    )}
+                  </TableCell>
                   {anyAdjusted && (
                     <TableCell
                       className={`text-right ${r.adjusted < 0 ? "text-destructive" : r.adjusted > 0 ? "text-success" : ""}`}
@@ -275,6 +298,199 @@ function ProductsReportPage() {
           )}
         </CardContent>
       </Card>
+
+      <GiftDetails
+        factoryId={factoryId}
+        date={date}
+        dayLabel={dayLabel}
+        productId={giftProduct}
+        productName={rows.find((r) => r.product_id === giftProduct)?.product}
+        onShowAll={() => setGiftProduct(null)}
+      />
     </div>
+  );
+}
+
+type GiftLine = {
+  at: string;
+  day: string;
+  reference: string;
+  kind: string;
+  given_to: string;
+  product_id: string;
+  product: string;
+  unit: string;
+  quantity: number;
+  unit_cost: number;
+  value: number;
+  notes: string;
+  posted_by: string;
+};
+
+const giftTime = (at: string) =>
+  new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+// Every Chairman's gift and PR / sample that left the Warehouse on the day
+// (warehouse_gift_details, 20261108100000): who it went to, what, how many,
+// its worth at selling price and who posted it.
+function GiftDetails({
+  factoryId,
+  date,
+  dayLabel,
+  productId,
+  productName,
+  onShowAll,
+}: {
+  factoryId: string;
+  date: string;
+  dayLabel: string;
+  productId: string | null;
+  productName?: string;
+  onShowAll: () => void;
+}) {
+  const gifts = useQuery({
+    queryKey: ["warehouse-gift-details", factoryId, date],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc(
+        "warehouse_gift_details" as never,
+        { p_factory: factoryId, p_from: date, p_to: date } as never,
+      );
+      if (error) throw error;
+      return ((data ?? []) as unknown as GiftLine[]).map((g) => ({
+        ...g,
+        quantity: Number(g.quantity),
+        unit_cost: Number(g.unit_cost),
+        value: Number(g.value),
+      }));
+    },
+  });
+  const list = (gifts.data ?? []).filter((g) => !productId || g.product_id === productId);
+  const totalQty = list.reduce((t, g) => t + g.quantity, 0);
+  const totalValue = list.reduce((t, g) => t + g.value, 0);
+
+  return (
+    <Card id="gift-details" className="rounded-2xl">
+      <CardHeader className="flex flex-row flex-wrap items-end justify-between gap-3 space-y-0">
+        <div>
+          <CardTitle className="text-base">
+            Gift / Sample details{productId && productName ? ` — ${productName}` : ""}
+          </CardTitle>
+          <p className="text-xs text-muted-foreground">
+            Chairman&apos;s gifts and PR / samples given out of the Warehouse on {dayLabel}.
+            {productId && (
+              <>
+                {" "}
+                <button type="button" className="text-primary hover:underline" onClick={onShowAll}>
+                  Show every product
+                </button>
+              </>
+            )}
+          </p>
+        </div>
+        <ReportActions
+          title="Gift / Sample details"
+          fileName={`warehouse-gifts-${date}`}
+          columns={[
+            { key: "time", label: "Time" },
+            { key: "reference", label: "Reference" },
+            { key: "kind", label: "Kind" },
+            { key: "given_to", label: "Given to" },
+            { key: "product", label: "Product" },
+            { key: "quantity", label: "Qty" },
+            { key: "value", label: "Worth (selling price)" },
+            { key: "notes", label: "Notes" },
+            { key: "posted_by", label: "Posted by" },
+          ]}
+          rows={[
+            ...list.map((g) => ({
+              time: giftTime(g.at),
+              reference: g.reference,
+              kind: g.kind,
+              given_to: g.given_to || "—",
+              product: `${g.product} (${g.unit})`,
+              quantity: num(g.quantity),
+              value: money(g.value),
+              notes: g.notes || "",
+              posted_by: g.posted_by || "",
+            })),
+            ...(list.length
+              ? [
+                  {
+                    time: "",
+                    reference: "",
+                    kind: "",
+                    given_to: "",
+                    product: "Total",
+                    quantity: num(totalQty),
+                    value: money(totalValue),
+                    notes: "",
+                    posted_by: "",
+                  },
+                ]
+              : []),
+          ]}
+          subtitle={[`Warehouse — ${dayLabel}`]}
+        />
+      </CardHeader>
+      <CardContent className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Time</TableHead>
+              <TableHead>Reference</TableHead>
+              <TableHead>Kind</TableHead>
+              <TableHead>Given to</TableHead>
+              <TableHead>Product</TableHead>
+              <TableHead className="text-right">Qty</TableHead>
+              <TableHead className="text-right">Worth (selling price)</TableHead>
+              <TableHead>Notes</TableHead>
+              <TableHead>Posted by</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {list.map((g, i) => (
+              <TableRow key={`${g.reference}-${g.product_id}-${i}`}>
+                <TableCell className="whitespace-nowrap text-muted-foreground">
+                  {giftTime(g.at)}
+                </TableCell>
+                <TableCell className="font-mono text-xs">{g.reference}</TableCell>
+                <TableCell>{g.kind}</TableCell>
+                <TableCell>{g.given_to || "—"}</TableCell>
+                <TableCell className="font-medium">
+                  {g.product} <span className="text-xs text-muted-foreground">{g.unit}</span>
+                </TableCell>
+                <TableCell className="text-right">{num(g.quantity)}</TableCell>
+                <TableCell className="text-right">{money(g.value)}</TableCell>
+                <TableCell className="max-w-[220px] text-xs text-muted-foreground">
+                  {g.notes || "—"}
+                </TableCell>
+                <TableCell className="text-xs">{g.posted_by || "—"}</TableCell>
+              </TableRow>
+            ))}
+            {list.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={9} className="py-6 text-center text-muted-foreground">
+                  {gifts.isLoading
+                    ? "Loading…"
+                    : gifts.isError
+                      ? (gifts.error as Error).message
+                      : "No gifts or samples on this day."}
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+          {list.length > 0 && (
+            <TableFooter>
+              <TableRow>
+                <TableCell colSpan={5}>Total</TableCell>
+                <TableCell className="text-right">{num(totalQty)}</TableCell>
+                <TableCell className="text-right">{money(totalValue)}</TableCell>
+                <TableCell colSpan={2} />
+              </TableRow>
+            </TableFooter>
+          )}
+        </Table>
+      </CardContent>
+    </Card>
   );
 }

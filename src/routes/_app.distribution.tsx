@@ -74,6 +74,7 @@ import { CorrectReturnDateButton } from "@/components/shared/return-date";
 import { CorrectReturnDialog } from "@/components/warehouse/correct-return-dialog";
 import { PostingDiscountButton } from "@/components/accounting/posting-discount-dialog";
 import { useCanDiscountPostings } from "@/lib/posting-discount";
+import { CorrectionDateReason } from "@/components/warehouse/correct-posting";
 
 // The Distribution page moved to the Accountant page (user, 2026-11-02):
 // Reps & outlets and Cash remitted are its tabs there; dispatches are
@@ -108,6 +109,8 @@ export type Rep = {
   code: string | null;
   full_name: string;
   phone: string | null;
+  // Added 2026-11-08 (Accounts edits marketer details).
+  address?: string | null;
   status: string;
   employee_id: string | null;
   remarks: string | null;
@@ -202,6 +205,9 @@ export function RepsTab({
   const [viewing, setViewing] = useState<Rep | null>(null);
   const canCreate = perms.canCreate("distribution");
   const canEdit = perms.canEdit("distribution");
+  // Accounts may correct a marketer's name, phone, address and remarks
+  // (user, 2026-11-08) without Distribution edit rights: update_rep_details.
+  const canEditDetails = !canEdit && perms.canView("finance");
   const canDelete = perms.canDelete("distribution");
 
   const refresh = () => {
@@ -246,6 +252,7 @@ export function RepsTab({
               <TableHead>Name</TableHead>
               <TableHead>Type</TableHead>
               <TableHead>Phone</TableHead>
+              <TableHead>Address</TableHead>
               <TableHead>Commission tier</TableHead>
               <TableHead>Status</TableHead>
               <TableHead></TableHead>
@@ -267,6 +274,9 @@ export function RepsTab({
                   </Badge>
                 </TableCell>
                 <TableCell>{r.phone ?? "—"}</TableCell>
+                <TableCell className="max-w-[220px] truncate" title={r.address ?? ""}>
+                  {r.address ?? "—"}
+                </TableCell>
                 <TableCell>
                   {r.kind === "rep" && r.commission_tier ? (
                     <Badge variant="outline">Status {r.commission_tier}</Badge>
@@ -283,11 +293,11 @@ export function RepsTab({
                 </TableCell>
                 <TableCell onClick={(e) => e.stopPropagation()}>
                   <div className="flex justify-end gap-1">
-                    {canEdit && (
+                    {(canEdit || canEditDetails) && (
                       <Button
                         variant="ghost"
                         size="icon"
-                        title="Edit"
+                        title={canEdit ? "Edit" : "Edit name, phone, address"}
                         onClick={() => {
                           setEditing(r);
                           setOpen(true);
@@ -312,7 +322,7 @@ export function RepsTab({
             ))}
             {reps.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
+                <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
                   No sales reps or outlets yet.
                 </TableCell>
               </TableRow>
@@ -330,6 +340,7 @@ export function RepsTab({
           <RepDialog
             factoryId={factoryId}
             rep={editing}
+            detailsOnly={!!editing && !canEdit}
             onDone={() => {
               setOpen(false);
               refresh();
@@ -352,10 +363,13 @@ export function RepsTab({
 function RepDialog({
   factoryId,
   rep,
+  detailsOnly = false,
   onDone,
 }: {
   factoryId: string;
   rep: Rep | null;
+  // Accounts: name, phone, address and remarks only (update_rep_details).
+  detailsOnly?: boolean;
   onDone: () => void;
 }) {
   const [fullName, setFullName] = useState(rep?.full_name ?? "");
@@ -363,6 +377,7 @@ function RepDialog({
   // OUTLET-01…) — never user-editable, so it is read from `rep` only.
   const code = rep?.code ?? "";
   const [phone, setPhone] = useState(rep?.phone ?? "");
+  const [address, setAddress] = useState(rep?.address ?? "");
   const [status, setStatus] = useState(rep?.status ?? "active");
   const [remarks, setRemarks] = useState(rep?.remarks ?? "");
   const [kind, setKind] = useState<Rep["kind"]>(rep?.kind ?? "rep");
@@ -371,6 +386,20 @@ function RepDialog({
   const save = useMutation({
     mutationFn: async () => {
       if (!fullName.trim()) throw new Error("Name is required");
+      if (rep && detailsOnly) {
+        const { error } = await supabase.rpc(
+          "update_rep_details" as never,
+          {
+            p_id: rep.id,
+            p_full_name: fullName.trim(),
+            p_phone: phone.trim() || null,
+            p_address: address.trim() || null,
+            p_remarks: remarks.trim() || null,
+          } as never,
+        );
+        if (error) throw error;
+        return;
+      }
       const body = {
         factory_id: factoryId,
         full_name: fullName.trim(),
@@ -379,6 +408,9 @@ function RepDialog({
         kind,
         remarks: remarks.trim() || null,
         commission_tier: kind === "rep" ? commissionTier || null : null,
+        // Only sent when filled, so saving still works before the address
+        // column is added (20261108100000).
+        ...(address.trim() || rep?.address ? { address: address.trim() || null } : {}),
       };
       if (kind === "rep" && !commissionTier) {
         throw new Error("Choose a commission status for this marketer");
@@ -403,10 +435,16 @@ function RepDialog({
   return (
     <DialogContent className="max-w-md">
       <DialogHeader>
-        <DialogTitle>{rep ? "Edit Rep / Outlet" : "Add Rep / Outlet"}</DialogTitle>
+        <DialogTitle>
+          {detailsOnly
+            ? `Edit ${rep?.kind === "outlet" ? "outlet" : "marketer"} details`
+            : rep
+              ? "Edit Rep / Outlet"
+              : "Add Rep / Outlet"}
+        </DialogTitle>
       </DialogHeader>
       <div className="grid gap-3">
-        <div>
+        <div className={detailsOnly ? "hidden" : ""}>
           <Label>Type</Label>
           <Select value={kind} onValueChange={(v) => setKind(v as Rep["kind"])}>
             <SelectTrigger>
@@ -435,6 +473,10 @@ function RepDialog({
           </div>
         </div>
         <div>
+          <Label>Address</Label>
+          <Input value={address} onChange={(e) => setAddress(e.target.value)} />
+        </div>
+        <div className={detailsOnly ? "hidden" : ""}>
           <Label>Status</Label>
           <Select value={status} onValueChange={setStatus}>
             <SelectTrigger>
@@ -446,7 +488,7 @@ function RepDialog({
             </SelectContent>
           </Select>
         </div>
-        {kind === "rep" && (
+        {kind === "rep" && !detailsOnly && (
           <div>
             <Label>Commission status</Label>
             <Select value={commissionTier} onValueChange={setCommissionTier}>
@@ -947,7 +989,7 @@ function useDispatchPickers(factoryId: string) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("sales_reps")
-        .select("id,code,full_name,phone,status,employee_id,remarks,kind,commission_tier")
+        .select("*")
         .eq("factory_id", factoryId)
         .order("full_name");
       if (error) throw error;
@@ -1649,6 +1691,7 @@ function CorrectDispatchDialog({
     mutationFn: async () => {
       const clean = lines.filter((l) => l.product_id && l.quantity > 0);
       if (clean.length === 0) throw new Error("Add at least one product line");
+      if (!reason.trim()) throw new Error("Enter the reason for the correction");
       const { data, error } = await supabase.rpc(
         "correct_stock_dispatch" as never,
         {
@@ -1681,25 +1724,21 @@ function CorrectDispatchDialog({
         them.
       </p>
       <div className="grid gap-3">
-        <div className="max-w-xs">
-          <Label>Date</Label>
-          <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-        </div>
+        <CorrectionDateReason
+          date={date}
+          setDate={setDate}
+          original={row.dispatch_date.slice(0, 10)}
+          reason={reason}
+          setReason={setReason}
+          placeholder="e.g. typed 100 instead of 60, or posted on the wrong day"
+        />
         <div>
           <Label>Products (available in brackets)</Label>
           <LineEditor products={products} lines={lines} setLines={setLines} stockOf={stockOf} />
         </div>
-        <div>
-          <Label>What was wrong (optional)</Label>
-          <Input
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder="e.g. typed 100 instead of 60"
-          />
-        </div>
       </div>
       <DialogFooter>
-        <Button onClick={() => run.mutate()} disabled={run.isPending}>
+        <Button onClick={() => run.mutate()} disabled={run.isPending || !reason.trim()}>
           {run.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           Repost corrected
         </Button>
@@ -3621,6 +3660,11 @@ export function RepAccountView({
             factoryId={factoryId}
             canCollect={perms.canWrite("payments") || perms.canWrite("debts")}
             canTakeOff={perms.canEdit("customers") || perms.canEdit("marketer-accounts")}
+            canEditCustomer={
+              perms.canEdit("customers") ||
+              perms.canEdit("distribution") ||
+              perms.canView("finance")
+            }
             repId={repId}
             repName={repName}
             from={from}
@@ -3914,6 +3958,7 @@ function RepCustomersCard({
   to,
   canCollect,
   canTakeOff = false,
+  canEditCustomer = false,
 }: {
   factoryId: string;
   repId: string;
@@ -3921,12 +3966,15 @@ function RepCustomersCard({
   from: string;
   to: string;
   canCollect: boolean;
+  // Edit a customer's name / phone / address / email (update_marketer_customer).
+  canEditCustomer?: boolean;
   // Take a customer off this marketer (reassign_customer_marketer to none).
   canTakeOff?: boolean;
 }) {
   const [open, setOpen] = useState<string | null>(null);
   const [takingOff, setTakingOff] = useState<CustomerRow | null>(null);
-  const actions = canCollect || canTakeOff;
+  const [editing, setEditing] = useState<CustomerRow | null>(null);
+  const actions = canCollect || canTakeOff || canEditCustomer;
   const [owingOnly, setOwingOnly] = useState(false);
   const [paying, setPaying] = useState<CustomerRow | null>(null);
   const [adding, setAdding] = useState(false);
@@ -4203,6 +4251,17 @@ function RepCustomersCard({
                                 </Button>
                               </>
                             )}
+                            {canEditCustomer && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="gap-1"
+                                title={`Edit ${c.name}'s name, phone and address`}
+                                onClick={() => setEditing(c)}
+                              >
+                                <Pencil className="h-3.5 w-3.5" /> Edit
+                              </Button>
+                            )}
                             {canTakeOff && c.assigned && (
                               <Button
                                 size="sm"
@@ -4361,6 +4420,16 @@ function RepCustomersCard({
             customerId={selling.customerId}
             customerName={selling.name}
             onDone={() => setSelling(null)}
+          />
+        )}
+      </Dialog>
+      <Dialog open={!!editing} onOpenChange={(v) => !v && setEditing(null)}>
+        {editing?.customerId && (
+          <EditMarketerCustomerDialog
+            customerId={editing.customerId}
+            fallbackName={editing.name}
+            fallbackPhone={editing.phone}
+            onDone={() => setEditing(null)}
           />
         )}
       </Dialog>
@@ -4773,6 +4842,122 @@ function RecordCustomerSaleDialog({
 // "Add customer" on a marketer's customers: a new customer created already
 // under the marketer, or an existing one moved under them
 // (add_marketer_customer). Then their payments are recorded right here.
+// Edit one of a marketer's customers (user, 2026-11-08): name, phone,
+// address and email, read and saved through marketer_customer_details /
+// update_marketer_customer so Accounts can do it without Customers rights.
+// Invoices already printed keep the name they were made with.
+function EditMarketerCustomerDialog({
+  customerId,
+  fallbackName,
+  fallbackPhone,
+  onDone,
+}: {
+  customerId: string;
+  fallbackName: string;
+  fallbackPhone: string | null;
+  onDone: () => void;
+}) {
+  const qc = useQueryClient();
+  const details = useQuery({
+    queryKey: ["marketer-customer-details", customerId],
+    queryFn: async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- RPC newer than the generated types
+      const { data, error } = await (supabase as any).rpc("marketer_customer_details", {
+        p_customer: customerId,
+      });
+      if (error) throw error;
+      return ((data ?? [])[0] ?? null) as {
+        name: string;
+        phone: string | null;
+        address: string | null;
+        email: string | null;
+      } | null;
+    },
+  });
+  const [form, setForm] = useState<{
+    name: string;
+    phone: string;
+    address: string;
+    email: string;
+  } | null>(null);
+  const loaded = details.data;
+  const f = form ?? {
+    name: loaded?.name ?? fallbackName,
+    phone: loaded?.phone ?? fallbackPhone ?? "",
+    address: loaded?.address ?? "",
+    email: loaded?.email ?? "",
+  };
+  const set = (patch: Partial<typeof f>) => setForm({ ...f, ...patch });
+
+  const save = useMutation({
+    mutationFn: async () => {
+      if (!f.name.trim()) throw new Error("Enter the customer's name");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- RPC newer than the generated types
+      const { error } = await (supabase as any).rpc("update_marketer_customer", {
+        p_customer: customerId,
+        p_name: f.name.trim(),
+        p_phone: f.phone.trim() || null,
+        p_address: f.address.trim() || null,
+        p_email: f.email.trim() || null,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success(`${f.name.trim()} updated`);
+      for (const key of [
+        "dist-rep-customer-accounts",
+        "dist-rep-customers",
+        "marketer-customer-details",
+        "customers",
+      ])
+        qc.invalidateQueries({ queryKey: [key] });
+      onDone();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return (
+    <DialogContent className="max-w-md">
+      <DialogHeader>
+        <DialogTitle>Edit customer</DialogTitle>
+      </DialogHeader>
+      {details.isLoading ? (
+        <p className="py-6 text-center text-sm text-muted-foreground">Loading…</p>
+      ) : (
+        <div className="grid gap-3">
+          {details.isError && (
+            <p className="text-xs text-destructive">{(details.error as Error).message}</p>
+          )}
+          <div>
+            <Label>Name</Label>
+            <Input value={f.name} onChange={(e) => set({ name: e.target.value })} autoFocus />
+          </div>
+          <div>
+            <Label>Phone</Label>
+            <Input value={f.phone} onChange={(e) => set({ phone: e.target.value })} />
+          </div>
+          <div>
+            <Label>Address</Label>
+            <Input value={f.address} onChange={(e) => set({ address: e.target.value })} />
+          </div>
+          <div>
+            <Label>Email</Label>
+            <Input value={f.email} onChange={(e) => set({ email: e.target.value })} />
+          </div>
+        </div>
+      )}
+      <DialogFooter>
+        <Button
+          disabled={save.isPending || details.isLoading || !f.name.trim()}
+          onClick={() => save.mutate()}
+        >
+          {save.isPending ? "Saving…" : "Save"}
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  );
+}
+
 function AddMarketerCustomerDialog({
   factoryId,
   repId,

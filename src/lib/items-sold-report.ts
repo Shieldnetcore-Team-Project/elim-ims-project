@@ -1,5 +1,6 @@
 import type { ReportColumn } from "./export";
 import { fetchAll } from "./metrics";
+import { saleLineName } from "./sale-line-name";
 
 // "Items Sold to Customers" — the same layout as the old accounting package's
 // printout: one block per customer (ID, name), one line per product with the
@@ -155,7 +156,7 @@ export async function fetchItemsSold(
     let q: any = db
       .from("sale_items")
       .select(
-        "id,quantity,line_total,products(name,unit),sales!inner(factory_id,sale_date,status,deleted_at,is_pr,customer_id,customer_name,customers(code)," +
+        "id,quantity,line_total,jar_mode,products(name,unit),sales!inner(factory_id,sale_date,status,deleted_at,is_pr,customer_id,customer_name,customers(code)," +
           "seller:sales_reps!sales_sales_rep_id_fkey(id,code,full_name,kind),owner:sales_reps!sales_account_rep_id_fkey(id,code,full_name,kind))",
       )
       .eq("sales.factory_id", factoryId)
@@ -178,7 +179,7 @@ export async function fetchItemsSold(
         customer_id: r.sales?.customer_id ?? null,
         customer_code: r.sales?.customers?.code ?? null,
         customer_name: r.sales?.customer_name ?? null,
-        product: r.products?.name ?? "—",
+        product: saleLineName(r.products?.name, r.jar_mode),
         unit: r.products?.unit ?? null,
         quantity: Number(r.quantity),
         amount: Number(r.line_total),

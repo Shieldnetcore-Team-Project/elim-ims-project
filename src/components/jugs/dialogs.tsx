@@ -54,6 +54,7 @@ import {
   type ReportRow,
 } from "./api";
 import { EarlierReturnsNote, ReturnDateField } from "@/components/shared/return-date";
+import { jugTypeLabel } from "@/lib/jug-type-label";
 
 function Field({
   label,
@@ -214,7 +215,7 @@ export function RecordReturnDialog({
               <SelectContent>
                 {jugTypes.map((t) => (
                   <SelectItem key={t.id} value={t.id}>
-                    {t.name}
+                    {jugTypeLabel(t.name)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -247,7 +248,7 @@ export function RecordReturnDialog({
                     <SelectContent>
                       {jugTypes.map((t) => (
                         <SelectItem key={t.id} value={t.id}>
-                          {t.name}
+                          {jugTypeLabel(t.name)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -1005,7 +1006,7 @@ export function AdjustDialog({
               <SelectContent>
                 {types.map((t) => (
                   <SelectItem key={t.id} value={t.id}>
-                    {t.name}
+                    {jugTypeLabel(t.name)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -1096,7 +1097,7 @@ export function ReceiveNewJugsDialog({
               <SelectContent>
                 {sorted.map((t) => (
                   <SelectItem key={t.id} value={t.id}>
-                    {t.name}
+                    {jugTypeLabel(t.name)}
                   </SelectItem>
                 ))}
               </SelectContent>

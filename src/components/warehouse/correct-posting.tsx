@@ -15,6 +15,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { MoneyInput } from "@/components/ui/money-input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -152,6 +153,7 @@ function CorrectDispatchForm({
     mutationFn: async () => {
       const clean = lines.filter((l) => l.product_id && l.quantity > 0);
       if (clean.length === 0) throw new Error("Add at least one product line");
+      if (!reason.trim()) throw new Error("Enter the reason for the correction");
       const { data, error } = await supabase.rpc(
         "correct_stock_dispatch" as never,
         {
@@ -186,10 +188,14 @@ function CorrectDispatchForm({
         </DialogDescription>
       </DialogHeader>
       <div className="grid gap-2">
-        <div className="max-w-xs">
-          <Label className="text-xs">Date</Label>
-          <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-        </div>
+        <CorrectionDateReason
+          date={date}
+          setDate={setDate}
+          original={dispatch.dispatch_date.slice(0, 10)}
+          reason={reason}
+          setReason={setReason}
+          placeholder="e.g. typed 100 instead of 60, or posted on the wrong day"
+        />
         {lines.map((l) => {
           const over = !!l.product_id && l.quantity > stockOf(l.product_id);
           return (
@@ -249,17 +255,9 @@ function CorrectDispatchForm({
             <Plus className="h-4 w-4" /> Add product
           </Button>
         </div>
-        <div>
-          <Label className="text-xs">What was wrong (optional)</Label>
-          <Input
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder="e.g. typed 100 instead of 60"
-          />
-        </div>
       </div>
       <DialogFooter>
-        <Button onClick={() => run.mutate()} disabled={run.isPending}>
+        <Button onClick={() => run.mutate()} disabled={run.isPending || !reason.trim()}>
           {run.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           Repost corrected
         </Button>
@@ -289,7 +287,7 @@ export function CorrectDistributorPostingDialog({
       const { data, error } = await supabase
         .from("sales")
         .select(
-          "id,invoice_number,customer_name,discount,sale_items(product_id,quantity,unit_price)",
+          "id,invoice_number,sale_date,customer_name,discount,sale_items(product_id,quantity,unit_price)",
         )
         .eq("factory_id", factoryId)
         .eq("invoice_number", invoiceNumber)
@@ -300,6 +298,7 @@ export function CorrectDistributorPostingDialog({
       return data as unknown as {
         id: string;
         invoice_number: string;
+        sale_date: string;
         customer_name: string | null;
         discount: number;
         sale_items: { product_id: string; quantity: number; unit_price: number }[];
@@ -347,6 +346,7 @@ function CorrectForm({
   sale: {
     id: string;
     invoice_number: string;
+    sale_date: string;
     customer_name: string | null;
     discount: number;
     sale_items: { product_id: string; quantity: number; unit_price: number }[];
@@ -364,6 +364,7 @@ function CorrectForm({
   const [nextKey, setNextKey] = useState(original.length + 1);
   const [discount, setDiscount] = useState(Number(sale.discount ?? 0));
   const [reason, setReason] = useState("");
+  const [date, setDate] = useState(String(sale.sale_date ?? "").slice(0, 10));
   // What a line can take: Warehouse stock plus what this posting already took
   // of it (it goes back before the corrected posting is made).
   const stockOf = (pid: string) =>
@@ -377,11 +378,13 @@ function CorrectForm({
     mutationFn: async () => {
       const clean = lines.filter((l) => l.product_id && l.quantity > 0);
       if (clean.length === 0) throw new Error("Add at least one product line");
+      if (!reason.trim()) throw new Error("Enter the reason for the correction");
       const { data, error } = await supabase.rpc(
         "correct_warehouse_posting" as never,
         {
           p_id: sale.id,
           payload: {
+            sale_date: date || undefined,
             reason: reason.trim() || undefined,
             discount,
             items: clean.map((l) => ({
@@ -413,6 +416,14 @@ function CorrectForm({
         </DialogDescription>
       </DialogHeader>
       <div className="grid gap-2">
+        <CorrectionDateReason
+          date={date}
+          setDate={setDate}
+          original={String(sale.sale_date ?? "").slice(0, 10)}
+          reason={reason}
+          setReason={setReason}
+          placeholder="e.g. typed 30 instead of 20, or posted on the wrong day"
+        />
         {lines.map((l) => {
           const over = !!l.product_id && l.quantity > stockOf(l.product_id);
           return (
@@ -498,21 +509,68 @@ function CorrectForm({
             <span className="font-semibold">{num(Math.max(subtotal - discount, 0))}</span>
           </div>
         </div>
-        <div>
-          <Label className="text-xs">What was wrong (optional)</Label>
-          <Input
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder="e.g. typed 30 instead of 20"
-          />
-        </div>
       </div>
       <DialogFooter>
-        <Button onClick={() => run.mutate()} disabled={run.isPending}>
+        <Button onClick={() => run.mutate()} disabled={run.isPending || !reason.trim()}>
           {run.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           Repost corrected
         </Button>
       </DialogFooter>
     </DialogContent>
+  );
+}
+
+const lagosToday = () => new Date().toLocaleDateString("en-CA", { timeZone: "Africa/Lagos" });
+
+// The posting's date (change it, or back-date it) and the reason for the
+// correction, at the top of every correction (user, 2026-11-08): the reason
+// is required and goes on the reversal and the reposted record.
+export function CorrectionDateReason({
+  date,
+  setDate,
+  original,
+  reason,
+  setReason,
+  placeholder,
+}: {
+  date: string;
+  setDate: (d: string) => void;
+  original: string;
+  reason: string;
+  setReason: (r: string) => void;
+  placeholder: string;
+}) {
+  return (
+    <div className="grid gap-2 rounded-lg border bg-muted/30 p-3">
+      <div className="flex flex-wrap items-end gap-3">
+        <div>
+          <Label className="text-xs">Posting date</Label>
+          <Input
+            type="date"
+            className="w-44"
+            value={date}
+            max={lagosToday()}
+            onChange={(e) => e.target.value && setDate(e.target.value)}
+          />
+        </div>
+        {original && date !== original && (
+          <p className="pb-2 text-xs text-amber-600">
+            Moves the posting from {original} to {date}.
+          </p>
+        )}
+      </div>
+      <div>
+        <Label className="text-xs">
+          Reason for correction <span className="text-destructive">*</span>
+        </Label>
+        <Textarea
+          rows={2}
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder={placeholder}
+          className={reason.trim() ? "" : "border-amber-500/60"}
+        />
+      </div>
+    </div>
   );
 }
