@@ -14,8 +14,13 @@
 --    activity -- and the line's jar_mode is returned too.
 -- 3. Accounts edits a marketer's / outlet's name, phone, address and remarks
 --    (sales_reps.address is new) through update_rep_details, without needing
---    Distribution edit rights; every change goes to the audit log.
--- Safe to run again. Paste the whole file into the Supabase SQL Editor.
+--    Distribution edit rights; every change goes to the audit log. A
+--    marketer's customers are edited the same way (update_marketer_customer).
+-- 4. Chairman's gifts are worth their SELLING price (not cost), never revenue;
+--    gifts already posted are re-valued once at today's price.
+-- 0. Indexes on inventory_movements, and the From / To products report
+--    (warehouse_products_report(factory, from, to)) the live database lacked.
+-- Run once (re-running re-values old gifts at the prices of that day). Paste the whole file into the Supabase SQL Editor.
 -- ============================================================================
 
 -- ------------------------------------------------------------- 0. speed --

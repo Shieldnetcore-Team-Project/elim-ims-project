@@ -68,3 +68,10 @@ SELECT pg_temp.check(r.opening = 100 AND r.gift = 7 AND r.qty_out = 0 AND r.bala
                                         (now() AT TIME ZONE 'Africa/Lagos')::date - 7,
                                         (now() AT TIME ZONE 'Africa/Lagos')::date) r
  WHERE r.product_id = '8e000000-0000-0000-0000-000000000001';
+
+-- @@ Test 5: a marketer's customer is read and edited through the functions
+INSERT INTO customers(id, factory_id, name, phone)
+VALUES ('8f000000-0000-0000-0000-000000000001', (SELECT id FROM factories WHERE code = 'water'), 'AINA STORES', NULL);
+SELECT public.update_marketer_customer('8f000000-0000-0000-0000-000000000001', 'Aina Stores Ltd', '0805', 'Wuse 2', NULL);
+SELECT pg_temp.check(d.name = 'Aina Stores Ltd' AND d.phone = '0805' AND d.address = 'Wuse 2', 'customer edited')
+  FROM public.marketer_customer_details('8f000000-0000-0000-0000-000000000001') d;
