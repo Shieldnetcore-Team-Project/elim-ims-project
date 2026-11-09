@@ -666,7 +666,7 @@ function SalesReturnsPage() {
   );
 }
 
-type ReturnLine = { product_id: string; quantity: number };
+type ReturnLine = { product_id: string; quantity: number; jar_mode?: string | null };
 const emptyLine = (): ReturnLine => ({ product_id: "", quantity: 0 });
 
 function CreateReturnDialog({
@@ -745,6 +745,7 @@ function CreateReturnDialog({
             items: validLines.map((l) => ({
               product_id: l.product_id,
               quantity_returned: l.quantity,
+              ...(l.jar_mode ? { jar_mode: l.jar_mode } : {}),
             })),
           } as never,
         });
@@ -859,7 +860,9 @@ function CreateReturnDialog({
                 <Select
                   value={line.product_id}
                   onValueChange={(v) =>
-                    v === ADD_NEW_ITEM ? setAddingProductIndex(i) : updateLine(i, { product_id: v })
+                    v === ADD_NEW_ITEM
+                      ? setAddingProductIndex(i)
+                      : updateLine(i, { product_id: v, jar_mode: null })
                   }
                 >
                   <SelectTrigger className="flex-1">
@@ -879,6 +882,26 @@ function CreateReturnDialog({
                     )}
                   </SelectContent>
                 </Select>
+                {isMarketerReturn &&
+                  products
+                    .find((p) => p.id === line.product_id)
+                    ?.name.trim()
+                    .toLowerCase() === "dispenser water" && (
+                    <Select
+                      value={line.jar_mode ?? "water"}
+                      onValueChange={(v) =>
+                        updateLine(i, { jar_mode: v === "permanent" ? "permanent" : null })
+                      }
+                    >
+                      <SelectTrigger className="w-40 shrink-0" aria-label="Type">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="water">Dispenser Water</SelectItem>
+                        <SelectItem value="permanent">Jug + Water</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
                 <MoneyInput
                   min={0.001}
                   step="0.001"

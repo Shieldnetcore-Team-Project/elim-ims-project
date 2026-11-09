@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { generateDispatchSlipPdf } from "@/lib/pdf";
 import { generateDistributorInvoicePdf } from "@/lib/distributor-invoice";
 import { INVOICE_COMPANY_NAME, warehouseSlipLabels } from "@/lib/invoice";
+import { visibleInvoiceRemarks } from "@/lib/invoice-remarks";
 import type { Database } from "@/integrations/supabase/types";
 
 type Settings = Database["public"]["Tables"]["settings"]["Row"] | null | undefined;
@@ -16,6 +17,7 @@ type Dispatch = {
   total_value: number;
   notes: string | null;
   created_by: string | null;
+  sales_rep_id: string | null;
   sales_reps: { full_name: string; code: string | null; kind: string; phone: string | null } | null;
   items: { name: string; unit: string; quantity: number; unit_price: number; line_value: number }[];
 };
@@ -27,7 +29,7 @@ async function loadDispatch(ref: { id: string } | { number: string }): Promise<D
   let q = supabase
     .from("stock_dispatches")
     .select(
-      "id,dispatch_number,dispatch_date,created_at,status,total_value,notes,created_by,sales_reps(full_name,code,kind,phone),stock_dispatch_items(quantity,unit_price,line_value,products(name,unit))",
+      "id,dispatch_number,dispatch_date,created_at,status,total_value,notes,created_by,sales_rep_id,sales_reps(full_name,code,kind,phone),stock_dispatch_items(quantity,unit_price,line_value,products(name,unit))",
     );
   q = "id" in ref ? q.eq("id", ref.id) : q.eq("dispatch_number", ref.number);
   const { data, error } = await q.maybeSingle();
@@ -70,6 +72,18 @@ async function loadDispatch(ref: { id: string } | { number: string }): Promise<D
         line_value: Number(it.line_value),
       }));
   return { ...d, items };
+}
+
+// The marketer's / shop's address for the BILLED TO box. Read on its own so a
+// missing column can't stop the posting from printing.
+async function holderAddress(d: Dispatch): Promise<string | null> {
+  if (!d.sales_rep_id) return null;
+  const { data } = await supabase
+    .from("sales_reps")
+    .select("address" as never)
+    .eq("id", d.sales_rep_id)
+    .maybeSingle();
+  return (data as { address?: string | null } | null)?.address ?? null;
 }
 
 const companyOf = (settings: Settings) => ({
@@ -154,7 +168,11 @@ export async function printDispatchInvoice(
       company: { ...companyOf(settings), website: settings?.website ?? null },
       invoice_number: d.dispatch_number,
       issued_at: d.created_at ?? d.dispatch_date,
-      customer: { name: d.sales_reps?.full_name ?? "—", phone: d.sales_reps?.phone ?? null },
+      customer: {
+        name: d.sales_reps?.full_name ?? "—",
+        phone: d.sales_reps?.phone ?? null,
+        address: await holderAddress(d),
+      },
       party_id: d.sales_reps?.code ?? null,
       party_label: d.sales_reps?.kind === "outlet" ? "Retail Shop" : null,
       delivery_method:
@@ -172,8 +190,7 @@ export async function printDispatchInvoice(
       grand_total: total,
       amount_paid: 0,
       balance: total,
-      remarks:
-        [d.status === "reversed" ? "REVERSED" : null, d.notes].filter(Boolean).join(". ") || null,
+      remarks: visibleInvoiceRemarks([d.status === "reversed" ? "REVERSED" : null, d.notes]),
     },
     action,
   );
@@ -249,6 +266,7 @@ export async function printDispatchDayInvoice(
       customer: {
         name: first.sales_reps?.full_name ?? "—",
         phone: first.sales_reps?.phone ?? null,
+        address: await holderAddress(first),
       },
       party_id: first.sales_reps?.code ?? null,
       party_label: first.sales_reps?.kind === "outlet" ? "Retail Shop" : null,
@@ -262,7 +280,7 @@ export async function printDispatchDayInvoice(
       grand_total: net,
       amount_paid: 0,
       balance: net,
-      remarks: `${first.dispatch_date}: posted ${live.map((d) => d.dispatch_number).join(", ")}`,
+      remarks: null,
     },
     action,
   );

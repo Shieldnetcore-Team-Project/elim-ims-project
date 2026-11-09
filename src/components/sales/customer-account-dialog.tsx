@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { saleLineName } from "@/lib/sale-line-name";
 import { useFactoryId, useFactorySettings } from "@/lib/use-factory";
 import { DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { EditCustomerContactButton } from "@/components/customers/edit-customer-contact";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -212,6 +213,7 @@ export function CustomerAccountDialog({
         <DialogTitle className="flex flex-wrap items-center gap-3">
           {customerName} — Account
           {summary && <AccountStatusBadge status={summary.account_status} />}
+          <EditCustomerContactButton customerId={customerId} customerName={customerName} />
         </DialogTitle>
       </DialogHeader>
       <div className="space-y-4">

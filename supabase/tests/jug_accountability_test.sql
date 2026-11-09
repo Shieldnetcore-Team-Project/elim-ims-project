@@ -228,11 +228,12 @@ DECLARE o record; e text;
 BEGIN
   PERFORM pg_temp.as_user('2');
   SELECT * INTO o FROM public.jug_overview('f5000000-0000-0000-0000-000000000001', pg_temp.today() - 1, pg_temp.today());
-  -- 300 bought; 49 + 50 out; 58 back, gone on to QC (20261104120000); 5 + 3
-  -- with customers; 2 lost.
+  -- 300 bought; 49 + 50 out; 58 back, gone on to QC (20261104120000); 5
+  -- with customers; 3 Empty Jugs bought outright, kept by the buyer
+  -- (20261109120000); 2 lost.
   PERFORM pg_temp.check(o.in_warehouse = 300 - 49 - 50, 'warehouse jugs ' || o.in_warehouse);
-  PERFORM pg_temp.check(o.with_marketers = 31 AND o.with_customers = 8 AND o.written_off_total = 2, 'marketers / customers / written off');
-  PERFORM pg_temp.check(o.in_circulation = 300 - 2, 'every jug accounted for: ' || o.in_circulation);
+  PERFORM pg_temp.check(o.with_marketers = 31 AND o.with_customers = 5 AND o.written_off_total = 2, 'marketers / customers / written off');
+  PERFORM pg_temp.check(o.in_circulation = 300 - 2 - 3, 'every jug accounted for: ' || o.in_circulation);
   PERFORM pg_temp.check(o.filled_in_warehouse = 60 + 14 AND o.empty_in_warehouse = o.in_warehouse - 74, 'filled vs empty in the warehouse');
   PERFORM pg_temp.check(o.full_with_marketers = 11, 'full jugs still with the marketer');
   PERFORM pg_temp.check(o.produced_approved = 100 AND o.issued = 99 AND o.sold_with_water = 5 AND o.empties_sold = 3

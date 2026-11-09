@@ -46,6 +46,7 @@ import {
   usePeriod,
 } from "@/components/marketers/shared";
 import { RemittanceDialog, RepActivityCard, type Rep } from "@/routes/_app.distribution";
+import { EditCustomerContactButton } from "@/components/customers/edit-customer-contact";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -738,19 +739,22 @@ function CustomersTab({
                 <TableHead className="text-right">Outstanding</TableHead>
                 <TableHead className="text-right">Overdue</TableHead>
                 <TableHead>Last purchase</TableHead>
+                <TableHead className="w-10">
+                  <span className="sr-only">Edit</span>
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {q.isLoading && (
                 <TableRow>
-                  <TableCell colSpan={8}>
+                  <TableCell colSpan={9}>
                     <Loading />
                   </TableCell>
                 </TableRow>
               )}
               {q.isError && (
                 <TableRow>
-                  <TableCell colSpan={8}>
+                  <TableCell colSpan={9}>
                     <LoadError error={q.error} />
                   </TableCell>
                 </TableRow>
@@ -811,11 +815,20 @@ function CustomersTab({
                     {r.overdue > 0 ? money(r.overdue) : ""}
                   </TableCell>
                   <TableCell className="whitespace-nowrap">{fmtDate(r.last_purchase)}</TableCell>
+                  <TableCell className="py-0 text-right">
+                    {r.customer_id && (
+                      <EditCustomerContactButton
+                        customerId={r.customer_id}
+                        customerName={r.name}
+                        iconOnly
+                      />
+                    )}
+                  </TableCell>
                 </TableRow>
               ))}
               {!q.isLoading && !q.isError && rows.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
+                  <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">
                     {q.data?.length
                       ? "No customers match."
                       : "No customers registered under this marketer yet."}
@@ -830,7 +843,7 @@ function CustomersTab({
                   <TableCell className="text-right">{money(t.p)}</TableCell>
                   <TableCell className="text-right">{money(t.pd)}</TableCell>
                   <TableCell className="text-right">{money(t.o)}</TableCell>
-                  <TableCell colSpan={2} />
+                  <TableCell colSpan={3} />
                 </TableRow>
               </TableFooter>
             )}

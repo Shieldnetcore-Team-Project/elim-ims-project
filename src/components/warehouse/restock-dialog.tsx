@@ -28,14 +28,14 @@ import {
 
 type RestockProduct = { id: string; name: string; unit: string; current_stock: number };
 
-// Warehouse → Restock: Sachet Water is added straight to the Warehouse
-// (warehouse_restock) -- the only product restocked this way.
+// Warehouse → Restock: Sachet Water and Empty Jug are added straight to the
+// Warehouse (warehouse_restock) -- the only products restocked this way.
 export function RestockButton({ factoryId }: { factoryId: string }) {
   const { canCreate } = usePermissions();
   const [open, setOpen] = useState(false);
-  // Restock is Sachet Water only, so it's for whoever handles sachet.
+  // For whoever handles one of the two products.
   const mine = useMyProductMatcher();
-  if (!canCreate("finished-goods") || !mine("Sachet Water")) return null;
+  if (!canCreate("finished-goods") || !(mine("Sachet Water") || mine("Empty Jug"))) return null;
   return (
     <>
       <Button variant="outline" className="gap-2" onClick={() => setOpen(true)}>
@@ -59,6 +59,7 @@ export function RestockDialog({
   onDone: () => void;
 }) {
   const qc = useQueryClient();
+  const mine = useMyProductMatcher();
   const products = useQuery({
     queryKey: ["restock-products", factoryId],
     queryFn: async () => {
@@ -73,7 +74,7 @@ export function RestockDialog({
       return ((data ?? []) as RestockProduct[]).filter((p) => isRestockable(p.name));
     },
   });
-  const list = products.data ?? [];
+  const list = (products.data ?? []).filter((p) => mine(p.name));
   const sachet = list.find((p) => /sachet/i.test(p.name));
   const [productId, setProductId] = useState(initialProductId ?? "");
   const chosen = productId || sachet?.id || "";
@@ -123,9 +124,8 @@ export function RestockDialog({
         <DialogTitle>Restock the Warehouse</DialogTitle>
       </DialogHeader>
       <p className="text-sm text-muted-foreground">
-        Sachet Water received into the Warehouse is added at once. Bottle Water and Dispenser/Jug
-        Water come in as Production Releases, unsold dispensers as marketer returns, and empty jugs
-        through the Store.
+        Sachet Water and Empty Jug received into the Warehouse are added at once. Bottle Water and
+        Dispenser Water come in as Production Releases, and unsold dispensers as marketer returns.
       </p>
       <div className="grid gap-3">
         <div>
@@ -152,7 +152,7 @@ export function RestockDialog({
           <Input
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            placeholder="e.g. from the sachet line"
+            placeholder="e.g. received today"
           />
         </div>
       </div>

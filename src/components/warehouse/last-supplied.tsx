@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { num } from "@/lib/format";
 import { useMyProductMatcher } from "@/lib/product-rules";
+import { saleLineName } from "@/lib/sale-line-name";
 
 // What was last supplied to a marketer / the shop (Warehouse postings) or a
 // Distributor/Office Delivery customer (Warehouse sales), shown on the return
@@ -18,6 +19,7 @@ type Row = {
   items: {
     product_id: string;
     quantity: number;
+    jar_mode?: string | null;
     products: { name: string; unit: string } | null;
   }[];
 };
@@ -29,14 +31,15 @@ const lastDay = (rows: Row[]): Supplied | null => {
   const byProduct = new Map<string, Line>();
   for (const r of day)
     for (const it of r.items) {
-      const l = byProduct.get(it.product_id) ?? {
+      const name = saleLineName(it.products?.name, it.jar_mode);
+      const l = byProduct.get(`${it.product_id}|${name}`) ?? {
         product_id: it.product_id,
-        name: it.products?.name ?? "—",
+        name,
         unit: it.products?.unit ?? "",
         qty: 0,
       };
       l.qty += Number(it.quantity);
-      byProduct.set(it.product_id, l);
+      byProduct.set(`${it.product_id}|${name}`, l);
     }
   return {
     date,
@@ -54,7 +57,7 @@ export function useLastSupplied(kind: "marketer" | "customer", id: string | null
         const { data, error } = await supabase
           .from("stock_dispatches")
           .select(
-            "dispatch_date,dispatch_number,status,stock_dispatch_items(product_id,quantity,products(name,unit))",
+            "dispatch_date,dispatch_number,status,stock_dispatch_items(product_id,quantity,jar_mode,products(name,unit))",
           )
           .eq("sales_rep_id", id!)
           .is("reversed_at", null)
@@ -81,7 +84,9 @@ export function useLastSupplied(kind: "marketer" | "customer", id: string | null
       }
       const { data, error } = await supabase
         .from("sales")
-        .select("sale_date,invoice_number,sale_items(product_id,quantity,products(name,unit))")
+        .select(
+          "sale_date,invoice_number,sale_items(product_id,quantity,jar_mode,products(name,unit))",
+        )
         .eq("customer_id", id!)
         .is("sales_rep_id", null)
         .is("deleted_at", null)

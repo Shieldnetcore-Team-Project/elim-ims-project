@@ -137,8 +137,8 @@ type Report = {
 
 const MODE: Record<SaleLine["jar_mode"], string> = {
   return_later: "Returnable jug",
-  permanent: "Permanent jug",
-  swap: "Swap",
+  permanent: "Jug + Water",
+  swap: "Dispenser Water (swap)",
   none: "No choice (older)",
 };
 const CASHUP: Record<
@@ -323,7 +323,7 @@ export function DispenserReports({
         <button type="button" className="text-left" onClick={() => go("sales", "permanent")}>
           <KPI
             icon={Banknote}
-            label="Permanent jug revenue"
+            label="Jug + Water: jug revenue"
             value={fmt(jars)}
             hint={`${num(units("permanent"))} jug(s) sold for good`}
             tone="success"
@@ -368,7 +368,7 @@ export function DispenserReports({
         <TabsContent value="sales">
           <ReportCard
             title="Dispenser sales"
-            note="Each posted dispenser line. Water revenue is the line less its jug part; the jug part is the jug type's jar price, on Permanent lines only."
+            note="Each posted dispenser line. Water revenue is the line less its jug part; the jug part is the jug type's jar price, on Jug + Water lines only."
             extra={
               <Select value={mode} onValueChange={(v) => setMode(v as typeof mode)}>
                 <SelectTrigger className="h-8 w-44">

@@ -33,13 +33,22 @@ type Product = {
   current_stock: number;
 };
 
-type DispatchLine = { key: number; product_id: string; quantity: number };
+type DispatchLine = {
+  key: number;
+  product_id: string;
+  quantity: number;
+  jar_mode?: string | null;
+};
 type Dispatch = {
   id: string;
   dispatch_number: string;
   dispatch_date: string;
   sales_reps: { full_name: string; kind: string } | null;
-  stock_dispatch_items: { product_id: string | null; quantity: number }[];
+  stock_dispatch_items: {
+    product_id: string | null;
+    quantity: number;
+    jar_mode?: string | null;
+  }[];
 };
 
 function useFinishedProducts(factoryId: string) {
@@ -80,7 +89,7 @@ export function CorrectDispatchPostingDialog({
       const { data, error } = await supabase
         .from("stock_dispatches")
         .select(
-          "id,dispatch_number,dispatch_date,sales_reps(full_name,kind),stock_dispatch_items(product_id,quantity)",
+          "id,dispatch_number,dispatch_date,sales_reps(full_name,kind),stock_dispatch_items(product_id,quantity,jar_mode)",
         )
         .eq("factory_id", factoryId)
         .eq("dispatch_number", dispatchNumber)
@@ -135,7 +144,12 @@ function CorrectDispatchForm({
 }) {
   const original = dispatch.stock_dispatch_items
     .filter((it) => it.product_id)
-    .map((it, i) => ({ key: i + 1, product_id: it.product_id!, quantity: Number(it.quantity) }));
+    .map((it, i) => ({
+      key: i + 1,
+      product_id: it.product_id!,
+      quantity: Number(it.quantity),
+      jar_mode: it.jar_mode ?? null,
+    }));
   const [lines, setLines] = useState<DispatchLine[]>(original);
   const [nextKey, setNextKey] = useState(original.length + 1);
   const [date, setDate] = useState(dispatch.dispatch_date.slice(0, 10));
@@ -161,7 +175,11 @@ function CorrectDispatchForm({
           payload: {
             dispatch_date: date,
             reason: reason.trim() || undefined,
-            items: clean.map((l) => ({ product_id: l.product_id, quantity: l.quantity })),
+            items: clean.map((l) => ({
+              product_id: l.product_id,
+              quantity: l.quantity,
+              ...(l.jar_mode ? { jar_mode: l.jar_mode } : {}),
+            })),
           },
         } as never,
       );
@@ -198,13 +216,17 @@ function CorrectDispatchForm({
         />
         {lines.map((l) => {
           const over = !!l.product_id && l.quantity > stockOf(l.product_id);
+          const lineName = products
+            .find((p) => p.id === l.product_id)
+            ?.name.trim()
+            .toLowerCase();
           return (
             <div key={l.key} className="grid grid-cols-[1fr_7rem_auto] items-end gap-2">
               <div>
                 <Label className="text-xs">Product</Label>
                 <Select
                   value={l.product_id}
-                  onValueChange={(v) => update(l.key, { product_id: v })}
+                  onValueChange={(v) => update(l.key, { product_id: v, jar_mode: null })}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Choose" />
@@ -217,6 +239,32 @@ function CorrectDispatchForm({
                     ))}
                   </SelectContent>
                 </Select>
+                {(lineName === "dispenser water" || lineName === "empty jug") && (
+                  <Select
+                    value={lineName === "empty jug" ? "empty" : (l.jar_mode ?? "water")}
+                    onValueChange={(v) =>
+                      // Empty Jug is its own product with its own stock.
+                      update(l.key, {
+                        product_id:
+                          products.find(
+                            (p) =>
+                              p.name.trim().toLowerCase() ===
+                              (v === "empty" ? "empty jug" : "dispenser water"),
+                          )?.id ?? l.product_id,
+                        jar_mode: v === "permanent" ? "permanent" : null,
+                      })
+                    }
+                  >
+                    <SelectTrigger className="mt-1 h-8 text-xs" aria-label="Type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="water">Dispenser Water</SelectItem>
+                      <SelectItem value="permanent">Jug + Water</SelectItem>
+                      <SelectItem value="empty">Empty Jug</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
               <div>
                 <Label className="text-xs">Qty</Label>

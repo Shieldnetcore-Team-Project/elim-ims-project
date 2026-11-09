@@ -111,9 +111,9 @@ function jarNote(sales: any[]): string | null {
       ? `Returnable jar x${n(qty.return_later)}: ${n(qty.return_later)} empty jar${qty.return_later === 1 ? "" : "s"} expected back`
       : null,
     qty.permanent > 0
-      ? `Permanent jar sale x${n(qty.permanent)}: jar bought (N${n(jarValue)} incl.), no empty expected`
+      ? `Jug + Water x${n(qty.permanent)}: jug bought (N${n(jarValue)} incl.), no empty expected`
       : null,
-    qty.swap > 0 ? `Swap x${n(qty.swap)}: empty jar handed in` : null,
+    qty.swap > 0 ? `Dispenser Water x${n(qty.swap)}: empty jug handed in` : null,
   ].filter(Boolean);
   return parts.length ? parts.join(". ") : null;
 }
@@ -217,13 +217,9 @@ export async function printSaleInvoice(
     balance: sum("balance"),
   };
   const remarks = visibleInvoiceRemarks([
-    combined
-      ? `Combined invoice for ${String(s.sale_date).slice(0, 10)} covering ${sales.length} invoices: ${sales
-          .map((x) => x.invoice_number)
-          .join(", ")}`
-      : null,
     ...sales.map((x) => x.remarks as string | null),
-    jarNote(sales),
+    // The slim slip only: not below the invoice (user, 2026-11-09).
+    paper === "roll" ? jarNote(sales) : null,
   ]);
   // A combined invoice is for the day, so it prints the date only.
   const issuedAt = combined ? String(s.sale_date).slice(0, 10) : (s.created_at ?? s.sale_date);
@@ -254,6 +250,13 @@ export async function printSaleInvoice(
     address: string | null;
   } | null;
   const isDistributor = !!customer?.registered;
+  // The customer's account first, so details entered later reach old invoices
+  // too (user, 2026-11-09); a walk-in has only what was typed at the sale.
+  const billedTo = {
+    name: s.customer_name,
+    phone: customer?.phone || s.customer_phone,
+    address: customer?.address || s.customer_address,
+  };
 
   if (paper === "a4" && (marketer || (isDistributor && seller?.kind !== "outlet"))) {
     // ID shown: the marketer's when the goods came from their stock, else the
@@ -269,11 +272,7 @@ export async function printSaleInvoice(
         company: { ...company, website: settings?.website ?? null },
         invoice_number: s.invoice_number,
         issued_at: issuedAt,
-        customer: {
-          name: s.customer_name,
-          phone: s.customer_phone ?? customer?.phone,
-          address: s.customer_address ?? customer?.address,
-        },
+        customer: billedTo,
         party_id: partyIsDistributor ? (customer?.code ?? null) : (marketer?.code ?? null),
         party_label: partyIsDistributor ? null : (marketer?.name ?? null),
         delivery_method: delivery,
@@ -309,11 +308,7 @@ export async function printSaleInvoice(
       sales_person: poster,
       retail: seller?.kind === "outlet",
       copy_labels: copyLabels,
-      customer: {
-        name: s.customer_name,
-        phone: s.customer_phone ?? customer?.phone,
-        address: s.customer_address ?? customer?.address,
-      },
+      customer: billedTo,
       items: lines,
       ...totals,
       currency: settings?.currency ?? "NGN",

@@ -3,6 +3,7 @@ import { Fragment, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useFactoryId, useFactorySettings } from "@/lib/use-factory";
+import { saleLineName } from "@/lib/sale-line-name";
 import { useMarketerStatement } from "@/lib/marketer-accounts";
 import { companyOf, generateMarketerStatementPdf } from "@/lib/marketer-pdf";
 import { PrintCopiesButton } from "@/components/shared/print-copies-button";
@@ -144,6 +145,7 @@ type DispatchRow = {
     quantity: number;
     unit_price: number;
     line_value: number;
+    jar_mode?: string | null;
     products: { name: string; unit: string } | null;
   }[];
 };
@@ -166,6 +168,7 @@ type ReturnRow = {
     damaged_quantity: number;
     rejected_quantity: number;
     charge_rep: boolean;
+    jar_mode?: string | null;
     products: { name: string; unit: string } | null;
   }[];
 };
@@ -525,7 +528,14 @@ function RepDialog({
 
 // discount / surcharge: per pack, on a Warehouse posting (2026-11-04); the
 // line posts at price - discount + surcharge.
-type Line = { product_id: string; quantity: number; discount?: number; surcharge?: number };
+// jar_mode "permanent": a Dispenser Water line posted as Jug + Water (2026-11-09).
+type Line = {
+  product_id: string;
+  quantity: number;
+  discount?: number;
+  surcharge?: number;
+  jar_mode?: string | null;
+};
 // A marketer's completed return not yet carried into a posting.
 type OpenReturn = {
   id: string;
@@ -536,6 +546,7 @@ type OpenReturn = {
     product_id: string;
     quantity_returned: number;
     accepted_quantity: number | null;
+    jar_mode?: string | null;
     products?: { name: string } | null;
     // Per line (20261104110000): the posting that carried it back on.
     carried?: { status: string } | null;
@@ -544,12 +555,31 @@ type OpenReturn = {
 
 // Lines for the same product added together.
 const mergeLines = (lines: Line[]) => {
-  const byProduct = new Map<string, number>();
-  for (const l of lines)
-    if (l.product_id && l.quantity > 0)
-      byProduct.set(l.product_id, (byProduct.get(l.product_id) ?? 0) + l.quantity);
-  return [...byProduct].map(([product_id, quantity]) => ({ product_id, quantity }));
+  const by = new Map<string, Line>();
+  for (const l of lines) {
+    if (!l.product_id || !(l.quantity > 0)) continue;
+    const key = `${l.product_id}|${l.jar_mode ?? ""}`;
+    const g: Line = by.get(key) ?? {
+      product_id: l.product_id,
+      quantity: 0,
+      ...(l.jar_mode ? { jar_mode: l.jar_mode } : {}),
+    };
+    g.quantity += l.quantity;
+    by.set(key, g);
+  }
+  return [...by.values()];
 };
+
+const isDispenserWater = (name?: string | null) => name?.trim().toLowerCase() === "dispenser water";
+// "Dispenser Empty" is its name until 20261109120000 renames it.
+const isEmptyJug = (name?: string | null) =>
+  ["empty jug", "dispenser empty"].includes(name?.trim().toLowerCase() ?? "");
+// A line's price before any discount: Jug + Water is Dispenser Water + Empty Jug.
+const typedPrice = (products: Product[], product: Product, l: Line) =>
+  Number(product.unit_price) +
+  (l.jar_mode === "permanent"
+    ? Number(products.find((p) => isEmptyJug(p.name))?.unit_price ?? 0)
+    : 0);
 
 const linePrice = (price: number, l: Line) =>
   Math.max(0, price - (l.discount ?? 0) + (l.surcharge ?? 0));
@@ -560,7 +590,7 @@ const mergePostingLines = (lines: Line[]) => {
   const by = new Map<string, Line>();
   for (const l of lines) {
     if (!l.product_id || !(l.quantity > 0)) continue;
-    const key = `${l.product_id}|${l.discount ?? 0}|${l.surcharge ?? 0}`;
+    const key = `${l.product_id}|${l.jar_mode ?? ""}|${l.discount ?? 0}|${l.surcharge ?? 0}`;
     const g = by.get(key) ?? { ...l, quantity: 0 };
     g.quantity += l.quantity;
     by.set(key, g);
@@ -576,6 +606,7 @@ function LineEditor({
   qtyLabel = "Qty",
   factoryId,
   adjustable = false,
+  typed = false,
 }: {
   products: Product[];
   lines: Line[];
@@ -584,6 +615,8 @@ function LineEditor({
   qtyLabel?: string;
   // Discount / surcharge per pack on each line (a posting).
   adjustable?: boolean;
+  // Dispenser Water lines say which type they are: Dispenser Water / Jug + Water.
+  typed?: boolean;
   // When set, the product dropdown offers "+ Add new product…".
   factoryId?: string;
 }) {
@@ -607,7 +640,9 @@ function LineEditor({
               <Select
                 value={l.product_id}
                 onValueChange={(v) =>
-                  v === ADD_NEW_ITEM ? setAddingFor(i) : update(i, { product_id: v })
+                  v === ADD_NEW_ITEM
+                    ? setAddingFor(i)
+                    : update(i, { product_id: v, jar_mode: null })
                 }
               >
                 <SelectTrigger>
@@ -627,6 +662,35 @@ function LineEditor({
                 </SelectContent>
               </Select>
             </div>
+            {typed && (isDispenserWater(p?.name) || isEmptyJug(p?.name)) && (
+              <div className="w-36">
+                <Label className="text-xs">Type</Label>
+                <Select
+                  value={isEmptyJug(p?.name) ? "empty" : (l.jar_mode ?? "water")}
+                  onValueChange={(v) =>
+                    // Empty Jug is its own product with its own stock.
+                    update(i, {
+                      product_id:
+                        products.find((x) =>
+                          v === "empty" ? isEmptyJug(x.name) : isDispenserWater(x.name),
+                        )?.id ?? l.product_id,
+                      jar_mode: v === "permanent" ? "permanent" : null,
+                    })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="water">Dispenser Water</SelectItem>
+                    <SelectItem value="permanent">Jug + Water</SelectItem>
+                    {products.some((x) => isEmptyJug(x.name)) && (
+                      <SelectItem value="empty">Empty Jug</SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="w-28">
               <Label className="text-xs">
                 {qtyLabel}
@@ -658,7 +722,7 @@ function LineEditor({
               ))}
             {showValues && (
               <div className="w-24 pb-2 text-right text-xs text-muted-foreground">
-                {p ? money(linePrice(p.unit_price, l) * (l.quantity || 0)) : "—"}
+                {p ? money(linePrice(typedPrice(products, p, l), l) * (l.quantity || 0)) : "—"}
               </div>
             )}
             <Button variant="ghost" size="icon" onClick={() => remove(i)}>
@@ -740,7 +804,7 @@ function NewDispatchDialog({
         supabase
           .from("rep_returns")
           .select(
-            `id,return_number,return_date,carried:stock_dispatches!rep_returns_carried_dispatch_id_fkey(status),rep_return_items(product_id,quantity_returned,accepted_quantity,products(name)${
+            `id,return_number,return_date,carried:stock_dispatches!rep_returns_carried_dispatch_id_fkey(status),rep_return_items(product_id,quantity_returned,accepted_quantity,jar_mode,products(name)${
               lineCarry
                 ? ",carried:stock_dispatches!rep_return_items_carried_dispatch_id_fkey(status)"
                 : ""
@@ -784,6 +848,7 @@ function NewDispatchDialog({
     r.rep_return_items.map((it) => ({
       product_id: it.product_id,
       quantity: Number(it.accepted_quantity ?? it.quantity_returned),
+      ...(it.jar_mode ? { jar_mode: it.jar_mode } : {}),
     }));
   const carriedLines = mergeLines(carried.flatMap(returnLines));
   const productName = (id: string) => products.find((p) => p.id === id)?.name ?? "—";
@@ -794,9 +859,9 @@ function NewDispatchDialog({
     () =>
       [...lines, ...carriedLines].reduce((sum, l) => {
         const p = products.find((x) => x.id === l.product_id);
-        return sum + (p ? linePrice(p.unit_price, l) * (l.quantity || 0) : 0);
+        return sum + (p ? linePrice(typedPrice(allProducts, p, l), l) * (l.quantity || 0) : 0);
       }, 0),
-    [lines, carriedLines, products],
+    [lines, carriedLines, products, allProducts],
   );
 
   const submit = useMutation({
@@ -804,13 +869,16 @@ function NewDispatchDialog({
       if (!repId) throw new Error(`Select a ${holderLabel.toLowerCase()}`);
       const clean = mergePostingLines([...lines, ...carriedLines]);
       if (clean.length === 0) throw new Error("Add at least one product line");
-      const priceOf = (id: string) => products.find((p) => p.id === id)?.unit_price ?? 0;
+      const priceOf = (l: Line) => {
+        const p = products.find((x) => x.id === l.product_id);
+        return p ? typedPrice(allProducts, p, l) : 0;
+      };
       // What was taken off / added per pack, in the notes for Accounts.
       const adjNote = clean
         .filter((l) => (l.discount ?? 0) > 0 || (l.surcharge ?? 0) > 0)
         .map(
           (l) =>
-            `${productName(l.product_id)}: ${[
+            `${saleLineName(productName(l.product_id), l.jar_mode)}: ${[
               (l.discount ?? 0) > 0 ? `discount ${money(l.discount!)}` : null,
               (l.surcharge ?? 0) > 0 ? `surcharge ${money(l.surcharge!)}` : null,
             ]
@@ -829,8 +897,12 @@ function NewDispatchDialog({
           items: clean.map((l) => ({
             product_id: l.product_id,
             quantity: l.quantity,
-            ...((l.discount ?? 0) > 0 || (l.surcharge ?? 0) > 0
-              ? { unit_price: linePrice(priceOf(l.product_id), l) }
+            ...(l.jar_mode ? { jar_mode: l.jar_mode } : {}),
+            // Jug + Water posts at exactly the price shown on the form.
+            ...((l.discount ?? 0) > 0 ||
+            (l.surcharge ?? 0) > 0 ||
+            (l.jar_mode && allProducts.some((p) => isEmptyJug(p.name)))
+              ? { unit_price: linePrice(priceOf(l), l) }
               : {}),
           })),
         } as never,
@@ -918,7 +990,10 @@ function NewDispatchDialog({
                     <span className="text-muted-foreground"> · {r.return_date} — </span>
                     {returnLines(r)
                       .filter((l) => l.quantity > 0)
-                      .map((l) => `${productName(l.product_id)} × ${num(l.quantity)}`)
+                      .map(
+                        (l) =>
+                          `${saleLineName(productName(l.product_id), l.jar_mode)} × ${num(l.quantity)}`,
+                      )
                       .join(", ")}
                   </span>
                 </label>
@@ -940,6 +1015,7 @@ function NewDispatchDialog({
             stockOf={(id) => products.find((p) => p.id === id)?.current_stock ?? 0}
             factoryId={factoryId}
             adjustable
+            typed
           />
         </div>
 
@@ -966,7 +1042,7 @@ function NewDispatchDialog({
 
   if (embedded) return body;
   return (
-    <DialogContent className="max-w-2xl">
+    <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
       <DialogHeader>
         <DialogTitle>
           {kind === "outlet"
@@ -1124,7 +1200,7 @@ function RepStockView({ repId }: { repId: string }) {
       const { data, error } = await supabase
         .from("stock_dispatches")
         .select(
-          "id,dispatch_number,dispatch_date,status,stock_dispatch_items(quantity,products(name,unit))",
+          "id,dispatch_number,dispatch_date,status,stock_dispatch_items(quantity,jar_mode,products(name,unit))",
         )
         .eq("sales_rep_id", repId)
         .order("created_at", { ascending: false })
@@ -1137,6 +1213,7 @@ function RepStockView({ repId }: { repId: string }) {
         status: string;
         stock_dispatch_items: {
           quantity: number;
+          jar_mode?: string | null;
           products: { name: string; unit: string } | null;
         }[];
       }[];
@@ -1248,7 +1325,10 @@ function RepStockView({ repId }: { repId: string }) {
                   </TableCell>
                   <TableCell className="text-xs">
                     {d.stock_dispatch_items
-                      .map((it) => `${it.products?.name ?? "—"} × ${num(Number(it.quantity))}`)
+                      .map(
+                        (it) =>
+                          `${saleLineName(it.products?.name, it.jar_mode)} × ${num(Number(it.quantity))}`,
+                      )
                       .join(", ")}
                   </TableCell>
                   <TableCell>
@@ -1517,7 +1597,7 @@ function MarketerPostingsCard({
       const { data, error } = await supabase
         .from("stock_dispatches")
         .select(
-          "id,dispatch_number,dispatch_date,status,total_value,notes,reverse_reason,sales_reps(full_name),stock_dispatch_items(product_id,quantity,unit_price,line_value,products(name,unit))",
+          "id,dispatch_number,dispatch_date,status,total_value,notes,reverse_reason,sales_reps(full_name),stock_dispatch_items(product_id,quantity,unit_price,line_value,jar_mode,products(name,unit))",
         )
         .eq("factory_id", factoryId)
         .eq("sales_rep_id", repId)
@@ -1558,7 +1638,10 @@ function MarketerPostingsCard({
                 </TableCell>
                 <TableCell className="text-xs">
                   {d.stock_dispatch_items
-                    ?.map((it) => `${it.products?.name ?? "—"} × ${num(Number(it.quantity))}`)
+                    ?.map(
+                      (it) =>
+                        `${saleLineName(it.products?.name, it.jar_mode)} × ${num(Number(it.quantity))}`,
+                    )
                     .join(", ")}
                 </TableCell>
                 {showValues && (
@@ -1677,7 +1760,11 @@ function CorrectDispatchDialog({
 }) {
   const original = row.stock_dispatch_items
     .filter((it) => it.product_id)
-    .map((it) => ({ product_id: it.product_id!, quantity: Number(it.quantity) }));
+    .map((it) => ({
+      product_id: it.product_id!,
+      quantity: Number(it.quantity),
+      jar_mode: it.jar_mode ?? null,
+    }));
   const [lines, setLines] = useState<Line[]>(original);
   const [date, setDate] = useState(row.dispatch_date.slice(0, 10));
   const [reason, setReason] = useState("");
@@ -1699,7 +1786,11 @@ function CorrectDispatchDialog({
           payload: {
             dispatch_date: date,
             reason: reason.trim() || undefined,
-            items: clean.map((l) => ({ product_id: l.product_id, quantity: l.quantity })),
+            items: clean.map((l) => ({
+              product_id: l.product_id,
+              quantity: l.quantity,
+              ...(l.jar_mode ? { jar_mode: l.jar_mode } : {}),
+            })),
           },
         } as never,
       );
@@ -1734,7 +1825,13 @@ function CorrectDispatchDialog({
         />
         <div>
           <Label>Products (available in brackets)</Label>
-          <LineEditor products={products} lines={lines} setLines={setLines} stockOf={stockOf} />
+          <LineEditor
+            products={products}
+            lines={lines}
+            setLines={setLines}
+            stockOf={stockOf}
+            typed
+          />
         </div>
       </div>
       <DialogFooter>
@@ -1793,7 +1890,7 @@ export function ReturnsTab({
       let q = supabase
         .from("rep_returns")
         .select(
-          "id,return_number,return_date,status,received_by,notes,sales_rep_id,sales_reps(full_name,kind),carried:stock_dispatches!rep_returns_carried_dispatch_id_fkey(dispatch_number,status),rep_return_items(id,product_id,quantity_returned,unit_price,accepted_quantity,damaged_quantity,rejected_quantity,charge_rep,products(name,unit))",
+          "id,return_number,return_date,status,received_by,notes,sales_rep_id,sales_reps(full_name,kind),carried:stock_dispatches!rep_returns_carried_dispatch_id_fkey(dispatch_number,status),rep_return_items(id,product_id,quantity_returned,unit_price,accepted_quantity,damaged_quantity,rejected_quantity,charge_rep,jar_mode,products(name,unit))",
         )
         .eq("factory_id", factoryId!);
       if (repId) q = q.eq("sales_rep_id", repId);
@@ -2011,6 +2108,7 @@ function CarryOverDialog({
     .map((it) => ({
       product_id: it.product_id,
       quantity: Number(it.accepted_quantity ?? it.quantity_returned),
+      ...(it.jar_mode ? { jar_mode: it.jar_mode } : {}),
     }))
     .filter((l) => l.quantity > 0);
   const rep = p.holders("rep").find((r) => r.id === row.sales_rep_id);
@@ -2091,6 +2189,7 @@ function LogReturnDialog({
           items: clean.map((l) => ({
             product_id: l.product_id,
             quantity_returned: l.quantity,
+            ...(l.jar_mode ? { jar_mode: l.jar_mode } : {}),
           })),
         } as never,
       });
@@ -2140,6 +2239,7 @@ function LogReturnDialog({
             setLines={setLines}
             stockOf={stockOf}
             qtyLabel="Return"
+            typed
           />
         </div>
         <div>
@@ -2172,7 +2272,7 @@ function InspectReturnDialog({ row, onDone }: { row: ReturnRow; onDone: () => vo
   const [lines, setLines] = useState<InspectLine[]>(
     row.rep_return_items.map((it) => ({
       item_id: it.id,
-      name: it.products?.name ?? "—",
+      name: saleLineName(it.products?.name, it.jar_mode),
       unit: it.products?.unit ?? "",
       returned: Number(it.quantity_returned),
       accepted: Number(it.quantity_returned),
@@ -4618,7 +4718,25 @@ function RecordCustomerSaleDialog({
 }) {
   const qc = useQueryClient();
   const today = new Date().toISOString().slice(0, 10);
-  type Line = { product_id: string; quantity: number; price: number; discount: number };
+  type Line = {
+    product_id: string;
+    quantity: number;
+    price: number;
+    discount: number;
+    jar_mode?: string | null;
+  };
+  // Dispenser Water / Jug + Water prices: Accounts can't read products directly.
+  const typePrices = useQuery({
+    queryKey: ["dispenser-type-prices", factoryId],
+    queryFn: async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- RPC newer than the generated types
+      const { data, error } = await (supabase as any).rpc("dispenser_type_prices", {
+        p_factory: factoryId,
+      });
+      if (error) throw error;
+      return ((data ?? []) as { water_price: number; with_jug: number }[])[0] ?? null;
+    },
+  });
   const [lines, setLines] = useState<Line[]>([
     { product_id: "", quantity: 0, price: 0, discount: 0 },
   ]);
@@ -4660,6 +4778,7 @@ function RecordCustomerSaleDialog({
             quantity: l.quantity,
             unit_price: l.price,
             discount: l.discount,
+            ...(l.jar_mode ? { jar_mode: l.jar_mode } : {}),
           })),
           payment: paid > 0 ? { amount: paid, method } : null,
         },
@@ -4721,6 +4840,7 @@ function RecordCustomerSaleDialog({
                       onValueChange={(v) =>
                         setLine(i, {
                           product_id: v,
+                          jar_mode: null,
                           price: Number(stockOf(v)?.products?.unit_price ?? 0),
                         })
                       }
@@ -4738,6 +4858,31 @@ function RecordCustomerSaleDialog({
                         ))}
                       </SelectContent>
                     </Select>
+                    {isDispenserWater(st?.products?.name) && (
+                      <Select
+                        value={l.jar_mode ?? "water"}
+                        onValueChange={(v) => {
+                          const withJug = v === "permanent";
+                          const fallback = Number(st?.products?.unit_price ?? 0);
+                          setLine(i, {
+                            jar_mode: withJug ? "permanent" : null,
+                            price: Number(
+                              (withJug
+                                ? typePrices.data?.with_jug
+                                : typePrices.data?.water_price) ?? fallback,
+                            ),
+                          });
+                        }}
+                      >
+                        <SelectTrigger className="mt-1 h-8 text-xs" aria-label="Type">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="water">Dispenser Water</SelectItem>
+                          <SelectItem value="permanent">Jug + Water</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    )}
                     {st && l.quantity > Number(st.quantity) && (
                       <p className="mt-1 text-xs text-destructive">
                         Only {num(Number(st.quantity))} on hand

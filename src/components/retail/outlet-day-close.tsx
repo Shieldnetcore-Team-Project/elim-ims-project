@@ -79,6 +79,8 @@ type ProductFig = {
   corrections: number;
   closing: number;
   sold_value: number;
+  // Jug + Water sold out of the Dispenser Water stock (20261109140000).
+  note?: string | null;
 };
 
 type DayFigures = {
@@ -272,6 +274,7 @@ function StockTable({
                       Corrections {signed(p.corrections, num)}
                     </div>
                   )}
+                  {p.note && <div className="text-[11px] text-muted-foreground">{p.note}</div>}
                 </TableCell>
                 <TableCell className="text-right">{num(p.opening)}</TableCell>
                 <TableCell className="text-right">{num(p.received)}</TableCell>
@@ -361,7 +364,7 @@ function MoneyFigures({ figures, currency }: { figures: DayFigures; currency?: s
             hint={`Dispenser water ${fmt(Number(r.dispenser_water_revenue))}`}
           />
           <Figure
-            label="Permanent jug sales"
+            label="Jug + Water: jug sales"
             value={fmt(Number(r.jar_revenue))}
             hint={`${num(Number(r.jars_sold))} jug(s) sold for good`}
           />

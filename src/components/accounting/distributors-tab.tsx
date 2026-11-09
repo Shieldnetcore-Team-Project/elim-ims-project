@@ -9,6 +9,7 @@ import { useFactorySettings } from "@/lib/use-factory";
 import { printSaleInvoice } from "@/lib/invoice";
 import { generateReceiptPdf } from "@/lib/pdf";
 import { CustomerPaymentDialog } from "./customer-payment-dialog";
+import { EditCustomerContactButton } from "@/components/customers/edit-customer-contact";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -208,22 +209,29 @@ export function DistributorsTab({ factoryId, currency }: { factoryId: string; cu
                         {a.last_sale ? new Date(a.last_sale).toLocaleDateString() : "—"}
                       </TableCell>
                       <TableCell>
-                        {canPay && (
-                          <Button
-                            size="sm"
-                            className="gap-1"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setPaying({
-                                id: a.customer_id,
-                                name: a.name,
-                                owed: Number(a.outstanding),
-                              });
-                            }}
-                          >
-                            <HandCoins className="h-4 w-4" /> Payment
-                          </Button>
-                        )}
+                        <div className="flex items-center justify-end gap-1">
+                          <EditCustomerContactButton
+                            customerId={a.customer_id}
+                            customerName={a.name}
+                            iconOnly
+                          />
+                          {canPay && (
+                            <Button
+                              size="sm"
+                              className="gap-1"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setPaying({
+                                  id: a.customer_id,
+                                  name: a.name,
+                                  owed: Number(a.outstanding),
+                                });
+                              }}
+                            >
+                              <HandCoins className="h-4 w-4" /> Payment
+                            </Button>
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
                     {isOpen && (

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Pencil, Plus, Save, Search, Tag, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -121,7 +121,7 @@ export function ProductPricesCard({ factoryId }: { factoryId: string }) {
   );
 
   // What looks wrong about a new price: a big jump, or the same price as
-  // another product (e.g. Dispenser Water typed at Dispenser Empty's price).
+  // another product (e.g. Dispenser Water typed at Empty Jug's price).
   const warningsFor = (p: PriceRow) => {
     const old = Number(p.unit_price);
     const next = drafts[p.id];
@@ -134,6 +134,15 @@ export function ProductPricesCard({ factoryId }: { factoryId: string }) {
     if (same.length) out.push(`same price as ${same.join(", ")}`);
     return out;
   };
+
+  // Jug + Water is Dispenser Water sold with its jug: not a product of its
+  // own, so its price is shown here and follows those two (user, 2026-11-09).
+  const allRows = products.data ?? [];
+  const named = (name: string) => allRows.find((p) => p.name.trim().toLowerCase() === name);
+  const dispenserWater = named("dispenser water");
+  const emptyJug = named("empty jug");
+  const jugPlusWater =
+    dispenserWater && emptyJug ? priceOf(dispenserWater) + priceOf(emptyJug) : null;
 
   const invalidate = () => {
     for (const key of [
@@ -342,51 +351,66 @@ export function ProductPricesCard({ factoryId }: { factoryId: string }) {
             </TableHeader>
             <TableBody>
               {rows.map((p) => (
-                <TableRow key={p.id}>
-                  <TableCell>
-                    <div className="font-medium">{p.name}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {[p.sku, `#${p.id.slice(0, 8)}`].filter(Boolean).join(" · ")}
-                    </div>
-                  </TableCell>
-                  <TableCell>{p.unit}</TableCell>
-                  <TableCell>
-                    {canPrice ? (
-                      <MoneyInput
-                        min={0}
-                        value={priceOf(p)}
-                        onChange={(v) => setDrafts((d) => ({ ...d, [p.id]: v }))}
-                      />
-                    ) : (
-                      money(Number(p.unit_price))
-                    )}
-                  </TableCell>
-                  {canManage && (
-                    <TableCell className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        title="Edit product"
-                        aria-label="Edit product"
-                        onClick={() => {
-                          setEditing(p);
-                          setFormOpen(true);
-                        }}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        title="Delete product"
-                        aria-label="Delete product"
-                        onClick={() => setDeleting(p)}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
+                <Fragment key={p.id}>
+                  <TableRow>
+                    <TableCell>
+                      <div className="font-medium">{p.name}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {[p.sku, `#${p.id.slice(0, 8)}`].filter(Boolean).join(" · ")}
+                      </div>
                     </TableCell>
+                    <TableCell>{p.unit}</TableCell>
+                    <TableCell>
+                      {canPrice ? (
+                        <MoneyInput
+                          min={0}
+                          value={priceOf(p)}
+                          onChange={(v) => setDrafts((d) => ({ ...d, [p.id]: v }))}
+                        />
+                      ) : (
+                        money(Number(p.unit_price))
+                      )}
+                    </TableCell>
+                    {canManage && (
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="Edit product"
+                          aria-label="Edit product"
+                          onClick={() => {
+                            setEditing(p);
+                            setFormOpen(true);
+                          }}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="Delete product"
+                          aria-label="Delete product"
+                          onClick={() => setDeleting(p)}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </TableCell>
+                    )}
+                  </TableRow>
+                  {p.id === dispenserWater?.id && jugPlusWater != null && (
+                    <TableRow>
+                      <TableCell>
+                        <div className="font-medium">Jug + Water</div>
+                        <div className="text-xs text-muted-foreground">
+                          Dispenser Water + Empty Jug
+                        </div>
+                      </TableCell>
+                      <TableCell>{p.unit}</TableCell>
+                      <TableCell>{money(jugPlusWater)}</TableCell>
+                      {canManage && <TableCell />}
+                    </TableRow>
                   )}
-                </TableRow>
+                </Fragment>
               ))}
               {rows.length === 0 && (
                 <TableRow>

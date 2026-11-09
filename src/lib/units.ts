@@ -33,11 +33,13 @@ export const isBottleWater = (name: string) => /bottle water$/i.test(name.trim()
 // bags, Dispenser/Jug Water in pieces).
 export const defaultUnitFor = (product: { name: string; unit: string }, packUnit: string) =>
   isBottleWater(product.name) ? packUnit : product.unit || packUnit;
-// Only Sachet Water is restocked straight into the Warehouse. Bottle Water and
-// Dispenser/Jug Water come from Production (releases), returned dispensers
-// from marketers (marketer returns), and empty jugs are Store raw material
-// posted to QC (warehouse_restock refuses everything but Sachet Water too).
-export const isRestockable = (name: string) => /sachet|satchet/i.test(name);
+// Sachet Water and Empty Jug (sold as a finished product, user 2026-11-09) are
+// restocked straight into the Warehouse. Bottle Water and Dispenser Water come
+// from Production (releases), returned dispensers from marketers, and the
+// jugs to be refilled are Store raw material posted to QC. warehouse_restock
+// refuses everything else too.
+export const isRestockable = (name: string) =>
+  /sachet|satchet/i.test(name) || /^\s*empty jug\s*$/i.test(name);
 
 // Packaging categories that only ever come in these two units. Matched
 // against the admin-defined `material_categories.name` (case-insensitive),

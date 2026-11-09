@@ -17,9 +17,9 @@ export const FINISHED_PRODUCT_NAMES = [
   "75cl Bottle Water",
   "1Ltr Bottle Water",
   "1.5Ltr Bottle Water",
-  // Dispenser water and jug water are one product, kept in new and old jugs.
-  "Dispenser/Jug Water (New Jug)",
-  "Dispenser/Jug Water (Old Jug)",
+  // One filled product; "Jug + Water" is the same stock sold with its jug.
+  "Dispenser Water",
+  "Empty Jug",
   "Sachet Water",
 ] as const;
 
@@ -31,6 +31,8 @@ export const DEFAULT_PRICE: Partial<Record<(typeof FINISHED_PRODUCT_NAMES)[numbe
   "50cl Bottle Water": 2650,
   "75cl Bottle Water": 1700,
   "1.5Ltr Bottle Water": 1700,
+  "Dispenser Water": 1200,
+  "Empty Jug": 3000,
 };
 
 export const defaultPriceFor = (name: string) =>

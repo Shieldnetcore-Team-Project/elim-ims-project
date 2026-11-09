@@ -697,7 +697,7 @@ function PriceDialog({ row, onDone }: { row: Summary; onDone: () => void }) {
           <Input type="number" min={0} value={jar} onChange={(e) => setJar(+e.target.value || 0)} />
         </div>
         <div>
-          <Label>Jar + water (Permanent sale price)</Label>
+          <Label>Jug + Water price</Label>
           <Input
             type="number"
             min={0}

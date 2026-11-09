@@ -129,13 +129,13 @@ export async function generateDistributorInvoicePdf(
   const boxW = contentW * 0.56;
   const barH = 17;
   doc.setFontSize(11.5);
-  const billed = (
-    [
-      (data.customer.name || "Walk-in customer").toUpperCase(),
-      data.customer.phone && `Contact: ${data.customer.phone}`,
-      data.customer.address && `Address: ${data.customer.address}`,
-    ].filter(Boolean) as string[]
-  ).flatMap((l) => doc.splitTextToSize(l, boxW - 10) as string[]);
+  // Just the phone number and the address from the account, no labels; a
+  // line stays blank until they are entered (user, 2026-11-09).
+  const billed = [
+    (data.customer.name || "Walk-in customer").toUpperCase(),
+    data.customer.phone?.trim() ?? "",
+    data.customer.address?.trim() ?? "",
+  ].flatMap((l) => doc.splitTextToSize(l, boxW - 10) as string[]);
   const boxH = barH + 8 + Math.max(3, billed.length) * 14;
   doc.setFillColor(...BLUE);
   doc.rect(M, boxTop, boxW, barH, "F");
@@ -264,10 +264,7 @@ export async function generateDistributorInvoicePdf(
     remarksLines.forEach((ln, i) => doc.text(ln, M, y + 12 + i * 12));
   }
 
-  let signatureY = Math.max(
-    y + totals.length * tRow + 24,
-    y + 12 + remarksLines.length * 12 + 12,
-  );
+  let signatureY = Math.max(y + totals.length * tRow + 24, y + 12 + remarksLines.length * 12 + 12);
   if (signatureY + 28 > H) {
     doc.addPage();
     signatureY = M + 20;

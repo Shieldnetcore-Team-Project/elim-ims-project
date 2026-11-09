@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { usePermissions } from "@/lib/permissions";
 import { logAudit } from "@/lib/audit";
+import { EditCustomerContactButton } from "@/components/customers/edit-customer-contact";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -133,22 +134,24 @@ export function DistributorPicker({
               </div>
             )}
             {shown.map((d) => (
-              <button
-                key={d.id}
-                type="button"
-                onClick={() => onPick(d.id)}
-                className="flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm hover:bg-muted/50"
-              >
-                <span className="font-medium">{d.name}</span>
-                <span className="text-xs text-muted-foreground">
-                  {[
-                    d.phone,
-                    marketerName(d.sales_rep_id) && `under ${marketerName(d.sales_rep_id)}`,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </span>
-              </button>
+              <div key={d.id} className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => onPick(d.id)}
+                  className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-md border px-3 py-2 text-left text-sm hover:bg-muted/50"
+                >
+                  <span className="font-medium">{d.name}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {[
+                      d.phone,
+                      marketerName(d.sales_rep_id) && `under ${marketerName(d.sales_rep_id)}`,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </span>
+                </button>
+                <EditCustomerContactButton customerId={d.id} customerName={d.name} iconOnly />
+              </div>
             ))}
             {!distributors.isLoading && shown.length === 0 && (
               <p className="py-6 text-center text-sm text-muted-foreground">

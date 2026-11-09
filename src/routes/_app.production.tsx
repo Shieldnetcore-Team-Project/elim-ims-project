@@ -273,7 +273,11 @@ function ProductionPage() {
   // bottle production manager doesn't see dispensers or sachet); printed and
   // exported reports keep every product.
   const mine = useMyProductMatcher();
-  const myProducts = (products.data ?? []).filter((p) => mine(p.name));
+  // Empty Jug is bought in through Warehouse Restock, never produced
+  // (user, 2026-11-09).
+  const myProducts = (products.data ?? []).filter(
+    (p) => mine(p.name) && !/^\s*(empty jug|dispenser empty)\s*$/i.test(p.name),
+  );
 
   const list = useQuery({
     queryKey: ["production-list", factoryId],

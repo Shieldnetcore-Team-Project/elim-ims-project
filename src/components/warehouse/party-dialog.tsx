@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { HandCoins, Loader2, Undo2 } from "lucide-react";
@@ -15,6 +15,7 @@ import { ReturnDateField } from "@/components/shared/return-date";
 import { useDayReturns } from "@/lib/day-returns";
 import { DayReturnsPanel } from "@/components/warehouse/correct-return-dialog";
 import { useJugTypes, useMarketers } from "@/components/jugs/api";
+import { EditCustomerContactButton } from "@/components/customers/edit-customer-contact";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -61,7 +62,7 @@ export function WarehousePartyDialog({
   const canReturn = holder
     ? party.type === "marketer" && perms.can("distribution", "submit")
     : perms.can("sales-returns", "submit") || perms.can("distribution", "submit");
-  // "Record sold Dispenser + Water" replaces "Return empty Dispenser Jugs"
+  // "Record sold Jug + Water" replaces "Return empty Dispenser Jugs"
   // (user, 2026-11-04): a distributor's customers kept the jugs -- billed at
   // the empty-jug price (record_sold_dispenser_jugs). Marketers' empties
   // still come back through Warehouse -> Dispenser & jugs -> Returns.
@@ -154,8 +155,11 @@ export function WarehousePartyDialog({
             )}
             {canSoldRight && mine("Dispenser Water") && (
               <Button variant="outline" className="gap-2" onClick={() => setAct("jugs")}>
-                <HandCoins className="h-4 w-4" /> Record sold Dispenser + Water
+                <HandCoins className="h-4 w-4" /> Record sold Jug + Water
               </Button>
+            )}
+            {party.type === "distributor" && (
+              <EditCustomerContactButton customerId={party.id} customerName={party.name} />
             )}
           </div>
 
@@ -313,10 +317,38 @@ function HolderReturnDialog({
   // Only the products this officer handles; the database refuses the rest.
   const mine = useMyProductMatcher();
   const held = (stock.data ?? []).filter((s) => mine(s.name));
-  const items = held
-    .map((s) => ({ product_id: s.product_id, quantity_returned: qty[s.product_id] ?? 0 }))
-    .filter((i) => i.quantity_returned > 0);
-  const over = held.some((s) => (qty[s.product_id] ?? 0) > s.quantity);
+  // Jug + Water posted to them and not returned: comes back at its own
+  // price. One filled stock with Dispenser Water (20261109140000).
+  const jugWater = useQuery({
+    queryKey: ["warehouse-party-jug-water", party.id],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc(
+        "rep_jug_water_held" as never,
+        { p_rep: party.id } as never,
+      );
+      if (error) throw error;
+      return (data ?? []) as unknown as { product_id: string; quantity: number }[];
+    },
+  });
+  const jugKey = (id: string) => `${id}:jug_water`;
+  const jugHeld = (s: { product_id: string; quantity: number }) =>
+    Math.min(
+      Number(jugWater.data?.find((r) => r.product_id === s.product_id)?.quantity ?? 0),
+      s.quantity,
+    );
+  const items = [
+    ...held.map((s) => ({ product_id: s.product_id, quantity_returned: qty[s.product_id] ?? 0 })),
+    ...held.map((s) => ({
+      product_id: s.product_id,
+      quantity_returned: qty[jugKey(s.product_id)] ?? 0,
+      jar_mode: "permanent",
+    })),
+  ].filter((i) => i.quantity_returned > 0);
+  const over = held.some(
+    (s) =>
+      (qty[s.product_id] ?? 0) + (qty[jugKey(s.product_id)] ?? 0) > s.quantity ||
+      (qty[jugKey(s.product_id)] ?? 0) > jugHeld(s),
+  );
   const total = items.reduce((t, i) => t + i.quantity_returned, 0);
 
   const save = useMutation({
@@ -338,6 +370,7 @@ function HolderReturnDialog({
         "warehouse-party",
         "warehouse-party-holding",
         "warehouse-party-van",
+        "warehouse-party-jug-water",
         "warehouse-transactions",
         "dist-returns",
         "dispatch-open-returns",
@@ -389,38 +422,70 @@ function HolderReturnDialog({
             )}
             {held.map((s) => {
               const v = qty[s.product_id] ?? 0;
+              const jw = qty[jugKey(s.product_id)] ?? 0;
               return (
-                <TableRow key={s.product_id}>
-                  <TableCell>{s.name}</TableCell>
-                  <TableCell className="text-right">
-                    {num(s.quantity)} {s.unit}
-                  </TableCell>
-                  {earlier.numbers.length > 0 && (
-                    <TableCell className="text-right text-muted-foreground">
-                      {num(earlier.byProduct.get(s.product_id) ?? 0)}
+                <Fragment key={s.product_id}>
+                  <TableRow>
+                    <TableCell>{s.name}</TableCell>
+                    <TableCell className="text-right">
+                      {num(s.quantity)} {s.unit}
                     </TableCell>
-                  )}
-                  <TableCell className="text-right">
-                    <Input
-                      type="number"
-                      min={0}
-                      className="ml-auto w-24 text-right"
-                      value={v || ""}
-                      placeholder="0"
-                      onChange={(e) =>
-                        setQty((q) => ({ ...q, [s.product_id]: Number(e.target.value) || 0 }))
-                      }
-                    />
-                    {v > s.quantity && (
-                      <div className="text-[11px] text-destructive">More than held</div>
+                    {earlier.numbers.length > 0 && (
+                      <TableCell className="text-right text-muted-foreground">
+                        {num(earlier.byProduct.get(s.product_id) ?? 0)}
+                      </TableCell>
                     )}
-                  </TableCell>
-                  {earlier.numbers.length > 0 && (
-                    <TableCell className="text-right font-semibold">
-                      {num((earlier.byProduct.get(s.product_id) ?? 0) + v)} {s.unit}
+                    <TableCell className="text-right">
+                      <Input
+                        type="number"
+                        min={0}
+                        className="ml-auto w-24 text-right"
+                        value={v || ""}
+                        placeholder="0"
+                        onChange={(e) =>
+                          setQty((q) => ({ ...q, [s.product_id]: Number(e.target.value) || 0 }))
+                        }
+                      />
+                      {v > s.quantity && (
+                        <div className="text-[11px] text-destructive">More than held</div>
+                      )}
                     </TableCell>
+                    {earlier.numbers.length > 0 && (
+                      <TableCell className="text-right font-semibold">
+                        {num((earlier.byProduct.get(s.product_id) ?? 0) + v)} {s.unit}
+                      </TableCell>
+                    )}
+                  </TableRow>
+                  {jugHeld(s) > 0 && (
+                    <TableRow>
+                      <TableCell>Jug + Water</TableCell>
+                      <TableCell className="text-right">
+                        up to {num(jugHeld(s))} {s.unit}
+                      </TableCell>
+                      {earlier.numbers.length > 0 && <TableCell />}
+                      <TableCell className="text-right">
+                        <Input
+                          type="number"
+                          min={0}
+                          className="ml-auto w-24 text-right"
+                          value={jw || ""}
+                          placeholder="0"
+                          aria-label="Jug + Water returning"
+                          onChange={(e) =>
+                            setQty((q) => ({
+                              ...q,
+                              [jugKey(s.product_id)]: Number(e.target.value) || 0,
+                            }))
+                          }
+                        />
+                        {(jw > jugHeld(s) || jw + v > s.quantity) && (
+                          <div className="text-[11px] text-destructive">More than held</div>
+                        )}
+                      </TableCell>
+                      {earlier.numbers.length > 0 && <TableCell />}
+                    </TableRow>
                   )}
-                </TableRow>
+                </Fragment>
               );
             })}
             {/* Returned earlier that day and no longer held. */}
@@ -482,7 +547,7 @@ function SoldJugsDialog({ party, onClose }: { party: Party; onClose: () => void 
     },
     onSuccess: (r) => {
       toast.success(
-        `${num(r.quantity)} sold Dispenser + Water recorded — invoice ${r.invoice_number} to Accounts`,
+        `${num(r.quantity)} sold Jug + Water recorded — invoice ${r.invoice_number} to Accounts`,
       );
       for (const k of [
         "warehouse-transactions",
@@ -500,7 +565,7 @@ function SoldJugsDialog({ party, onClose }: { party: Party; onClose: () => void 
     <Dialog open onOpenChange={(o) => !o && !save.isPending && onClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Record sold Dispenser + Water</DialogTitle>
+          <DialogTitle>Record sold Jug + Water</DialogTitle>
           <DialogDescription>
             {party.name} sold dispensers with the jug — their customers keep the jugs. Each jug is
             billed to {party.name} at the empty-jug price, on an invoice Accounts confirms, and no

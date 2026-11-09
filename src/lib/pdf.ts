@@ -263,11 +263,7 @@ export async function generateRollReceiptPdf(
     const values = cols.map((c, i) => {
       const details =
         i === 2
-          ? [
-              r.party,
-              r.party_contact && `Contact: ${r.party_contact}`,
-              r.party_address && `Address: ${r.party_address}`,
-            ]
+          ? [r.party, r.party_contact, r.party_address]
               .filter(Boolean)
               .flatMap((line) => doc.splitTextToSize(line!, c.w) as string[])
           : (doc.splitTextToSize(c.value, c.w) as string[]);
@@ -474,8 +470,8 @@ export async function generateInvoicePdf(
     y += fz(12);
 
     left(`Customer: ${data.customer.name || "Walk-in"}`, 11);
-    if (data.customer.phone) left(`Contact: ${data.customer.phone}`, 11);
-    if (data.customer.address) left(`Address: ${data.customer.address}`, 11);
+    if (data.customer.phone) left(data.customer.phone, 11);
+    if (data.customer.address) left(data.customer.address, 11);
 
     doc.line(M, y, W - M, y);
     y += fz(12);

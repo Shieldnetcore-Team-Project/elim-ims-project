@@ -48,7 +48,7 @@ INSERT INTO sale_items(sale_id, product_id, quantity, unit_price, line_total, ja
   ('8d000000-0000-0000-0000-000000000001', '8e000000-0000-0000-0000-000000000001', 1, 1000, 1000, 'swap');
 SELECT pg_temp.check(
   (SELECT array_agg(product_name ORDER BY line_total DESC) FROM public.sale_invoice_lines(ARRAY['8d000000-0000-0000-0000-000000000001'::uuid]))
-    = ARRAY['Jug + GFT 75cl', 'GFT 75cl'], 'Jug + label');
+    = ARRAY['Jug + Water', 'GFT 75cl'], 'Jug + label');
 
 -- @@ Test 3: update_rep_details
 SELECT public.update_rep_details('8c000000-0000-0000-0000-000000000001', 'Emmanuel', '0803', 'Lugbe, Abuja', NULL);

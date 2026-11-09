@@ -71,6 +71,7 @@ import { useRealtimeInvalidate } from "@/lib/realtime";
 import { salePaymentStatus, salePosition, useCustomerAccount } from "@/lib/customer-account";
 import { AccountLedgerTable, AccountStatusBadge } from "@/components/sales/account-ledger";
 import { CustomerAccountDialog } from "@/components/sales/customer-account-dialog";
+import { JUG_PLUS_WATER } from "@/lib/sale-line-name";
 import { ApprovalHistory } from "@/components/workflow/approval-history";
 import { requestDelete } from "@/lib/request-delete";
 import { RequestDeleteDialog } from "@/components/shared/request-delete-dialog";
@@ -164,9 +165,9 @@ const isEmptyDispenser = (name: string) =>
   /\bempty\b/i.test(name) && /dispenser|jug|jar/i.test(name);
 type JarMode = "swap" | "return_later" | "permanent";
 const JAR_MODE_LABEL: Record<JarMode, string> = {
-  swap: "Swap — empty handed in",
-  return_later: "Return later — empty owed",
-  permanent: "Permanent — jar bought",
+  swap: "Dispenser Water — empty handed in",
+  return_later: "Dispenser Water — empty owed",
+  permanent: "Jug + Water — jug bought",
 };
 // A product that comes in a jug, with its jug type's prices (jug_products).
 type JugProduct = {
@@ -1898,11 +1899,13 @@ export function PosDialog({
   const mine = useMyProductMatcher();
   const visibleProducts = useMemo(() => {
     const all = (products.data ?? []).filter((p) =>
-      // The shop doesn't sell empty dispenser jugs (user, 2026-11-03).
-      retailMode ? !isEmptyDispenser(p.name) : mine(p.name),
+      // The shop sells an Empty Jug only once the Warehouse has posted it some
+      // (user, 2026-11-09).
+      retailMode ? !isEmptyDispenser(p.name) || effStock(p) > 0 : mine(p.name),
     );
     return categoryFilter === "all" ? all : all.filter((p) => p.category_id === categoryFilter);
-  }, [products.data, categoryFilter, retailMode, mine]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- effStock reads repStock.data
+  }, [products.data, categoryFilter, retailMode, mine, repStock.data]);
 
   const totals = useMemo(() => {
     const subtotal = cart.reduce((s, i) => s + i.quantity * netPrice(i), 0);
@@ -2042,9 +2045,9 @@ export function PosDialog({
           // Named as in the product list (user, 2026-11-04).
           name:
             presetMode === "permanent"
-              ? "Jug + Water"
+              ? JUG_PLUS_WATER
               : presetMode === "swap"
-                ? "Dispenser Water Only"
+                ? "Dispenser Water"
                 : p.name,
           unit: p.unit,
           // Starts empty: the user types the quantity straight in. A line
@@ -2089,7 +2092,7 @@ export function PosDialog({
       if (sellableCart.length === 0) throw new Error("Cart is empty");
       const noJarChoice = sellableCart.find((c) => jugOf(c.product_id) && !c.jar_mode);
       if (noJarChoice)
-        throw new Error(`Choose Swap, Return later or Permanent for ${noJarChoice.name}`);
+        throw new Error(`Choose Jug + Water or Dispenser Water for ${noJarChoice.name}`);
       const finalCustomer = customerId === "walkin" ? null : customerId;
       let displayName = customerName;
       if (finalCustomer) {
@@ -2253,8 +2256,8 @@ export function PosDialog({
                         [
                           // Named as the shop asks (user, 2026-11-04), priced as on
                           // Costing > Product Prices.
-                          ["permanent", "Jug + Water"],
-                          ["swap", "Dispenser Water Only"],
+                          ["permanent", JUG_PLUS_WATER],
+                          ["swap", "Dispenser Water"],
                         ] as [JarMode, string][]
                       ).map(([mode, label]) => (
                         <SelectItem

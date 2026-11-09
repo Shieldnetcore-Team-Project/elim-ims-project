@@ -178,7 +178,7 @@ export function DispenserDay({
     { label: "Transfer shortfall", get: (t) => n(t.transfer_short), tone: true },
     { label: "Jugs sold for good", get: (t) => n(t.jars_sold) },
     { label: "Water revenue", get: (t) => n(t.water_revenue), money: true },
-    { label: "Permanent jug revenue", get: (t) => n(t.jar_revenue), money: true },
+    { label: "Jug + Water: jug revenue", get: (t) => n(t.jar_revenue), money: true },
   ];
   const c = q.data.cashup;
 

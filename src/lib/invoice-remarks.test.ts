@@ -16,6 +16,19 @@ DSP-20261105-16286, DSP-20261105-82143`;
   assert.equal(visibleInvoiceRemarks([remark]), null);
 });
 
+test("invoice remarks omit the per-pack discount notes, keeping what was typed", () => {
+  assert.equal(
+    visibleInvoiceRemarks([
+      "Sachet Water: discount ₦40.00 per pack · Dispenser Water Only: discount ₦100.00 per pack",
+    ]),
+    null,
+  );
+  assert.equal(
+    visibleInvoiceRemarks(["Morning delivery · Sachet Water: surcharge ₦10.00 per pack"]),
+    "Morning delivery",
+  );
+});
+
 test("invoice remarks retain other notes and deduplicate them", () => {
   assert.equal(
     visibleInvoiceRemarks([
