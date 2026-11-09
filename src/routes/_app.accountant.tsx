@@ -489,6 +489,7 @@ function AccountantPage() {
       "payroll",
       "stock_dispatches",
       "rep_returns",
+      "sales_returns",
       "rep_remittances",
     ],
     [
@@ -498,6 +499,7 @@ function AccountantPage() {
       ["acct-payroll"],
       ["acct-activity-postings"],
       ["acct-activity-returns"],
+      ["acct-customer-returns"],
       ["acct-activity-remittances"],
     ],
   );
@@ -768,6 +770,35 @@ function AccountantPage() {
     },
   });
 
+  // What distributors and customers returned to the Warehouse (user,
+  // 2026-11-09): kept in sales_returns, which Accounts can't read directly.
+  const customerReturns = useQuery({
+    queryKey: ["acct-customer-returns", factoryId, actRange?.from, actRange?.to],
+    enabled: !!factoryId && (perms.canView("finance") || canRepAccounts),
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc(
+        "accounting_customer_returns" as never,
+        {
+          p_factory: factoryId,
+          p_from: actRange?.from ?? null,
+          p_to: actRange?.to ?? null,
+        } as never,
+      );
+      if (error) throw error;
+      return (data ?? []) as unknown as {
+        return_number: string;
+        return_date: string;
+        at: string | null;
+        customer: string;
+        items: string;
+        value: number;
+        debt_reduced: number;
+        credit_added: number;
+        status: string;
+      }[];
+    },
+  });
+
   const today = startOfToday();
   const monthStart = startOfMonth();
   const livePayments = (payments.data ?? []).filter(
@@ -969,6 +1000,30 @@ function AccountantPage() {
         direction: "out" as const,
         status: r.status,
       })),
+      // A distributor's / customer's return: one row each, under their name.
+      ...(customerReturns.data ?? []).map((r) => ({
+        key: `custret-${r.return_number}`,
+        date: r.return_date,
+        at: r.at,
+        kind: "Return" as const,
+        party_type: "customer" as PartyType,
+        reference: r.return_number,
+        party: r.customer,
+        details: [
+          r.items,
+          Number(r.debt_reduced) > 0
+            ? `${money(Number(r.debt_reduced), currency)} off what they owe`
+            : null,
+          Number(r.credit_added) > 0
+            ? `${money(Number(r.credit_added), currency)} kept as credit`
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        amount: Number(r.value),
+        direction: "out" as const,
+        status: r.status,
+      })),
       ...src.remittances.map((m) => ({
         key: `rem-${m.id}`,
         date: m.created_at ?? m.remittance_date,
@@ -995,6 +1050,8 @@ function AccountantPage() {
     payroll.data,
     postings.data,
     returns.data,
+    customerReturns.data,
+    currency,
     remittances.data,
     reps.data,
   ]);

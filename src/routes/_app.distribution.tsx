@@ -67,7 +67,11 @@ import { exportCsv } from "@/lib/export";
 import { toast } from "sonner";
 import { useRealtimeInvalidate } from "@/lib/realtime";
 import { logAudit } from "@/lib/audit";
-import { fetchMyProductMatcher, useMyProductMatcher } from "@/lib/product-rules";
+import {
+  fetchMyProductMatcher,
+  useAssignedToDispensers,
+  useMyProductMatcher,
+} from "@/lib/product-rules";
 import { QuickAddProductDialog, ADD_NEW_ITEM } from "@/components/shared/quick-add-item";
 import { requestDelete } from "@/lib/request-delete";
 import { RequestDeleteDialog } from "@/components/shared/request-delete-dialog";
@@ -607,6 +611,7 @@ function LineEditor({
   factoryId,
   adjustable = false,
   typed = false,
+  showTotals = false,
 }: {
   products: Product[];
   lines: Line[];
@@ -617,12 +622,15 @@ function LineEditor({
   adjustable?: boolean;
   // Dispenser Water lines say which type they are: Dispenser Water / Jug + Water.
   typed?: boolean;
+  // Line totals for someone outside Accounts allowed them on this form.
+  showTotals?: boolean;
   // When set, the product dropdown offers "+ Add new product…".
   factoryId?: string;
 }) {
   const [addingFor, setAddingFor] = useState<number | null>(null);
-  // Line values are Accounts' only.
-  const showValues = usePermissions().canSeeMoney;
+  // Line values are Accounts' only, apart from showTotals.
+  const canSeeMoney = usePermissions().canSeeMoney;
+  const showValues = canSeeMoney || showTotals;
   const add = () => setLines([...lines, { product_id: "", quantity: 0 }]);
   const update = (i: number, patch: Partial<Line>) =>
     setLines(lines.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
@@ -853,8 +861,11 @@ function NewDispatchDialog({
   const carriedLines = mergeLines(carried.flatMap(returnLines));
   const productName = (id: string) => products.find((p) => p.id === id)?.name ?? "—";
 
-  // The posting's value is Accounts' only (2026-11-02).
-  const showValue = usePermissions().canSeeMoney;
+  // The posting's value is Accounts' only (2026-11-02), and the officer
+  // assigned to dispensers sees it on this form (Gideon, 2026-11-09).
+  const canSeeMoney = usePermissions().canSeeMoney;
+  const assignedToDispensers = useAssignedToDispensers();
+  const showValue = canSeeMoney || assignedToDispensers;
   const total = useMemo(
     () =>
       [...lines, ...carriedLines].reduce((sum, l) => {
@@ -1016,6 +1027,7 @@ function NewDispatchDialog({
             factoryId={factoryId}
             adjustable
             typed
+            showTotals={showValue}
           />
         </div>
 

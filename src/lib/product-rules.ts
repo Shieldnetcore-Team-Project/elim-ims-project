@@ -44,6 +44,17 @@ export function useMayAcceptOwnRelease(): (productName: string) => boolean {
   return (name: string) => acceptsOwnRelease(patterns, name);
 }
 
+// Assigned to dispensers by name (Gideon). A person with no rules is not
+// "assigned". He sees the totals on his posting form (user, 2026-11-09).
+export function useAssignedToDispensers(): boolean {
+  const q = useQuery({
+    queryKey: ["my-product-patterns"],
+    queryFn: fetchMyProductPatterns,
+    staleTime: 60_000,
+  });
+  return (q.data ?? []).some((re) => re.test("Dispenser Water"));
+}
+
 export function useMyProductMatcher(): (name: string) => boolean {
   const q = useQuery({
     queryKey: ["my-product-rules"],

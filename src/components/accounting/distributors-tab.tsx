@@ -370,6 +370,27 @@ function DistributorRecord({
     },
   });
 
+  // What they returned to the Warehouse: sales_returns, read through
+  // accounting_customer_returns (Accounts can't read it directly).
+  const returned = useQuery({
+    queryKey: ["acct-distributor-returns", customerId],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc(
+        "accounting_customer_returns" as never,
+        { p_factory: factoryId, p_customer: customerId } as never,
+      );
+      if (error) throw error;
+      return (data ?? []) as unknown as {
+        return_number: string;
+        return_date: string;
+        items: string;
+        value: number;
+        debt_reduced: number;
+        credit_added: number;
+      }[];
+    },
+  });
+
   // Print a voucher for one transaction, to hand to the distributor there and
   // then: the invoice for goods taken, the receipt for a payment.
   const settings = useFactorySettings(factoryId);
@@ -534,6 +555,50 @@ function DistributorRecord({
             </TableBody>
           </Table>
         </div>
+      </div>
+      <div>
+        <div className="mb-2 text-sm font-medium">Returns to the Warehouse</div>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Return #</TableHead>
+              <TableHead>Date</TableHead>
+              <TableHead>Products</TableHead>
+              <TableHead className="text-right">Value</TableHead>
+              <TableHead className="text-right">Off what they owe</TableHead>
+              <TableHead className="text-right">Kept as credit</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {(returned.data ?? []).map((r) => (
+              <TableRow key={r.return_number}>
+                <TableCell className="font-mono text-xs">{r.return_number}</TableCell>
+                <TableCell className="whitespace-nowrap text-xs">
+                  {new Date(r.return_date).toLocaleDateString()}
+                </TableCell>
+                <TableCell className="text-xs">{r.items}</TableCell>
+                <TableCell className="text-right">{money(Number(r.value), currency)}</TableCell>
+                <TableCell className="text-right">
+                  {money(Number(r.debt_reduced), currency)}
+                </TableCell>
+                <TableCell className="text-right">
+                  {money(Number(r.credit_added), currency)}
+                </TableCell>
+              </TableRow>
+            ))}
+            {(returned.data ?? []).length === 0 && (
+              <TableRow>
+                <TableCell colSpan={6} className="py-4 text-center text-sm text-muted-foreground">
+                  {returned.isLoading
+                    ? "Loading…"
+                    : returned.isError
+                      ? "Could not load returns."
+                      : "No returns yet."}
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
       </div>
     </div>
   );
