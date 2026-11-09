@@ -2389,32 +2389,6 @@ export function PosDialog({
                           incl. jar {money(Number(jugOf(c.product_id)!.jar_price))}
                         </div>
                       )}
-                      {warehousePosting && !retailMode && (
-                        <div className="mt-1 grid grid-cols-2 gap-1">
-                          {(
-                            [
-                              ["discount", "Discount"],
-                              ["surcharge", "Surcharge"],
-                            ] as const
-                          ).map(([k, label]) => (
-                            <div key={k}>
-                              <div className="text-[10px] text-muted-foreground">{label}/pack</div>
-                              <MoneyInput
-                                min={0}
-                                value={c[k] ?? 0}
-                                onChange={(v) =>
-                                  setCart((prev) =>
-                                    prev.map((x) =>
-                                      lineKey(x) === lineKey(c) ? { ...x, [k]: Math.max(0, v) } : x,
-                                    ),
-                                  )
-                                }
-                                className="h-7 text-xs"
-                              />
-                            </div>
-                          ))}
-                        </div>
-                      )}
                     </TableCell>
                     <TableCell className="text-right">{money(c.quantity * netPrice(c))}</TableCell>
                     <TableCell>
@@ -2508,6 +2482,52 @@ export function PosDialog({
                 />
               </div>
             </>
+          )}
+          {/* Per product, kept out of the product rows so they stay uncluttered. */}
+          {warehousePosting && !retailMode && cart.length > 0 && (
+            <div className="space-y-1.5">
+              <div className="grid grid-cols-[minmax(0,1fr)_5.5rem_5.5rem] gap-1.5 text-xs font-medium">
+                <span>Per product</span>
+                <span>Discount/pack</span>
+                <span>Surcharge/pack</span>
+              </div>
+              {cart.map((c) => (
+                <div
+                  key={lineKey(c)}
+                  className="grid grid-cols-[minmax(0,1fr)_5.5rem_5.5rem] items-center gap-1.5"
+                >
+                  <div className="min-w-0 text-xs">
+                    <div className="truncate" title={c.name}>
+                      {c.name}
+                    </div>
+                    {c.jar_mode && (
+                      <div
+                        className="truncate text-muted-foreground"
+                        title={JAR_MODE_LABEL[c.jar_mode]}
+                      >
+                        {JAR_MODE_LABEL[c.jar_mode]}
+                      </div>
+                    )}
+                  </div>
+                  {(["discount", "surcharge"] as const).map((k) => (
+                    <MoneyInput
+                      key={k}
+                      min={0}
+                      aria-label={`${c.name} ${k} per pack`}
+                      value={c[k] ?? 0}
+                      onChange={(v) =>
+                        setCart((prev) =>
+                          prev.map((x) =>
+                            lineKey(x) === lineKey(c) ? { ...x, [k]: Math.max(0, v) } : x,
+                          ),
+                        )
+                      }
+                      className="h-8 text-xs"
+                    />
+                  ))}
+                </div>
+              ))}
+            </div>
           )}
           <div>
             <Label className="text-xs">Discount</Label>
