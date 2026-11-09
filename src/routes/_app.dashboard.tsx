@@ -4,6 +4,7 @@ import { RequireAccess } from "@/components/layout/require-access";
 import { supabase } from "@/integrations/supabase/client";
 import { useFactoryId } from "@/lib/use-factory";
 import { useMyRoles, type Role } from "@/lib/permissions";
+import { fetchMyProductMatcher, useMyProductMatcher } from "@/lib/product-rules";
 import { useRealtimeInvalidate } from "@/lib/realtime";
 import { KPI, PageHeader } from "@/lib/dashboard-kit";
 import { usePendingAttention } from "@/lib/pending-attention";
@@ -1070,11 +1071,11 @@ function WarehouseDashboard({ factoryId }: { factoryId: string }) {
   const products = useQuery({
     queryKey: ["sto-products", factoryId],
     queryFn: () =>
-      fetchAll<{ id: string; current_stock: number }>(
+      fetchAll<{ id: string; name: string; current_stock: number }>(
         (a, b) =>
           supabase
             .from("products")
-            .select("id,current_stock")
+            .select("id,name,current_stock")
             .eq("factory_id", factoryId)
             .eq("active", true)
             .eq("product_type", "finished")
@@ -1089,25 +1090,36 @@ function WarehouseDashboard({ factoryId }: { factoryId: string }) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("production_releases")
-        .select("quantity,accepted_quantity")
+        .select("quantity,accepted_quantity,products(name)")
         .eq("factory_id", factoryId)
         .eq("status", "accepted")
         .gte("accepted_at", today);
       if (error) throw error;
-      return sum(data ?? [], (r) => r.accepted_quantity ?? r.quantity);
+      const handles = await fetchMyProductMatcher();
+      const rows = (data ?? []) as unknown as {
+        quantity: number;
+        accepted_quantity: number | null;
+        products: { name: string } | null;
+      }[];
+      return sum(
+        rows.filter((r) => handles(r.products?.name ?? "")),
+        (r) => r.accepted_quantity ?? r.quantity,
+      );
     },
   });
   // Releases from the production hall waiting for the warehouse.
   const awaitingConfirmation = useQuery({
     queryKey: ["sto-awaiting-confirmation", factoryId],
     queryFn: async () => {
-      const { count, error } = await supabase
+      const { data, error } = await supabase
         .from("production_releases")
-        .select("id", { count: "exact", head: true })
+        .select("products(name)")
         .eq("factory_id", factoryId)
         .eq("status", "pending");
       if (error) throw error;
-      return count ?? 0;
+      const handles = await fetchMyProductMatcher();
+      const rows = (data ?? []) as unknown as { products: { name: string } | null }[];
+      return rows.filter((r) => handles(r.products?.name ?? "")).length;
     },
   });
   const recentIssues = useQuery({
@@ -1119,9 +1131,10 @@ function WarehouseDashboard({ factoryId }: { factoryId: string }) {
         .eq("factory_id", factoryId)
         .in("movement_type", ["issued", "sold", "transferred"])
         .order("created_at", { ascending: false })
-        .limit(8);
+        .limit(100);
       if (error) throw error;
-      return data ?? [];
+      const handles = await fetchMyProductMatcher();
+      return (data ?? []).filter((m) => handles(m.products?.name ?? "")).slice(0, 8);
     },
   });
   const pendingDispatch = useQuery({
@@ -1137,7 +1150,10 @@ function WarehouseDashboard({ factoryId }: { factoryId: string }) {
     },
   });
 
-  const totalUnits = sum(products.data ?? [], (r) => r.current_stock);
+  // Each officer's own products only (Kemi bottles; Gideon sachet, dispensers).
+  const mine = useMyProductMatcher();
+  const myProducts = (products.data ?? []).filter((p) => mine(p.name));
+  const totalUnits = sum(myProducts, (r) => r.current_stock);
 
   return (
     <div className="space-y-6">
@@ -1149,7 +1165,7 @@ function WarehouseDashboard({ factoryId }: { factoryId: string }) {
         <KPI
           icon={Package}
           label="Finished Goods (SKUs)"
-          value={String((products.data ?? []).length)}
+          value={String(myProducts.length)}
           hint="Active products"
         />
         <KPI icon={Boxes} label="Available Stock (units)" value={num(totalUnits)} tone="success" />

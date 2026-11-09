@@ -65,6 +65,7 @@ import {
   AlertTriangle,
   ClipboardList,
   Trash2,
+  CalendarClock,
 } from "lucide-react";
 import { money, num } from "@/lib/format";
 import { toast } from "sonner";
@@ -79,6 +80,8 @@ import {
 import { QuickAddProductDialog, ADD_NEW_ITEM } from "@/components/shared/quick-add-item";
 import {
   SHIFT_LABEL,
+  isSunday,
+  lastSunday,
   localDay,
   suggestedEntry,
   type ProductionShift as Shift,
@@ -245,6 +248,7 @@ function ProductionPage() {
   const allowExport = canExport("production");
   const [formOpen, setFormOpen] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [overtimeSheet, setOvertimeSheet] = useState(false);
   const [editing, setEditing] = useState<ProductionRow | null>(null);
 
   const products = useQuery({
@@ -435,12 +439,28 @@ function ProductionPage() {
               }}
             >
               <DialogTrigger asChild>
-                <Button className="gap-2" disabled={factory.isLoading || !factoryId}>
+                <Button
+                  className="gap-2"
+                  disabled={factory.isLoading || !factoryId}
+                  onClick={() => setOvertimeSheet(false)}
+                >
                   <ClipboardList className="h-4 w-4" /> Daily Production Sheet
                 </Button>
               </DialogTrigger>
+              <Button
+                variant="secondary"
+                className="gap-2"
+                disabled={factory.isLoading || !factoryId}
+                onClick={() => {
+                  setOvertimeSheet(true);
+                  setSheetOpen(true);
+                }}
+              >
+                <CalendarClock className="h-4 w-4" /> Sunday Overtime
+              </Button>
               {sheetOpen && factoryId && (
                 <DailyProductionSheet
+                  overtime={overtimeSheet}
                   factoryId={factoryId}
                   products={myProducts}
                   recorded={list.data ?? []}
@@ -757,26 +777,45 @@ function ProductionPage() {
   );
 }
 
+function ShiftHint({ sunday }: { sunday: boolean }) {
+  return sunday ? (
+    <p className="-mt-1 text-xs font-medium text-warning">
+      This date is a Sunday, so everything produced is recorded as Over-Time.
+    </p>
+  ) : (
+    <p className="-mt-1 text-xs text-muted-foreground">
+      A night batch is dated the night it was made — record last night&apos;s output in the morning
+      under yesterday&apos;s date.
+    </p>
+  );
+}
+
 // The production manager's daily record: one sheet per date and shift listing
 // every product, so each shift gets its own fresh entry per product (no
 // opening stock; what was made before is already on earlier days' records).
 // Each quantity entered becomes its own batch (create_production), tagged with
 // the date and shift. What is already recorded for that date and shift is
 // shown beside each product so a shift isn't entered twice.
+// `overtime` is the Sunday Overtime entry (user, 2026-11-09): the same sheet,
+// opened on the last Sunday as Over-Time, for keying in on Monday.
 function DailyProductionSheet({
+  overtime = false,
   factoryId,
   products,
   recorded,
   onDone,
 }: {
+  overtime?: boolean;
   factoryId: string;
   products: Product[];
   recorded: ProductionRow[];
   onDone: () => void;
 }) {
   const [suggested] = useState(suggestedEntry);
-  const [date, setDate] = useState(suggested.date);
-  const [shift, setShift] = useState<Shift>(suggested.shift);
+  const [date, setDate] = useState(overtime ? lastSunday() : suggested.date);
+  const [pickedShift, setShift] = useState<Shift>(overtime ? "overtime" : suggested.shift);
+  const sunday = isSunday(date);
+  const shift: Shift = sunday ? "overtime" : pickedShift;
   // The sheet starts empty; the manager adds a row per product produced, each
   // counted in the unit picked beside it (Packs for Bottle Water, otherwise
   // the product's own unit -- bags of Sachet Water, pieces of Dispenser/Jug
@@ -909,7 +948,7 @@ function DailyProductionSheet({
   return (
     <DialogContent className="max-w-2xl">
       <DialogHeader>
-        <DialogTitle>Daily Production Sheet</DialogTitle>
+        <DialogTitle>{overtime ? "Sunday Overtime" : "Daily Production Sheet"}</DialogTitle>
       </DialogHeader>
       <div className="grid max-h-[75vh] gap-3 overflow-y-auto pr-1">
         <div className="grid grid-cols-2 gap-3">
@@ -919,7 +958,7 @@ function DailyProductionSheet({
           </div>
           <div>
             <Label>Shift</Label>
-            <Select value={shift} onValueChange={(v) => setShift(v as Shift)}>
+            <Select value={shift} disabled={sunday} onValueChange={(v) => setShift(v as Shift)}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -931,10 +970,7 @@ function DailyProductionSheet({
             </Select>
           </div>
         </div>
-        <p className="-mt-1 text-xs text-muted-foreground">
-          A night batch is dated the night it was made — record last night&apos;s output in the
-          morning under yesterday&apos;s date.
-        </p>
+        <ShiftHint sunday={sunday} />
 
         <Table>
           <TableHeader>
@@ -1107,7 +1143,11 @@ function ProductionForm({
     return { date: localDay(), shift: (hour >= 18 || hour < 6 ? "night" : "day") as Shift };
   });
   const [date, setDate] = useState(editing?.production_date ?? suggested.date);
-  const [shift, setShift] = useState<Shift | "">(editing ? (editing.shift ?? "") : suggested.shift);
+  const [pickedShift, setShift] = useState<Shift | "">(
+    editing ? (editing.shift ?? "") : suggested.shift,
+  );
+  const sunday = isSunday(date);
+  const shift: Shift | "" = sunday ? "overtime" : pickedShift;
   const today = localDay();
   const [quantity, setQuantity] = useState(
     editing ? Number(editing.packaging_quantity ?? editing.quantity_produced) : 0,
@@ -1275,7 +1315,7 @@ function ProductionForm({
           </div>
           <div>
             <Label>Shift</Label>
-            <Select value={shift} onValueChange={(v) => setShift(v as Shift)}>
+            <Select value={shift} disabled={sunday} onValueChange={(v) => setShift(v as Shift)}>
               <SelectTrigger>
                 <SelectValue placeholder="Select shift…" />
               </SelectTrigger>
@@ -1287,10 +1327,7 @@ function ProductionForm({
             </Select>
           </div>
         </div>
-        <p className="-mt-1 text-xs text-muted-foreground">
-          A night batch is dated the night it was made — record last night&apos;s output in the
-          morning under yesterday&apos;s date.
-        </p>
+        <ShiftHint sunday={sunday} />
         {!editing && eligibleRequests.length > 0 && (
           <div>
             <Label>Link to Production Request (optional)</Label>

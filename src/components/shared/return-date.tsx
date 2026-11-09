@@ -8,6 +8,7 @@ import { num } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -57,6 +58,34 @@ export function ReturnDateField({
           ? `Back-dated: the goods count on ${fmt(value)}.`
           : "Pick an earlier day for goods that came back then."}
       </p>
+    </div>
+  );
+}
+
+// Why a return is being corrected (user, 2026-11-09, replacing "no reason" of
+// 2026-11-03): required on every correction of a return, its figures or its
+// date; it goes on the stock moves and in the audit log.
+export function CorrectionReasonField({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+}) {
+  return (
+    <div className="space-y-1">
+      <Label>
+        Reason for correction <span className="text-destructive">*</span>
+      </Label>
+      <Textarea
+        rows={2}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className={value.trim() ? "" : "border-amber-500/60"}
+      />
     </div>
   );
 }
@@ -114,11 +143,13 @@ function CorrectDateDialog({
 }) {
   const qc = useQueryClient();
   const [next, setNext] = useState(date);
+  const [reason, setReason] = useState("");
   const save = useMutation({
     mutationFn: async () => {
+      if (!reason.trim()) throw new Error("Enter the reason for the correction");
       const { data, error } = await supabase.rpc(
         "correct_return_date" as never,
-        { p_kind: kind, p_reference: reference, p_date: next, p_reason: null } as never,
+        { p_kind: kind, p_reference: reference, p_date: next, p_reason: reason.trim() } as never,
       );
       if (error) throw error;
       return data as unknown as { reference: string; return_date: string };
@@ -151,12 +182,20 @@ function CorrectDateDialog({
         </DialogHeader>
         <div className="space-y-3">
           <ReturnDateField value={next} onChange={setNext} />
+          <CorrectionReasonField
+            value={reason}
+            onChange={setReason}
+            placeholder="e.g. goods came back on Friday, entered on the wrong day"
+          />
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button disabled={save.isPending || next === date} onClick={() => save.mutate()}>
+          <Button
+            disabled={save.isPending || next === date || !reason.trim()}
+            onClick={() => save.mutate()}
+          >
             {save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Correct date
           </Button>

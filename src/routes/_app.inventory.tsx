@@ -7,6 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useFactoryId } from "@/lib/use-factory";
 import { useActiveFactoryCode } from "@/lib/factory-store";
 import { usePermissions } from "@/lib/permissions";
+import { useMyProductMatcher } from "@/lib/product-rules";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -192,7 +193,15 @@ function InventoryOverviewPage() {
     };
   }, [gifts.data]);
 
-  const filteredProducts = useMemo(() => {
+  // On screen each officer sees only their own products (user, 2026-11-09:
+  // Kemi bottles; Gideon sachet and dispensers); the printed / downloaded
+  // stock report keeps every product, like the other Warehouse reports.
+  const mine = useMyProductMatcher();
+  const myProducts = useMemo(
+    () => (products.data ?? []).filter((p) => mine(p.name)),
+    [products.data, mine],
+  );
+  const reportProducts = useMemo(() => {
     const q = productSearch.trim().toLowerCase();
     const rows = products.data ?? [];
     return q
@@ -201,15 +210,19 @@ function InventoryOverviewPage() {
         )
       : rows;
   }, [products.data, productSearch]);
+  const filteredProducts = useMemo(
+    () => reportProducts.filter((p) => mine(p.name)),
+    [reportProducts, mine],
+  );
 
-  const summary = useMemo(() => {
-    const prods = products.data ?? [];
-    return {
-      productCount: prods.length,
-      lowStock: prods.filter((p) => isLow(Number(p.current_stock), p.reorder_level)).length,
-      value: prods.reduce((s, p) => s + stockValue(p), 0),
-    };
-  }, [products.data]);
+  const summary = useMemo(
+    () => ({
+      productCount: myProducts.length,
+      lowStock: myProducts.filter((p) => isLow(Number(p.current_stock), p.reorder_level)).length,
+      value: myProducts.reduce((s, p) => s + stockValue(p), 0),
+    }),
+    [myProducts],
+  );
 
   return (
     <div className="space-y-6">
@@ -248,12 +261,12 @@ function InventoryOverviewPage() {
               </Button>
             </PopoverTrigger>
             <PopoverContent align="start" className="max-h-72 w-72 overflow-y-auto p-1">
-              {(products.data ?? []).length === 0 ? (
+              {myProducts.length === 0 ? (
                 <div className="px-2 py-3 text-sm text-muted-foreground">
                   No finished products yet.
                 </div>
               ) : (
-                (products.data ?? []).map((p) => (
+                myProducts.map((p) => (
                   <div
                     key={p.id}
                     className="flex items-center justify-between gap-3 rounded-sm px-2 py-1.5 text-sm hover:bg-accent"
@@ -329,7 +342,7 @@ function InventoryOverviewPage() {
                       ...(showMoney ? [{ key: "price", label: "Selling Price" }] : []),
                       { key: "status", label: "Status" },
                     ]}
-                    rows={filteredProducts.map((p) => ({
+                    rows={reportProducts.map((p) => ({
                       name: p.name,
                       sku: p.sku ?? "",
                       category: p.product_categories?.name ?? "",

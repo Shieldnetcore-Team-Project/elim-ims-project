@@ -67,6 +67,7 @@ import { WarehousePostMenu } from "@/components/warehouse/post-menu";
 import { ReleasesToAccept } from "@/components/warehouse/releases-to-accept";
 import { RestockDialog } from "@/components/warehouse/restock-dialog";
 import { isRestockable } from "@/lib/units";
+import { fetchMyProductMatcher, useMyProductMatcher } from "@/lib/product-rules";
 import { ProductForm } from "@/components/products/product-form";
 
 export const Route = createFileRoute("/_app/finished-goods")({
@@ -267,7 +268,7 @@ function FinishedGoodsPage() {
         .eq("factory_id", factoryId!)
         .not("product_id", "is", null)
         .order("created_at", { ascending: false })
-        .limit(20);
+        .limit(200);
       if (error) throw error;
       return (data ?? []) as unknown as {
         id: string;
@@ -293,11 +294,14 @@ function FinishedGoodsPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("damage_records")
-        .select("quantity,unit_cost")
+        .select("quantity,unit_cost,products(name)")
         .eq("factory_id", factoryId!)
         .not("product_id", "is", null);
       if (error) throw error;
-      return (data ?? []).reduce((s, d) => s + Number(d.quantity) * Number(d.unit_cost ?? 0), 0);
+      const handles = await fetchMyProductMatcher();
+      return (data ?? [])
+        .filter((d) => handles(d.products?.name ?? ""))
+        .reduce((s, d) => s + Number(d.quantity) * Number(d.unit_cost ?? 0), 0);
     },
   });
 
@@ -365,7 +369,14 @@ function FinishedGoodsPage() {
 
   // Finished products only (the list query already leaves out the empty
   // blown bottles, which are QC stock).
-  const filteredList = list.data ?? [];
+  // Each officer sees only their own products (user, 2026-11-09: Kemi bottles;
+  // Gideon sachet and dispensers).
+  const mine = useMyProductMatcher();
+  const filteredList = (list.data ?? []).filter((p) => mine(p.name));
+  const myAdjustments = (pendingAdjustments.data ?? []).filter((a) => mine(a.products?.name ?? ""));
+  const myDamage = (recentDamage.data ?? [])
+    .filter((d) => mine(d.products?.name ?? ""))
+    .slice(0, 20);
   // Search only narrows which rows are shown in the table below — it
   // deliberately doesn't affect the summary cards above (those reflect the
   // type filter's overall totals, not "what happens to match this search").
@@ -629,12 +640,12 @@ function FinishedGoodsPage() {
         </CardContent>
       </Card>
 
-      {(pendingAdjustments.data ?? []).length > 0 && (
+      {myAdjustments.length > 0 && (
         <Card className="rounded-2xl border-dashed">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               Pending Write-off Requests
-              <Badge variant="destructive">{pendingAdjustments.data!.length}</Badge>
+              <Badge variant="destructive">{myAdjustments.length}</Badge>
             </CardTitle>
           </CardHeader>
           <CardContent className="overflow-x-auto">
@@ -651,7 +662,7 @@ function FinishedGoodsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(pendingAdjustments.data ?? []).map((a) => {
+                {myAdjustments.map((a) => {
                   const isSelf = a.submitted_by === currentUser.data;
                   return (
                     <TableRow key={a.id}>
@@ -731,7 +742,7 @@ function FinishedGoodsPage() {
 
       {factoryId && <ReleasesToAccept factoryId={factoryId} />}
 
-      {(recentDamage.data ?? []).length > 0 && (
+      {myDamage.length > 0 && (
         <Card className="rounded-2xl">
           <CardHeader>
             <CardTitle>Recent Damage</CardTitle>
@@ -751,7 +762,7 @@ function FinishedGoodsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(recentDamage.data ?? []).map((d) => (
+                {myDamage.map((d) => (
                   <TableRow key={d.id}>
                     <TableCell className="font-mono text-xs">{d.reference_number}</TableCell>
                     <TableCell>{d.products?.name ?? "—"}</TableCell>

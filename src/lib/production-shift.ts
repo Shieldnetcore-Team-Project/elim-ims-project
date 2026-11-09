@@ -22,6 +22,13 @@ export const addDays = (day: string, days: number) => {
   return localDay(d);
 };
 
+// Anything produced on a Sunday is overtime (user, 2026-11-09), whichever way
+// it is entered; it is usually keyed in on Monday.
+export const isSunday = (day: string) => !!day && new Date(`${day}T12:00:00`).getDay() === 0;
+
+// The Sunday to enter overtime for: today if it is Sunday, else the last one.
+export const lastSunday = (now: Date = new Date()) => addDays(localDay(now), -now.getDay());
+
 // What a new entry most likely is: before noon, last night's batch
 // (yesterday, night); from noon, today's day batch.
 export function suggestedEntry(now: Date = new Date()): { date: string; shift: Shift } {

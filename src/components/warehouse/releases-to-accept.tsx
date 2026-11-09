@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { usePermissions } from "@/lib/permissions";
+import { useMayAcceptOwnRelease, useMyProductMatcher } from "@/lib/product-rules";
 import { useRealtimeInvalidate } from "@/lib/realtime";
 import { num } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
@@ -45,7 +46,8 @@ type PendingRelease = {
 // the Warehouse accepts each release (counting what arrived, any damage or
 // rejects) into finished-goods stock, or refuses it back to the production
 // hall. Shown on the Warehouse Stock tab and on Finished Products. The person
-// who released goods can't accept them (accept_production_release enforces it).
+// who released goods can't accept them (accept_production_release enforces
+// it), except Sachet Water released by someone assigned to it (Gideon).
 // `alwaysShow` keeps the card with an empty state instead of hiding it.
 export function ReleasesToAccept({
   factoryId,
@@ -58,6 +60,10 @@ export function ReleasesToAccept({
   const { canConfirm, canReject } = usePermissions();
   const canAccept = canConfirm("production");
   const canRefuse = canReject("production");
+  const mayAcceptOwn = useMayAcceptOwnRelease();
+  // Only the releases of this officer's products (user, 2026-11-09: Kemi
+  // bottles; Gideon sachet and dispensers).
+  const mine = useMyProductMatcher();
   const [acceptTarget, setAcceptTarget] = useState<PendingRelease | null>(null);
   const [refuseTarget, setRefuseTarget] = useState<PendingRelease | null>(null);
 
@@ -116,7 +122,7 @@ export function ReleasesToAccept({
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const rows = pending.data ?? [];
+  const rows = (pending.data ?? []).filter((r) => mine(r.products?.name ?? ""));
   if (!alwaysShow && rows.length === 0) return null;
 
   return (
@@ -145,7 +151,8 @@ export function ReleasesToAccept({
             </TableHeader>
             <TableBody>
               {rows.map((b) => {
-                const isSelf = b.released_by === currentUser.data;
+                const isSelf =
+                  b.released_by === currentUser.data && !mayAcceptOwn(b.products?.name ?? "");
                 return (
                   <TableRow key={b.id}>
                     <TableCell className="font-mono text-xs">

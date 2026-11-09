@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { usePermissions } from "@/lib/permissions";
 import { num } from "@/lib/format";
 import { isRestockable } from "@/lib/units";
+import { useMyProductMatcher } from "@/lib/product-rules";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -32,7 +33,9 @@ type RestockProduct = { id: string; name: string; unit: string; current_stock: n
 export function RestockButton({ factoryId }: { factoryId: string }) {
   const { canCreate } = usePermissions();
   const [open, setOpen] = useState(false);
-  if (!canCreate("finished-goods")) return null;
+  // Restock is Sachet Water only, so it's for whoever handles sachet.
+  const mine = useMyProductMatcher();
+  if (!canCreate("finished-goods") || !mine("Sachet Water")) return null;
   return (
     <>
       <Button variant="outline" className="gap-2" onClick={() => setOpen(true)}>

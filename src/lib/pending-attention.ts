@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { usePermissions, useIsSuperAdmin } from "@/lib/permissions";
 import { useRealtimeInvalidate } from "@/lib/realtime";
+import { acceptsOwnRelease, fetchMyProductPatterns, handlesProduct } from "@/lib/product-rules";
 
 // The approval queues (the Approval Center page itself was removed on
 // 2026-11-03) as lightweight counts, so the same "what's
@@ -94,14 +95,20 @@ export function usePendingAttention() {
       .eq("status", "pending_approval")
       .neq("submitted_by", uid ?? ""),
   );
-  const stockFinished = useCount("stock-finished", canApprove("finished-goods"), uid, () =>
-    supabase
+  const stockFinished = useCount("stock-finished", canApprove("finished-goods"), uid, async () => {
+    const { data, error } = await supabase
       .from("stock_adjustment_requests")
-      .select("id", { count: "exact", head: true })
+      .select("products(name)")
       .eq("entity_type", "finished_good")
       .eq("status", "pending_approval")
-      .neq("submitted_by", uid ?? ""),
-  );
+      .neq("submitted_by", uid ?? "");
+    if (error) return { count: null, error };
+    const patterns = await fetchMyProductPatterns();
+    return {
+      count: (data ?? []).filter((r) => handlesProduct(patterns, r.products?.name ?? "")).length,
+      error: null,
+    };
+  });
   const roleGrants = useCount("role-grants", canApprove("users"), uid, () =>
     supabase
       .from("role_grant_requests")
@@ -124,13 +131,33 @@ export function usePendingAttention() {
       .select("id", { count: "exact", head: true })
       .eq("status", "pending"),
   );
-  // Production releases from the hall waiting for the Warehouse to accept.
-  const productionBatches = useCount("production-batches", canConfirm("production"), uid, () =>
-    supabase
-      .from("production_releases")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "pending")
-      .neq("released_by", uid ?? ""),
+  // Production releases from the hall waiting for the Warehouse to accept:
+  // only this officer's products, and their own release only where they may
+  // accept it themselves (Sachet Water, 2026-11-09).
+  const productionBatches = useCount(
+    "production-batches",
+    canConfirm("production"),
+    uid,
+    async () => {
+      const { data, error } = await supabase
+        .from("production_releases")
+        .select("released_by,products(name)")
+        .eq("status", "pending");
+      if (error) return { count: null, error };
+      const patterns = await fetchMyProductPatterns();
+      const rows = (data ?? []) as unknown as {
+        released_by: string | null;
+        products: { name: string } | null;
+      }[];
+      const count = rows.filter((r) => {
+        const name = r.products?.name ?? "";
+        return (
+          handlesProduct(patterns, name) &&
+          (r.released_by !== uid || acceptsOwnRelease(patterns, name))
+        );
+      }).length;
+      return { count, error: null };
+    },
   );
   const costingSheets = useCount("costing-sheets", canApprove("costing"), uid, () =>
     supabase
