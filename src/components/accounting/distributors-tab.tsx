@@ -59,8 +59,13 @@ export function DistributorsTab({ factoryId, currency }: { factoryId: string; cu
   const [paying, setPaying] = useState<Paying | null>(null);
 
   useRealtimeInvalidate(
-    ["sales", "payments_received", "customers"],
-    [["acct-distributors"], ["acct-distributor-invoices"], ["acct-distributor-payments"]],
+    ["sales", "payments_received", "customers", "container_movements"],
+    [
+      ["acct-distributors"],
+      ["acct-distributor-invoices"],
+      ["acct-distributor-payments"],
+      ["acct-distributor-jugs"],
+    ],
   );
 
   const accounts = useQuery({
@@ -75,6 +80,33 @@ export function DistributorsTab({ factoryId, currency }: { factoryId: string; cu
     },
   });
 
+  // Dispenser jugs per distributor: empties returned (every return QC
+  // entered) and jugs still with them (account_jugs, 20261110170000).
+  const jugs = useQuery({
+    queryKey: ["acct-distributor-jugs", factoryId],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc(
+        "account_jugs" as never,
+        { p_factory: factoryId } as never,
+      );
+      if (error) return new Map<string, { returned: number; with_them: number }>();
+      return new Map(
+        (
+          (data ?? []) as unknown as {
+            holder_type: string;
+            holder_id: string;
+            returned: number;
+            with_them: number;
+          }[]
+        )
+          .filter((r) => r.holder_type === "customer")
+          .map((r) => [
+            r.holder_id,
+            { returned: Number(r.returned), with_them: Number(r.with_them) },
+          ]),
+      );
+    },
+  });
   const all = useMemo(() => accounts.data ?? [], [accounts.data]);
   const shown = useMemo(() => {
     const key = q.trim().toLowerCase();
@@ -165,6 +197,8 @@ export function DistributorsTab({ factoryId, currency }: { factoryId: string; cu
                 <TableHead className="text-right">Paid</TableHead>
                 <TableHead className="text-right">Outstanding</TableHead>
                 <TableHead className="text-right">Advance</TableHead>
+                <TableHead className="text-right">Empty jugs returned</TableHead>
+                <TableHead className="text-right">Jugs with them</TableHead>
                 <TableHead>Last sale</TableHead>
                 <TableHead></TableHead>
               </TableRow>
@@ -205,6 +239,14 @@ export function DistributorsTab({ factoryId, currency }: { factoryId: string; cu
                       <TableCell className="text-right">
                         {Number(a.advance) > 0 ? money(Number(a.advance), currency) : "—"}
                       </TableCell>
+                      <TableCell className="text-right">
+                        {(jugs.data?.get(a.customer_id)?.returned ?? 0).toLocaleString("en-US")}
+                      </TableCell>
+                      <TableCell
+                        className={`text-right ${(jugs.data?.get(a.customer_id)?.with_them ?? 0) > 0 ? "text-destructive" : ""}`}
+                      >
+                        {(jugs.data?.get(a.customer_id)?.with_them ?? 0).toLocaleString("en-US")}
+                      </TableCell>
                       <TableCell className="whitespace-nowrap text-xs">
                         {a.last_sale ? new Date(a.last_sale).toLocaleDateString() : "—"}
                       </TableCell>
@@ -236,7 +278,7 @@ export function DistributorsTab({ factoryId, currency }: { factoryId: string; cu
                     </TableRow>
                     {isOpen && (
                       <TableRow>
-                        <TableCell colSpan={10} className="bg-muted/30">
+                        <TableCell colSpan={12} className="bg-muted/30">
                           <DistributorRecord
                             factoryId={factoryId}
                             customerId={a.customer_id}
@@ -263,7 +305,7 @@ export function DistributorsTab({ factoryId, currency }: { factoryId: string; cu
               })}
               {shown.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={10} className="py-8 text-center text-muted-foreground">
+                  <TableCell colSpan={12} className="py-8 text-center text-muted-foreground">
                     {accounts.isLoading
                       ? "Loading…"
                       : accounts.isError

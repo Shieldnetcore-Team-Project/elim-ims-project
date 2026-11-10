@@ -38,9 +38,11 @@ BEGIN
   INSERT INTO container_movements(factory_id, container_type_id, from_type, from_id, to_type, to_id, quantity, source, reference)
   VALUES ('fc000000-0000-0000-0000-000000000001', t, 'warehouse', NULL, 'customer', 'cc000000-0000-0000-0000-000000000001', 5, 'sale', 'CJ-INV-1');
 
-  PERFORM pg_temp.check(pg_temp.err(format($q$SELECT public.record_jug_return(jsonb_build_object(
-           'customer_id', 'cc000000-0000-0000-0000-000000000001', 'container_type_id', '%s', 'quantity', 6))$q$, t))
-         LIKE '%at most 5%', 'no more than they hold');
+  -- No limit on the claim since 20261110130000 (QC's count books any extra
+  -- as an opening balance): it saves; cancelled here.
+  r := public.record_jug_return(jsonb_build_object(
+         'customer_id', 'cc000000-0000-0000-0000-000000000001', 'container_type_id', t, 'quantity', 6));
+  PERFORM public.cancel_jug_return((r->>'id')::uuid, 'test');
   r := public.record_jug_return(jsonb_build_object(
          'customer_id', 'cc000000-0000-0000-0000-000000000001', 'container_type_id', t, 'quantity', 4));
   jr := (r->>'id')::uuid;

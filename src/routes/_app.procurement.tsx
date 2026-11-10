@@ -47,7 +47,6 @@ import {
   Loader2,
   FileStack,
   Ban,
-  PackagePlus,
   ShieldAlert,
   Sparkles,
 } from "lucide-react";
@@ -995,19 +994,7 @@ function OrdersSection({
                   </TableCell>
                   <TableCell>
                     <div className="flex justify-end gap-1">
-                      {receivePerm &&
-                        (row.status === "issued" || row.status === "partially_received") && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            title="Receive goods — inspected and released by Quality Control"
-                            onClick={() =>
-                              navigate({ to: "/quality-control", search: { po: row.id } })
-                            }
-                          >
-                            <PackagePlus className="h-4 w-4 text-success" />
-                          </Button>
-                        )}
+                      {/* "Receive goods" went with QC inspections (2026-11-10). */}
                       {cancelPerm &&
                         (row.status === "issued" || row.status === "partially_received") && (
                           <Button

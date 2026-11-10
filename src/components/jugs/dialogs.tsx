@@ -90,11 +90,15 @@ export function RecordReturnDialog({
   initialRepId,
   initialCustomerId,
   initialTypeId,
+  shop = false,
   onClose,
 }: {
   factoryId: string;
   marketers: Named[];
   types: { id: string; name: string }[];
+  // The Retail Shop (factory shop) returns on its own, apart from marketers
+  // and distributors (user, 2026-11-10).
+  shop?: boolean;
   initialRepId?: string;
   // A Distributor/Office Delivery customer to start with (Warehouse party window).
   initialCustomerId?: string;
@@ -103,8 +107,16 @@ export function RecordReturnDialog({
 }) {
   // "rep:<id>" for a marketer / the shop, "customer:<id>" for a
   // Distributor/Office Delivery customer (user, 2026-11-02).
+  const shops = marketers.filter((m) => m.kind === "outlet");
+  const people = marketers.filter((m) => m.kind !== "outlet");
   const [holder, setHolder] = useState(
-    initialRepId ? `rep:${initialRepId}` : initialCustomerId ? `customer:${initialCustomerId}` : "",
+    initialRepId
+      ? `rep:${initialRepId}`
+      : initialCustomerId
+        ? `customer:${initialCustomerId}`
+        : shop && shops.length === 1
+          ? `rep:${shops[0].id}`
+          : "",
   );
   const [holderKind, holderId] = holder.split(":") as ["rep" | "customer" | "", string];
   const distributors = useQuery({
@@ -165,29 +177,34 @@ export function RecordReturnDialog({
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Return empty Dispenser Jugs</DialogTitle>
+          <DialogTitle>
+            {shop ? "Retail Shop — empty Dispenser Jugs" : "Return empty Dispenser Jugs"}
+          </DialogTitle>
           <DialogDescription>
-            What the marketer or customer says they brought back. It counts as &quot;Returned&quot;
-            now and reduces Outstanding only when the Warehouse confirms its count.
+            {shop
+              ? "Empty jugs the factory shop hands back. QC counts them and posts them to the PM."
+              : "What the marketer or distributor says they brought back. QC counts them and posts them to the PM."}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
           <Field label="From">
             <Select value={holder} onValueChange={setHolder}>
               <SelectTrigger>
-                <SelectValue placeholder="Marketer or Distributor/Office Delivery" />
+                <SelectValue
+                  placeholder={shop ? "Retail Shop" : "Marketer or Distributor/Office Delivery"}
+                />
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  <SelectLabel>Marketers &amp; shop</SelectLabel>
-                  {marketers.map((m) => (
+                  <SelectLabel>{shop ? "Retail Shop" : "Marketers"}</SelectLabel>
+                  {(shop ? shops : people).map((m) => (
                     <SelectItem key={m.id} value={`rep:${m.id}`}>
                       {m.code ? `${m.code} · ` : ""}
                       {m.name}
                     </SelectItem>
                   ))}
                 </SelectGroup>
-                {(distributors.data ?? []).length > 0 && (
+                {!shop && (distributors.data ?? []).length > 0 && (
                   <SelectGroup>
                     <SelectLabel>Distributor/Office Delivery</SelectLabel>
                     {(distributors.data ?? []).map((c) => (

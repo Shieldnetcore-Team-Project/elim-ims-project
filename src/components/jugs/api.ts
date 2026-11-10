@@ -99,7 +99,11 @@ export const SOURCE_LABEL: Record<string, string> = {
   rep_return_cancelled: "Stock return cancelled",
   sales_return: "Customer returned product",
   sales_return_cancelled: "Customer return cancelled",
-  return: "Empties received (verified)",
+  return: "Empties returned (to QC)",
+  jar_sold: "Jug sold (customer keeps it)",
+  jar_sold_reversal: "Jug sale reversed",
+  customer_return: "Customer returned dispenser",
+  merge: "Jug types merged",
   issue: "Issued / opening balance",
   lost: "Written off (lost)",
   purchase: "Bought in",
@@ -115,7 +119,7 @@ export const SOURCE_LABEL: Record<string, string> = {
 
 export const ROLE_LABEL: Record<JugRole, string> = {
   refill: "Refill (customer swaps an empty)",
-  with_water: "Dispenser/Jug Water (customer keeps the jug)",
+  with_water: "Jug + Water (customer keeps the jug)",
   empty: "Empty jug (sold for a price)",
 };
 

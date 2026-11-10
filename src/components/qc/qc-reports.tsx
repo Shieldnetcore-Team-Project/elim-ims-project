@@ -86,7 +86,41 @@ type JugPlaceRow = {
   walk_in: number;
   total: number;
 };
-type Which = "preform" | "bottle" | "jugs" | "jug_places";
+// The same functions as the pages (2026-11-10), so the reports never
+// disagree with them:
+//   Jugs collected      qc_jug_collections   (QC -> Dispenser Jug -> Collect)
+//   Jugs posted to PM   qc_pm_jug_postings   (QC register / Production page)
+type CollectedRow = {
+  holder_name: string;
+  holder_code: string | null;
+  holder_kind: string;
+  collected: number;
+  awaiting_count: number;
+  at_qc: number;
+  posted_to_pm: number;
+  received_by_pm: number;
+  damaged: number;
+  not_returned: number;
+  last_collected: string | null;
+};
+type PostingRow = {
+  posting: string;
+  posted_at: string;
+  posted_by: string | null;
+  total: number;
+  good: number;
+  damaged: number;
+  sources: string | null;
+  status: string;
+  received_at: string | null;
+};
+const KIND: Record<string, string> = {
+  rep: "Marketer",
+  customer: "Distributor / customer",
+  walk_in: "Walk-in",
+  outlet: "Retail Shop",
+};
+type Which = "preform" | "bottle" | "jugs" | "jug_places" | "jugs_collected" | "jug_postings";
 type Sheet = {
   title: string;
   columns: { key: string; label: string }[];
@@ -149,6 +183,19 @@ export function QcReportsTab({ factoryId }: { factoryId: string }) {
     queryKey: ["qc-reports", "jug-places", factoryId, to],
     enabled: ok && which === "jug_places",
     queryFn: () => rpc<JugPlaceRow[]>("jug_locations", { p_factory: factoryId, p_at: to }),
+  });
+
+  const collected = useQuery({
+    queryKey: ["qc-reports", "jugs-collected", factoryId, from, to],
+    enabled: ok && which === "jugs_collected",
+    queryFn: () =>
+      rpc<CollectedRow[]>("qc_jug_collections", { p_factory: factoryId, p_from: from, p_to: to }),
+  });
+  const postings = useQuery({
+    queryKey: ["qc-reports", "jug-postings", factoryId, from, to],
+    enabled: ok && which === "jug_postings",
+    queryFn: () =>
+      rpc<PostingRow[]>("qc_pm_jug_postings", { p_factory: factoryId, p_from: from, p_to: to }),
   });
 
   const company = sheetCompany(settings.data);
@@ -335,7 +382,79 @@ export function QcReportsTab({ factoryId }: { factoryId: string }) {
       total: n(r.total),
     })),
   };
-  const current = { preform: preforms, bottle: bottles, jugs, jug_places: jugPlaces }[which];
+  // Marketers and distributors first, the Retail Shop on its own at the end.
+  sheets.jugs_collected = {
+    title: `Quality Control Department: Empty Jugs Collected ${period}`,
+    columns: [
+      { key: "sn", label: "S/N" },
+      { key: "name", label: "Name" },
+      { key: "kind", label: "Type" },
+      { key: "collected", label: "Collected" },
+      { key: "awaiting", label: "Waiting QC Count" },
+      { key: "at_qc", label: "With QC" },
+      { key: "posted", label: "Posted to PM" },
+      { key: "received", label: "Received by PM" },
+      { key: "damaged", label: "Damaged" },
+      { key: "not_returned", label: "Not Returned" },
+      { key: "last", label: "Last Returned" },
+    ],
+    sum: ["collected", "awaiting", "at_qc", "posted", "received", "damaged", "not_returned"],
+    rows: [...(collected.data ?? [])]
+      .sort(
+        (a, b) =>
+          Number(a.holder_kind === "outlet") - Number(b.holder_kind === "outlet") ||
+          a.holder_kind.localeCompare(b.holder_kind) ||
+          a.holder_name.localeCompare(b.holder_name),
+      )
+      .map((r, i) => ({
+        sn: i + 1,
+        name: r.holder_code ? `${r.holder_name} (${r.holder_code})` : r.holder_name,
+        kind: KIND[r.holder_kind] ?? r.holder_kind,
+        collected: n(r.collected),
+        awaiting: n(r.awaiting_count),
+        at_qc: n(r.at_qc),
+        posted: n(r.posted_to_pm),
+        received: n(r.received_by_pm),
+        damaged: n(r.damaged),
+        not_returned: n(r.not_returned),
+        last: r.last_collected ?? "—",
+      })),
+  };
+  sheets.jug_postings = {
+    title: `Quality Control Department: Jugs Posted to PM ${period}`,
+    columns: [
+      { key: "sn", label: "S/N" },
+      { key: "date", label: "Date" },
+      { key: "posting", label: "Posting" },
+      { key: "from", label: "From" },
+      { key: "total", label: "Jugs" },
+      { key: "good", label: "Good" },
+      { key: "damaged", label: "Damaged" },
+      { key: "status", label: "PM" },
+    ],
+    sum: ["total", "good", "damaged"],
+    rows: (postings.data ?? []).map((r, i) => ({
+      sn: i + 1,
+      date: (r.posted_at ?? "").slice(0, 10),
+      posting: r.posting,
+      from: r.sources ?? "—",
+      total: n(r.total),
+      good: n(r.good),
+      damaged: n(r.damaged),
+      status:
+        r.status === "received"
+          ? `Received ${(r.received_at ?? "").slice(0, 10)}`
+          : "Waiting for PM",
+    })),
+  };
+  const current = {
+    preform: preforms,
+    bottle: bottles,
+    jugs,
+    jug_places: jugPlaces,
+    jugs_collected: collected,
+    jug_postings: postings,
+  }[which];
   const loading = current.isLoading;
   const error = current.error as Error | null;
   const fileBase = `qc-${which}-report-${from}-to-${to}`;
@@ -382,6 +501,8 @@ export function QcReportsTab({ factoryId }: { factoryId: string }) {
               bottle: "No good bottles stocked or released in this period.",
               jugs: "No jugs posted to or returned by marketers or the shop in this period.",
               jug_places: "No jug types are set up.",
+              jugs_collected: "No empty jugs collected or held in this period.",
+              jug_postings: "QC has not posted any jugs to the PM in this period.",
             }[which]
           : null;
 
@@ -397,6 +518,8 @@ export function QcReportsTab({ factoryId }: { factoryId: string }) {
             ["bottle", "Bottle"],
             ["jugs", "Jugs posted & returned"],
             ["jug_places", "Where the jugs are"],
+            ["jugs_collected", "Jugs collected"],
+            ["jug_postings", "Jugs posted to PM"],
           ]}
         />
         <div>

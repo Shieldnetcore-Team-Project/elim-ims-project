@@ -89,7 +89,7 @@ export const nav: { section: string; items: NavItem[] }[] = [
         // POS first and the default (2026-11-02); All activity next.
         url: "/sales",
         icon: ShoppingCart,
-        modules: ["sales", "sales-returns"],
+        modules: ["sales"],
         tabs: [
           { label: "POS", module: "sales", url: "/sales" },
           // The shop's whole activity, off the Accountant's feed (2026-11-02).
@@ -114,7 +114,7 @@ export const nav: { section: string; items: NavItem[] }[] = [
             url: "/retail-summary",
             search: { tab: "dispensers" },
           },
-          { label: "Sales Returns", module: "sales-returns", url: "/sales-returns" },
+          // Sales Returns lives under Warehouse › Returns only (2026-11-10).
         ],
       },
       {
@@ -124,14 +124,10 @@ export const nav: { section: string; items: NavItem[] }[] = [
         // Production only produces with the material issued to it and releases
         // to the Warehouse; preform blowing is run by Quality Control (Good
         // bottles tab), and the Store issues preforms from Preform Inventory.
-        modules: ["production", "production-requests"],
+        modules: ["production"],
         tabs: [
           { label: "Production", module: "production", url: "/production" },
-          {
-            label: "Store Requests",
-            module: "production-requests",
-            url: "/production-requests",
-          },
+          // Store Requests lives under Store › Requests only (2026-11-10).
           { label: "Products Report", module: "production", url: "/production-report" },
           // QC's Reports for the production manager (Retshak), 2026-11-04 --
           // a section of Products Report, given person by person.
@@ -156,10 +152,13 @@ export const nav: { section: string; items: NavItem[] }[] = [
         modules: ["goods-receiving", "preform-production", "distribution"],
         tabs: [
           {
+            // QC's own work (Received from Store, jugs, reports). The id stays
+            // "Inspections" so access is unchanged; inspections themselves were
+            // taken off (2026-11-10).
             label: "Inspections",
             module: "goods-receiving",
             url: "/quality-control",
-            search: { tab: "orders" },
+            search: { tab: "received" },
           },
           {
             label: "Good bottles",
@@ -170,19 +169,15 @@ export const nav: { section: string; items: NavItem[] }[] = [
           {
             // Was "Bottle tracking" (renamed 2026-11-04, page access moved by
             // 20261104150000).
-            label: "Dispenser",
+            // "Dispenser Jug" since 2026-11-10 (page access renamed by
+            // 20261110160000).
+            label: "Dispenser Jug",
             module: "distribution",
             url: "/quality-control",
             search: { tab: "jugs" },
           },
-          {
-            // Moved from the Warehouse (2026-11-04; page access moved by
-            // 20261104260000).
-            label: "Dispenser & jugs",
-            module: "distribution",
-            url: "/quality-control",
-            search: { tab: "dispenser-jugs" },
-          },
+          // "Dispenser & jugs" and "Jugs collected" merged into Dispenser
+          // (2026-11-10; page access moved by 20261110150000).
         ],
       },
       {
@@ -225,7 +220,7 @@ export const nav: { section: string; items: NavItem[] }[] = [
             module: "finished-goods",
             url: "/warehouse-products-report",
           },
-          { label: "Store requests", module: "production-requests", url: "/production-requests" },
+          // Store requests: Store › Requests only (2026-11-10).
           // No "Orders" tab (user, 2026-11-02): sales values are Accounts'.
           { label: "Returns", module: "sales-returns", url: "/sales-returns" },
           // "Reps & outlet stock" moved to the Accountant page (2026-11-02); the
@@ -296,37 +291,8 @@ export const nav: { section: string; items: NavItem[] }[] = [
             url: "/distributor-accounts",
           },
           { label: "Credits/Outstandings", module: "debts", url: "/credit-sales" },
-          {
-            label: "Postings to assess",
-            module: "finance",
-            url: "/accountant",
-            search: { tab: "postings" },
-          },
-          {
-            label: "Retail cash-up",
-            module: "finance",
-            url: "/accountant",
-            // In the Retail daily tab since 2026-11-03.
-            search: { tab: "retail-daily" },
-          },
-          {
-            label: "Cash remitted",
-            module: "finance",
-            url: "/accountant",
-            search: { tab: "remittances" },
-          },
-          {
-            label: "Reps & outlets",
-            module: "finance",
-            url: "/accountant",
-            search: { tab: "reps" },
-          },
-          {
-            label: "Customers",
-            module: "customers",
-            url: "/accountant",
-            search: { tab: "customers" },
-          },
+          // Postings to assess, Retail cash-up, Cash remitted, Reps & outlets and
+          // Customers are on the Accountant page only (2026-11-10).
           {
             label: "Performance & commission",
             module: "finance",
@@ -334,7 +300,6 @@ export const nav: { section: string; items: NavItem[] }[] = [
           },
         ],
       },
-      { title: "Financial Reports", url: "/reports", icon: FileBarChart, module: "reports" },
       { title: "Expenses", url: "/expenses", icon: Receipt, module: "expenses" },
       { title: "Payroll", url: "/payroll", icon: HandCoins, module: "payroll" },
     ],

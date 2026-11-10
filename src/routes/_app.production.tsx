@@ -86,7 +86,7 @@ import {
   suggestedEntry,
   type ProductionShift as Shift,
 } from "@/lib/production-shift";
-import { PmJugsFromQc } from "@/components/qc/jug-handover";
+import { JugPostingsCard } from "@/components/qc/jug-post-to-pm";
 import { PmBottlesFromQc } from "@/components/preform/pm-bottles";
 import { ProductionMaterialsReport } from "@/components/production/materials-report";
 import { ProductionStoreIssues } from "@/components/production/store-issues";
@@ -555,7 +555,8 @@ function ProductionPage() {
           {factoryId && <ProductionMaterialsReport factoryId={factoryId} />}
         </TabsContent>
         <TabsContent value="production" className="space-y-6">
-          {factoryId && <PmJugsFromQc factoryId={factoryId} />}
+          {/* Every posting of returned jugs QC has made (2026-11-10). */}
+          {factoryId && <JugPostingsCard factoryId={factoryId} mode="pm" />}
 
           {factory.isError && (
             <Alert variant="destructive">

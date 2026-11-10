@@ -140,8 +140,12 @@ BEGIN
   e := pg_temp.err($q$SELECT public.record_jug_return('{"sales_rep_id":"e5000000-0000-0000-0000-000000000001","container_type_id":"00000000-0000-0000-0000-000000000000","quantity":1}')$q$);
   PERFORM pg_temp.check(e LIKE '%Insufficient%', 'no rights, no return');
   PERFORM pg_temp.as_user('3');
-  e := pg_temp.err(format($q$SELECT public.record_jug_return('{"sales_rep_id":"e5000000-0000-0000-0000-000000000001","container_type_id":"%s","quantity":81}')$q$, pg_temp.id('jug')));
-  PERFORM pg_temp.check(e LIKE '%at most 80%', 'cannot claim more empties than can be owed: ' || COALESCE(e, 'no error'));
+  -- No limit on the Warehouse claim since 20261110130000: QC's count books
+  -- any extra as an opening balance. A large claim saves; cancelled here.
+  v := public.record_jug_return(jsonb_build_object('sales_rep_id', 'e5000000-0000-0000-0000-000000000001',
+         'container_type_id', pg_temp.id('jug'), 'quantity', 120));
+  PERFORM pg_temp.check(v->>'id' IS NOT NULL, 'a claim above what is held saves');
+  PERFORM public.cancel_jug_return((v->>'id')::uuid, 'test');
   e := pg_temp.err(format($q$SELECT public.record_jug_return('{"sales_rep_id":"e5000000-0000-0000-0000-000000000001","container_type_id":"%s","quantity":-3}')$q$, pg_temp.id('jug')));
   PERFORM pg_temp.check(e LIKE '%whole number%', 'negative refused');
   v := public.record_jug_return(jsonb_build_object('sales_rep_id', 'e5000000-0000-0000-0000-000000000001',
@@ -153,8 +157,6 @@ BEGIN
   SELECT * INTO r FROM public.jug_accountability_report('f5000000-0000-0000-0000-000000000001', pg_temp.today(), pg_temp.today());
   PERFORM pg_temp.check(r.returned = 60 AND r.received = 0 AND r.outstanding = 91 AND r.pending_claims = 60,
                         'claimed but not counted: still outstanding');
-  e := pg_temp.err(format($q$SELECT public.record_jug_return('{"sales_rep_id":"e5000000-0000-0000-0000-000000000001","container_type_id":"%s","quantity":21}')$q$, pg_temp.id('jug')));
-  PERFORM pg_temp.check(e LIKE '%at most 20%', 'pending claims count against what can be claimed');
 
   e := pg_temp.err(format($q$SELECT public.verify_jug_return('%s', 60)$q$, pg_temp.id('ret1')));
   PERFORM pg_temp.check(e LIKE '%Only Quality Control%', 'sales cannot confirm a jug count');
@@ -167,8 +169,11 @@ BEGIN
   -- The count back (source 'return'), then on to QC (20261104120000).
   PERFORM pg_temp.check((SELECT COUNT(*) FROM container_movements WHERE source = 'return' AND reference = (SELECT reference FROM jug_returns WHERE id = pg_temp.id('ret1'))) = 1,
                         'one ledger move');
-  PERFORM pg_temp.check((SELECT COUNT(*) FROM container_movements WHERE source = 'qc_accept' AND to_type = 'qc' AND reference = (SELECT reference FROM jug_returns WHERE id = pg_temp.id('ret1'))) = 1,
-                        'the counted empties go on to QC');
+  -- Straight to QC since 20261110140000 (not via the Warehouse).
+  PERFORM pg_temp.check((SELECT to_type FROM container_movements WHERE source = 'return' AND reference = (SELECT reference FROM jug_returns WHERE id = pg_temp.id('ret1'))) = 'qc',
+                        'the counted empties go straight to QC');
+  PERFORM pg_temp.check((SELECT COUNT(*) FROM container_movements WHERE source = 'qc_accept' AND reference = (SELECT reference FROM jug_returns WHERE id = pg_temp.id('ret1'))) = 0,
+                        'no Warehouse -> QC move');
   SELECT * INTO r FROM public.jug_accountability_report('f5000000-0000-0000-0000-000000000001', pg_temp.today(), pg_temp.today());
   PERFORM pg_temp.check(r.returned = 60 AND r.received = 58 AND r.outstanding = 33,
                         format('returned 60, received 58, outstanding %s', r.outstanding));

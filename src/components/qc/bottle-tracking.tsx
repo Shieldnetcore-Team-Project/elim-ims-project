@@ -73,7 +73,7 @@ type Movement = {
   reference: string | null;
   notes: string | null;
 };
-type Named = { id: string; name: string };
+type Named = { id: string; name: string; kind?: string; rep?: string | null };
 
 const SOURCE_LABELS: Record<string, string> = {
   dispatch: "Dispatch to marketer",
@@ -163,11 +163,15 @@ export function BottleTrackingPanel() {
     queryFn: async () => {
       const { data } = await supabase
         .from("customers")
-        .select("id,name")
+        .select("id,name,sales_rep_id")
         .eq("factory_id", factoryId!)
         .is("removed_at", null)
         .order("name");
-      return (data ?? []) as Named[];
+      return (data ?? []).map((c) => ({
+        id: c.id,
+        name: c.name,
+        rep: (c as { sales_rep_id?: string | null }).sales_rep_id ?? null,
+      })) as Named[];
     },
   });
   const reps = useQuery({
@@ -176,10 +180,14 @@ export function BottleTrackingPanel() {
     queryFn: async () => {
       const { data } = await supabase
         .from("sales_reps")
-        .select("id,full_name")
+        .select("id,full_name,kind")
         .eq("factory_id", factoryId!)
         .order("full_name");
-      return (data ?? []).map((r) => ({ id: r.id, name: r.full_name })) as Named[];
+      return (data ?? []).map((r) => ({
+        id: r.id,
+        name: r.full_name,
+        kind: (r as { kind?: string }).kind,
+      })) as Named[];
     },
   });
 
@@ -574,7 +582,11 @@ function RecordMovementDialog({
   const kinds = KINDS.filter((k) => canManage || !k.admin);
   const [kind, setKind] = useState<string>(kinds[0].value);
   const [typeId, setTypeId] = useState(types[0]?.id ?? "");
-  const [holderType, setHolderType] = useState<"customer" | "sales_rep" | "walk_in">("customer");
+  // The Retail Shop (factory shop) is its own choice, apart from marketers
+  // (user, 2026-11-10); on the ledger it is still a sales_rep of kind outlet.
+  const [holderType, setHolderType] = useState<"customer" | "sales_rep" | "shop" | "walk_in">(
+    "customer",
+  );
   const [holderId, setHolderId] = useState("");
   const [quantity, setQuantity] = useState("");
   const [notes, setNotes] = useState("");
@@ -583,7 +595,20 @@ function RecordMovementDialog({
   const today = new Date().toLocaleDateString("en-CA", { timeZone: "Africa/Lagos" });
   const [date, setDate] = useState(today);
   const spec = KINDS.find((k) => k.value === kind)!;
-  const list = holderType === "customer" ? customers : holderType === "sales_rep" ? reps : [];
+  const marketers = reps.filter((r) => r.kind !== "outlet");
+  const shops = reps.filter((r) => r.kind === "outlet");
+  // The Retail Shop returns on its own (2026-11-10): its customers are not in
+  // the Customer list either.
+  const shopIds = new Set(shops.map((x) => x.id));
+  const people = customers.filter((c) => !c.rep || !shopIds.has(c.rep));
+  const list =
+    holderType === "customer"
+      ? people
+      : holderType === "sales_rep"
+        ? marketers
+        : holderType === "shop"
+          ? shops
+          : [];
 
   const save = useMutation({
     mutationFn: async () => {
@@ -592,7 +617,7 @@ function RecordMovementDialog({
           factory_id: factoryId,
           container_type_id: typeId,
           kind,
-          holder_type: spec.needsHolder ? holderType : null,
+          holder_type: spec.needsHolder ? (holderType === "shop" ? "sales_rep" : holderType) : null,
           holder_id: spec.needsHolder && holderType !== "walk_in" ? holderId : null,
           quantity: Number(quantity),
           notes: notes || null,
@@ -680,7 +705,8 @@ function RecordMovementDialog({
                 value={holderType}
                 onValueChange={(v) => {
                   setHolderType(v as typeof holderType);
-                  setHolderId("");
+                  // One shop: chosen at once.
+                  setHolderId(v === "shop" && shops.length === 1 ? shops[0].id : "");
                 }}
               >
                 <SelectTrigger>
@@ -689,13 +715,20 @@ function RecordMovementDialog({
                 <SelectContent>
                   <SelectItem value="customer">Customer</SelectItem>
                   <SelectItem value="sales_rep">Marketer</SelectItem>
+                  {shops.length > 0 && <SelectItem value="shop">Retail Shop</SelectItem>}
                   {kind !== "issue" && <SelectItem value="walk_in">Walk-in customer</SelectItem>}
                 </SelectContent>
               </Select>
             </div>
             {holderType !== "walk_in" && (
               <div>
-                <Label>{holderType === "customer" ? "Customer" : "Marketer"}</Label>
+                <Label>
+                  {holderType === "customer"
+                    ? "Customer"
+                    : holderType === "shop"
+                      ? "Retail Shop"
+                      : "Marketer"}
+                </Label>
                 <Select value={holderId} onValueChange={setHolderId}>
                   <SelectTrigger>
                     <SelectValue placeholder="Choose…" />

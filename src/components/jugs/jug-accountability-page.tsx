@@ -180,7 +180,7 @@ export function JugAccountabilityPage() {
   const canReceiveNew = can("distribution", "confirm") || can("distribution", "approve");
 
   const [dialog, setDialog] = useState<
-    | { kind: "return"; repId?: string; typeId?: string }
+    | { kind: "return"; repId?: string; typeId?: string; shop?: boolean }
     | { kind: "adjust" }
     | { kind: "unsold" }
     | { kind: "new" }
@@ -281,6 +281,8 @@ export function JugAccountabilityPage() {
 
   if (!factoryId) return null;
   const noJugs = (types.data ?? []).length === 0;
+  // The Retail Shop (factory shop) records its empties on its own (2026-11-10).
+  const hasShop = (marketers.data ?? []).some((m) => m.kind === "outlet" && m.active);
 
   return (
     <div className="space-y-4">
@@ -455,6 +457,16 @@ export function JugAccountabilityPage() {
                     <Undo2 className="h-4 w-4" /> Return empty Dispenser Jugs
                   </Button>
                 )}
+                {canRecordReturn && hasShop && (
+                  <Button
+                    variant="outline"
+                    className="gap-2"
+                    onClick={() => setDialog({ kind: "return", shop: true })}
+                    disabled={noJugs}
+                  >
+                    <Undo2 className="h-4 w-4" /> Retail Shop empty jugs
+                  </Button>
+                )}
                 {canAdjust && (
                   <Button
                     variant="outline"
@@ -569,7 +581,6 @@ export function JugAccountabilityPage() {
             from={from}
             to={to}
             typeId={typeId === "all" ? null : typeId}
-            overview={ov}
             marketers={marketers.data ?? []}
             productNames={productNames}
             typeNames={Object.fromEntries((types.data ?? []).map((t) => [t.id, t.name]))}
@@ -579,6 +590,11 @@ export function JugAccountabilityPage() {
             onReceiveNew={canReceiveNew && !noJugs ? () => setDialog({ kind: "new" }) : undefined}
             onReturnEmpty={
               canRecordReturn && !noJugs ? () => setDialog({ kind: "return" }) : undefined
+            }
+            onShopReturn={
+              canRecordReturn && !noJugs && hasShop
+                ? () => setDialog({ kind: "return", shop: true })
+                : undefined
             }
           />
         </TabsContent>
@@ -592,6 +608,7 @@ export function JugAccountabilityPage() {
             marketerNames={Object.fromEntries((marketers.data ?? []).map((m) => [m.id, m.name]))}
             typeNames={Object.fromEntries((types.data ?? []).map((t) => [t.id, t.name]))}
             onRecord={() => setDialog({ kind: "return" })}
+            onRecordShop={hasShop ? () => setDialog({ kind: "return", shop: true }) : undefined}
           />
         </TabsContent>
 
@@ -609,6 +626,7 @@ export function JugAccountabilityPage() {
           types={(types.data ?? []).filter((t) => t.active)}
           initialRepId={dialog.repId}
           initialTypeId={dialog.typeId}
+          shop={dialog.shop}
           onClose={() => setDialog(null)}
         />
       )}
@@ -652,19 +670,18 @@ function JugsPanel({
   from,
   to,
   typeId,
-  overview,
   marketers,
   productNames,
   typeNames,
   onReceiveUnsold,
   onReceiveNew,
   onReturnEmpty,
+  onShopReturn,
 }: {
   factoryId: string;
   from: string;
   to: string;
   typeId: string | null;
-  overview: NonNullable<ReturnType<typeof useJugOverview>["data"]>;
   marketers: { id: string; name: string; code?: string | null }[];
   productNames: Record<string, string>;
   typeNames: Record<string, string>;
@@ -673,6 +690,8 @@ function JugsPanel({
   // Empty jugs a marketer / the shop brings back (record_jug_return), here
   // too so it is found with the other jug actions (user, 2026-11-02).
   onReturnEmpty?: () => void;
+  // The Retail Shop's empties, on their own (2026-11-10).
+  onShopReturn?: () => void;
 }) {
   const movements = useJugMovements(factoryId, from, to);
   const [q, setQ] = useState("");
@@ -691,7 +710,13 @@ function JugsPanel({
           ? "Customer"
           : t === "walk_in"
             ? "Walk-in"
-            : "Outside";
+            : t === "qc"
+              ? "Quality Control"
+              : t === "production"
+                ? "Production (PM)"
+                : t === "store"
+                  ? "Store"
+                  : "Outside";
   const lines = (movements.data ?? []).filter((m) => {
     const term = q.trim().toLowerCase();
     return (
@@ -713,6 +738,11 @@ function JugsPanel({
               <Undo2 className="h-4 w-4" /> Return empty Dispenser Jugs
             </Button>
           )}
+          {onShopReturn && (
+            <Button variant="outline" className="gap-2" onClick={onShopReturn}>
+              <Undo2 className="h-4 w-4" /> Retail Shop empty jugs
+            </Button>
+          )}
           {onReceiveNew && (
             <Button className="gap-2" onClick={onReceiveNew}>
               <PackageCheck className="h-4 w-4" /> Receive new jugs
@@ -726,48 +756,8 @@ function JugsPanel({
         </div>
       )}
       <WarehouseJugsToQc factoryId={factoryId} />
-      {overview.length === 0 && (
-        <Card className="rounded-2xl">
-          <CardContent className="py-8 text-center text-sm text-muted-foreground">
-            No jug types set up.
-          </CardContent>
-        </Card>
-      )}
-      {overview.map((o) => (
-        <Card key={o.container_type_id} className="rounded-2xl">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">{jugTypeLabel(o.container_name)}</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-3 text-sm sm:grid-cols-3 lg:grid-cols-6">
-            {(
-              [
-                ["In circulation", o.in_circulation, "Owned and not written off"],
-                ["Empty in Warehouse", o.empty_in_warehouse, "Ready for filling"],
-                ["Filled in Warehouse", o.filled_in_warehouse, "Finished goods available"],
-                ["With marketers", o.with_marketers, `${num(o.full_with_marketers)} still full`],
-                ["With customers", o.with_customers, "Dispenser/Jug Water / empties sold"],
-                ["Written off", o.written_off_total, "Lost or damaged"],
-              ] as [string, number, string][]
-            ).map(([label, v, hint]) => (
-              <div key={label} className="rounded-xl border p-3">
-                <div className="text-xs text-muted-foreground">{label}</div>
-                <div className={`text-lg font-semibold ${v < 0 ? "text-destructive" : ""}`}>
-                  {num(v)}
-                </div>
-                <div className="text-[11px] text-muted-foreground">{hint}</div>
-              </div>
-            ))}
-            {o.empty_in_warehouse < 0 && (
-              <p className="text-xs text-destructive sm:col-span-3 lg:col-span-6">
-                Filled stock is higher than the jugs the Warehouse holds on the ledger — jugs bought
-                or held before tracking began were never recorded. Record them (Receive new jugs)
-                rather than adjusting stock.
-              </p>
-            )}
-          </CardContent>
-        </Card>
-      ))}
-
+      {/* The per-jug-type figures (In circulation, Empty in Warehouse, ...) were
+          taken off (user, 2026-11-10): returned jugs go QC -> PM, not the Warehouse. */}
       <Card className="rounded-2xl">
         <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
           <CardTitle>
@@ -857,6 +847,7 @@ function ReturnsPanel({
   marketerNames,
   typeNames,
   onRecord,
+  onRecordShop,
 }: {
   returns: JugReturn[];
   loading: boolean;
@@ -865,6 +856,7 @@ function ReturnsPanel({
   marketerNames: Record<string, string>;
   typeNames: Record<string, string>;
   onRecord: () => void;
+  onRecordShop?: () => void;
 }) {
   const names = useUserNames(returns.flatMap((r) => [r.recorded_by, r.verified_by]));
   const [act, setAct] = useState<{ kind: "verify" | "cancel"; r: JugReturn } | null>(null);
@@ -899,9 +891,16 @@ function ReturnsPanel({
           </p>
         </div>
         {canRecord && (
-          <Button className="gap-2" onClick={onRecord}>
-            <Plus className="h-4 w-4" /> Return empty Dispenser Jugs
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button className="gap-2" onClick={onRecord}>
+              <Plus className="h-4 w-4" /> Return empty Dispenser Jugs
+            </Button>
+            {onRecordShop && (
+              <Button variant="outline" className="gap-2" onClick={onRecordShop}>
+                <Plus className="h-4 w-4" /> Retail Shop empty jugs
+              </Button>
+            )}
+          </div>
         )}
       </CardHeader>
       <CardContent className="overflow-x-auto">

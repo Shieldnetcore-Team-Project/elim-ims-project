@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CheckCircle2, Download, FileSpreadsheet, Loader2, Printer } from "lucide-react";
+import { Download, FileSpreadsheet, Printer } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,7 +29,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { CountInput, ReasonDialog, fmtDateTime } from "@/components/preform/shared";
+import { ReasonDialog, fmtDateTime } from "@/components/preform/shared";
+import { JugPostingsCard } from "./jug-post-to-pm";
 import { rpc, useUserNames } from "@/components/preform/api";
 import { useFactorySettings } from "@/lib/use-factory";
 import { useCurrentUserName } from "@/lib/use-current-user";
@@ -87,14 +88,11 @@ export function QcJugRegister({ factoryId }: { factoryId: string }) {
   const batches = useQcJugBatches(factoryId, qFrom, qTo);
   const all = (batches.data ?? []).filter((b) => kind === "all" || b.jug_kind === kind);
   const toAccept = all.filter((b) => b.status === "sent");
-  const toVerify = all.filter((b) => b.status === "accepted");
-  const done = all.filter((b) => b.status === "verified" || b.status === "received");
   const names = useUserNames(
     (batches.data ?? []).flatMap((b) => [b.sent_by, b.accepted_by, b.verified_by, b.received_by]),
   );
 
   const [accepting, setAccepting] = useState<JugBatch | null>(null);
-  const [verifying, setVerifying] = useState<JugBatch | null>(null);
   const accept = useQcJugAction(
     (a: { id: string; qty: number; note: string }) =>
       rpc<{ reference: string; accepted: number; short: number }>("accept_qc_jugs", {
@@ -255,28 +253,7 @@ export function QcJugRegister({ factoryId }: { factoryId: string }) {
         </CardContent>
       </Card>
 
-      <Card className="rounded-2xl">
-        <CardHeader>
-          <CardTitle className="text-base">Accepted — to verify</CardTitle>
-          <p className="text-xs text-muted-foreground">
-            Record the damaged jugs; the good ones are posted to the Production Manager.
-          </p>
-        </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <BatchTable
-            rows={toVerify}
-            empty="No jugs waiting for verification."
-            who={who}
-            action={(b) =>
-              canWork && (
-                <Button size="sm" className="gap-1" onClick={() => setVerifying(b)}>
-                  <CheckCircle2 className="h-4 w-4" /> Verify
-                </Button>
-              )
-            }
-          />
-        </CardContent>
-      </Card>
+      {/* Posting to the PM is under Dispenser Jug › Collect & post to PM. */}
 
       <Card className="rounded-2xl">
         <CardHeader>
@@ -354,63 +331,7 @@ export function QcJugRegister({ factoryId }: { factoryId: string }) {
         </CardContent>
       </Card>
 
-      <Card className="rounded-2xl">
-        <CardHeader>
-          <CardTitle className="text-base">Verified — good posted to the PM</CardTitle>
-        </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Reference</TableHead>
-                <TableHead>Name</TableHead>
-                <TableHead className="text-right">Accepted</TableHead>
-                <TableHead className="text-right">Good</TableHead>
-                <TableHead className="text-right">Damaged</TableHead>
-                <TableHead>Verified</TableHead>
-                <TableHead>Production Manager</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {done.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
-                    Nothing verified in this period.
-                  </TableCell>
-                </TableRow>
-              )}
-              {done.map((b) => (
-                <TableRow key={b.id}>
-                  <TableCell className="font-mono text-xs">{b.reference}</TableCell>
-                  <TableCell>{KIND_NAME[b.jug_kind]}</TableCell>
-                  <TableCell className="text-right">{num(b.quantity_accepted)}</TableCell>
-                  <TableCell className="text-right text-primary">{num(b.quantity_good)}</TableCell>
-                  <TableCell className="text-right text-destructive">
-                    {num(b.quantity_damaged)}
-                    {b.damage_reason && (
-                      <div className="text-[11px] text-muted-foreground">{b.damage_reason}</div>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-xs">
-                    {b.verified_at ? fmtDateTime(b.verified_at) : "—"}
-                    <div className="text-muted-foreground">{who(b.verified_by)}</div>
-                  </TableCell>
-                  <TableCell className="text-xs">
-                    <Badge variant={b.status === "received" ? "default" : "secondary"}>
-                      {STATUS_LABEL[b.status]}
-                    </Badge>
-                    {b.received_at && (
-                      <div className="text-muted-foreground">
-                        {fmtDateTime(b.received_at)} · {who(b.received_by)}
-                      </div>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+      <JugPostingsCard factoryId={factoryId} mode="qc" />
 
       <ReasonDialog
         key={accepting?.id ?? "none"}
@@ -431,7 +352,6 @@ export function QcJugRegister({ factoryId }: { factoryId: string }) {
           )
         }
       />
-      {verifying && <VerifyDialog batch={verifying} onClose={() => setVerifying(null)} />}
     </div>
   );
 }
@@ -504,84 +424,5 @@ function BatchTable({
         ))}
       </TableBody>
     </Table>
-  );
-}
-
-function VerifyDialog({ batch, onClose }: { batch: JugBatch; onClose: () => void }) {
-  const accepted = batch.quantity_accepted ?? 0;
-  const [damaged, setDamaged] = useState<number | null>(0);
-  const [reason, setReason] = useState("");
-  const good = accepted - (damaged ?? 0);
-  const verify = useQcJugAction(
-    () =>
-      rpc<{ reference: string; good: number; damaged: number }>("verify_qc_jugs", {
-        p_id: batch.id,
-        p_good: good,
-        p_damaged: damaged ?? 0,
-        p_damage_reason: reason || null,
-      }),
-    (r) => {
-      const x = r as { reference: string; good: number; damaged: number };
-      return `${x.reference}: ${num(Number(x.good))} good posted to the PM, ${num(Number(x.damaged))} damaged`;
-    },
-  );
-  const problem =
-    good < 0
-      ? "Damaged cannot be more than accepted"
-      : (damaged ?? 0) > 0 && !reason.trim()
-        ? "Record what is wrong with the damaged jugs"
-        : null;
-
-  return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Verify {batch.reference}</DialogTitle>
-          <DialogDescription>
-            {num(accepted)} {KIND_NAME[batch.jug_kind]}(s) accepted. Record the damaged ones; the
-            rest are posted to the Production Manager as good.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>Damaged</Label>
-              <CountInput value={damaged} onChange={setDamaged} placeholder="0" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Good (to the PM)</Label>
-              <div
-                className={`flex h-10 items-center rounded-md border bg-muted/30 px-3 font-semibold ${good < 0 ? "text-destructive" : "text-primary"}`}
-              >
-                {num(good)}
-              </div>
-            </div>
-          </div>
-          {(damaged ?? 0) > 0 && (
-            <div className="space-y-1.5">
-              <Label>What is wrong with the damaged jugs?</Label>
-              <Input
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                placeholder="e.g. cracked body, broken handle, leaking"
-              />
-            </div>
-          )}
-          {problem && <p className="text-xs text-destructive">{problem}</p>}
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            disabled={!!problem || verify.isPending}
-            onClick={() => verify.mutate(undefined, { onSuccess: onClose })}
-          >
-            {verify.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Verify &amp; post to PM
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }

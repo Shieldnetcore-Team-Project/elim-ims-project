@@ -2645,6 +2645,8 @@ type AccountSummary = {
   // Empty jugs QC counted back, credited at the jug price (20261101100000).
   empty_jugs_returned?: number;
   empty_jugs_value?: number;
+  // Every empty jug returned in the period, however QC entered it (20261110170000).
+  jugs_returned?: number;
   // Rule A (20261103210000): jugs that went out and haven't come back.
   jugs_owed?: number;
   jugs_owed_value?: number;
@@ -2779,7 +2781,8 @@ function AllAccountsCard({
               <TableHead>Marketer / outlet</TableHead>
               <TableHead className="text-right">Goods posted</TableHead>
               <TableHead className="text-right">Returns</TableHead>
-              <TableHead className="text-right">Empty jugs back</TableHead>
+              <TableHead className="text-right">Empty jugs returned</TableHead>
+              <TableHead className="text-right">Jugs not back</TableHead>
               <TableHead className="text-right">Cash remitted</TableHead>
               <TableHead className="text-right">Credit outstanding</TableHead>
               <TableHead className="text-right">Balance owed</TableHead>
@@ -2799,8 +2802,11 @@ function AllAccountsCard({
                 <TableCell className="font-medium">{repLabel(r)}</TableCell>
                 <TableCell className="text-right">{money(s.goods_out_value)}</TableCell>
                 <TableCell className="text-right">{money(s.accepted_returns_value)}</TableCell>
-                <TableCell className="text-right">
-                  {money(Number(s.empty_jugs_value ?? 0))}
+                <TableCell className="text-right">{num(Number(s.jugs_returned ?? 0))}</TableCell>
+                <TableCell
+                  className={`text-right ${Number(s.jugs_owed ?? 0) > 0 ? "text-destructive" : ""}`}
+                >
+                  {num(Number(s.jugs_owed ?? 0))}
                 </TableCell>
                 <TableCell className="text-right">{money(s.cash_remitted)}</TableCell>
                 <TableCell className="text-right">{money(s.credit_outstanding)}</TableCell>
@@ -2816,7 +2822,8 @@ function AllAccountsCard({
                 <TableCell className="text-right">
                   {money(total("accepted_returns_value"))}
                 </TableCell>
-                <TableCell className="text-right">{money(total("empty_jugs_value"))}</TableCell>
+                <TableCell className="text-right">{num(total("jugs_returned"))}</TableCell>
+                <TableCell className="text-right">{num(total("jugs_owed"))}</TableCell>
                 <TableCell className="text-right">{money(total("cash_remitted"))}</TableCell>
                 <TableCell className="text-right">{money(total("credit_outstanding"))}</TableCell>
                 <TableCell className="text-right">{money(total("net_balance_owed"))}</TableCell>
@@ -2824,7 +2831,7 @@ function AllAccountsCard({
             )}
             {rows.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7} className="py-6 text-center text-muted-foreground">
+                <TableCell colSpan={8} className="py-6 text-center text-muted-foreground">
                   {all.isLoading
                     ? "Loading…"
                     : all.error
@@ -3657,7 +3664,7 @@ export function RepAccountView({
             ]
           : []),
         {
-          label: `Add: jugs not brought back (${num(Number(s.jugs_owed ?? 0))} × jug price)`,
+          label: `Add: jugs not brought back (${num(Number(s.jugs_owed ?? 0))} × jug price; ${num(Number(s.jugs_returned ?? 0))} empty jugs returned)`,
           value: Number(s.jugs_owed_value ?? 0),
         },
         { label: "Less: cash remitted", value: -s.cash_remitted },

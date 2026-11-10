@@ -141,8 +141,12 @@ export function ProductPricesCard({ factoryId }: { factoryId: string }) {
   const named = (name: string) => allRows.find((p) => p.name.trim().toLowerCase() === name);
   const dispenserWater = named("dispenser water");
   const emptyJug = named("empty jug");
+  // The renamed product "Jug + Water" (was Dispenser Jug+Water, 2026-11-10)
+  // is listed with its own price, so the worked-out line isn't shown twice.
   const jugPlusWater =
-    dispenserWater && emptyJug ? priceOf(dispenserWater) + priceOf(emptyJug) : null;
+    dispenserWater && emptyJug && !named("jug + water")
+      ? priceOf(dispenserWater) + priceOf(emptyJug)
+      : null;
 
   const invalidate = () => {
     for (const key of [

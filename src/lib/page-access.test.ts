@@ -41,20 +41,31 @@ test("no decision follows the module, as before", () => {
 });
 
 test("a hidden page cannot be opened by typing its address", () => {
-  const hidden = new Set(["Production › Products Report"]);
+  // QC Reports opens on the same address (/production-report) for the PM.
+  const hidden = new Set(["Production › Products Report", "Production › QC Reports"]);
   const canPage = (p: Page) => !hidden.has(p.id);
   assert.equal(openAllowed("/production-report", {}, canPage), false);
   assert.equal(openAllowed("/production", {}, canPage), true);
 });
 
-test("the same route under two entries opens if either page is allowed", () => {
-  const store = byId("Store › Requests");
-  const warehouse = byId("Warehouse › Store requests");
-  assert.equal(store.url, warehouse.url);
-  const onlyWarehouse = (p: Page) => p.id === warehouse.id;
-  assert.equal(openAllowed(store.url!, {}, onlyWarehouse), true);
+// No page is listed in two places (user, 2026-11-10: duplicates removed --
+// Store requests under Store only, Returns under Warehouse only, ...).
+test("each page (route + tab) is listed under one menu entry only", () => {
+  const seen = new Map<string, string>();
+  for (const p of PAGES) {
+    if (!p.url) continue;
+    const key = `${p.url}?${JSON.stringify(p.search ?? {})}`;
+    const other = seen.get(key);
+    assert.ok(!other || other === p.entry, `${p.id} repeats a page under ${other}`);
+    seen.set(key, p.entry);
+  }
+  const requests = byId("Store › Requests");
   assert.equal(
-    openAllowed(store.url!, {}, () => false),
+    openAllowed(requests.url!, {}, (p) => p.id === requests.id),
+    true,
+  );
+  assert.equal(
+    openAllowed(requests.url!, {}, () => false),
     false,
   );
 });

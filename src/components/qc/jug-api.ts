@@ -35,6 +35,12 @@ export type JugBatch = {
   received_by: string | null;
   received_at: string | null;
   cancel_reason: string | null;
+  // 2026-11-10 (20261110140000): empties collected from a marketer /
+  // distributor / the shop, who brought them, and QC's daily posting to the PM.
+  collected?: boolean;
+  from_type?: "sales_rep" | "customer" | "walk_in" | null;
+  from_id?: string | null;
+  pm_posting?: string | null;
 };
 
 export type JugRegisterRow = {
