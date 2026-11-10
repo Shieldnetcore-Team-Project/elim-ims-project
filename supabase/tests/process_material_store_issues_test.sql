@@ -35,3 +35,20 @@ BEGIN
   VALUES (f, m, 'used_for_production', 1000, 'production', now() + interval '1 second');
   PERFORM pg_temp.check(pg_temp.since() = 1000, 'the next issue: ' || pg_temp.since());
 END $$;
+
+-- @@ Test 2 (20261110250000): the switched-off issued material is listed; bottles only in pieces
+DO $$
+DECLARE f uuid := 'f9a00000-0000-0000-0000-000000000001';
+BEGIN
+  PERFORM pg_temp.check(EXISTS (SELECT 1 FROM public.production_material_options(f)
+                                 WHERE material_name = 'PS YUNO MOLD' AND unit = 'Piece'), 'YUNO MOLD listed');
+  INSERT INTO products(id, factory_id, name, unit, unit_price, cost_price, current_stock, product_type, active) VALUES
+    ('b9a00000-0000-0000-0000-000000000001', f, 'PS 50cl Bottle', 'Piece', 0, 0, 0, 'semi_finished', true),
+    ('b9a00000-0000-0000-0000-000000000002', f, 'PS 50cl Bottle Water', 'Pack', 0, 0, 0, 'finished', true);
+  INSERT INTO bottle_transfers(factory_id, reference, product_id, to_department, quantity_sent)
+  VALUES (f, 'PS-T1', 'b9a00000-0000-0000-0000-000000000002', 'production', 10);
+  PERFORM pg_temp.check(EXISTS (SELECT 1 FROM public.production_material_options(f)
+                                 WHERE material_name = 'PS 50cl Bottle' AND kind = 'bottle'), 'empty bottle listed');
+  PERFORM pg_temp.check(NOT EXISTS (SELECT 1 FROM public.production_material_options(f)
+                                     WHERE unit = 'Pack'), 'nothing in packs');
+END $$;
