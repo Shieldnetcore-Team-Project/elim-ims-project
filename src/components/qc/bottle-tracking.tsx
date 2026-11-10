@@ -73,6 +73,8 @@ type Movement = {
   reference: string | null;
   notes: string | null;
 };
+// The Old Dispenser Jug type: the only container in Record movement (2026-11-10).
+const isOldJug = (t: { name: string }) => /jug|dispenser/i.test(t.name) && /old/i.test(t.name);
 type Named = { id: string; name: string; kind?: string; rep?: string | null };
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -580,8 +582,11 @@ function RecordMovementDialog({
 }) {
   const qc = useQueryClient();
   const kinds = KINDS.filter((k) => canManage || !k.admin);
+  // Old Jug only in the Container box (user, 2026-11-10): New Jugs come in
+  // through the Store (received from Lugbe and issued to QC), never here.
+  const choices = types.filter(isOldJug);
   const [kind, setKind] = useState<string>(kinds[0].value);
-  const [typeId, setTypeId] = useState(types[0]?.id ?? "");
+  const [typeId, setTypeId] = useState(() => types.find(isOldJug)?.id ?? "");
   // The Retail Shop (factory shop) is its own choice, apart from marketers
   // (user, 2026-11-10); on the ledger it is still a sales_rep of kind outlet.
   const [holderType, setHolderType] = useState<"customer" | "sales_rep" | "shop" | "walk_in">(
@@ -679,9 +684,9 @@ function RecordMovementDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {types.map((t) => (
+                {choices.map((t) => (
                   <SelectItem key={t.id} value={t.id}>
-                    {t.name}
+                    Old Jug
                   </SelectItem>
                 ))}
               </SelectContent>

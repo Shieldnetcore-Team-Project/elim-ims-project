@@ -246,3 +246,38 @@ BEGIN
   PERFORM pg_temp.check(ret - COALESCE(pend, 0) = rcv,
                         format('Returned %s matches Received %s', ret, rcv));
 END $$;
+
+-- @@ Test 7: QC posts part of what she holds; the rest stays with QC
+DO $$
+DECLARE
+  c uuid := 'b9900000-0000-0000-0000-000000000001';
+  f uuid := 'f9900000-0000-0000-0000-000000000001';
+  v jsonb; qc_before numeric; qc_after numeric; v2 jsonb;
+BEGIN
+  UPDATE qc_jug_batches SET status = 'cancelled', cancelled_by = 'a9900000-0000-0000-0000-000000000001',
+         cancelled_at = now(), cancel_reason = 'test reset', accepted_at = NULL
+   WHERE factory_id = f AND status = 'accepted';
+  PERFORM pg_temp.check(pg_temp.mv('issue', 'customer', c, 2, 10) IS NULL, 'issue 10');
+  PERFORM pg_temp.check(pg_temp.mv('return', 'customer', c, 2, 6) IS NULL, 'return 6');
+  PERFORM pg_temp.check(pg_temp.mv('return', 'customer', c, 2, 4) IS NULL, 'return 4');
+  qc_before := (SELECT SUM(CASE WHEN to_type = 'qc' THEN quantity ELSE -quantity END) FROM container_movements
+                 WHERE factory_id = f AND (to_type = 'qc' OR from_type = 'qc'));
+
+  PERFORM pg_temp.check(pg_temp.err(format('SELECT public.qc_post_jugs_to_pm(%L, 0, NULL, 11)', f)) LIKE '%more than the 10 jugs%', 'not more than held');
+  v := public.qc_post_jugs_to_pm(f, 1, 'cracked', 3);
+  PERFORM pg_temp.check((v->>'good')::numeric = 3 AND (v->>'damaged')::numeric = 1 AND (v->>'kept')::numeric = 6, 'posted 3 good + 1 damaged, 6 kept');
+  PERFORM pg_temp.check((SELECT SUM(quantity_good) FROM qc_jug_batches WHERE pm_posting = v->>'reference') = 3, 'posting holds 3 good');
+  PERFORM pg_temp.check((SELECT SUM(quantity_accepted) FROM qc_jug_batches WHERE factory_id = f AND status = 'accepted') = 6, '6 still with QC');
+  PERFORM pg_temp.check(EXISTS (SELECT 1 FROM qc_jug_batches WHERE factory_id = f AND status = 'accepted' AND reference LIKE '%-R1' AND from_id = c AND quantity_accepted = 2), 'the split rest (2) keeps its sender');
+  qc_after := (SELECT SUM(CASE WHEN to_type = 'qc' THEN quantity ELSE -quantity END) FROM container_movements
+                WHERE factory_id = f AND (to_type = 'qc' OR from_type = 'qc'));
+  PERFORM pg_temp.check(qc_after = qc_before - 1, 'only the damaged one left QC on the ledger so far');
+
+  PERFORM public.receive_qc_jug_posting(f, v->>'reference');
+  PERFORM pg_temp.check((SELECT SUM(quantity) FROM container_movements WHERE source = 'qc_to_production'
+                          AND reference IN (SELECT reference FROM qc_jug_batches WHERE pm_posting = v->>'reference')) = 3,
+                        'PM received 3');
+  -- The rest goes in a later posting (all of it by default).
+  v2 := public.qc_post_jugs_to_pm(f, 0, NULL, NULL);
+  PERFORM pg_temp.check((v2->>'good')::numeric = 6 AND (v2->>'kept')::numeric = 0, 'the 6 posted later');
+END $$;

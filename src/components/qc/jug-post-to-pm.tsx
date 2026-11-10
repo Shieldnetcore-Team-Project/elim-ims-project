@@ -60,6 +60,10 @@ const n = (v: unknown) => (v == null ? 0 : Number(v));
 // Postings go back to the start of jug tracking by default: "all QC has posted so far".
 const FIRST_DAY = "2026-10-01";
 
+// The Lagos day of a timestamp ("YYYY-MM-DD").
+const lagosDay = (ts: string | null) =>
+  ts ? new Date(ts).toLocaleDateString("en-CA", { timeZone: "Africa/Lagos" }) : "";
+
 function fromText(note: string | null) {
   return note?.match(/^From (.+?)(?: -- |$)/)?.[1] ?? "Store / Warehouse";
 }
@@ -69,9 +73,20 @@ export function QcPostToPm({ factoryId }: { factoryId: string }) {
   const canPost = canSubmit("goods-receiving");
   useQcJugLive();
   const today = localDay();
-  const batches = useQcJugBatches(factoryId, today, today);
+  // A day picked on the calendar (user, 2026-11-10): every jug that came to
+  // QC that day and where it is now. No day: what is with QC now.
+  const [day, setDay] = useState("");
+  const batches = useQcJugBatches(factoryId, day || today, day || today);
   const atQc = (batches.data ?? []).filter((b) => b.status === "accepted");
   const total = atQc.reduce((s, b) => s + (b.quantity_accepted ?? 0), 0);
+  const rows = day
+    ? (batches.data ?? []).filter(
+        (b) =>
+          ["accepted", "verified", "received"].includes(b.status) &&
+          lagosDay(b.accepted_at ?? b.sent_at) === day,
+      )
+    : atQc;
+  const shown = rows.reduce((s, b) => s + (b.quantity_accepted ?? 0), 0);
   const [posting, setPosting] = useState(false);
 
   return (
@@ -87,11 +102,19 @@ export function QcPostToPm({ factoryId }: { factoryId: string }) {
             all to the Production Manager in one go — daily — and record the damaged ones.
           </p>
         </div>
-        {canPost && (
-          <Button className="gap-2" disabled={total <= 0} onClick={() => setPosting(true)}>
-            <Send className="h-4 w-4" /> Post {num(total)} to PM
-          </Button>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <DatePicker value={day} max={today} onChange={setDay} />
+          {day && (
+            <Button variant="ghost" size="sm" onClick={() => setDay("")}>
+              All with QC now
+            </Button>
+          )}
+          {canPost && (
+            <Button className="gap-2" disabled={total <= 0} onClick={() => setPosting(true)}>
+              <Send className="h-4 w-4" /> Post {num(total)} to PM
+            </Button>
+          )}
+        </div>
       </CardHeader>
       <CardContent className="overflow-x-auto">
         <Table>
@@ -102,17 +125,22 @@ export function QcPostToPm({ factoryId }: { factoryId: string }) {
               <TableHead>Jug</TableHead>
               <TableHead className="text-right">Jugs</TableHead>
               <TableHead>With QC since</TableHead>
+              {day && <TableHead>Now</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
-            {atQc.length === 0 && (
+            {rows.length === 0 && (
               <TableRow>
-                <TableCell colSpan={5} className="py-6 text-center text-muted-foreground">
-                  {batches.isLoading ? "Loading…" : "No jugs with QC — everything has been posted."}
+                <TableCell colSpan={day ? 6 : 5} className="py-6 text-center text-muted-foreground">
+                  {batches.isLoading
+                    ? "Loading…"
+                    : day
+                      ? "No jugs came to QC on this day."
+                      : "No jugs with QC — everything has been posted."}
                 </TableCell>
               </TableRow>
             )}
-            {atQc.map((b) => (
+            {rows.map((b) => (
               <TableRow key={b.id}>
                 <TableCell className="font-mono text-xs">{b.reference}</TableCell>
                 <TableCell>{fromText(b.send_notes)}</TableCell>
@@ -121,15 +149,39 @@ export function QcPostToPm({ factoryId }: { factoryId: string }) {
                 <TableCell className="text-xs">
                   {b.accepted_at ? fmtDateTime(b.accepted_at) : "—"}
                 </TableCell>
+                {day && (
+                  <TableCell className="text-xs">
+                    <Badge
+                      variant={
+                        b.status === "received"
+                          ? "default"
+                          : b.status === "verified"
+                            ? "secondary"
+                            : "outline"
+                      }
+                    >
+                      {b.status === "accepted"
+                        ? "With QC"
+                        : b.status === "verified"
+                          ? "Posted to PM"
+                          : "Received by PM"}
+                    </Badge>
+                    {b.pm_posting && (
+                      <div className="mt-0.5 font-mono text-[11px] text-muted-foreground">
+                        {b.pm_posting}
+                      </div>
+                    )}
+                  </TableCell>
+                )}
               </TableRow>
             ))}
           </TableBody>
-          {atQc.length > 0 && (
+          {rows.length > 0 && (
             <TableFooter>
               <TableRow>
-                <TableCell colSpan={3}>Total with QC</TableCell>
-                <TableCell className="text-right">{num(total)}</TableCell>
-                <TableCell />
+                <TableCell colSpan={3}>{day ? "Total that day" : "Total with QC"}</TableCell>
+                <TableCell className="text-right">{num(shown)}</TableCell>
+                <TableCell colSpan={day ? 2 : 1} />
               </TableRow>
             </TableFooter>
           )}
@@ -153,33 +205,44 @@ function PostDialog({
 }) {
   const [damaged, setDamaged] = useState<number | null>(0);
   const [reason, setReason] = useState("");
-  const good = total - (damaged ?? 0);
+  // Good (to the PM) is QC's to set (user, 2026-11-10): all the rest by
+  // default, or fewer -- what isn't sent or damaged stays with QC.
+  const [good, setGood] = useState<number | null>(total);
+  const [goodTouched, setGoodTouched] = useState(false);
+  const goodNow = goodTouched ? (good ?? 0) : Math.max(total - (damaged ?? 0), 0);
+  const kept = total - goodNow - (damaged ?? 0);
   const post = useQcJugAction(
     () =>
-      rpc<{ reference: string; good: number; damaged: number }>("qc_post_jugs_to_pm", {
-        p_factory: factoryId,
-        p_damaged: damaged ?? 0,
-        p_damage_reason: reason || null,
-      }),
+      rpc<{ reference: string; good: number; damaged: number; kept: number }>(
+        "qc_post_jugs_to_pm",
+        {
+          p_factory: factoryId,
+          p_damaged: damaged ?? 0,
+          p_damage_reason: reason || null,
+          p_good: goodNow,
+        },
+      ),
     (r) => {
-      const x = r as { reference: string; good: number; damaged: number };
-      return `${x.reference}: ${num(n(x.good))} good jugs posted to the PM${n(x.damaged) ? `, ${num(n(x.damaged))} damaged` : ""}`;
+      const x = r as { reference: string; good: number; damaged: number; kept: number };
+      return `${x.reference}: ${num(n(x.good))} good jugs posted to the PM${n(x.damaged) ? `, ${num(n(x.damaged))} damaged` : ""}${n(x.kept) ? ` — ${num(n(x.kept))} stay with QC` : ""}`;
     },
   );
   const problem =
-    good < 0
-      ? "Damaged cannot be more than the jugs with QC"
-      : (damaged ?? 0) > 0 && !reason.trim()
-        ? "Record what is wrong with the damaged jugs"
-        : null;
+    kept < 0
+      ? "Good + damaged is more than the jugs with QC"
+      : goodNow + (damaged ?? 0) <= 0
+        ? "Enter the good jugs to send to the PM"
+        : (damaged ?? 0) > 0 && !reason.trim()
+          ? "Record what is wrong with the damaged jugs"
+          : null;
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>Post jugs to the PM</DialogTitle>
           <DialogDescription>
-            {num(total)} jug(s) with QC. Enter the damaged ones; the rest go to the Production
-            Manager as good.
+            {num(total)} jug(s) with QC. Enter how many good jugs go to the Production Manager now
+            and any damaged ones; the rest stay with QC for a later posting.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
@@ -190,13 +253,20 @@ function PostDialog({
             </div>
             <div className="space-y-1.5">
               <Label>Good (to the PM)</Label>
-              <div
-                className={`flex h-10 items-center rounded-md border bg-muted/30 px-3 font-semibold ${good < 0 ? "text-destructive" : "text-primary"}`}
-              >
-                {num(good)}
-              </div>
+              <CountInput
+                value={goodNow}
+                onChange={(v) => {
+                  setGoodTouched(true);
+                  setGood(v);
+                }}
+                placeholder="0"
+              />
             </div>
           </div>
+          <p className={`text-xs ${kept < 0 ? "text-destructive" : "text-muted-foreground"}`}>
+            With QC {num(total)} − good {num(goodNow)} − damaged {num(damaged ?? 0)} ={" "}
+            <span className="font-semibold">{num(kept)}</span> stay with QC.
+          </p>
           {(damaged ?? 0) > 0 && (
             <div className="space-y-1.5">
               <Label>What is wrong with the damaged jugs?</Label>
@@ -218,7 +288,7 @@ function PostDialog({
             onClick={() => post.mutate(undefined, { onSuccess: onClose })}
           >
             {post.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Post to PM
+            Post {num(goodNow)} to PM
           </Button>
         </DialogFooter>
       </DialogContent>
