@@ -358,3 +358,39 @@ BEGIN
   v := public.qc_post_jugs_to_pm(f, 0, NULL, 6, (now() AT TIME ZONE 'Africa/Lagos')::date);
   PERFORM pg_temp.check((v->>'good')::numeric = 6 AND (v->>'kept')::numeric = 2, '6 of today''s 8, 2 kept');
 END $$;
+
+-- @@ Test 10 (20261110260000): QC posts every jug of a period (From..To) in one posting
+DO $$
+DECLARE
+  c uuid := 'b9900000-0000-0000-0000-000000000001';
+  f uuid := 'f9900000-0000-0000-0000-000000000001';
+  v jsonb; d0 date := public._jug_day(now());
+BEGIN
+  UPDATE qc_jug_batches SET status = 'cancelled', cancelled_by = 'a9900000-0000-0000-0000-000000000001',
+         cancelled_at = now(), cancel_reason = 'test reset', accepted_at = NULL
+   WHERE factory_id = f AND status = 'accepted';
+  PERFORM pg_temp.check(pg_temp.mv('issue', 'customer', c, 2, 20) IS NULL, 'issue 20');
+  PERFORM pg_temp.check(pg_temp.mv('return', 'customer', c, 2, 5) IS NULL, 'return 5');
+  PERFORM pg_temp.check(pg_temp.mv('return', 'customer', c, 2, 7) IS NULL, 'return 7');
+  PERFORM pg_temp.check(pg_temp.mv('return', 'customer', c, 2, 3) IS NULL, 'return 3');
+  -- Spread over three days: d0-4, d0-2, d0.
+  UPDATE qc_jug_batches SET accepted_at = accepted_at - interval '4 days'
+   WHERE factory_id = f AND status = 'accepted' AND quantity_accepted = 5;
+  UPDATE qc_jug_batches SET accepted_at = accepted_at - interval '2 days'
+   WHERE factory_id = f AND status = 'accepted' AND quantity_accepted = 7;
+
+  PERFORM pg_temp.check(pg_temp.err(format('SELECT public.qc_post_jugs_to_pm(%L, 0, NULL, NULL, %L, %L)',
+    f, d0 - 1, d0 - 3)) LIKE '%To date is before%', 'To before From refused');
+  PERFORM pg_temp.check(pg_temp.err(format('SELECT public.qc_post_jugs_to_pm(%L, 0, NULL, NULL, %L, %L)',
+    f, d0 - 1, d0 - 1)) LIKE '%no jugs with QC%', 'nothing on that one day');
+  -- From d0-4 to d0-1: the 5 and the 7 (12), not today's 3.
+  v := public.qc_post_jugs_to_pm(f, 2, 'cracked', NULL, d0 - 4, d0 - 1);
+  PERFORM pg_temp.check((v->>'good')::numeric = 10 AND (v->>'damaged')::numeric = 2 AND (v->>'kept')::numeric = 0,
+    'period posted: 10 good + 2 damaged: ' || v::text);
+  PERFORM pg_temp.check((SELECT count(*) FROM qc_jug_batches WHERE pm_posting = v->>'reference') = 2, 'both days in one posting');
+  PERFORM pg_temp.check((SELECT SUM(quantity_accepted) FROM qc_jug_batches WHERE factory_id = f AND status = 'accepted') = 3,
+    'today''s 3 still with QC');
+  -- p_to left out = that day only (as before).
+  v := public.qc_post_jugs_to_pm(f, 0, NULL, NULL, d0);
+  PERFORM pg_temp.check((v->>'good')::numeric = 3, 'one day still works');
+END $$;

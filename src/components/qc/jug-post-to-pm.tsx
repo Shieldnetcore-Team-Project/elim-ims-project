@@ -285,7 +285,8 @@ export function QcPostToPm({ factoryId }: { factoryId: string }) {
         <PostDialog
           factoryId={factoryId}
           entries={atQc}
-          initialDay={day ? qFrom : undefined}
+          initialFrom={day ? qFrom : undefined}
+          initialTo={day ? qTo : undefined}
           onClose={() => setPosting(false)}
         />
       )}
@@ -445,31 +446,33 @@ function CorrectDialog({
   );
 }
 
-// Post to the PM, one day's entries at a time (user, 2026-11-10): the day
-// the jugs came to QC, damaged, and the good ones to send (fewer is fine --
-// the rest of that day stays with QC).
+// Post to the PM by period (user, 2026-11-10): every jug that came to QC from
+// one date to another -- opening on the From / To picked on the page --
+// damaged, and the good ones to send (fewer is fine: the rest stays with QC).
 function PostDialog({
   factoryId,
   entries,
-  initialDay,
+  initialFrom,
+  initialTo,
   onClose,
 }: {
   factoryId: string;
   entries: JugBatch[];
-  initialDay?: string;
+  initialFrom?: string;
+  initialTo?: string;
   onClose: () => void;
 }) {
   const today = localDay();
-  const byDay = new Map<string, number>();
-  for (const e of entries) {
-    const d = lagosDay(e.accepted_at ?? e.sent_at);
-    byDay.set(d, (byDay.get(d) ?? 0) + (e.quantity_accepted ?? 0));
-  }
-  const days = [...byDay.keys()].sort();
-  const [day, setDay] = useState(
-    initialDay && byDay.has(initialDay) ? initialDay : (days[0] ?? today),
-  );
-  const total = byDay.get(day) ?? 0;
+  const dayOf = (e: JugBatch) => lagosDay(e.accepted_at ?? e.sent_at);
+  const days = entries.map(dayOf).sort();
+  const [from, setFrom] = useState(initialFrom ?? days[0] ?? today);
+  const [to, setTo] = useState(initialTo ?? today);
+  const total = entries
+    .filter((e) => {
+      const d = dayOf(e);
+      return d >= from && d <= to;
+    })
+    .reduce((s, e) => s + (e.quantity_accepted ?? 0), 0);
   const [damaged, setDamaged] = useState<number | null>(0);
   const [reason, setReason] = useState("");
   const [good, setGood] = useState<number | null>(null);
@@ -484,7 +487,8 @@ function PostDialog({
           p_damaged: damaged ?? 0,
           p_damage_reason: reason || null,
           p_good: goodNow,
-          p_day: day,
+          p_day: from,
+          p_to: to,
         },
       ),
     (r) => {
@@ -493,15 +497,17 @@ function PostDialog({
     },
   );
   const problem =
-    total <= 0
-      ? "No jugs with QC on this day"
-      : kept < 0
-        ? "More than the jugs of this day"
-        : goodNow + (damaged ?? 0) <= 0
-          ? "Enter the good jugs"
-          : (damaged ?? 0) > 0 && !reason.trim()
-            ? "Enter what is wrong with the damaged jugs"
-            : null;
+    from > to
+      ? "The To date is before the From date"
+      : total <= 0
+        ? "No jugs with QC in these days"
+        : kept < 0
+          ? "More than the jugs of these days"
+          : goodNow + (damaged ?? 0) <= 0
+            ? "Enter the good jugs"
+            : (damaged ?? 0) > 0 && !reason.trim()
+              ? "Enter what is wrong with the damaged jugs"
+              : null;
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-md">
@@ -511,17 +517,32 @@ function PostDialog({
         <div className="grid gap-3">
           <div className="grid grid-cols-2 items-end gap-3">
             <div className="space-y-1.5">
-              <Label>Date</Label>
+              <Label>From</Label>
               <DatePicker
-                value={day}
-                max={today}
+                value={from}
+                max={to || today}
                 className="w-full"
                 onChange={(d) => {
-                  setDay(d);
+                  setFrom(d);
                   setGood(null);
                 }}
               />
             </div>
+            <div className="space-y-1.5">
+              <Label>To</Label>
+              <DatePicker
+                value={to}
+                min={from || undefined}
+                max={today}
+                className="w-full"
+                onChange={(d) => {
+                  setTo(d);
+                  setGood(null);
+                }}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 items-end gap-3">
             <div className="space-y-1.5">
               <Label>With QC</Label>
               <div className="flex h-9 items-center rounded-md border bg-muted/30 px-3 font-semibold">
