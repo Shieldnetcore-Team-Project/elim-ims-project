@@ -27,6 +27,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { SOURCE_LABEL } from "@/components/jugs/api";
 
 // Retail dispenser reports (retail_dispenser_report,
 // supabase/migrations/20261102300000_retail_dispenser_revenue_remittance.sql):
@@ -135,6 +136,96 @@ type Report = {
   cashiers: { id: string; name: string }[];
 };
 
+type Party = {
+  holder_type: string;
+  holder_id: string | null;
+  holder_name: string;
+  holder_code: string | null;
+  holder_kind: string;
+  collected: number;
+  awaiting_count: number;
+  at_qc: number;
+  posted_to_pm: number;
+  received_by_pm: number;
+  damaged: number;
+  full_with_them: number;
+  not_returned: number;
+  last_collected: string | null;
+};
+type Activity = {
+  with_qc: number;
+  postings: {
+    posting: string;
+    posted_at: string;
+    posted_by: string | null;
+    total: number;
+    good: number;
+    damaged: number;
+    damage_reason: string | null;
+    sources: string | null;
+    status: "verified" | "received";
+    received_at: string | null;
+    received_by: string | null;
+  }[];
+  movements: {
+    id: string;
+    at: string;
+    jug: string;
+    source: string;
+    quantity: number;
+    reference: string | null;
+    notes: string | null;
+    from_name: string | null;
+    to_name: string | null;
+    by: string | null;
+  }[];
+};
+type WhReturn = {
+  id: string;
+  reference: string;
+  recorded_at: string;
+  holder_name: string;
+  holder_kind: string;
+  jug: string;
+  recorded: number;
+  counted: number | null;
+  good: number | null;
+  damaged: number | null;
+  stage: string;
+  recorded_by: string | null;
+  counted_by: string | null;
+  counted_at: string | null;
+  notes: string | null;
+};
+type ReturnLine = {
+  id: string;
+  reference: string;
+  collected_on: string;
+  holder_name: string;
+  holder_kind: string;
+  recorded: number;
+  counted: number | null;
+  good: number | null;
+  damaged: number | null;
+  stage: string;
+  notes: string | null;
+};
+const STAGE_LABEL: Record<string, string> = {
+  awaiting_count: "Waiting for QC count",
+  at_qc: "With QC",
+  posted_to_pm: "Posted to PM — not confirmed",
+  received_by_pm: "Received by PM",
+  none_counted: "Counted 0",
+  cancelled: "Cancelled",
+  direct: "Recorded directly",
+};
+const PARTY_KIND: Record<string, string> = {
+  rep: "Marketer",
+  outlet: "Retail shop",
+  customer: "Distributor / customer",
+  walk_in: "Walk-in",
+};
+
 const MODE: Record<SaleLine["jar_mode"], string> = {
   return_later: "Returnable jug",
   permanent: "Jug + Water",
@@ -208,6 +299,70 @@ export function DispenserReports({
       return data as Report;
     },
   });
+  // Accountant page only (user, 2026-11-10): every dispenser / jug activity,
+  // QC's included -- jugs collected per party, QC -> PM postings, and the
+  // whole jug ledger. Server side: accounts_jug_activity, qc_jug_collections
+  // (20261110280000).
+  const isAccounts = !outletId;
+  useRealtimeInvalidate(
+    ["container_movements", "qc_jug_batches", "jug_returns"],
+    [["accounts-jug"]],
+  );
+  const parties = useQuery({
+    queryKey: ["accounts-jug", "parties", factoryId, from, to],
+    enabled: isAccounts && !!from && !!to && from <= to,
+    queryFn: async () => {
+      const { data, error } = await db.rpc("qc_jug_collections", {
+        p_factory: factoryId,
+        p_from: from,
+        p_to: to,
+      });
+      if (error) throw error;
+      return (data ?? []) as Party[];
+    },
+  });
+  // Every empty returned by a marketer, distributor / customer or the shop
+  // (user, 2026-11-10: "empties returned by the customers should be seen here").
+  const returnLines = useQuery({
+    queryKey: ["accounts-jug", "lines", factoryId, from, to],
+    enabled: isAccounts && !!from && !!to && from <= to,
+    queryFn: async () => {
+      const { data, error } = await db.rpc("qc_jug_collection_lines", {
+        p_factory: factoryId,
+        p_from: from,
+        p_to: to,
+      });
+      if (error) throw error;
+      return (data ?? []) as ReturnLine[];
+    },
+  });
+  // Empties the Warehouse took in (user, 2026-11-10), 20261110290000.
+  const whReturns = useQuery({
+    queryKey: ["accounts-jug", "warehouse", factoryId, from, to],
+    enabled: isAccounts && !!from && !!to && from <= to,
+    queryFn: async () => {
+      const { data, error } = await db.rpc("accounts_warehouse_jug_returns", {
+        p_factory: factoryId,
+        p_from: from,
+        p_to: to,
+      });
+      if (error) throw error;
+      return (data ?? []) as WhReturn[];
+    },
+  });
+  const activity = useQuery({
+    queryKey: ["accounts-jug", "activity", factoryId, from, to],
+    enabled: isAccounts && !!from && !!to && from <= to,
+    queryFn: async () => {
+      const { data, error } = await db.rpc("accounts_jug_activity", {
+        p_factory: factoryId,
+        p_from: from,
+        p_to: to,
+      });
+      if (error) throw error;
+      return data as Activity;
+    },
+  });
   const r = report.data;
   const sales = useMemo(
     () => (r?.sales ?? []).filter((s) => mode === ALL || s.jar_mode === mode),
@@ -231,6 +386,22 @@ export function DispenserReports({
       : []),
     ...(customer.trim() ? [`Customer: ${customer.trim()}`] : []),
   ];
+  const term = customer.trim().toLowerCase();
+  const has = (...t: (string | null | undefined)[]) =>
+    !term || t.some((x) => (x ?? "").toLowerCase().includes(term));
+  const partyRows = (parties.data ?? []).filter((p) => has(p.holder_name, p.holder_code));
+  const pTotal = (k: keyof Party) => sum(parties.data ?? [], (p) => n(p[k]));
+  const postings = (activity.data?.postings ?? []).filter((p) =>
+    has(p.posting, p.sources, p.posted_by, p.received_by),
+  );
+  const allPostings = activity.data?.postings ?? [];
+  const backLines = (returnLines.data ?? []).filter(
+    (l) =>
+      l.collected_on >= from && l.collected_on <= to && has(l.holder_name, l.reference, l.notes),
+  );
+  const moves = (activity.data?.movements ?? []).filter((m) =>
+    has(m.reference, m.from_name, m.to_name, m.notes, m.by),
+  );
   const go = (t: string, m: SaleLine["jar_mode"] | typeof ALL = ALL) => {
     setTab(t);
     setMode(m);
@@ -356,6 +527,82 @@ export function DispenserReports({
         </button>
       </div>
 
+      {isAccounts && (
+        <>
+          {(parties.isError || activity.isError) && (
+            <p className="text-sm text-destructive">
+              {((parties.error ?? activity.error) as Error).message}
+            </p>
+          )}
+          <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            Empty jugs — marketers, distributors, shop, QC and PM
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
+            <button type="button" className="text-left" onClick={() => go("qc-parties")}>
+              <KPI
+                icon={Undo2}
+                label="Collected"
+                value={num(pTotal("collected"))}
+                hint={`Empties brought back, ${from} to ${to}`}
+              />
+            </button>
+            <button type="button" className="text-left" onClick={() => go("qc-parties")}>
+              <KPI
+                icon={PackageCheck}
+                label="Waiting QC count"
+                value={num(pTotal("awaiting_count"))}
+                hint="Recorded, not counted by QC yet"
+                tone={pTotal("awaiting_count") > 0 ? "warning" : "primary"}
+              />
+            </button>
+            <button type="button" className="text-left" onClick={() => go("qc-postings")}>
+              <KPI
+                icon={PackageCheck}
+                label="With QC"
+                value={num(n(activity.data?.with_qc))}
+                hint="Not yet posted to the PM"
+              />
+            </button>
+            <button type="button" className="text-left" onClick={() => go("qc-postings")}>
+              <KPI
+                icon={PackageCheck}
+                label="Posted to PM"
+                value={num(
+                  sum(
+                    allPostings.filter((p) => p.status !== "received"),
+                    (p) => n(p.good),
+                  ),
+                )}
+                hint="The PM has not confirmed yet"
+              />
+            </button>
+            <button type="button" className="text-left" onClick={() => go("qc-postings")}>
+              <KPI
+                icon={PackageCheck}
+                label="Received by PM"
+                value={num(
+                  sum(
+                    allPostings.filter((p) => p.status === "received"),
+                    (p) => n(p.good),
+                  ),
+                )}
+                hint={`Damaged at QC: ${num(sum(allPostings, (p) => n(p.damaged)))}`}
+                tone="success"
+              />
+            </button>
+            <button type="button" className="text-left" onClick={() => go("qc-parties")}>
+              <KPI
+                icon={Users}
+                label="Jugs not returned"
+                value={num(pTotal("not_returned"))}
+                hint={`${num((parties.data ?? []).filter((p) => n(p.not_returned) > 0).length)} still hold jugs`}
+                tone={pTotal("not_returned") > 0 ? "warning" : "success"}
+              />
+            </button>
+          </div>
+        </>
+      )}
+
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="flex-wrap">
           <TabsTrigger value="sales">Dispenser sales</TabsTrigger>
@@ -363,7 +610,134 @@ export function DispenserReports({
           <TabsTrigger value="transfers">Empties to Warehouse</TabsTrigger>
           <TabsTrigger value="owed">Outstanding empties</TabsTrigger>
           <TabsTrigger value="cashups">Cashier remittances</TabsTrigger>
+          {isAccounts && (
+            <>
+              <TabsTrigger value="qc-parties">Jugs by marketer / distributor</TabsTrigger>
+              <TabsTrigger value="qc-postings">QC → PM postings</TabsTrigger>
+              <TabsTrigger value="moves">All jug movements</TabsTrigger>
+            </>
+          )}
         </TabsList>
+
+        {isAccounts && (
+          <>
+            <TabsContent value="qc-parties">
+              <ReportCard
+                title="Empty jugs by marketer, distributor and shop"
+                note="Collected, Received by PM and Damaged are for the dates chosen; Waiting, With QC, Posted to PM and Not returned are as of now. Not returned counts every jug still with them, full or empty."
+                fileName={`jugs-by-party-${from}-${to}`}
+                subtitle={subtitle}
+                columns={[
+                  { key: "name", label: "Name" },
+                  { key: "kind", label: "Type" },
+                  { key: "collected", label: "Collected" },
+                  { key: "awaiting", label: "Waiting QC" },
+                  { key: "at_qc", label: "With QC" },
+                  { key: "posted", label: "Posted to PM" },
+                  { key: "received", label: "Received by PM" },
+                  { key: "damaged", label: "Damaged" },
+                  { key: "owed", label: "Not returned" },
+                  { key: "last", label: "Last returned" },
+                ]}
+                rows={partyRows.map((p) => ({
+                  name: p.holder_code ? `${p.holder_name} (${p.holder_code})` : p.holder_name,
+                  kind: PARTY_KIND[p.holder_kind] ?? p.holder_kind,
+                  collected: num(n(p.collected)),
+                  awaiting: num(n(p.awaiting_count)),
+                  at_qc: num(n(p.at_qc)),
+                  posted: num(n(p.posted_to_pm)),
+                  received: num(n(p.received_by_pm)),
+                  damaged: num(n(p.damaged)),
+                  owed:
+                    num(n(p.not_returned)) +
+                    (n(p.full_with_them) ? ` (${num(n(p.full_with_them))} full)` : ""),
+                  last: p.last_collected ?? "Never",
+                  _tone: n(p.not_returned) > 0 ? "text-destructive" : "",
+                }))}
+                totals={{
+                  collected: num(sum(partyRows, (p) => n(p.collected))),
+                  awaiting: num(sum(partyRows, (p) => n(p.awaiting_count))),
+                  at_qc: num(sum(partyRows, (p) => n(p.at_qc))),
+                  posted: num(sum(partyRows, (p) => n(p.posted_to_pm))),
+                  received: num(sum(partyRows, (p) => n(p.received_by_pm))),
+                  damaged: num(sum(partyRows, (p) => n(p.damaged))),
+                  owed: num(sum(partyRows, (p) => n(p.not_returned))),
+                }}
+                loading={parties.isLoading}
+              />
+            </TabsContent>
+
+            <TabsContent value="qc-postings">
+              <ReportCard
+                title="QC → PM postings"
+                note="Every posting Quality Control made to the Production Manager: good jugs sent, damaged written off, and when the PM confirmed. Postings the PM has not confirmed show whatever the dates."
+                fileName={`qc-pm-postings-${from}-${to}`}
+                subtitle={subtitle}
+                columns={[
+                  { key: "when", label: "Posted" },
+                  { key: "ref", label: "Posting" },
+                  { key: "from", label: "Jugs from" },
+                  { key: "total", label: "Total" },
+                  { key: "good", label: "Good" },
+                  { key: "damaged", label: "Damaged" },
+                  { key: "by", label: "Posted by" },
+                  { key: "status", label: "Status" },
+                  { key: "recv", label: "Received by PM" },
+                ]}
+                rows={postings.map((p) => ({
+                  when: when(p.posted_at),
+                  ref: p.posting,
+                  from: p.sources ?? "—",
+                  total: num(n(p.total)),
+                  good: num(n(p.good)),
+                  damaged: num(n(p.damaged)),
+                  by: p.posted_by ?? "—",
+                  status: p.status === "received" ? "Received by PM" : "Waiting for PM",
+                  recv: p.received_by ? `${p.received_by}, ${when(p.received_at)}` : "—",
+                  _note: p.damage_reason ? `Damaged: ${p.damage_reason}` : "",
+                }))}
+                totals={{
+                  total: num(sum(postings, (p) => n(p.total))),
+                  good: num(sum(postings, (p) => n(p.good))),
+                  damaged: num(sum(postings, (p) => n(p.damaged))),
+                }}
+                loading={activity.isLoading}
+              />
+            </TabsContent>
+
+            <TabsContent value="moves">
+              <ReportCard
+                title="All jug movements"
+                note="Every dispenser jug moved in the dates chosen: supplied to marketers and distributors, sold, returned to QC, damaged at QC, QC to Production, filled dispensers to the Warehouse, Store issues and stock counts."
+                fileName={`jug-movements-${from}-${to}`}
+                subtitle={subtitle}
+                columns={[
+                  { key: "when", label: "When" },
+                  { key: "ref", label: "Reference" },
+                  { key: "what", label: "Activity" },
+                  { key: "jug", label: "Jug" },
+                  { key: "from", label: "From" },
+                  { key: "to", label: "To" },
+                  { key: "qty", label: "Qty" },
+                  { key: "by", label: "By" },
+                ]}
+                rows={moves.map((m) => ({
+                  when: when(m.at),
+                  ref: m.reference ?? "—",
+                  what: SOURCE_LABEL[m.source] ?? m.source,
+                  jug: m.jug,
+                  from: m.from_name ?? "—",
+                  to: m.to_name ?? "—",
+                  qty: num(n(m.quantity)),
+                  by: m.by ?? "—",
+                  _note: m.notes ?? "",
+                }))}
+                totals={{ qty: num(sum(moves, (m) => n(m.quantity))) }}
+                loading={activity.isLoading}
+              />
+            </TabsContent>
+          </>
+        )}
 
         <TabsContent value="sales">
           <ReportCard
@@ -422,9 +796,47 @@ export function DispenserReports({
           />
         </TabsContent>
 
-        <TabsContent value="returns">
+        <TabsContent value="returns" className="space-y-4">
+          {isAccounts && (
+            <ReportCard
+              title="Empties returned by marketers, distributors / customers and the shop"
+              note="Every empty jug brought back in the dates chosen: what was recorded, what QC counted (good and damaged), and where the jugs are now."
+              fileName={`empties-returned-all-${from}-${to}`}
+              subtitle={subtitle}
+              columns={[
+                { key: "date", label: "Date" },
+                { key: "ref", label: "Reference" },
+                { key: "from", label: "Returned by" },
+                { key: "kind", label: "Type" },
+                { key: "recorded", label: "Recorded" },
+                { key: "counted", label: "Counted" },
+                { key: "good", label: "Good" },
+                { key: "damaged", label: "Damaged" },
+                { key: "stage", label: "Where it is" },
+              ]}
+              rows={backLines.map((l) => ({
+                date: l.collected_on,
+                ref: l.reference,
+                from: l.holder_name,
+                kind: PARTY_KIND[l.holder_kind] ?? l.holder_kind,
+                recorded: num(n(l.recorded)),
+                counted: l.counted == null ? "—" : num(n(l.counted)),
+                good: l.good == null ? "—" : num(n(l.good)),
+                damaged: l.damaged == null ? "—" : num(n(l.damaged)),
+                stage: STAGE_LABEL[l.stage] ?? l.stage,
+                _note: l.notes ?? "",
+              }))}
+              totals={{
+                recorded: num(sum(backLines, (l) => n(l.recorded))),
+                counted: num(sum(backLines, (l) => n(l.counted))),
+                good: num(sum(backLines, (l) => n(l.good))),
+                damaged: num(sum(backLines, (l) => n(l.damaged))),
+              }}
+              loading={returnLines.isLoading}
+            />
+          )}
           <ReportCard
-            title="Empties returned by customers"
+            title={isAccounts ? "Retail Shop counter returns" : "Empties returned by customers"}
             note="Only empties physically received. Applied = settled against what the customer owed; extra empties wait for a manager."
             fileName={`empties-returned-${from}-${to}`}
             subtitle={subtitle}
@@ -465,9 +877,63 @@ export function DispenserReports({
           />
         </TabsContent>
 
-        <TabsContent value="transfers">
+        <TabsContent value="transfers" className="space-y-4">
+          {isAccounts &&
+            (() => {
+              const wh = (whReturns.data ?? []).filter((w) =>
+                has(w.holder_name, w.reference, w.notes, w.recorded_by),
+              );
+              return (
+                <ReportCard
+                  title="Empties received by the Warehouse"
+                  note="Every empty jug the Warehouse recorded from a marketer, the shop or a distributor / customer, what QC counted (good and damaged) and where the jugs are now. Ones still waiting for QC's count show whatever the date."
+                  fileName={`empties-received-warehouse-${from}-${to}`}
+                  subtitle={subtitle}
+                  columns={[
+                    { key: "when", label: "Recorded" },
+                    { key: "ref", label: "Reference" },
+                    { key: "from", label: "From" },
+                    { key: "kind", label: "Type" },
+                    { key: "jug", label: "Jug" },
+                    { key: "recorded", label: "Recorded" },
+                    { key: "counted", label: "QC counted" },
+                    { key: "good", label: "Good" },
+                    { key: "damaged", label: "Damaged" },
+                    { key: "stage", label: "Where it is" },
+                    { key: "by", label: "Recorded by" },
+                    { key: "qc", label: "Counted by" },
+                  ]}
+                  rows={wh.map((w) => ({
+                    when: when(w.recorded_at),
+                    ref: w.reference,
+                    from: w.holder_name,
+                    kind: PARTY_KIND[w.holder_kind] ?? w.holder_kind,
+                    jug: w.jug,
+                    recorded: num(n(w.recorded)),
+                    counted: w.counted == null ? "—" : num(n(w.counted)),
+                    good: w.good == null ? "—" : num(n(w.good)),
+                    damaged: w.damaged == null ? "—" : num(n(w.damaged)),
+                    stage: STAGE_LABEL[w.stage] ?? w.stage,
+                    by: w.recorded_by ?? "—",
+                    qc: w.counted_by ? `${w.counted_by}, ${when(w.counted_at)}` : "—",
+                    _note: w.notes ?? "",
+                  }))}
+                  totals={{
+                    recorded: num(sum(wh, (w) => n(w.recorded))),
+                    counted: num(sum(wh, (w) => n(w.counted))),
+                    good: num(sum(wh, (w) => n(w.good))),
+                    damaged: num(sum(wh, (w) => n(w.damaged))),
+                  }}
+                  loading={whReturns.isLoading}
+                />
+              );
+            })()}
           <ReportCard
-            title="Empties sent to the Warehouse"
+            title={
+              isAccounts
+                ? "Retail Shop empties sent to the Warehouse"
+                : "Empties sent to the Warehouse"
+            }
             note="Off the shop's empties when sent; into the Warehouse when counted. A shortfall is kept on the transfer as recorded and stays on the shop."
             fileName={`empties-to-warehouse-${from}-${to}`}
             subtitle={subtitle}
@@ -506,9 +972,52 @@ export function DispenserReports({
           />
         </TabsContent>
 
-        <TabsContent value="owed">
+        <TabsContent value="owed" className="space-y-4">
+          {/* Accountant (user, 2026-11-10): every party still holding jugs. */}
+          {isAccounts &&
+            (() => {
+              const out = partyRows
+                .filter((p) => n(p.not_returned) > 0)
+                .sort((a, b) => n(b.not_returned) - n(a.not_returned));
+              return (
+                <ReportCard
+                  title="Jugs not returned — marketers, distributors / customers and the shop (as of now)"
+                  note="Every jug still with them, any date. Full = dispensers still on their stock not yet recorded as sold; Empty owed = jugs they should bring back."
+                  fileName={`jugs-not-returned-${to}`}
+                  subtitle={subtitle.slice(1)}
+                  columns={[
+                    { key: "name", label: "Name" },
+                    { key: "kind", label: "Type" },
+                    { key: "owed", label: "Not returned" },
+                    { key: "full", label: "Full (on stock)" },
+                    { key: "empty", label: "Empty owed" },
+                    { key: "last", label: "Last returned" },
+                  ]}
+                  rows={out.map((p) => ({
+                    name: p.holder_code ? `${p.holder_name} (${p.holder_code})` : p.holder_name,
+                    kind: PARTY_KIND[p.holder_kind] ?? p.holder_kind,
+                    owed: num(n(p.not_returned)),
+                    full: num(n(p.full_with_them)),
+                    empty: num(Math.max(n(p.not_returned) - n(p.full_with_them), 0)),
+                    last: p.last_collected ?? "Never",
+                  }))}
+                  totals={{
+                    owed: num(sum(out, (p) => n(p.not_returned))),
+                    full: num(sum(out, (p) => n(p.full_with_them))),
+                    empty: num(
+                      sum(out, (p) => Math.max(n(p.not_returned) - n(p.full_with_them), 0)),
+                    ),
+                  }}
+                  loading={parties.isLoading}
+                />
+              );
+            })()}
           <ReportCard
-            title="Outstanding empties (as of now)"
+            title={
+              isAccounts
+                ? "Retail Shop returnable-jug sales still owing (as of now)"
+                : "Outstanding empties (as of now)"
+            }
             note="Returnable-jug sales still owing empties, any sale date."
             fileName={`outstanding-empties-${to}`}
             subtitle={subtitle.slice(1)}

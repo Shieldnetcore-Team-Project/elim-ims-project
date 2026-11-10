@@ -34,6 +34,7 @@ import { num } from "@/lib/format";
 import { exportExcel, type ReportColumn } from "@/lib/export";
 import { generateReportPdf } from "@/lib/pdf";
 import { QcPostToPm } from "./jug-post-to-pm";
+import { useQcJugBatches } from "./jug-api";
 
 // Quality Control -> Jugs collected (user, 2026-11-10): the empty Dispenser
 // Jugs collected from each marketer, distributor / customer and the shop,
@@ -160,6 +161,19 @@ export function QcJugCollections({ factoryId }: { factoryId: string }) {
         not_returned: n(p.not_returned),
       })),
   });
+  // The cards (user, 2026-11-10): every jug QC holds, posted and the PM
+  // received -- the same figures as Collect & post to PM, whoever brought them.
+  const batches = useQcJugBatches(factoryId, from, to);
+  const postings = useQuery({
+    queryKey: ["qc-jugs", "collections", "postings", factoryId, from, to],
+    enabled: ok,
+    queryFn: async () =>
+      (
+        (await rpc<
+          { status: string; good: number; posted_at: string; received_at: string | null }[]
+        >("qc_pm_jug_postings", { p_factory: factoryId, p_from: from, p_to: to })) ?? []
+      ).map((p) => ({ ...p, good: n(p.good) })),
+  });
   const lines = useQuery({
     queryKey: ["qc-jugs", "collections", "lines", factoryId, from, to],
     enabled: ok,
@@ -221,6 +235,13 @@ export function QcJugCollections({ factoryId }: { factoryId: string }) {
   const all = parties.data ?? [];
   const total = (k: keyof Party) => all.reduce((s, r) => s + n(r[k]), 0);
   const period = from === to ? formatDay(from) : `${formatDay(from)} – ${formatDay(to)}`;
+  const withQc = (batches.data ?? [])
+    .filter((b) => b.status === "accepted")
+    .reduce((s, b) => s + (b.quantity_accepted ?? 0), 0);
+  const pst = postings.data ?? [];
+  const toPm = pst.filter((p) => p.status !== "received");
+  const atPm = pst.filter((p) => p.status === "received");
+  const goodOf = (list: typeof pst) => list.reduce((s, p) => s + p.good, 0);
 
   const columns: ReportColumn[] = [
     { key: "sn", label: "S/N" },
@@ -271,8 +292,7 @@ export function QcJugCollections({ factoryId }: { factoryId: string }) {
 
   return (
     <div className="space-y-4">
-      {/* QC collects the returns and posts them to the PM daily (2026-11-10). */}
-      <QcPostToPm factoryId={factoryId} />
+      {/* Filters and totals sit at the top (user, 2026-11-10). */}
       <Card className="rounded-2xl">
         <CardContent className="flex flex-wrap items-end gap-3 p-3">
           <div>
@@ -340,7 +360,7 @@ export function QcJugCollections({ factoryId }: { factoryId: string }) {
         </CardContent>
       </Card>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <Stat
           label="Waiting for QC count"
           value={num(total("awaiting_count"))}
@@ -348,13 +368,18 @@ export function QcJugCollections({ factoryId }: { factoryId: string }) {
         />
         <Stat
           label="With QC — to verify"
-          value={num(total("at_qc"))}
-          hint="Counted, not yet posted to the PM"
+          value={num(withQc)}
+          hint="With QC now, not yet posted to the PM"
         />
         <Stat
           label="Posted to PM"
-          value={num(total("posted_to_pm"))}
-          hint="The PM has not confirmed yet"
+          value={num(goodOf(toPm))}
+          hint={`${num(toPm.length)} posting(s) the PM has not confirmed yet`}
+        />
+        <Stat
+          label="Received by PM"
+          value={num(goodOf(atPm))}
+          hint={`Good jugs the PM confirmed, ${period}`}
         />
         <Stat
           label="Not returned"
@@ -362,6 +387,9 @@ export function QcJugCollections({ factoryId }: { factoryId: string }) {
           hint={`${num(all.filter((p) => p.not_returned > 0).length)} people still hold jugs`}
         />
       </div>
+
+      {/* QC collects the returns and posts them to the PM daily (2026-11-10). */}
+      <QcPostToPm factoryId={factoryId} />
 
       {showShop && (
         <Card className="rounded-2xl border-primary/30">
