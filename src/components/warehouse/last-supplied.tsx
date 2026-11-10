@@ -48,19 +48,27 @@ const lastDay = (rows: Row[]): Supplied | null => {
   };
 };
 
-export function useLastSupplied(kind: "marketer" | "customer", id: string | null | undefined) {
+// With `day`, only what was supplied on that day (returns entered per supply
+// day, back-dated -- user, 2026-11-10); null when nothing went out that day.
+export function useLastSupplied(
+  kind: "marketer" | "customer",
+  id: string | null | undefined,
+  day?: string,
+) {
   return useQuery({
-    queryKey: ["last-supplied", kind, id],
+    queryKey: ["last-supplied", kind, id, day ?? null],
     enabled: !!id,
     queryFn: async (): Promise<Supplied | null> => {
       if (kind === "marketer") {
-        const { data, error } = await supabase
+        let mq = supabase
           .from("stock_dispatches")
           .select(
             "dispatch_date,dispatch_number,status,stock_dispatch_items(product_id,quantity,jar_mode,products(name,unit))",
           )
           .eq("sales_rep_id", id!)
-          .is("reversed_at", null)
+          .is("reversed_at", null);
+        if (day) mq = mq.eq("dispatch_date", day);
+        const { data, error } = await mq
           .order("dispatch_date", { ascending: false })
           .order("created_at", { ascending: false })
           .limit(20);
@@ -82,7 +90,7 @@ export function useLastSupplied(kind: "marketer" | "customer", id: string | null
             })),
         );
       }
-      const { data, error } = await supabase
+      let sq = supabase
         .from("sales")
         .select(
           "sale_date,invoice_number,sale_items(product_id,quantity,jar_mode,products(name,unit))",
@@ -90,7 +98,9 @@ export function useLastSupplied(kind: "marketer" | "customer", id: string | null
         .eq("customer_id", id!)
         .is("sales_rep_id", null)
         .is("deleted_at", null)
-        .eq("status", "posted")
+        .eq("status", "posted");
+      if (day) sq = sq.eq("sale_date", day);
+      const { data, error } = await sq
         .order("sale_date", { ascending: false })
         .order("created_at", { ascending: false })
         .limit(20);
@@ -115,11 +125,13 @@ export function useLastSupplied(kind: "marketer" | "customer", id: string | null
 export function LastSuppliedPanel({
   kind,
   id,
+  day,
 }: {
   kind: "marketer" | "customer";
   id: string | null | undefined;
+  day?: string;
 }) {
-  const q = useLastSupplied(kind, id);
+  const q = useLastSupplied(kind, id, day);
   // Only this officer's products, as the rest of the form.
   const mine = useMyProductMatcher();
   if (!id) return null;
@@ -127,11 +139,11 @@ export function LastSuppliedPanel({
   return (
     <div className="rounded-lg border bg-muted/40 p-3 text-sm">
       <div className="font-medium">
-        Last supplied
+        {day ? `Supplied on ${new Date(`${day}T12:00:00`).toLocaleDateString()}` : "Last supplied"}
         {q.data && (
           <span className="font-normal text-muted-foreground">
             {" "}
-            · {new Date(`${q.data.date}T12:00:00`).toLocaleDateString()} ·{" "}
+            {!day && `· ${new Date(`${q.data.date}T12:00:00`).toLocaleDateString()} `}·{" "}
             {q.data.references.join(", ")}
           </span>
         )}
@@ -141,7 +153,9 @@ export function LastSuppliedPanel({
       ) : q.isError ? (
         <div className="mt-1 text-destructive">{(q.error as Error).message}</div>
       ) : lines.length === 0 ? (
-        <div className="mt-1 text-muted-foreground">Nothing supplied yet.</div>
+        <div className="mt-1 text-muted-foreground">
+          {day ? "Nothing supplied on this day." : "Nothing supplied yet."}
+        </div>
       ) : (
         <ul className="mt-1 grid gap-x-4 gap-y-0.5 sm:grid-cols-2">
           {lines.map((l) => (

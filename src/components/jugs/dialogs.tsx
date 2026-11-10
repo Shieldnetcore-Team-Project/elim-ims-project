@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Loader2, Plus, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -36,7 +36,7 @@ import { CountInput, fmtDateTime } from "@/components/preform/shared";
 import { db, rpc, useUserNames } from "@/components/preform/api";
 import { formatDay } from "@/lib/jug-accountability";
 import { localDay } from "@/lib/production-shift";
-import { LastSuppliedPanel } from "@/components/warehouse/last-supplied";
+import { LastSuppliedPanel, useLastSupplied } from "@/components/warehouse/last-supplied";
 import { useMyProductMatcher } from "@/lib/product-rules";
 import { money, num } from "@/lib/format";
 import { usePermissions } from "@/lib/permissions";
@@ -701,7 +701,74 @@ export function CustomerUnsoldDialog({
         >("warehouse_customer_returnable", { p_customer: customerId, p_all: allProducts })
       ).map((r) => ({ ...r, bought: Number(r.bought), returnable: Number(r.returnable) })),
   });
-  const held = (returnable.data ?? []).filter((r) => r.returnable > 0);
+  // Returns go in per supply day, dated that day (user, 2026-11-10): the day
+  // picked shows what went out that day, and only that, less anything already
+  // returned for the same day, can come back -- not the accumulated total.
+  const [mode, setMode] = useState<"day" | "all">("day");
+  const daySupply = useLastSupplied(
+    "customer",
+    customerId && mode === "day" ? customerId : null,
+    returnDate,
+  );
+  // Open on the customer's last supply day; the officer moves back from there.
+  const lastSupply = useLastSupplied("customer", customerId || null);
+  const [dayFor, setDayFor] = useState("");
+  useEffect(() => {
+    if (!customerId || dayFor === customerId || lastSupply.isLoading) return;
+    setDayFor(customerId);
+    if (mode === "day" && lastSupply.data?.date) setReturnDate(lastSupply.data.date);
+  }, [customerId, dayFor, mode, lastSupply.isLoading, lastSupply.data]);
+  const dayReturned = useQuery({
+    queryKey: ["jug", "customer-day-returned", customerId, returnDate],
+    enabled: !!customerId && mode === "day",
+    queryFn: async () => {
+      const { data, error } = await db
+        .from("sales_returns")
+        .select("product_id,quantity_returned,status")
+        .eq("customer_id", customerId)
+        .eq("return_date", returnDate);
+      if (error) throw error;
+      const t: Record<string, number> = {};
+      for (const r of (data ?? []) as {
+        product_id: string;
+        quantity_returned: number;
+        status: string;
+      }[])
+        if (r.status !== "cancelled")
+          t[r.product_id] = (t[r.product_id] ?? 0) + Number(r.quantity_returned);
+      return t;
+    },
+  });
+  const suppliedOnDay = (daySupply.data?.lines ?? []).reduce<Record<string, number>>((t, l) => {
+    t[l.product_id] = (t[l.product_id] ?? 0) + l.qty;
+    return t;
+  }, {});
+  // "All at once" (user, 2026-11-10) keeps the accumulated way: everything the
+  // customer can still return, on any date returned.
+  const held =
+    mode === "all"
+      ? (returnable.data ?? [])
+          .filter((r) => r.returnable > 0)
+          .map((r) => ({ ...r, supplied: 0, already: 0 }))
+      : (returnable.data ?? [])
+          .map((r) => {
+            const supplied = suppliedOnDay[r.product_id] ?? 0;
+            const already = dayReturned.data?.[r.product_id] ?? 0;
+            return {
+              ...r,
+              supplied,
+              already,
+              returnable: Math.max(0, Math.min(r.returnable, supplied - already)),
+            };
+          })
+          .filter((r) => r.supplied > 0);
+  const dayLoading = mode === "day" && (daySupply.isLoading || dayReturned.isLoading);
+  const switchMode = (m: "day" | "all") => {
+    if (m === mode) return;
+    setMode(m);
+    setQty({});
+    setReturnDate(m === "day" && lastSupply.data?.date ? lastSupply.data.date : localDay());
+  };
   // Listed quantities plus the hand-typed lines, one line per product.
   const items = Object.entries(
     [
@@ -779,7 +846,49 @@ export function CustomerUnsoldDialog({
               </Select>
             </Field>
           )}
-          {customerId && <LastSuppliedPanel kind="customer" id={customerId} />}
+          {customerId && (
+            <div className="grid grid-cols-2 gap-1 rounded-lg border p-1">
+              {(
+                [
+                  ["day", "Per supply day"],
+                  ["all", "All at once"],
+                ] as const
+              ).map(([m, label]) => (
+                <Button
+                  key={m}
+                  type="button"
+                  size="sm"
+                  variant={mode === m ? "default" : "ghost"}
+                  onClick={() => switchMode(m)}
+                >
+                  {label}
+                </Button>
+              ))}
+            </div>
+          )}
+          {customerId && (
+            <Field
+              label={mode === "day" ? "Supply day (the return is dated this day)" : "Date returned"}
+            >
+              <Input
+                type="date"
+                value={returnDate}
+                max={localDay()}
+                onChange={(e) => {
+                  if (!e.target.value) return;
+                  setReturnDate(e.target.value);
+                  if (mode === "day") setQty({});
+                }}
+              />
+            </Field>
+          )}
+          {customerId && (
+            <LastSuppliedPanel
+              kind="customer"
+              id={customerId}
+              day={mode === "day" ? returnDate : undefined}
+            />
+          )}
           {customerId && (
             <Table>
               <TableHeader>
@@ -793,15 +902,17 @@ export function CustomerUnsoldDialog({
                 {held.length === 0 && manual.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={3} className="py-6 text-center text-muted-foreground">
-                      {returnable.isLoading
+                      {returnable.isLoading || dayLoading
                         ? "Loading…"
-                        : allProducts
-                          ? "Nothing listed from this system -- add the products below."
-                          : returnable.isError
-                            ? (returnable.error as Error).message
+                        : returnable.isError
+                          ? (returnable.error as Error).message
+                          : mode === "all"
+                            ? allProducts
+                              ? "Nothing listed from this system -- add the products below."
+                              : "This customer has no dispensers to return."
                             : allProducts
-                              ? "Nothing this customer bought can come back."
-                              : "This customer has no dispensers to return."}
+                              ? "Nothing supplied on this day -- pick another day, or add the products below."
+                              : "No dispensers supplied to this customer on this day."}
                     </TableCell>
                   </TableRow>
                 )}
@@ -812,7 +923,14 @@ export function CustomerUnsoldDialog({
                       <TableCell>
                         {r.name}
                         <div className="text-[11px] text-muted-foreground">
-                          bought {num(r.bought)} {r.unit}
+                          {mode === "all" ? (
+                            `bought ${num(r.bought)} ${r.unit}`
+                          ) : (
+                            <>
+                              supplied {num(r.supplied)} {r.unit} that day
+                              {r.already > 0 && ` · ${num(r.already)} already returned`}
+                            </>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell className="text-right">{num(r.returnable)}</TableCell>
@@ -824,7 +942,9 @@ export function CustomerUnsoldDialog({
                           placeholder="0"
                         />
                         {(v ?? 0) > r.returnable && (
-                          <div className="text-[11px] text-destructive">More than bought</div>
+                          <div className="text-[11px] text-destructive">
+                            {mode === "all" ? "More than bought" : "More than supplied that day"}
+                          </div>
                         )}
                       </TableCell>
                     </TableRow>
@@ -897,14 +1017,6 @@ export function CustomerUnsoldDialog({
               </div>
             </Field>
           )}
-          <Field label="Date returned">
-            <Input
-              type="date"
-              value={returnDate}
-              max={localDay()}
-              onChange={(e) => e.target.value && setReturnDate(e.target.value)}
-            />
-          </Field>
           <Field label="Reason (optional)">
             <Textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} />
           </Field>
