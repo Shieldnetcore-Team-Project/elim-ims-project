@@ -281,3 +281,80 @@ BEGIN
   v2 := public.qc_post_jugs_to_pm(f, 0, NULL, NULL);
   PERFORM pg_temp.check((v2->>'good')::numeric = 6 AND (v2->>'kept')::numeric = 0, 'the 6 posted later');
 END $$;
+
+-- @@ Test 8: QC corrects an entry -- quantity, sender, a split part, removal; everything follows
+DO $$
+DECLARE
+  c uuid := 'b9900000-0000-0000-0000-000000000001';
+  r uuid := 'c9900000-0000-0000-0000-000000000002';
+  f uuid := 'f9900000-0000-0000-0000-000000000001';
+  b record; ret_c numeric; ret_r numeric; v jsonb; part record;
+BEGIN
+  UPDATE qc_jug_batches SET status = 'cancelled', cancelled_by = 'a9900000-0000-0000-0000-000000000001',
+         cancelled_at = now(), cancel_reason = 'test reset', accepted_at = NULL
+   WHERE factory_id = f AND status = 'accepted';
+  PERFORM pg_temp.check(pg_temp.mv('issue', 'customer', c, 2, 20) IS NULL, 'issue 20');
+  PERFORM pg_temp.check(pg_temp.mv('return', 'customer', c, 1, 9) IS NULL, 'return 9');
+  SELECT * INTO b FROM qc_jug_batches WHERE factory_id = f AND status = 'accepted' ORDER BY accepted_at DESC LIMIT 1;
+  ret_c := (SELECT returned FROM public.account_jugs(f) WHERE holder_id = c);
+
+  PERFORM pg_temp.check(pg_temp.err(format('SELECT public.correct_qc_jug_entry(%L, 7, %L)', b.id, '')) LIKE '%Say why%', 'reason required');
+  -- 9 was wrong: it was 7.
+  PERFORM public.correct_qc_jug_entry(b.id, 7, 'miscounted');
+  PERFORM pg_temp.check((SELECT quantity_accepted FROM qc_jug_batches WHERE id = b.id) = 7, 'entry now 7');
+  PERFORM pg_temp.check((SELECT quantity FROM container_movements WHERE reference = b.reference AND source = 'return') = 7, 'ledger now 7');
+  PERFORM pg_temp.check((SELECT returned FROM public.account_jugs(f) WHERE holder_id = c) = ret_c - 2, 'account follows');
+
+  -- Wrong person: it was marketer RC Marketer Two.
+  ret_r := COALESCE((SELECT returned FROM public.account_jugs(f) WHERE holder_id = r), 0);
+  PERFORM public.correct_qc_jug_entry(b.id, 7, 'wrong marketer', 'sales_rep', r);
+  PERFORM pg_temp.check((SELECT from_id FROM qc_jug_batches WHERE id = b.id) = r, 'sender changed');
+  PERFORM pg_temp.check((SELECT from_id FROM container_movements WHERE reference = b.reference AND source = 'return') = r, 'ledger sender changed');
+  PERFORM pg_temp.check((SELECT returned FROM public.account_jugs(f) WHERE holder_id = r) = ret_r + 7, 'marketer now credited');
+  PERFORM pg_temp.check((SELECT returned FROM public.account_jugs(f) WHERE holder_id = c) = ret_c - 9, 'customer no longer');
+
+  -- Post 3 of 7; the part left (4) is corrected to 2.
+  v := public.qc_post_jugs_to_pm(f, 0, NULL, 3);
+  SELECT * INTO part FROM qc_jug_batches WHERE factory_id = f AND status = 'accepted' AND reference = b.reference || '-R1';
+  PERFORM pg_temp.check(part.quantity_accepted = 4, 'part left 4');
+  PERFORM pg_temp.check(pg_temp.err(format('SELECT public.correct_qc_jug_entry(%L, 4, %L, %L, %L)', part.id, 'x', 'customer', c)) LIKE '%already posted%', 'no sender change once part is posted');
+  PERFORM public.correct_qc_jug_entry(part.id, 2, 'two were not ours');
+  PERFORM pg_temp.check((SELECT quantity FROM container_movements WHERE reference = b.reference AND source = 'return') = 5, 'ledger 3 + 2');
+  -- A posted entry can't be corrected here.
+  PERFORM pg_temp.check(pg_temp.err(format('SELECT public.correct_qc_jug_entry(%L, 1, %L)', b.id, 'x')) LIKE '%already been posted%', 'posted entry refused');
+  -- Remove the part.
+  PERFORM public.correct_qc_jug_entry(part.id, 0, 'entered twice');
+  PERFORM pg_temp.check((SELECT status FROM qc_jug_batches WHERE id = part.id) = 'cancelled', 'removed');
+  PERFORM pg_temp.check((SELECT quantity FROM container_movements WHERE reference = b.reference AND source = 'return') = 3, 'ledger back to 3');
+  -- The ledger is still append-only otherwise.
+  PERFORM pg_temp.check(pg_temp.err(format('UPDATE container_movements SET quantity = 1 WHERE reference = %L', b.reference)) LIKE '%append-only%', 'still append-only');
+END $$;
+
+-- @@ Test 9: QC posts one day's entries; other days stay with QC
+DO $$
+DECLARE
+  c uuid := 'b9900000-0000-0000-0000-000000000001';
+  f uuid := 'f9900000-0000-0000-0000-000000000001';
+  v jsonb;
+BEGIN
+  UPDATE qc_jug_batches SET status = 'cancelled', cancelled_by = 'a9900000-0000-0000-0000-000000000001',
+         cancelled_at = now(), cancel_reason = 'test reset', accepted_at = NULL
+   WHERE factory_id = f AND status = 'accepted';
+  PERFORM pg_temp.check(pg_temp.mv('issue', 'customer', c, 2, 20) IS NULL, 'issue 20');
+  -- 5 back yesterday, 8 today.
+  PERFORM pg_temp.err(format('SELECT public.record_container_movement(%L)', jsonb_build_object(
+    'factory_id', f, 'container_type_id', 'e9900000-0000-0000-0000-000000000001', 'kind', 'return',
+    'holder_type', 'customer', 'holder_id', c, 'quantity', 5,
+    'movement_date', ((now() AT TIME ZONE 'Africa/Lagos')::date - 1)::text)));
+  PERFORM pg_temp.check(pg_temp.mv('return', 'customer', c, 1, 8) IS NULL, 'return 8 today');
+
+  v := public.qc_post_jugs_to_pm(f, 0, NULL, NULL, (now() AT TIME ZONE 'Africa/Lagos')::date - 1);
+  PERFORM pg_temp.check((v->>'good')::numeric = 5, 'only yesterday''s 5 posted');
+  PERFORM pg_temp.check((SELECT SUM(quantity_accepted) FROM qc_jug_batches WHERE factory_id = f AND status = 'accepted') = 8,
+                        'today''s 8 still with QC');
+  PERFORM pg_temp.check(pg_temp.err(format('SELECT public.qc_post_jugs_to_pm(%L, 0, NULL, NULL, %L)', f,
+                          ((now() AT TIME ZONE 'Africa/Lagos')::date - 1)::text)) LIKE '%no jugs with QC to post for%', 'nothing left that day');
+  -- Part of today's.
+  v := public.qc_post_jugs_to_pm(f, 0, NULL, 6, (now() AT TIME ZONE 'Africa/Lagos')::date);
+  PERFORM pg_temp.check((v->>'good')::numeric = 6 AND (v->>'kept')::numeric = 2, '6 of today''s 8, 2 kept');
+END $$;

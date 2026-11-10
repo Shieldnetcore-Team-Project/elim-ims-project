@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Loader2, PackageCheck, Send } from "lucide-react";
+import { Loader2, PackageCheck, Pencil, Search, Send } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,7 +25,18 @@ import {
 } from "@/components/ui/table";
 import { DatePicker } from "@/components/shared/date-picker";
 import { CountInput, fmtDateTime } from "@/components/preform/shared";
-import { rpc } from "@/components/preform/api";
+import { db, rpc } from "@/components/preform/api";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { useMarketers } from "@/components/jugs/api";
+import type { JugBatch } from "./jug-api";
 import { usePermissions } from "@/lib/permissions";
 import { useMyProductMatcher } from "@/lib/product-rules";
 import { localDay } from "@/lib/production-shift";
@@ -57,8 +68,33 @@ type Posting = {
 };
 
 const n = (v: unknown) => (v == null ? 0 : Number(v));
-// Postings go back to the start of jug tracking by default: "all QC has posted so far".
-const FIRST_DAY = "2026-10-01";
+
+// Quick search (user, 2026-11-10): any of the texts contains what is typed.
+const matches = (term: string, ...texts: (string | number | null | undefined)[]) => {
+  const t = term.trim().toLowerCase();
+  return (
+    !t ||
+    texts.some((x) =>
+      String(x ?? "")
+        .toLowerCase()
+        .includes(t),
+    )
+  );
+};
+
+function SearchBox({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <div className="relative">
+      <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+      <Input
+        className="h-9 w-56 pl-8"
+        placeholder="Search reference, name…"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </div>
+  );
+}
 
 // The Lagos day of a timestamp ("YYYY-MM-DD").
 const lagosDay = (ts: string | null) =>
@@ -73,21 +109,39 @@ export function QcPostToPm({ factoryId }: { factoryId: string }) {
   const canPost = canSubmit("goods-receiving");
   useQcJugLive();
   const today = localDay();
-  // A day picked on the calendar (user, 2026-11-10): every jug that came to
-  // QC that day and where it is now. No day: what is with QC now.
-  const [day, setDay] = useState("");
-  const batches = useQcJugBatches(factoryId, day || today, day || today);
+  // From / To on the calendars (user, 2026-11-10): every jug that came to
+  // QC in those days and where it is now; both start on today's date.
+  // Cleared ("All with QC now"): what is with QC now.
+  const [from, setFrom] = useState(today);
+  const [to, setTo] = useState(today);
+  const qFrom = from || to;
+  const qTo = to || from;
+  const day = qFrom && qTo && qFrom <= qTo ? `${qFrom}|${qTo}` : "";
+  const batches = useQcJugBatches(factoryId, qFrom || today, qTo || today);
   const atQc = (batches.data ?? []).filter((b) => b.status === "accepted");
   const total = atQc.reduce((s, b) => s + (b.quantity_accepted ?? 0), 0);
-  const rows = day
-    ? (batches.data ?? []).filter(
-        (b) =>
-          ["accepted", "verified", "received"].includes(b.status) &&
-          lagosDay(b.accepted_at ?? b.sent_at) === day,
-      )
-    : atQc;
+  const [q, setQ] = useState("");
+  const rows = (
+    day
+      ? (batches.data ?? []).filter((b) => {
+          const d = lagosDay(b.accepted_at ?? b.sent_at);
+          return ["accepted", "verified", "received"].includes(b.status) && d >= qFrom && d <= qTo;
+        })
+      : atQc
+  ).filter((b) =>
+    matches(
+      q,
+      b.reference,
+      fromText(b.send_notes),
+      KIND_NAME[b.jug_kind],
+      b.pm_posting,
+      b.quantity_accepted,
+    ),
+  );
   const shown = rows.reduce((s, b) => s + (b.quantity_accepted ?? 0), 0);
   const [posting, setPosting] = useState(false);
+  // Correcting one entry (user, 2026-11-10): the pencil on each row.
+  const [correcting, setCorrecting] = useState<JugBatch | null>(null);
 
   return (
     <Card className="rounded-2xl border-primary/40">
@@ -103,15 +157,30 @@ export function QcPostToPm({ factoryId }: { factoryId: string }) {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <DatePicker value={day} max={today} onChange={setDay} />
-          {day && (
-            <Button variant="ghost" size="sm" onClick={() => setDay("")}>
+          <SearchBox value={q} onChange={setQ} />
+          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+            From
+            <DatePicker value={from} max={to || today} onChange={setFrom} />
+          </div>
+          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+            To
+            <DatePicker value={to} min={from || undefined} max={today} onChange={setTo} />
+          </div>
+          {(from || to) && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setFrom("");
+                setTo("");
+              }}
+            >
               All with QC now
             </Button>
           )}
           {canPost && (
             <Button className="gap-2" disabled={total <= 0} onClick={() => setPosting(true)}>
-              <Send className="h-4 w-4" /> Post {num(total)} to PM
+              <Send className="h-4 w-4" /> Post to PM
             </Button>
           )}
         </div>
@@ -126,16 +195,20 @@ export function QcPostToPm({ factoryId }: { factoryId: string }) {
               <TableHead className="text-right">Jugs</TableHead>
               <TableHead>With QC since</TableHead>
               {day && <TableHead>Now</TableHead>}
+              {canPost && <TableHead className="w-10" />}
             </TableRow>
           </TableHeader>
           <TableBody>
             {rows.length === 0 && (
               <TableRow>
-                <TableCell colSpan={day ? 6 : 5} className="py-6 text-center text-muted-foreground">
+                <TableCell
+                  colSpan={(day ? 6 : 5) + (canPost ? 1 : 0)}
+                  className="py-6 text-center text-muted-foreground"
+                >
                   {batches.isLoading
                     ? "Loading…"
                     : day
-                      ? "No jugs came to QC on this day."
+                      ? "No jugs came to QC in these days."
                       : "No jugs with QC — everything has been posted."}
                 </TableCell>
               </TableRow>
@@ -173,43 +246,234 @@ export function QcPostToPm({ factoryId }: { factoryId: string }) {
                     )}
                   </TableCell>
                 )}
+                {canPost && (
+                  <TableCell className="text-right">
+                    {b.status === "accepted" && (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8"
+                        title="Correct this entry"
+                        onClick={() => setCorrecting(b)}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </TableCell>
+                )}
               </TableRow>
             ))}
           </TableBody>
           {rows.length > 0 && (
             <TableFooter>
               <TableRow>
-                <TableCell colSpan={3}>{day ? "Total that day" : "Total with QC"}</TableCell>
+                <TableCell colSpan={3}>
+                  {day
+                    ? qFrom === qTo
+                      ? "Total that day"
+                      : "Total for these days"
+                    : "Total with QC"}
+                </TableCell>
                 <TableCell className="text-right">{num(shown)}</TableCell>
-                <TableCell colSpan={day ? 2 : 1} />
+                <TableCell colSpan={(day ? 2 : 1) + (canPost ? 1 : 0)} />
               </TableRow>
             </TableFooter>
           )}
         </Table>
       </CardContent>
       {posting && (
-        <PostDialog factoryId={factoryId} total={total} onClose={() => setPosting(false)} />
+        <PostDialog
+          factoryId={factoryId}
+          entries={atQc}
+          initialDay={day ? qFrom : undefined}
+          onClose={() => setPosting(false)}
+        />
+      )}
+      {correcting && (
+        <CorrectDialog
+          factoryId={factoryId}
+          entry={correcting}
+          onClose={() => setCorrecting(null)}
+        />
       )}
     </Card>
   );
 }
 
-function PostDialog({
+// Put one entry right: the number of jugs, who brought them back (returned
+// empties), or 0 to remove it -- with a reason (correct_qc_jug_entry,
+// 20261110210000). The ledger, Jugs collected, reports and Accounts follow.
+function CorrectDialog({
   factoryId,
-  total,
+  entry,
   onClose,
 }: {
   factoryId: string;
-  total: number;
+  entry: JugBatch;
   onClose: () => void;
 }) {
+  const returned = !!entry.collected && !!entry.from_type;
+  const [qty, setQty] = useState<number | null>(entry.quantity_accepted ?? 0);
+  const [from, setFrom] = useState(
+    entry.from_type === "walk_in"
+      ? "walk_in:"
+      : entry.from_type
+        ? `${entry.from_type}:${entry.from_id ?? ""}`
+        : "",
+  );
+  const [reason, setReason] = useState("");
+  const reps = useMarketers(returned ? factoryId : undefined);
+  const customers = useQuery({
+    queryKey: ["qc-jugs", "correct-customers", factoryId],
+    enabled: returned,
+    queryFn: async () => {
+      const { data, error } = await db
+        .from("customers")
+        .select("id,name")
+        .eq("factory_id", factoryId)
+        .is("removed_at", null)
+        .order("name");
+      if (error) return [];
+      return (data ?? []) as { id: string; name: string }[];
+    },
+  });
+  const [fromType, fromId] = from.split(":");
+  const shops = (reps.data ?? []).filter((r) => r.kind === "outlet");
+  const marketers = (reps.data ?? []).filter((r) => r.kind !== "outlet");
+  const save = useQcJugAction(
+    () =>
+      rpc("correct_qc_jug_entry", {
+        p_id: entry.id,
+        p_quantity: qty ?? 0,
+        p_reason: reason,
+        p_from_type: returned ? fromType || null : null,
+        p_from_id: returned && fromId ? fromId : null,
+      }),
+    qty === 0 ? `${entry.reference} removed` : `${entry.reference} corrected`,
+  );
+  const changed =
+    (qty ?? 0) !== (entry.quantity_accepted ?? 0) ||
+    (returned &&
+      from !==
+        (entry.from_type === "walk_in" ? "walk_in:" : `${entry.from_type}:${entry.from_id ?? ""}`));
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Correct {entry.reference}</DialogTitle>
+          <DialogDescription>
+            Entered as {num(entry.quantity_accepted)} {KIND_NAME[entry.jug_kind]}(s)
+            {returned ? ` from ${fromText(entry.send_notes)}` : ""}. Put it right below — 0 removes
+            the entry.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3">
+          <div className="space-y-1.5">
+            <Label>Jugs</Label>
+            <CountInput value={qty} onChange={setQty} placeholder="0" />
+          </div>
+          {returned && (
+            <div className="space-y-1.5">
+              <Label>From</Label>
+              <Select value={from} onValueChange={setFrom}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Who brought them back" />
+                </SelectTrigger>
+                <SelectContent>
+                  {shops.length > 0 && (
+                    <SelectGroup>
+                      <SelectLabel>Retail Shop</SelectLabel>
+                      {shops.map((r) => (
+                        <SelectItem key={r.id} value={`sales_rep:${r.id}`}>
+                          {r.name}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  )}
+                  <SelectGroup>
+                    <SelectLabel>Marketers</SelectLabel>
+                    {marketers.map((r) => (
+                      <SelectItem key={r.id} value={`sales_rep:${r.id}`}>
+                        {r.code ? `${r.code} · ` : ""}
+                        {r.name}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                  <SelectGroup>
+                    <SelectLabel>Distributors / customers</SelectLabel>
+                    {(customers.data ?? []).map((c) => (
+                      <SelectItem key={c.id} value={`customer:${c.id}`}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                  <SelectItem value="walk_in:">Walk-in customers</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          <div className="space-y-1.5">
+            <Label>Why is it being corrected? (required)</Label>
+            <Input
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="e.g. wrong count, entered under the wrong marketer"
+            />
+          </div>
+          {qty === 0 && (
+            <p className="text-xs text-destructive">
+              This removes the entry: the jugs go back on {returned ? "the sender’s" : "the"}{" "}
+              account as not returned.
+            </p>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant={qty === 0 ? "destructive" : "default"}
+            disabled={!changed || !reason.trim() || qty == null || save.isPending}
+            onClick={() => save.mutate(undefined, { onSuccess: onClose })}
+          >
+            {save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {qty === 0 ? "Remove entry" : "Save correction"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// Post to the PM, one day's entries at a time (user, 2026-11-10): the day
+// the jugs came to QC, damaged, and the good ones to send (fewer is fine --
+// the rest of that day stays with QC).
+function PostDialog({
+  factoryId,
+  entries,
+  initialDay,
+  onClose,
+}: {
+  factoryId: string;
+  entries: JugBatch[];
+  initialDay?: string;
+  onClose: () => void;
+}) {
+  const today = localDay();
+  const byDay = new Map<string, number>();
+  for (const e of entries) {
+    const d = lagosDay(e.accepted_at ?? e.sent_at);
+    byDay.set(d, (byDay.get(d) ?? 0) + (e.quantity_accepted ?? 0));
+  }
+  const days = [...byDay.keys()].sort();
+  const [day, setDay] = useState(
+    initialDay && byDay.has(initialDay) ? initialDay : (days[0] ?? today),
+  );
+  const total = byDay.get(day) ?? 0;
   const [damaged, setDamaged] = useState<number | null>(0);
   const [reason, setReason] = useState("");
-  // Good (to the PM) is QC's to set (user, 2026-11-10): all the rest by
-  // default, or fewer -- what isn't sent or damaged stays with QC.
-  const [good, setGood] = useState<number | null>(total);
-  const [goodTouched, setGoodTouched] = useState(false);
-  const goodNow = goodTouched ? (good ?? 0) : Math.max(total - (damaged ?? 0), 0);
+  const [good, setGood] = useState<number | null>(null);
+  const goodNow = good ?? Math.max(total - (damaged ?? 0), 0);
   const kept = total - goodNow - (damaged ?? 0);
   const post = useQcJugAction(
     () =>
@@ -220,32 +484,51 @@ function PostDialog({
           p_damaged: damaged ?? 0,
           p_damage_reason: reason || null,
           p_good: goodNow,
+          p_day: day,
         },
       ),
     (r) => {
       const x = r as { reference: string; good: number; damaged: number; kept: number };
-      return `${x.reference}: ${num(n(x.good))} good jugs posted to the PM${n(x.damaged) ? `, ${num(n(x.damaged))} damaged` : ""}${n(x.kept) ? ` — ${num(n(x.kept))} stay with QC` : ""}`;
+      return `${x.reference}: ${num(n(x.good))} posted to the PM${n(x.damaged) ? `, ${num(n(x.damaged))} damaged` : ""}`;
     },
   );
   const problem =
-    kept < 0
-      ? "Good + damaged is more than the jugs with QC"
-      : goodNow + (damaged ?? 0) <= 0
-        ? "Enter the good jugs to send to the PM"
-        : (damaged ?? 0) > 0 && !reason.trim()
-          ? "Record what is wrong with the damaged jugs"
-          : null;
+    total <= 0
+      ? "No jugs with QC on this day"
+      : kept < 0
+        ? "More than the jugs of this day"
+        : goodNow + (damaged ?? 0) <= 0
+          ? "Enter the good jugs"
+          : (damaged ?? 0) > 0 && !reason.trim()
+            ? "Enter what is wrong with the damaged jugs"
+            : null;
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>Post jugs to the PM</DialogTitle>
-          <DialogDescription>
-            {num(total)} jug(s) with QC. Enter how many good jugs go to the Production Manager now
-            and any damaged ones; the rest stay with QC for a later posting.
-          </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
+          <div className="grid grid-cols-2 items-end gap-3">
+            <div className="space-y-1.5">
+              <Label>Date</Label>
+              <DatePicker
+                value={day}
+                max={today}
+                className="w-full"
+                onChange={(d) => {
+                  setDay(d);
+                  setGood(null);
+                }}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>With QC</Label>
+              <div className="flex h-9 items-center rounded-md border bg-muted/30 px-3 font-semibold">
+                {num(total)}
+              </div>
+            </div>
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Damaged</Label>
@@ -253,28 +536,13 @@ function PostDialog({
             </div>
             <div className="space-y-1.5">
               <Label>Good (to the PM)</Label>
-              <CountInput
-                value={goodNow}
-                onChange={(v) => {
-                  setGoodTouched(true);
-                  setGood(v);
-                }}
-                placeholder="0"
-              />
+              <CountInput value={goodNow} onChange={(v) => setGood(v ?? 0)} placeholder="0" />
             </div>
           </div>
-          <p className={`text-xs ${kept < 0 ? "text-destructive" : "text-muted-foreground"}`}>
-            With QC {num(total)} − good {num(goodNow)} − damaged {num(damaged ?? 0)} ={" "}
-            <span className="font-semibold">{num(kept)}</span> stay with QC.
-          </p>
           {(damaged ?? 0) > 0 && (
             <div className="space-y-1.5">
-              <Label>What is wrong with the damaged jugs?</Label>
-              <Input
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                placeholder="e.g. cracked body, broken handle, leaking"
-              />
+              <Label>Damage</Label>
+              <Input value={reason} onChange={(e) => setReason(e.target.value)} />
             </div>
           )}
           {problem && <p className="text-xs text-destructive">{problem}</p>}
@@ -309,7 +577,8 @@ export function JugPostingsCard({ factoryId, mode }: { factoryId: string; mode: 
     (can("production", "submit") || can("production", "create"));
   useQcJugLive();
   const today = localDay();
-  const [from, setFrom] = useState(FIRST_DAY);
+  // The day's activity first (user, 2026-11-10): today until another date is picked.
+  const [from, setFrom] = useState(today);
   const [to, setTo] = useState(today);
   const ok = !!from && !!to && from <= to;
   const postings = useQuery({
@@ -324,7 +593,10 @@ export function JugPostingsCard({ factoryId, mode }: { factoryId: string; mode: 
         })) ?? []
       ).map((p) => ({ ...p, total: n(p.total), good: n(p.good), damaged: n(p.damaged) })),
   });
-  const rows = postings.data ?? [];
+  const [q, setQ] = useState("");
+  const rows = (postings.data ?? []).filter((p) =>
+    matches(q, p.posting, p.sources, p.posted_by, p.received_by, p.damage_reason, p.total),
+  );
   const pending = rows.filter((p) => p.status === "verified" && p.good > 0);
   const receive = useQcJugAction(
     (posting: string) =>
@@ -355,7 +627,8 @@ export function JugPostingsCard({ factoryId, mode }: { factoryId: string; mode: 
               : "Every posting to the Production Manager, and whether the PM has confirmed it."}
           </p>
         </div>
-        <div className="flex items-end gap-2">
+        <div className="flex flex-wrap items-end gap-2">
+          <SearchBox value={q} onChange={setQ} />
           <div>
             <Label className="text-xs">From</Label>
             <DatePicker value={from} max={to} onChange={setFrom} />
