@@ -52,3 +52,51 @@ BEGIN
   PERFORM pg_temp.check(e LIKE '%below 0%', 'refused: ' || COALESCE(e, 'no error'));
   PERFORM pg_temp.check((pg_temp.line(CURRENT_DATE)).balance = 55000, 'nothing changed');
 END $$;
+
+-- @@ Test 3 (20261110240000): a day entered on its own Opening that can't take the carried
+-- balance no longer blocks edits on other days; a linked day pushed below 0 still is refused
+DO $$
+DECLARE f uuid := 'f9900000-0000-0000-0000-000000000001';
+  m uuid := 'c9900000-0000-0000-0000-000000000002';
+  d1 date := CURRENT_DATE - 9; d2 date := CURRENT_DATE - 8; d3 date := CURRENT_DATE - 7;
+  e text; v_d2 production_material_reports;
+BEGIN
+  INSERT INTO raw_materials(id, factory_id, name, unit) VALUES (m, f, 'PC Bottle', 'Piece');
+  -- d1 ends 18,509; d2 entered by hand on its own Opening 50,000, used 47,020.
+  INSERT INTO production_material_reports(factory_id, report_date, material_id, material_name, unit, opening, qty_used)
+  VALUES (f, d1, m, 'PC Bottle', 'Piece', 20000, 1491);
+  ALTER TABLE production_material_reports DISABLE TRIGGER trg_pm_rechain;
+  INSERT INTO production_material_reports(factory_id, report_date, material_id, material_name, unit, opening, qty_used)
+  VALUES (f, d2, m, 'PC Bottle', 'Piece', 50000, 47020);
+  ALTER TABLE production_material_reports ENABLE TRIGGER trg_pm_rechain;
+  PERFORM public.save_production_material_report(jsonb_build_object('factory_id', f, 'report_date', d3,
+    'lines', jsonb_build_array(jsonb_build_object('material_id', m, 'opening', 2980, 'qty_in', 1000, 'qty_used', 500))));
+
+  -- Edit d1 (before) and d3 (after): both save; d2 keeps its own Opening.
+  SELECT * INTO v_d2 FROM production_material_reports WHERE material_id = m AND report_date = d1;
+  PERFORM public.save_production_material_report(jsonb_build_object('id', v_d2.id, 'qty_used', 1500));
+  SELECT * INTO v_d2 FROM production_material_reports WHERE material_id = m AND report_date = d3;
+  PERFORM public.save_production_material_report(jsonb_build_object('id', v_d2.id, 'qty_used', 600));
+  SELECT * INTO v_d2 FROM production_material_reports WHERE material_id = m AND report_date = d2;
+  PERFORM pg_temp.check(v_d2.opening = 50000, 'd2 keeps its own opening: ' || v_d2.opening);
+  SELECT * INTO v_d2 FROM production_material_reports WHERE material_id = m AND report_date = d3;
+  PERFORM pg_temp.check(v_d2.opening = 2980 AND v_d2.balance = 3380, 'd3 follows d2: ' || v_d2.balance);
+
+  -- Edit d2 itself (used): saves on its own Opening.
+  SELECT * INTO v_d2 FROM production_material_reports WHERE material_id = m AND report_date = d2;
+  PERFORM public.save_production_material_report(jsonb_build_object('id', v_d2.id, 'qty_used', 47000));
+  SELECT * INTO v_d2 FROM production_material_reports WHERE material_id = m AND report_date = d3;
+  PERFORM pg_temp.check(v_d2.opening = 3000, 'd3 follows d2''s edit: ' || v_d2.opening);
+
+  -- d2 given Qty In: now it can join the chain (opening 18,500).
+  SELECT * INTO v_d2 FROM production_material_reports WHERE material_id = m AND report_date = d2;
+  PERFORM public.save_production_material_report(jsonb_build_object('id', v_d2.id, 'qty_in', 30000));
+  SELECT * INTO v_d2 FROM production_material_reports WHERE material_id = m AND report_date = d2;
+  PERFORM pg_temp.check(v_d2.opening = 18500 AND v_d2.balance = 1500, 'd2 on the chain: ' || v_d2.opening);
+
+  -- Now linked: d1 used up so d2 would go below 0 -> refused.
+  SELECT * INTO v_d2 FROM production_material_reports WHERE material_id = m AND report_date = d1;
+  e := pg_temp.err(format($q$SELECT public.save_production_material_report(%L)$q$,
+         jsonb_build_object('id', v_d2.id, 'qty_used', 19000)));
+  PERFORM pg_temp.check(e LIKE '%below 0%', 'linked day refused: ' || COALESCE(e, 'no error'));
+END $$;
