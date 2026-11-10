@@ -1,4 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { printReturnNote, returnedQtyText } from "@/lib/return-note-pdf";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { RequireAccess } from "@/components/layout/require-access";
@@ -1009,17 +1010,8 @@ function AccountantPage() {
         party_type: "customer" as PartyType,
         reference: r.return_number,
         party: r.customer,
-        details: [
-          r.items,
-          Number(r.debt_reduced) > 0
-            ? `${money(Number(r.debt_reduced), currency)} off what they owe`
-            : null,
-          Number(r.credit_added) > 0
-            ? `${money(Number(r.credit_added), currency)} kept as credit`
-            : null,
-        ]
-          .filter(Boolean)
-          .join(" · "),
+        // Returns are counted in products, not money (user, 2026-11-10).
+        details: r.items,
         amount: Number(r.value),
         direction: "out" as const,
         status: r.status,
@@ -1051,7 +1043,6 @@ function AccountantPage() {
     postings.data,
     returns.data,
     customerReturns.data,
-    currency,
     remittances.data,
     reps.data,
   ]);
@@ -1300,16 +1291,16 @@ function AccountantPage() {
                         </TableCell>
                         <TableCell className="font-mono text-xs">{a.reference}</TableCell>
                         <TableCell>
-                          {a.repId || a.viewGroup || a.group ? (
+                          {a.repId || a.viewGroup || a.group || a.kind === "Return" ? (
                             <button
                               type="button"
                               className="text-left font-medium text-primary hover:underline"
                               title="See everything posted to them this day"
                               onClick={() =>
-                                a.day
+                                a.day || (a.kind === "Return" && !a.repId)
                                   ? setDayViewing({
                                       party: a.party,
-                                      day: a.day,
+                                      day: a.day ?? dayOf(a.date),
                                       repId: a.repId,
                                       customer: a.repId ? undefined : a.party,
                                     })
@@ -1355,6 +1346,9 @@ function AccountantPage() {
                           {a.dayValue ? (
                             // The day's postings together.
                             money(a.dayValue, currency)
+                          ) : a.kind === "Return" && returnedQtyText(a.details) ? (
+                            // Returns in products (user, 2026-11-10).
+                            returnedQtyText(a.details)
                           ) : (
                             <>
                               {a.direction === "out" ? "−" : ""}
@@ -1527,6 +1521,74 @@ function AccountantPage() {
                                     onClick={() =>
                                       printSaleInvoice(
                                         a.lastInvoice!.ids,
+                                        settings.data,
+                                        "download",
+                                      )
+                                    }
+                                  >
+                                    <Download className="h-4 w-4" />
+                                  </Button>
+                                </>
+                              )}
+                            {/* A return on its own (user, 2026-11-10): view, and the
+                                return note to print or download. */}
+                            {a.kind === "Return" &&
+                              !a.dayPostingIds?.length &&
+                              !a.dayInvoiceIds?.length &&
+                              !a.lastPostingId &&
+                              !a.lastInvoice && (
+                                <>
+                                  {!a.repId && (
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      title={`See ${a.party}'s activity this day`}
+                                      onClick={() =>
+                                        setDayViewing({
+                                          party: a.party,
+                                          day: a.day ?? dayOf(a.date),
+                                          customer: a.party,
+                                        })
+                                      }
+                                    >
+                                      <Eye className="h-4 w-4" />
+                                    </Button>
+                                  )}
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    title="Print return note"
+                                    onClick={() =>
+                                      void printReturnNote(
+                                        {
+                                          reference: a.reference,
+                                          date: a.at ?? a.date,
+                                          party: a.party,
+                                          partyType: a.party_type,
+                                          items: a.details ?? "",
+                                          status: a.status,
+                                        },
+                                        settings.data,
+                                        "print",
+                                      )
+                                    }
+                                  >
+                                    <Printer className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    title="Download return note"
+                                    onClick={() =>
+                                      void printReturnNote(
+                                        {
+                                          reference: a.reference,
+                                          date: a.at ?? a.date,
+                                          party: a.party,
+                                          partyType: a.party_type,
+                                          items: a.details ?? "",
+                                          status: a.status,
+                                        },
                                         settings.data,
                                         "download",
                                       )
