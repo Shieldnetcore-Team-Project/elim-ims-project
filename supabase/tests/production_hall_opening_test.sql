@@ -35,7 +35,7 @@ BEGIN
          'quantity_produced', 100, 'unit', 'Pack', 'shift', 'day'));
   UPDATE production SET production_date = d - 1 WHERE id = (v->>'id')::uuid;
   PERFORM public.release_to_warehouse(jsonb_build_object('factory_id', f, 'product_id', p, 'quantity', 30));
-  UPDATE production_releases SET released_at = released_at - interval '1 day' WHERE product_id = p;
+  UPDATE production_releases SET released_at = released_at - interval '1 day', production_date = production_date - 1 WHERE product_id = p;
   PERFORM pg_temp.check(public._production_hall_available(f, p) = 70, 'hall 70 before the opening');
 
   INSERT INTO production_hall_openings(factory_id, product_id, opening_date, quantity, reason, created_by)

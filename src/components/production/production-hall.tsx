@@ -8,6 +8,13 @@ import { useRealtimeInvalidate } from "@/lib/realtime";
 import { useCurrentUserName } from "@/lib/use-current-user";
 import { num } from "@/lib/format";
 import { useMyProductMatcher } from "@/lib/product-rules";
+import {
+  addDays,
+  isSunday,
+  localDay,
+  SHIFT_LABEL,
+  type ProductionShift,
+} from "@/lib/production-shift";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -514,6 +521,15 @@ function ReleaseDialog({
   const [requestId, setRequestId] = useState("none");
   const [notes, setNotes] = useState("");
   const [releasedBy, setReleasedBy] = useState("");
+  // The production day and shift this issue belongs to: now's by default
+  // (Night from 6 p.m.); a late entry can be put on an earlier day, up to 7
+  // days back (release_to_warehouse checks the same).
+  const today = localDay();
+  const [day, setDay] = useState(today);
+  const [pickedShift, setShift] = useState<ProductionShift>(
+    new Date().getHours() >= 18 ? "night" : "day",
+  );
+  const shift: ProductionShift = isSunday(day) ? "overtime" : pickedShift;
   const currentUserName = useCurrentUserName();
 
   useEffect(() => {
@@ -552,6 +568,8 @@ function ReleaseDialog({
           production_request_id: requestId === "none" ? null : requestId,
           notes: notes.trim() || null,
           released_by_name: releasedBy.trim() || null,
+          production_date: day,
+          shift,
         },
       });
       if (error) throw error;
@@ -578,6 +596,44 @@ function ReleaseDialog({
           <Label>Quantity to release ({row.unit})</Label>
           <MoneyInput min={0.001} step="0.001" value={quantity} onChange={setQuantity} />
         </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label>Production day</Label>
+            <Input
+              type="date"
+              value={day}
+              min={addDays(today, -7)}
+              max={today}
+              onChange={(e) => e.target.value && setDay(e.target.value)}
+            />
+          </div>
+          <div>
+            <Label>Shift</Label>
+            <Select
+              value={shift}
+              disabled={isSunday(day)}
+              onValueChange={(v) => setShift(v as ProductionShift)}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(["day", "night", "overtime"] as const).map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {SHIFT_LABEL[s]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        {day !== today && (
+          <p className="text-xs text-muted-foreground">
+            Counts as an issue of {day}&apos;s {SHIFT_LABEL[shift].toLowerCase()} shift; that
+            day&apos;s closing and every later opening are worked out again. Recorded as a late
+            entry.
+          </p>
+        )}
         {(requests.data ?? []).length > 0 && (
           <div>
             <Label>Against request (optional)</Label>

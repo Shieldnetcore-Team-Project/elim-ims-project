@@ -13,6 +13,7 @@ import { useMyProductMatcher } from "@/lib/product-rules";
 import { PAGES, usePageAccess } from "@/lib/page-access";
 import { useIsAdmin } from "@/lib/permissions";
 import { QcReportsTab } from "@/components/qc/qc-reports";
+import { DailyBalanceReports } from "@/components/production/daily-balance";
 import { SHIFT_LABEL, type ProductionShift as Shift } from "@/lib/production-shift";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -80,6 +81,9 @@ type Release = {
   product_id: string;
   quantity: number;
   released_at: string;
+  // The production day the release was put on (20261111090000); older
+  // releases carry their own calendar day.
+  production_date?: string | null;
   products: { name: string } | null;
 };
 // Unreleased stock cleared from the hall (20261029120000): out of the hall on
@@ -203,16 +207,27 @@ function ProductionReportPage() {
     queryFn: async () => {
       const all: Release[] = [];
       const page = 1000;
-      const end = new Date(`${shift(to, 1)}T00:00:00`).toISOString();
+      // A release can be put on a production day up to 7 days before it was
+      // entered, so look a little past the period; later days are skipped
+      // when the rows are added up.
+      const end = new Date(`${shift(to, 9)}T00:00:00`).toISOString();
+      // Before its database update there is no production_date column.
+      let cols = "product_id,quantity,released_at,production_date,products(name)";
       for (let fromRow = 0; ; fromRow += page) {
-        const { data, error } = await supabase
-          .from("production_releases")
-          .select("product_id,quantity,released_at,products(name)")
-          .eq("factory_id", factoryId!)
-          .in("status", ["pending", "accepted"])
-          .lt("released_at", end)
-          .order("released_at")
-          .range(fromRow, fromRow + page - 1);
+        const run = () =>
+          supabase
+            .from("production_releases")
+            .select(cols)
+            .eq("factory_id", factoryId!)
+            .in("status", ["pending", "accepted"])
+            .lt("released_at", end)
+            .order("released_at")
+            .range(fromRow, fromRow + page - 1);
+        let { data, error } = await run();
+        if (error && /production_date/.test(error.message)) {
+          cols = "product_id,quantity,released_at,products(name)";
+          ({ data, error } = await run());
+        }
         if (error) throw error;
         all.push(...((data ?? []) as unknown as Release[]));
         if (!data || data.length < page) break;
@@ -289,7 +304,7 @@ function ProductionReportPage() {
         rel.product_id,
         rel.products?.name ?? "—",
         Number(rel.quantity),
-        localDay(new Date(rel.released_at)),
+        rel.production_date ?? localDay(new Date(rel.released_at)),
       );
     for (const c of clearances.data ?? [])
       out(
@@ -499,6 +514,9 @@ function ProductionReportPage() {
         />
 
         <ShiftBreakdown batches={batches.data ?? []} from={from} to={to} mine={mine} />
+
+        {/* Daily / shift opening and closing reports (2026-11-11). */}
+        <DailyBalanceReports factoryId={factoryId} from={from} to={to} />
       </div>
     </div>
   );

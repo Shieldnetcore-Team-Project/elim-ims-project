@@ -1805,8 +1805,14 @@ export async function generateProductionStockReportPdf(
   }
   doc.setFontSize(10);
   if (opts.company.address) {
-    doc.text(opts.company.address, pageW / 2, y, { align: "center", maxWidth: pageW - 80 });
-    y += 14;
+    // A long address wraps; each line moves the Tel / Email line down so
+    // they never print on top of each other.
+    const lines = doc.splitTextToSize(opts.company.address, pageW - 80) as string[];
+    for (const line of lines) {
+      doc.text(line, pageW / 2, y, { align: "center" });
+      y += 13;
+    }
+    y += 1;
   }
   const contact = [
     opts.company.phone ? `Tel: ${opts.company.phone}` : "",

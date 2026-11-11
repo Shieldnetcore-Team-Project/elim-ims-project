@@ -88,6 +88,7 @@ import {
 } from "@/lib/production-shift";
 import { JugPostingsCard } from "@/components/qc/jug-post-to-pm";
 import { PmBottlesFromQc } from "@/components/preform/pm-bottles";
+import { DailyBalanceCard } from "@/components/production/daily-balance";
 import { ProductionMaterialsReport } from "@/components/production/materials-report";
 import { ProductionStoreIssues } from "@/components/production/store-issues";
 import { ReportActions } from "@/components/shared/report-actions";
@@ -568,6 +569,9 @@ function ProductionPage() {
               </AlertDescription>
             </Alert>
           )}
+
+          {/* Opening, each shift and the closing that opens tomorrow (2026-11-11). */}
+          {factoryId && <DailyBalanceCard factoryId={factoryId} />}
 
           {factoryId && <ProductionHall factoryId={factoryId} />}
 
