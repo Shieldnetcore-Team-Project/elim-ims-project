@@ -3604,6 +3604,86 @@ async function fetchVanStock(repId: string): Promise<VanStockRow[]> {
   }));
 }
 
+type DispenserBreakdown = {
+  posted: number;
+  unsold_back: number;
+  on_van: number;
+  sold: number;
+  empties_back: number;
+  jug_water_sold: number;
+  water_sold: number;
+  jw_posted: number;
+  jw_back: number;
+  water_price: number | null;
+  jug_price: number | null;
+  jug_water_price: number;
+};
+
+// The Dispenser Water posted to a marketer, split the way it was sold: the
+// empties QC took back are Dispenser Water (N1,200); the jugs that didn't come
+// back, once off the van, are Jug + Water (N4,200). The same money as the
+// balance below (posted at N1,200 + the jug price for each jug not back).
+function DispenserBreakdownCard({ d }: { d: DispenserBreakdown }) {
+  const water = Number(d.water_price ?? 0);
+  const jugWater = Number(d.jug_water_price ?? 0);
+  const jwSold = Number(d.jug_water_sold);
+  const wSold = Number(d.water_sold);
+  const onVan = Number(d.on_van);
+  const jwDirect = Math.max(Number(d.jw_posted) - Number(d.jw_back), 0);
+  const lines: { label: string; qty: number; price: number | null }[] = [
+    { label: "Jug + Water sold (jug kept by the customer)", qty: jwSold, price: jugWater },
+    { label: "Dispenser Water sold (empty returned)", qty: wSold, price: water },
+    ...(jwDirect > 0
+      ? [{ label: "Jug + Water posted as such", qty: jwDirect, price: jugWater }]
+      : []),
+    ...(onVan > 0
+      ? [{ label: "Still on the van (water + jug until returned)", qty: onVan, price: jugWater }]
+      : []),
+  ];
+  const total = lines.reduce((t, l) => t + l.qty * Number(l.price ?? 0), 0);
+  return (
+    <Card className="rounded-2xl">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Dispensers</CardTitle>
+        <p className="text-sm text-muted-foreground">
+          {num(Number(d.posted))} Dispenser Water posted · {num(Number(d.unsold_back))} returned
+          unsold · {num(Number(d.empties_back))} empty jugs returned (QC)
+        </p>
+      </CardHeader>
+      <CardContent className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Type</TableHead>
+              <TableHead className="text-right">Qty</TableHead>
+              <TableHead className="text-right">Price</TableHead>
+              <TableHead className="text-right">Amount</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {lines.map((l) => (
+              <TableRow key={l.label}>
+                <TableCell>{l.label}</TableCell>
+                <TableCell className="text-right">{num(l.qty)}</TableCell>
+                <TableCell className="text-right">{money(Number(l.price ?? 0))}</TableCell>
+                <TableCell className="text-right">{money(l.qty * Number(l.price ?? 0))}</TableCell>
+              </TableRow>
+            ))}
+            <TableRow>
+              <TableCell className="font-semibold">Dispensers total</TableCell>
+              <TableCell className="text-right font-semibold">
+                {num(lines.reduce((t, l) => t + l.qty, 0))}
+              </TableCell>
+              <TableCell />
+              <TableCell className="text-right font-semibold">{money(total)}</TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
+
 // One rep's (marketer's) account: balance and reconciliation, the customers/
 // offices under them (RepCustomersCard: what each owes, invoices, collecting
 // payments), and van stock. Used by Distribution → Accounts and by the
@@ -3648,6 +3728,26 @@ export function RepAccountView({
     queryFn: () => fetchVanStock(repId),
   });
 
+  // How the Dispenser Water posted to them went: sold as Jug + Water (the
+  // jug kept by the customer), as Dispenser Water (empty back), or still on
+  // the van (rep_dispenser_breakdown, 2026-11-12).
+  const dispensers = useQuery({
+    queryKey: ["dist-rep-dispensers", repId, from, to],
+    enabled: !!repId,
+    queryFn: async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- RPC newer than the generated types
+      const { data, error } = await (supabase as any).rpc("rep_dispenser_breakdown", {
+        p_rep: repId,
+        p_from: from || null,
+        p_to: to || null,
+      });
+      // Before its database update there is nothing to show.
+      if (error) return null;
+      return data as DispenserBreakdown;
+    },
+  });
+  const d = dispensers.data;
+
   const s = summary.data;
   const rows: { label: string; value: number; strong?: boolean }[] = s
     ? [
@@ -3664,7 +3764,10 @@ export function RepAccountView({
             ]
           : []),
         {
-          label: `Add: jugs not brought back (${num(Number(s.jugs_owed ?? 0))} × jug price; ${num(Number(s.jugs_returned ?? 0))} empty jugs returned)`,
+          label:
+            d && Number(d.jug_water_sold) > 0
+              ? `Add: jug price for jugs not brought back (${num(Number(s.jugs_owed ?? 0))}: ${num(Number(d.jug_water_sold))} sold as Jug + Water${Number(d.on_van) > 0 ? `, ${num(Number(d.on_van))} still on the van` : ""}; ${num(Number(s.jugs_returned ?? 0))} empty jugs returned)`
+              : `Add: jugs not brought back (${num(Number(s.jugs_owed ?? 0))} × jug price; ${num(Number(s.jugs_returned ?? 0))} empty jugs returned)`,
           value: Number(s.jugs_owed_value ?? 0),
         },
         { label: "Less: cash remitted", value: -s.cash_remitted },
@@ -3698,6 +3801,8 @@ export function RepAccountView({
               tone={s.net_balance_owed > 0 ? "warn" : "ok"}
             />
           </div>
+
+          {d && Number(d.posted) + Number(d.jw_posted) > 0 && <DispenserBreakdownCard d={d} />}
 
           <Card className="rounded-2xl">
             <CardHeader className="flex flex-row items-center flex-wrap justify-between gap-2">

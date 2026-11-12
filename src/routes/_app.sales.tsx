@@ -200,7 +200,8 @@ type EditingSaleData = {
   pending_payments: { amount: number; method: PaymentMethod }[] | null;
   amount_paid: number;
   payment_method: PaymentMethod;
-  items: { product_id: string; quantity: number; unit_price: number }[];
+  // Each line keeps its dispenser type through an edit (2026-11-12).
+  items: { product_id: string; quantity: number; unit_price: number; jar_mode?: JarMode | null }[];
 };
 
 const saleStatusBadge = (s: string): "default" | "secondary" | "outline" | "destructive" =>
@@ -361,7 +362,7 @@ function SalesPage() {
     const { data, error } = await supabase
       .from("sales")
       .select(
-        "id,invoice_number,sale_date,customer_id,customer_name,customer_phone,customer_address,discount,vat,is_pr,sales_person,sales_rep_id,remarks,pending_payments,amount_paid,payment_method,sale_items(product_id,quantity,unit_price)",
+        "id,invoice_number,sale_date,customer_id,customer_name,customer_phone,customer_address,discount,vat,is_pr,sales_person,sales_rep_id,remarks,pending_payments,amount_paid,payment_method,sale_items(product_id,quantity,unit_price,jar_mode)",
       )
       .eq("id", saleId)
       .single();
@@ -392,6 +393,7 @@ function SalesPage() {
         product_id: it.product_id,
         quantity: Number(it.quantity),
         unit_price: Number(it.unit_price),
+        jar_mode: it.jar_mode ?? null,
       })),
     });
     setEditOpen(true);
@@ -1881,11 +1883,20 @@ export function PosDialog({
         const avail = (p ? effStock(p) : 0) + it.quantity;
         return {
           product_id: it.product_id,
-          name: p?.name ?? "Unknown product",
+          name: it.jar_mode
+            ? saleLineName(p?.name ?? "Unknown product", it.jar_mode)
+            : (p?.name ?? "Unknown product"),
           unit: p?.unit ?? "",
           quantity: it.quantity,
           unit_price: it.unit_price,
           stock: avail,
+          ...(it.jar_mode
+            ? {
+                key: `${it.product_id}::${it.jar_mode}`,
+                jar_mode: it.jar_mode,
+                base_price: it.unit_price,
+              }
+            : {}),
         };
       }),
     );

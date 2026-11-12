@@ -234,3 +234,22 @@ BEGIN
   EXCEPTION WHEN OTHERS THEN ok := SQLERRM LIKE '%on hand%'; END;
   PERFORM pg_temp.check(ok, 'both lines checked against the van');
 END $$;
+
+-- @@ Test 9: a distributor's Jug + Water and Dispenser Water show apart in Accounts' window (2026-11-12)
+DO $$
+DECLARE f uuid := 'f7500000-0000-0000-0000-000000000001';
+  w uuid := 'b7500000-0000-0000-0000-000000000001'; s jsonb;
+BEGIN
+  s := public.create_sale(jsonb_build_object('factory_id', f, 'customer_name', 'DTP Medix',
+         'sale_date', (now() AT TIME ZONE 'Africa/Lagos')::date, 'payments', '[]'::jsonb,
+         'items', jsonb_build_array(
+           jsonb_build_object('product_id', w, 'quantity', 19, 'jar_mode', 'permanent'),
+           jsonb_build_object('product_id', w, 'quantity', 14, 'unit_price', 1200, 'jar_mode', 'swap'))));
+  PERFORM pg_temp.check(EXISTS (SELECT 1 FROM public.party_postings_and_returns(f, NULL, 'DTP Medix') x
+                                 WHERE x.product_name = 'Jug + Water' AND x.quantity = 19 AND x.unit_price = 4200),
+                        'Jug + Water line: ' || (SELECT string_agg(product_name || ' ' || quantity || ' @ ' || unit_price, '; ')
+                                                    FROM public.party_postings_and_returns(f, NULL, 'DTP Medix')));
+  PERFORM pg_temp.check(EXISTS (SELECT 1 FROM public.party_postings_and_returns(f, NULL, 'DTP Medix') x
+                                 WHERE x.product_name = 'Dispenser Water' AND x.quantity = 14 AND x.unit_price = 1200),
+                        'Dispenser Water line kept apart');
+END $$;

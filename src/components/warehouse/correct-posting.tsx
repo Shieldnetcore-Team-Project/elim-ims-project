@@ -24,7 +24,29 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-type Line = { key: number; product_id: string; quantity: number; unit_price: number };
+// A distributor's dispenser line says what happens to its jug, as on a new
+// posting (sale_items.jar_mode). Kept through a correction (user, 2026-11-12:
+// a corrected Jug + Water line reposted as plain "Dispenser Water @ 4,200",
+// and its jug was then counted as owed back).
+type SaleJarMode = "swap" | "return_later" | "permanent";
+const SALE_JAR_LABEL: Record<SaleJarMode, string> = {
+  swap: "Dispenser Water — empty handed in",
+  return_later: "Dispenser Water — empty owed",
+  permanent: "Jug + Water — jug bought",
+};
+type JugPrice = {
+  product_id: string;
+  per_unit: number;
+  jar_price: number | null;
+  with_jar_price: number | null;
+};
+type Line = {
+  key: number;
+  product_id: string;
+  quantity: number;
+  unit_price: number;
+  jar_mode?: SaleJarMode | null;
+};
 type Product = {
   id: string;
   name: string;
@@ -335,7 +357,7 @@ export function CorrectDistributorPostingDialog({
       const { data, error } = await supabase
         .from("sales")
         .select(
-          "id,invoice_number,sale_date,customer_name,discount,sale_items(product_id,quantity,unit_price)",
+          "id,invoice_number,sale_date,customer_name,discount,sale_items(product_id,quantity,unit_price,jar_mode)",
         )
         .eq("factory_id", factoryId)
         .eq("invoice_number", invoiceNumber)
@@ -349,11 +371,28 @@ export function CorrectDistributorPostingDialog({
         sale_date: string;
         customer_name: string | null;
         discount: number;
-        sale_items: { product_id: string; quantity: number; unit_price: number }[];
+        sale_items: {
+          product_id: string;
+          quantity: number;
+          unit_price: number;
+          jar_mode?: SaleJarMode | null;
+        }[];
       };
     },
   });
   const products = useFinishedProducts(factoryId);
+  // Products that come in a jug, with the jug's prices.
+  const jugs = useQuery({
+    queryKey: ["jug-products", factoryId],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc(
+        "jug_products" as never,
+        { p_factory: factoryId } as never,
+      );
+      if (error) return [] as JugPrice[];
+      return (data ?? []) as JugPrice[];
+    },
+  });
 
   if (sale.isLoading || products.isLoading)
     return (
@@ -377,6 +416,7 @@ export function CorrectDistributorPostingDialog({
     <CorrectForm
       sale={sale.data}
       products={products.data ?? []}
+      jugs={jugs.data ?? []}
       onDone={() => {
         // Every figure on screen follows the correction at once -- no refresh.
         void qc.invalidateQueries();
@@ -389,6 +429,7 @@ export function CorrectDistributorPostingDialog({
 function CorrectForm({
   sale,
   products,
+  jugs,
   onDone,
 }: {
   sale: {
@@ -397,16 +438,33 @@ function CorrectForm({
     sale_date: string;
     customer_name: string | null;
     discount: number;
-    sale_items: { product_id: string; quantity: number; unit_price: number }[];
+    sale_items: {
+      product_id: string;
+      quantity: number;
+      unit_price: number;
+      jar_mode?: SaleJarMode | null;
+    }[];
   };
   products: Product[];
+  jugs: JugPrice[];
   onDone: () => void;
 }) {
-  const original = sale.sale_items.map((it, i) => ({
+  const jugOf = (pid: string) => jugs.find((j) => j.product_id === pid);
+  // A line's price for its jug choice, as on a new posting: Jug + Water =
+  // water + jug; the water only = that less the jug.
+  const priceFor = (pid: string, mode: SaleJarMode, current: number) => {
+    const j = jugOf(pid);
+    if (!j || j.with_jar_price == null) return current;
+    const per = Number(j.per_unit ?? 1);
+    if (mode === "permanent") return Number(j.with_jar_price) * per;
+    return j.jar_price != null ? (Number(j.with_jar_price) - Number(j.jar_price)) * per : current;
+  };
+  const original: Line[] = sale.sale_items.map((it, i) => ({
     key: i + 1,
     product_id: it.product_id,
     quantity: Number(it.quantity),
     unit_price: Number(it.unit_price),
+    jar_mode: it.jar_mode ?? null,
   }));
   const [lines, setLines] = useState<Line[]>(original);
   const [nextKey, setNextKey] = useState(original.length + 1);
@@ -427,6 +485,13 @@ function CorrectForm({
       const clean = lines.filter((l) => l.product_id && l.quantity > 0);
       if (clean.length === 0) throw new Error("Add at least one product line");
       if (!reason.trim()) throw new Error("Enter the reason for the correction");
+      const noType = clean.find((l) => jugOf(l.product_id) && !l.jar_mode);
+      if (noType)
+        throw new Error(
+          `Choose Jug + Water or Dispenser Water for ${
+            products.find((p) => p.id === noType.product_id)?.name ?? "the dispenser line"
+          }`,
+        );
       const { data, error } = await supabase.rpc(
         "correct_warehouse_posting" as never,
         {
@@ -439,6 +504,7 @@ function CorrectForm({
               product_id: l.product_id,
               quantity: l.quantity,
               unit_price: l.unit_price,
+              ...(l.jar_mode ? { jar_mode: l.jar_mode } : {}),
             })),
           },
         } as never,
@@ -484,6 +550,7 @@ function CorrectForm({
                     update(l.key, {
                       product_id: v,
                       unit_price: Number(products.find((p) => p.id === v)?.unit_price ?? 0),
+                      jar_mode: null,
                     })
                   }
                 >
@@ -498,6 +565,31 @@ function CorrectForm({
                     ))}
                   </SelectContent>
                 </Select>
+                {jugOf(l.product_id) && (
+                  <Select
+                    value={l.jar_mode ?? ""}
+                    onValueChange={(v) =>
+                      update(l.key, {
+                        jar_mode: v as SaleJarMode,
+                        unit_price: priceFor(l.product_id, v as SaleJarMode, l.unit_price),
+                      })
+                    }
+                  >
+                    <SelectTrigger
+                      className={`mt-1 h-8 text-xs ${l.jar_mode ? "" : "border-destructive"}`}
+                      aria-label="Type"
+                    >
+                      <SelectValue placeholder="Type: choose…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(Object.keys(SALE_JAR_LABEL) as SaleJarMode[]).map((m) => (
+                        <SelectItem key={m} value={m}>
+                          {SALE_JAR_LABEL[m]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
               <div>
                 <Label className="text-xs">Qty</Label>
@@ -513,6 +605,9 @@ function CorrectForm({
                   min={0}
                   value={l.unit_price}
                   onChange={(v) => update(l.key, { unit_price: v })}
+                  // Jug + Water is priced from the jug type (the server
+                  // prices it too).
+                  disabled={l.jar_mode === "permanent"}
                 />
               </div>
               <Button
