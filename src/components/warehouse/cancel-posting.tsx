@@ -25,7 +25,8 @@ import {
 export function useCanCancelPosting() {
   const perms = usePermissions();
   return (a: Pick<Activity, "kind" | "status">) =>
-    a.status === "posted" &&
+    // "corrected" = a posted posting that replaced an earlier one (20261113100000).
+    (a.status === "posted" || a.status === "corrected") &&
     (a.kind === "distributor"
       ? perms.canWrite("sales")
       : (a.kind === "marketer" || a.kind === "retail") && perms.can("distribution", "create"));

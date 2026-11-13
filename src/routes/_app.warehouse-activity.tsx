@@ -92,7 +92,7 @@ function WarehouseActivityPage() {
   // the products, the date (back-date) and give the reason.
   const perms = usePermissions();
   const canCorrect = (a: Activity) =>
-    a.status === "posted" &&
+    (a.status === "posted" || a.status === "corrected") &&
     (a.kind === "distributor"
       ? perms.canWrite("sales")
       : (a.kind === "marketer" || a.kind === "retail") && perms.can("distribution", "create"));

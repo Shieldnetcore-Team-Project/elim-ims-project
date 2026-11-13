@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/components/preform/api";
 import { num } from "@/lib/format";
 import { useMyProductMatcher } from "@/lib/product-rules";
 import { saleLineName } from "@/lib/sale-line-name";
@@ -168,6 +169,83 @@ export function LastSuppliedPanel({
           ))}
         </ul>
       )}
+      {kind === "customer" && day && <DayReturnsList customerId={id} day={day} mine={mine} />}
+    </div>
+  );
+}
+
+// Under a Distributor/Office Delivery customer's supply day: each return made
+// for that day, oldest first, one line per return (SR- number) and product
+// (user, 2026-11-13: "total supplied 440 and returned 19 at the top").
+// Cancelled returns are left out.
+function DayReturnsList({
+  customerId,
+  day,
+  mine,
+}: {
+  customerId: string;
+  day: string;
+  mine: (name: string) => boolean;
+}) {
+  const q = useQuery({
+    queryKey: ["jug", "customer-day-return-list", customerId, day],
+    queryFn: async () => {
+      const { data, error } = await db
+        .from("sales_returns")
+        .select("return_number,created_at,quantity_returned,status,product_id,products(name,unit)")
+        .eq("customer_id", customerId)
+        .eq("return_date", day)
+        .neq("status", "cancelled")
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      const rows = (data ?? []) as unknown as {
+        return_number: string;
+        created_at: string;
+        quantity_returned: number;
+        product_id: string;
+        products: { name: string; unit: string } | null;
+      }[];
+      const out = new Map<
+        string,
+        { ref: string; at: string; name: string; unit: string; qty: number }
+      >();
+      for (const r of rows) {
+        const ref = r.return_number.replace(/-\d+$/, "");
+        const key = `${ref}|${r.product_id}`;
+        const l = out.get(key) ?? {
+          ref,
+          at: r.created_at,
+          name: r.products?.name ?? "—",
+          unit: r.products?.unit ?? "",
+          qty: 0,
+        };
+        l.qty += Number(r.quantity_returned);
+        out.set(key, l);
+      }
+      return [...out.values()];
+    },
+  });
+  const rows = (q.data ?? []).filter((r) => mine(r.name));
+  if (rows.length === 0) return null;
+  return (
+    <div className="mt-2 border-t pt-2">
+      <div className="font-medium">Returned for this day</div>
+      <ul className="mt-1 grid gap-0.5">
+        {rows.map((r) => (
+          <li key={`${r.ref}|${r.name}`} className="flex justify-between gap-2">
+            <span>
+              {r.name}
+              <span className="text-[11px] text-muted-foreground">
+                {" "}
+                · {r.ref} · {new Date(r.at).toLocaleString()}
+              </span>
+            </span>
+            <span className="font-medium">
+              {num(r.qty)} {r.unit}
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
