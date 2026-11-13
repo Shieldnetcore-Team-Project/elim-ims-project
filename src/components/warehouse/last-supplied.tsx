@@ -1,6 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { db } from "@/components/preform/api";
+import {
+  EditSupplyButton,
+  isDispenserLine,
+  useIsSupplyEditor,
+} from "@/components/warehouse/edit-supply";
 import { num } from "@/lib/format";
 import { useMyProductMatcher } from "@/lib/product-rules";
 import { saleLineName } from "@/lib/sale-line-name";
@@ -135,8 +140,12 @@ export function LastSuppliedPanel({
   const q = useLastSupplied(kind, id, day);
   // Only this officer's products, as the rest of the form.
   const mine = useMyProductMatcher();
+  const editor = useIsSupplyEditor();
   if (!id) return null;
   const lines = (q.data?.lines ?? []).filter((l) => mine(l.name));
+  // Warehouse Manager: lower a dispenser supply on its posting instead of a
+  // return (user, 2026-11-13).
+  const canEdit = editor && lines.some((l) => isDispenserLine(l.name));
   return (
     <div className="rounded-lg border bg-muted/40 p-3 text-sm">
       <div className="font-medium">
@@ -168,6 +177,21 @@ export function LastSuppliedPanel({
             </li>
           ))}
         </ul>
+      )}
+      {canEdit && q.data && (
+        <div className="mt-2 flex flex-wrap items-center gap-1 border-t pt-2">
+          <span className="text-xs text-muted-foreground">
+            Dispensers came straight back? Edit the supply:
+          </span>
+          {q.data.references.map((ref) => (
+            <EditSupplyButton
+              key={ref}
+              kind={kind === "customer" ? "sale" : "dispatch"}
+              reference={ref}
+              compact={false}
+            />
+          ))}
+        </div>
       )}
       {kind === "customer" && day && <DayReturnsList customerId={id} day={day} mine={mine} />}
     </div>

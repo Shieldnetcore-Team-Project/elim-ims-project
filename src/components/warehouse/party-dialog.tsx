@@ -9,6 +9,7 @@ import { num } from "@/lib/format";
 import { type Activity, KIND, scopeToMyProducts } from "@/components/warehouse/activity";
 import { useMyProductMatcher } from "@/lib/product-rules";
 import { CancelPostingButton, useCanCancelPosting } from "@/components/warehouse/cancel-posting";
+import { EditSupplyButton, useCanEditSupply } from "@/components/warehouse/edit-supply";
 import { CustomerUnsoldDialog, ReceiveUnsoldDialog } from "@/components/jugs/dialogs";
 import { LastSuppliedPanel } from "@/components/warehouse/last-supplied";
 import { ReturnDateField } from "@/components/shared/return-date";
@@ -76,6 +77,7 @@ export function WarehousePartyDialog({
   // Only the products this Warehouse officer handles (2026-11-02).
   const mine = useMyProductMatcher();
   const canCancel = useCanCancelPosting();
+  const canEditSupply = useCanEditSupply();
   const types = useJugTypes(factoryId);
 
   const history = useQuery({
@@ -227,6 +229,12 @@ export function WarehousePartyDialog({
                           </Badge>
                         </TableCell>
                         <TableCell className="text-right">
+                          {canEditSupply(a) && (
+                            <EditSupplyButton
+                              kind={a.kind === "distributor" ? "sale" : "dispatch"}
+                              reference={a.reference}
+                            />
+                          )}
                           {canCancel(a) && (
                             <CancelPostingButton factoryId={factoryId} activity={a} />
                           )}
