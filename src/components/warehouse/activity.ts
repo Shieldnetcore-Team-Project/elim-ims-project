@@ -20,7 +20,8 @@ export type Activity = {
     | "adjusted"
     | "returned"
     | "customer_return"
-    | "jugs_returned";
+    | "jugs_returned"
+    | "gift";
   reference: string;
   at: string;
   party: string | null;
@@ -46,6 +47,8 @@ export const KIND: Record<
   returned: { label: "Returned to Warehouse", variant: "outline" },
   customer_return: { label: "Customer return", variant: "outline" },
   jugs_returned: { label: "Empty Dispenser Jugs returned", variant: "outline" },
+  // Chairman's gifts (CGF-...), 2026-11-14.
+  gift: { label: "Chairman's gift", variant: "secondary" },
 };
 
 // Which activities have a slip to print: postings print their dispatch slip;

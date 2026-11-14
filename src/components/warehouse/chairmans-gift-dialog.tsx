@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { logAudit } from "@/lib/audit";
@@ -73,6 +73,7 @@ export function ChairmansGiftDialog({
   const update = (i: number, patch: Partial<GiftLine>) =>
     setLines(lines.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
 
+  const queryClient = useQueryClient();
   const submit = useMutation({
     mutationFn: async () => {
       const clean = lines.filter((l) => l.product_id && l.quantity > 0);
@@ -100,6 +101,9 @@ export function ChairmansGiftDialog({
     onSuccess: (data) => {
       toast.success(`Chairman's gift ${data.gift_number} posted — sent to Accounting`);
       logAudit({ action: "create", entity: "chairmans_gifts", entityId: data.id, factoryId });
+      // The gift shows on Recent activity and the Activity Log at once (2026-11-14).
+      void queryClient.invalidateQueries({ queryKey: ["warehouse-transactions"] });
+      void queryClient.invalidateQueries({ queryKey: ["warehouse-activity-log"] });
       onDone();
     },
     onError: (e: Error) => toast.error(e.message),

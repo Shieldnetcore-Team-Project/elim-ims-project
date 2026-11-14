@@ -97,3 +97,59 @@ BEGIN
   END;
   PERFORM set_config('test.uid', 'a7800000-0000-0000-0000-000000000001', false);
 END $$;
+
+-- @@ Test 4: a marketer's opening balance counts with them, not in what Accounts charge
+DO $$
+DECLARE r record;
+BEGIN
+  INSERT INTO container_movements(factory_id, container_type_id, from_type, to_type, to_id, quantity, source, reference)
+  VALUES ('f7800000-0000-0000-0000-000000000001', 'e7800000-0000-0000-0000-000000000001', 'external', 'sales_rep',
+          'c7800000-0000-0000-0000-000000000001', 5, 'issue', 'OPENING-BALANCE');
+  SELECT * INTO r FROM public.qc_jug_holders('f7800000-0000-0000-0000-000000000001')
+   WHERE holder_id = 'c7800000-0000-0000-0000-000000000001';
+  PERFORM pg_temp.check(r.jugs_out = 105, 'out 100 + opening 5, got ' || r.jugs_out);
+  PERFORM pg_temp.check(r.with_them = 55, 'with them 105 - 50, got ' || r.with_them);
+  PERFORM pg_temp.check(r.empty_not_returned = 35, 'empties out 55 - 20 full, got ' || r.empty_not_returned);
+  PERFORM pg_temp.check(r.owing_as_sold = 30, 'Accounts still charge 30, got ' || r.owing_as_sold);
+END $$;
+
+-- @@ Test 5: day by day -- postings on their day, a back-dated return on its day, running balance
+DO $$
+DECLARE r record; n int;
+  m uuid := 'c7800000-0000-0000-0000-000000000002';
+BEGIN
+  INSERT INTO sales_reps(id, factory_id, full_name, status, kind)
+  VALUES (m, 'f7800000-0000-0000-0000-000000000001', 'QJH Daily', 'active', 'rep');
+  INSERT INTO container_movements(factory_id, container_type_id, from_type, to_type, to_id, quantity, source, reference, created_at)
+  VALUES ('f7800000-0000-0000-0000-000000000001', 'e7800000-0000-0000-0000-000000000001', 'external', 'sales_rep',
+          m, 5, 'issue', 'OPENING-BALANCE', '2026-11-09 12:00+01');
+  INSERT INTO stock_dispatches(id, factory_id, dispatch_number, dispatch_date, sales_rep_id, created_by) VALUES
+    ('97800000-0000-0000-0000-0000000000d2', 'f7800000-0000-0000-0000-000000000001', 'DSP-QJH-2', '2026-11-10', m,
+     'a7800000-0000-0000-0000-000000000001'),
+    ('97800000-0000-0000-0000-0000000000d3', 'f7800000-0000-0000-0000-000000000001', 'DSP-QJH-3', '2026-11-12', m,
+     'a7800000-0000-0000-0000-000000000001');
+  INSERT INTO stock_dispatch_items(dispatch_id, product_id, quantity, unit_price, line_value) VALUES
+    ('97800000-0000-0000-0000-0000000000d2', 'b7800000-0000-0000-0000-000000000001', 20, 1200, 24000),
+    ('97800000-0000-0000-0000-0000000000d3', 'b7800000-0000-0000-0000-000000000001', 10, 1200, 12000);
+  -- Entered today, back-dated to 11 Nov.
+  INSERT INTO container_movements(factory_id, container_type_id, from_type, from_id, to_type, quantity, source, reference, created_at)
+  VALUES ('f7800000-0000-0000-0000-000000000001', 'e7800000-0000-0000-0000-000000000001', 'sales_rep', m, 'qc', 15,
+          'return', 'QJH-RET-3', '2026-11-11 12:00+01');
+
+  SELECT count(*) INTO n FROM public.qc_jug_holder_days('f7800000-0000-0000-0000-000000000001', '2026-11-10', '2026-11-12')
+   WHERE holder_id = m;
+  PERFORM pg_temp.check(n = 3, '3 days with movement, got ' || n);
+  SELECT * INTO r FROM public.qc_jug_holder_days('f7800000-0000-0000-0000-000000000001', '2026-11-10', '2026-11-12')
+   WHERE holder_id = m AND day = '2026-11-10';
+  PERFORM pg_temp.check(r.brought_forward = 5 AND r.supplied = 20 AND r.with_them = 25, '10 Nov: 5 b/f + 20 = 25');
+  SELECT * INTO r FROM public.qc_jug_holder_days('f7800000-0000-0000-0000-000000000001', '2026-11-10', '2026-11-12')
+   WHERE holder_id = m AND day = '2026-11-11';
+  PERFORM pg_temp.check(r.brought_forward = 25 AND r.empties_back = 15 AND r.with_them = 10, '11 Nov: 25 - 15 = 10');
+  SELECT * INTO r FROM public.qc_jug_holder_days('f7800000-0000-0000-0000-000000000001', '2026-11-10', '2026-11-12')
+   WHERE holder_id = m AND day = '2026-11-12';
+  PERFORM pg_temp.check(r.brought_forward = 10 AND r.supplied = 10 AND r.with_them = 20, '12 Nov: 10 + 10 = 20');
+  -- A quiet day: still holding 20, one line.
+  SELECT * INTO r FROM public.qc_jug_holder_days('f7800000-0000-0000-0000-000000000001', '2026-11-13', '2026-11-13')
+   WHERE holder_id = m;
+  PERFORM pg_temp.check(r.brought_forward = 20 AND r.with_them = 20 AND r.supplied = 0, '13 Nov quiet: 20 held');
+END $$;
