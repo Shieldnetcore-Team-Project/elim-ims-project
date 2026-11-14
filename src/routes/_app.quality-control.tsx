@@ -17,6 +17,7 @@ import { ReceivedFromStorePanel } from "@/components/qc/received-from-store";
 import { QcPreformsPanel } from "@/components/qc/qc-preforms";
 import { QcReportsTab } from "@/components/qc/qc-reports";
 import { QcJugCollections } from "@/components/qc/jug-collections";
+import { QcJugHolders } from "@/components/qc/jug-holders";
 import { usePreformLive, useShiftReport, useStockings } from "@/components/preform/api";
 import { localDay } from "@/lib/production-shift";
 import { PAGES, usePageAccess } from "@/lib/page-access";
@@ -180,7 +181,9 @@ function QualityControlPage() {
 //                         was collected from each marketer / distributor /
 //                         the shop and who has not returned jugs (all time)
 //   Jug Movement          where the jugs are, who holds them, Record movement
-//   Accountability        the daily marketer / shop jug report and its tools
+//   Accountability        who still holds jugs / owes them as sold (marketers,
+//                         distributors, office delivery -- 2026-11-14), then
+//                         the daily marketer / shop jug report and its tools
 //   QC register           consignments from the Store, the register, postings
 type JugSection = "collect" | "holders" | "accountability" | "register";
 function DispenserJugsTab({
@@ -197,7 +200,7 @@ function DispenserJugsTab({
   const sections: [JugSection, string][] = [
     ["collect", "Collect & post to PM"],
     ...(tracking ? ([["holders", "Jug Movement"]] as [JugSection, string][]) : []),
-    ...(tracking ? ([["accountability", "Accountability report"]] as [JugSection, string][]) : []),
+    ["accountability", "Accountability"],
     ...(qcWork ? ([["register", "QC register"]] as [JugSection, string][]) : []),
   ];
   const [section, setSection] = useState<JugSection>("collect");
@@ -232,7 +235,12 @@ function DispenserJugsTab({
         </div>
       )}
       {section === "holders" && <BottleTrackingPanel />}
-      {section === "accountability" && <JugAccountabilityPage />}
+      {section === "accountability" && (
+        <div className="space-y-6">
+          <QcJugHolders factoryId={factoryId} />
+          {tracking && <JugAccountabilityPage />}
+        </div>
+      )}
       {section === "register" && <QcJugRegister factoryId={factoryId} />}
     </div>
   );
