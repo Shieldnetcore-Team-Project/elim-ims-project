@@ -166,3 +166,41 @@ BEGIN
   PERFORM pg_temp.check(pg_temp.fails(format($q$SELECT public.edit_dispenser_supply('dispatch', %L, jsonb_build_array(jsonb_build_object('item_id', %L, 'quantity', 50)), 'x')$q$,
             d, it), '%hold only%'), 'more than held refused');
 END $$;
+
+-- @@ Test 4: 19 of 130 Dispenser Water become Jug + Water (20261113130000)
+DO $$
+DECLARE s uuid; tot numeric; cust numeric; st numeric; ext numeric; jw uuid;
+  w uuid := 'b7700000-0000-0000-0000-000000000001';
+BEGIN
+  PERFORM set_config('test.uid', 'a7700000-0000-0000-0000-000000000003', false);
+  s := pg_temp.post(jsonb_build_array(jsonb_build_object('product_id', w, 'quantity', 130, 'unit_price', 1200, 'jar_mode', 'swap')));
+  tot := (SELECT grand_total FROM sales WHERE id = s);
+  cust := (SELECT outstanding_balance FROM customers WHERE id = 'd7700000-0000-0000-0000-000000000001');
+  st := pg_temp.stock('1');
+  ext := pg_temp.jugs('external', NULL);
+  PERFORM set_config('test.uid', 'a7700000-0000-0000-0000-000000000001', false);
+  PERFORM public.edit_dispenser_supply('sale', s,
+            jsonb_build_array(jsonb_build_object('item_id', pg_temp.item(s, 'swap'), 'quantity', 130, 'to_jug_water', 19)),
+            '19 had no empty jug');
+  PERFORM pg_temp.check((SELECT quantity FROM sale_items WHERE id = pg_temp.item(s, 'swap')) = 111, 'Dispenser Water 111');
+  jw := pg_temp.item(s, 'permanent');
+  PERFORM pg_temp.check((SELECT quantity FROM sale_items WHERE id = jw) = 19, 'Jug + Water 19');
+  PERFORM pg_temp.check((SELECT unit_price FROM sale_items WHERE id = jw) = 4200, 'at 4,200');
+  PERFORM pg_temp.check((SELECT grand_total FROM sales WHERE id = s) = tot + 19 * 3000, 'invoice +57,000');
+  PERFORM pg_temp.check((SELECT outstanding FROM debts WHERE sale_id = s) = tot + 19 * 3000, 'debt +57,000');
+  PERFORM pg_temp.check((SELECT outstanding_balance FROM customers WHERE id = 'd7700000-0000-0000-0000-000000000001')
+                        = cust + 19 * 3000, 'customer +57,000');
+  PERFORM pg_temp.check(pg_temp.stock('1') = st, 'stock unchanged');
+  PERFORM pg_temp.check(pg_temp.jugs('external', NULL) = ext + 19, '19 jugs sold');
+  -- Both at once: 111 -> 101 (10 back) with 5 more to Jug + Water.
+  PERFORM public.edit_dispenser_supply('sale', s,
+            jsonb_build_array(jsonb_build_object('item_id', pg_temp.item(s, 'swap'), 'quantity', 101, 'to_jug_water', 5)),
+            '10 back, 5 kept the jug');
+  PERFORM pg_temp.check((SELECT quantity FROM sale_items WHERE id = pg_temp.item(s, 'swap')) = 96, 'Dispenser Water 96');
+  PERFORM pg_temp.check((SELECT quantity FROM sale_items WHERE id = jw) = 24, 'Jug + Water 24');
+  PERFORM pg_temp.check((SELECT grand_total FROM sales WHERE id = s) = 96 * 1200 + 24 * 4200, 'invoice 96 x 1,200 + 24 x 4,200');
+  PERFORM pg_temp.check(pg_temp.stock('1') = st + 10, 'stock +10');
+  PERFORM pg_temp.check(pg_temp.jugs('external', NULL) = ext + 24, '24 jugs sold');
+  PERFORM pg_temp.check(pg_temp.fails(format($q$SELECT public.edit_dispenser_supply('sale', %L, jsonb_build_array(jsonb_build_object('item_id', %L, 'quantity', 24, 'to_jug_water', 1)), 'x')$q$,
+            s, jw), '%already Jug + Water%'), 'Jug + Water line refused');
+END $$;

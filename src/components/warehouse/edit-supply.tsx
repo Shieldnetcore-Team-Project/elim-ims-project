@@ -62,6 +62,8 @@ type Line = {
   quantity: number;
   unit_price: number;
   dispenser: boolean;
+  // A distributor's Dispenser Water line can turn part into Jug + Water.
+  canSwitch: boolean;
 };
 
 export function EditSupplyButton({
@@ -109,6 +111,7 @@ function EditSupplyDialog({
 }) {
   const qc = useQueryClient();
   const [qty, setQty] = useState<Record<string, number | null>>({});
+  const [toJw, setToJw] = useState<Record<string, number | null>>({});
   const [reason, setReason] = useState("");
 
   const posting = useQuery({
@@ -151,6 +154,10 @@ function EditSupplyDialog({
             quantity: Number(i.quantity),
             unit_price: Number(i.unit_price),
             dispenser: isDispenserLine(i.products?.name ?? ""),
+            canSwitch:
+              kind === "sale" &&
+              isDispenserLine(i.products?.name ?? "") &&
+              i.jar_mode !== "permanent",
           };
         }),
       };
@@ -158,10 +165,18 @@ function EditSupplyDialog({
   });
 
   const lines = posting.data?.lines ?? [];
+  const newQty = (l: Line) => qty[l.id] ?? l.quantity;
+  const jwOf = (l: Line) => (l.canSwitch ? (toJw[l.id] ?? 0) : 0);
   const changed = lines
-    .filter((l) => l.dispenser && qty[l.id] != null && qty[l.id] !== l.quantity)
-    .map((l) => ({ item_id: l.id, quantity: qty[l.id] as number }));
-  const up = lines.some((l) => (qty[l.id] ?? l.quantity) > l.quantity);
+    .filter((l) => l.dispenser && (newQty(l) !== l.quantity || jwOf(l) > 0))
+    .map((l) => ({
+      item_id: l.id,
+      quantity: newQty(l),
+      ...(jwOf(l) > 0 ? { to_jug_water: jwOf(l) } : {}),
+    }));
+  const up = lines.some((l) => newQty(l) > l.quantity);
+  const tooManyJw = lines.some((l) => jwOf(l) > newQty(l));
+  const jwTotal = lines.reduce((t, l) => t + jwOf(l), 0);
   const off = lines.reduce(
     (t, l) => t + Math.max(0, l.quantity - (qty[l.id] ?? l.quantity)) * l.unit_price,
     0,
@@ -176,7 +191,7 @@ function EditSupplyDialog({
         p_reason: reason.trim(),
       }),
     onSuccess: () => {
-      toast.success(`${reference}: supply edited, the dispensers are back in Warehouse stock`);
+      toast.success(`${reference}: supply edited`);
       void qc.invalidateQueries();
       onClose();
     },
@@ -189,10 +204,12 @@ function EditSupplyDialog({
         <DialogHeader>
           <DialogTitle>Edit dispenser supply · {reference}</DialogTitle>
           <DialogDescription>
-            Dispensers that came straight back unsold (e.g. the customer had no empties for all of
-            them): lower the quantity on this same posting. The difference goes back into Warehouse
-            stock, and the invoice / account and jugs go down with it. Other products come back as a
-            return.
+            Dispensers that came straight back unsold: lower the quantity on this same posting --
+            the difference goes back into Warehouse stock, and the invoice / account and jugs go
+            down with it.
+            {kind === "sale" &&
+              " Customers who had no empty jug to swap: put how many of the Dispenser Water become Jug + Water -- they keep the jug and pay the Jug + Water price."}{" "}
+            Other products come back as a return.
           </DialogDescription>
         </DialogHeader>
         {posting.isLoading ? (
@@ -202,13 +219,14 @@ function EditSupplyDialog({
         ) : (
           <div className="grid gap-3">
             <div className="grid gap-1 text-sm">
-              <div className="grid grid-cols-[1fr_auto_7rem] gap-2 text-xs text-muted-foreground">
+              <div className="grid grid-cols-[1fr_auto_6rem_6rem] gap-2 text-xs text-muted-foreground">
                 <span>Product</span>
                 <span className="text-right">Supplied</span>
                 <span className="text-right">Supplied now</span>
+                <span className="text-right">{kind === "sale" ? "of these, Jug + Water" : ""}</span>
               </div>
               {lines.map((l) => (
-                <div key={l.id} className="grid grid-cols-[1fr_auto_7rem] items-center gap-2">
+                <div key={l.id} className="grid grid-cols-[1fr_auto_6rem_6rem] items-center gap-2">
                   <span>
                     {l.name}
                     {!l.dispenser && (
@@ -227,8 +245,29 @@ function EditSupplyDialog({
                   ) : (
                     <span className="text-right text-muted-foreground">—</span>
                   )}
+                  {l.canSwitch ? (
+                    <CountInput
+                      className="text-right"
+                      value={toJw[l.id] ?? null}
+                      placeholder="0"
+                      onChange={(v) => setToJw((q) => ({ ...q, [l.id]: v }))}
+                    />
+                  ) : (
+                    <span />
+                  )}
                 </div>
               ))}
+              {tooManyJw && (
+                <div className="text-[11px] text-destructive">
+                  Jug + Water can't be more than what is supplied now.
+                </div>
+              )}
+              {jwTotal > 0 && !tooManyJw && (
+                <div className="text-xs text-muted-foreground">
+                  {num(jwTotal)} become Jug + Water: the invoice goes up by the Jug + Water price
+                  difference, and the jugs are recorded as sold.
+                </div>
+              )}
               {up && <div className="text-[11px] text-destructive">A supply can only go down.</div>}
               {off > 0 && !up && (
                 <div className="text-xs text-muted-foreground">
@@ -251,7 +290,7 @@ function EditSupplyDialog({
             Cancel
           </Button>
           <Button
-            disabled={changed.length === 0 || up || !reason.trim() || save.isPending}
+            disabled={changed.length === 0 || up || tooManyJw || !reason.trim() || save.isPending}
             onClick={() => save.mutate()}
           >
             {save.isPending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
