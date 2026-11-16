@@ -115,7 +115,7 @@ BEGIN
   PERFORM pg_temp.check(e LIKE '%append-only%', 'even while re-dating, only the time may change: ' || COALESCE(e, 'no error'));
 END $$;
 
--- @@ Test 5: the shop no longer returns unsold products (20261104130000), back-dated or not
+-- @@ Test 5: the shop returns again (20261116120000), back-dated, and through create_rep_return
 DO $$
 DECLARE e text; y date := pg_temp.today() - 1;
 BEGIN
@@ -124,11 +124,11 @@ BEGIN
     'items', jsonb_build_array(jsonb_build_object('product_id', 'b3400000-0000-0000-0000-000000000002', 'quantity', 20))));
   e := pg_temp.err(format($q$SELECT public.return_shop_stock_to_warehouse(jsonb_build_object('outlet_id', 'c3400000-0000-0000-0000-000000000002',
     'return_date', %L, 'items', jsonb_build_array(jsonb_build_object('product_id', 'b3400000-0000-0000-0000-000000000002', 'quantity', 5))))$q$, y));
-  PERFORM pg_temp.check(e LIKE '%no longer returns%', 'shop return refused: ' || COALESCE(e, 'no error'));
+  PERFORM pg_temp.check(e IS NULL, 'shop return refused: ' || COALESCE(e, ''));
   e := pg_temp.err(format($q$SELECT public.create_rep_return(jsonb_build_object('factory_id', 'f3400000-0000-0000-0000-000000000001',
     'sales_rep_id', 'c3400000-0000-0000-0000-000000000002', 'return_date', %L,
     'items', jsonb_build_array(jsonb_build_object('product_id', 'b3400000-0000-0000-0000-000000000002', 'quantity_returned', 1))))$q$, y));
-  PERFORM pg_temp.check(e LIKE '%no longer returns%', 'nor through create_rep_return: ' || COALESCE(e, 'no error'));
+  PERFORM pg_temp.check(e IS NULL, 'create_rep_return refused: ' || COALESCE(e, ''));
 END $$;
 
 -- @@ Test 6: a distributor's return dated yesterday, then corrected -- every line and its stock move follow

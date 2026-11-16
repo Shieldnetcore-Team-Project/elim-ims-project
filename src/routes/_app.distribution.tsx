@@ -804,9 +804,8 @@ function NewDispatchDialog({
   const repKind = reps.find((r) => r.id === repId)?.kind ?? kind;
   const openReturns = useQuery({
     queryKey: ["dispatch-open-returns", factoryId, repId],
-    // Marketers only: the Retail Shop no longer returns unsold products
-    // (user, 2026-11-04), so a posting to it carries no returns.
-    enabled: !!repId && !carryReturn && repKind === "rep",
+    // Marketers and the Retail Shop (its returns are back, 2026-11-16).
+    enabled: !!repId && !carryReturn && (repKind === "rep" || repKind === "outlet"),
     queryFn: async () => {
       const read = (lineCarry: boolean) =>
         supabase
@@ -3637,7 +3636,10 @@ function DispenserBreakdownCard({ d }: { d: DispenserBreakdown }) {
   const toReturn = Number(
     d.empties_to_return ??
       Math.max(
-        Number(d.posted) - Number(d.unsold_back) - Number(d.empties_back) - Number(d.jug_water_sold),
+        Number(d.posted) -
+          Number(d.unsold_back) -
+          Number(d.empties_back) -
+          Number(d.jug_water_sold),
         0,
       ),
   );
@@ -3658,8 +3660,8 @@ function DispenserBreakdownCard({ d }: { d: DispenserBreakdown }) {
         <p className="text-sm text-muted-foreground">
           {num(Number(d.posted) + Number(d.jw_posted))} dispensers posted (
           {num(Number(d.jw_posted))} Jug + Water) · {num(Number(d.unsold_back) + Number(d.jw_back))}{" "}
-          returned unsold · {num(Number(d.empties_back))} empty jugs returned (QC) ·{" "}
-          {num(toReturn)} empty jugs to return
+          returned unsold · {num(Number(d.empties_back))} empty jugs returned (QC) · {num(toReturn)}{" "}
+          empty jugs to return
         </p>
       </CardHeader>
       <CardContent className="overflow-x-auto">

@@ -5,8 +5,8 @@
 -- Runs against a database with every migration applied and Supabase's auth
 -- stubbed so auth.uid() reads the 'test.uid' setting -- see
 -- supabase/tests/pglite/README.md. 20 packs posted to the shop; 5 sold for
--- cash; at close only the money is posted -- the shop no longer returns unsold
--- products (20261104130000), so the 15 left stay at the shop.
+-- cash; at close only the money is posted, so the 15 left stay at the shop
+-- (unsold goes back through Return unsold to Warehouse, 20261116120000).
 -- ============================================================================
 
 INSERT INTO factories(id, code, name) VALUES ('f3900000-0000-0000-0000-000000000001', 'eodfac', 'EOD Factory');
@@ -46,11 +46,6 @@ BEGIN
   PERFORM public.create_sale(jsonb_build_object('factory_id', f, 'sales_rep_id', o,
     'items', jsonb_build_array(jsonb_build_object('product_id', p, 'quantity', 5)),
     'payments', jsonb_build_array(jsonb_build_object('amount', 8500, 'method', 'cash'))));
-
-  PERFORM pg_temp.check(pg_temp.err(format('SELECT public.close_shop_day(%L)', jsonb_build_object('outlet_id', o,
-    'declared_cash', 8500, 'declared_other', 0,
-    'items', jsonb_build_array(jsonb_build_object('product_id', p, 'unsold', 12, 'damaged', 0))))) LIKE '%no longer returns%',
-    'returning unsold is refused');
 
   v := public.close_shop_day(jsonb_build_object('outlet_id', o, 'declared_cash', 8500, 'declared_other', 0,
     'items', '[]'::jsonb));

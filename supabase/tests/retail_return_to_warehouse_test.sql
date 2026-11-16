@@ -29,7 +29,7 @@ CREATE OR REPLACE FUNCTION pg_temp.err(p_sql text) RETURNS text LANGUAGE plpgsql
 BEGIN EXECUTE p_sql; RETURN NULL; EXCEPTION WHEN OTHERS THEN RETURN SQLERRM; END;
 $$;
 
--- @@ Test 1: the shop no longer returns unsold products (20261104130000)
+-- @@ Test 1: the shop returns 15 unsold to the Warehouse (again, 20261116120000)
 DO $$
 DECLARE e text;
 BEGIN
@@ -37,9 +37,9 @@ BEGIN
   e := pg_temp.err($q$SELECT public.return_shop_stock_to_warehouse(jsonb_build_object(
          'outlet_id', 'eb000000-0000-0000-0000-000000000001',
          'items', jsonb_build_array(jsonb_build_object('product_id', 'db000000-0000-0000-0000-000000000001', 'quantity', 15))))$q$);
-  PERFORM pg_temp.check(e LIKE '%no longer returns%', 'refused: ' || COALESCE(e, 'no error'));
-  PERFORM pg_temp.check((SELECT quantity FROM rep_stock WHERE sales_rep_id = 'eb000000-0000-0000-0000-000000000001') = 20, 'shop keeps its 20');
-  PERFORM pg_temp.check((SELECT current_stock FROM products WHERE id = 'db000000-0000-0000-0000-000000000001') = 100, 'Warehouse unchanged');
+  PERFORM pg_temp.check(e IS NULL, 'return refused: ' || COALESCE(e, ''));
+  PERFORM pg_temp.check((SELECT quantity FROM rep_stock WHERE sales_rep_id = 'eb000000-0000-0000-0000-000000000001') = 5, 'shop keeps 5');
+  PERFORM pg_temp.check((SELECT current_stock FROM products WHERE id = 'db000000-0000-0000-0000-000000000001') = 115, 'Warehouse gets 15 back');
 END $$;
 
 -- @@ Test 2: more than held, a closed day, a marketer id and no rights are refused

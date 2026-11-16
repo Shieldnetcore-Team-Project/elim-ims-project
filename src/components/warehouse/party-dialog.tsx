@@ -59,9 +59,9 @@ export function WarehousePartyDialog({
 }) {
   const perms = usePermissions();
   const holder = party.type !== "distributor";
-  // The Retail Shop no longer returns unsold products (user, 2026-11-04).
+  // Marketers and the Retail Shop (the shop's returns are back, 2026-11-16).
   const canReturn = holder
-    ? party.type === "marketer" && perms.can("distribution", "submit")
+    ? perms.can("distribution", "submit")
     : perms.can("sales-returns", "submit") || perms.can("distribution", "submit");
   // "Record sold Jug + Water" replaces "Return empty Dispenser Jugs"
   // (user, 2026-11-04): a distributor's customers kept the jugs -- billed at
