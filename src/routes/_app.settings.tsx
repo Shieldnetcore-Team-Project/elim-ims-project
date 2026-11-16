@@ -470,7 +470,10 @@ function PersonalSettingsCard() {
     setCurrentPassword("");
     setNewPassword("");
     setConfirmPassword("");
-    toast.success("Password updated");
+    toast.success("Password changed. Sign in again with your new password.");
+    // End this and every other session; the app layout sends you to sign-in.
+    const { error: outError } = await supabase.auth.signOut({ scope: "global" });
+    if (outError) await supabase.auth.signOut({ scope: "local" });
   };
 
   const initials = (username || "?").slice(0, 2).toUpperCase();

@@ -30,10 +30,16 @@ function ResetPage() {
     e.preventDefault();
     setLoading(true);
     const { error } = await supabase.auth.updateUser({ password });
+    if (error) {
+      setLoading(false);
+      return toast.error(error.message);
+    }
+    // Sign in afresh with the new password: end this and every other session.
+    const { error: outError } = await supabase.auth.signOut({ scope: "global" });
+    if (outError) await supabase.auth.signOut({ scope: "local" });
     setLoading(false);
-    if (error) return toast.error(error.message);
-    toast.success("Password updated");
-    navigate({ to: "/dashboard" });
+    toast.success("Password changed. Sign in with your new password.");
+    navigate({ to: "/", replace: true });
   };
 
   return (

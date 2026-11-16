@@ -4474,6 +4474,10 @@ export type Database = {
         Args: { target_id: string }
         Returns: boolean
       }
+      revoke_user_sessions: {
+        Args: { target_id: string }
+        Returns: undefined
+      }
       cancel_costing_sheet: {
         Args: { p_id: string; p_reason?: string }
         Returns: Json

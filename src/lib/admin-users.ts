@@ -234,6 +234,21 @@ export const adminUpdateUser = createServerFn({ method: "POST" })
 
       const { error: authError } = await admin.auth.admin.updateUserById(data.target_id, patch);
       if (authError) return { ok: false, error: authError.message };
+
+      // A new password ends every session the person has open, so they must
+      // sign in afresh with it (20261116130000). Changing your own password
+      // here is fine too -- the form signs you out after saving.
+      if (newPassword) {
+        const { error: revokeError } = await admin.rpc("revoke_user_sessions", {
+          target_id: data.target_id,
+        });
+        if (revokeError) {
+          return {
+            ok: false,
+            error: `Password changed, but could not sign the user out: ${revokeError.message}`,
+          };
+        }
+      }
     }
 
     const { error: profileError } = await supabase.rpc("admin_update_profile", {

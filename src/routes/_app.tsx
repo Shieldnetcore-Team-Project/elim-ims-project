@@ -41,12 +41,36 @@ function AppLayout() {
       await supabase.auth.signOut();
     };
 
+    // When an Admin changes someone's password their sessions are ended on the
+    // server, but a signed-in screen only notices at its next token refresh
+    // (up to an hour). Ask the auth server whether the session still exists --
+    // on load, when the tab regains focus, and every 5 minutes -- and send the
+    // person to sign in again if it was ended. Network errors are ignored.
+    let lastCheck = 0;
+    const signOutIfRevoked = async () => {
+      if (!active || !userId.current || Date.now() - lastCheck < 30_000) return;
+      lastCheck = Date.now();
+      const { error } = await supabase.auth.getUser();
+      if (!active || !error) return;
+      const status = (error as { status?: number }).status;
+      if (status !== 401 && status !== 403) return;
+      toast.error("Your password was changed. Sign in again with the new password.");
+      await supabase.auth.signOut({ scope: "local" });
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void signOutIfRevoked();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    const revokeTimer = window.setInterval(() => void signOutIfRevoked(), 5 * 60 * 1000);
+
     supabase.auth.getSession().then(({ data }) => {
       if (!active) return;
       if (!data.session) return goToLogin();
       userId.current = data.session.user.id;
       setReady(true);
       void signOutIfInactive(data.session.user.id);
+      void signOutIfRevoked();
     });
 
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
@@ -72,6 +96,9 @@ function AppLayout() {
     return () => {
       active = false;
       sub.subscription.unsubscribe();
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+      window.clearInterval(revokeTimer);
     };
   }, [navigate, qc]);
 
