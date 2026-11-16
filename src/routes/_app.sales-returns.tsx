@@ -820,7 +820,14 @@ function CreateReturnDialog({
             )}
           </div>
         )}
-        {isMarketerReturn && <LastSuppliedPanel kind="marketer" id={repId} />}
+        {isMarketerReturn && (
+          // Back-dated return: what went out on that day (user, 2026-11-16).
+          <LastSuppliedPanel
+            kind="marketer"
+            id={repId}
+            day={returnDate && returnDate !== today ? returnDate : undefined}
+          />
+        )}
         {!isMarketerReturn && canLogSalesReturn && (
           <div>
             <Label>Invoice (optional)</Label>

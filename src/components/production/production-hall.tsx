@@ -238,7 +238,17 @@ export function ReleaseBatchButton({
   );
 }
 
-export function ProductionHall({ factoryId }: { factoryId: string }) {
+// `range` (yyyy-mm-dd, either end open) limits the Releases list to a period
+// picked on the Production page (user, 2026-11-16); without it, the latest 50.
+export function ProductionHall({
+  factoryId,
+  range,
+}: {
+  factoryId: string;
+  range?: { from: string | null; to: string | null };
+}) {
+  const from = range?.from ?? null;
+  const to = range?.to ?? null;
   const qc = useQueryClient();
   const { can } = usePermissions();
   const canRelease = useCanRelease();
@@ -255,16 +265,24 @@ export function ProductionHall({ factoryId }: { factoryId: string }) {
   const hall = useHallStock(factoryId);
 
   const releases = useQuery({
-    queryKey: ["production-releases", factoryId],
+    queryKey: ["production-releases", factoryId, from, to],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let q = supabase
         .from("production_releases")
         .select(
           "id,release_number,quantity,unit,status,released_at,released_by_name,accepted_quantity,received_quantity,reject_reason,products(name),production_requests(request_number)",
         )
-        .eq("factory_id", factoryId)
+        .eq("factory_id", factoryId);
+      // Local days: from midnight of `from` to before midnight after `to`.
+      if (from) q = q.gte("released_at", new Date(`${from}T00:00:00`).toISOString());
+      if (to) {
+        const end = new Date(`${to}T00:00:00`);
+        end.setDate(end.getDate() + 1);
+        q = q.lt("released_at", end.toISOString());
+      }
+      const { data, error } = await q
         .order("released_at", { ascending: false })
-        .limit(50);
+        .limit(from || to ? 2000 : 50);
       if (error) throw error;
       return (data ?? []) as unknown as Release[];
     },
@@ -482,7 +500,11 @@ export function ProductionHall({ factoryId }: { factoryId: string }) {
               {myReleases.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={6} className="py-6 text-center text-muted-foreground">
-                    Nothing released yet.
+                    {releases.isLoading
+                      ? "Loading…"
+                      : from || to
+                        ? "Nothing released in this period."
+                        : "Nothing released yet."}
                   </TableCell>
                 </TableRow>
               )}

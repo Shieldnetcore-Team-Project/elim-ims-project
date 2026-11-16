@@ -714,10 +714,10 @@ export function CustomerUnsoldDialog({
   const lastSupply = useLastSupplied("customer", customerId || null);
   const [dayFor, setDayFor] = useState("");
   useEffect(() => {
-    if (!customerId || dayFor === customerId || lastSupply.isLoading) return;
+    if (!customerId || dayFor === customerId || lastSupply.isPending) return;
     setDayFor(customerId);
     if (mode === "day" && lastSupply.data?.date) setReturnDate(lastSupply.data.date);
-  }, [customerId, dayFor, mode, lastSupply.isLoading, lastSupply.data]);
+  }, [customerId, dayFor, mode, lastSupply.isPending, lastSupply.data]);
   const dayReturned = useQuery({
     queryKey: ["jug", "customer-day-returned", customerId, returnDate],
     enabled: !!customerId && mode === "day",

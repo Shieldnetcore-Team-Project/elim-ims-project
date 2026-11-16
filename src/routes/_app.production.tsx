@@ -93,6 +93,8 @@ import { ProductionMaterialsReport } from "@/components/production/materials-rep
 import { ProductionStoreIssues } from "@/components/production/store-issues";
 import { ReportActions } from "@/components/shared/report-actions";
 import { useMyProductMatcher } from "@/lib/product-rules";
+import { PeriodPicker, usePeriod } from "@/components/marketers/shared";
+import { periodLabel } from "@/lib/marketer-accounts";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export const Route = createFileRoute("/_app/production")({
@@ -297,7 +299,33 @@ function ProductionPage() {
     },
   });
 
-  const shownList = (list.data ?? []).filter((r) => mine(r.products?.name ?? ""));
+  // Production Runs and Releases for a chosen period, From/To calendar
+  // included (user, 2026-11-16). `list` above stays the latest batches, as
+  // the Daily Production Sheet needs.
+  const period = usePeriod("all");
+  const range = period.range;
+  const runs = useQuery({
+    queryKey: ["production-list", factoryId, "period", range.from, range.to],
+    enabled: !!factoryId,
+    queryFn: async () => {
+      let q = supabase
+        .from("production")
+        .select(
+          "id,production_number,production_date,shift,product_id,quantity_produced,unit,production_cost,supervisor,batch_number,remarks,status,accepted_quantity,damaged_quantity,rejected_quantity,confirmed_by,confirmed_at,department,production_scope,packaging_unit,packaging_quantity,products(name,unit),production_requests!production_production_request_id_fkey(request_number),production_types(name)",
+        )
+        .eq("factory_id", factoryId!);
+      if (range.from) q = q.gte("production_date", range.from);
+      if (range.to) q = q.lte("production_date", range.to);
+      const { data, error } = await q
+        .order("production_date", { ascending: false })
+        .order("created_at", { ascending: false })
+        .limit(range.from || range.to ? 2000 : 300);
+      if (error) throw error;
+      return (data ?? []) as unknown as ProductionRow[];
+    },
+  });
+
+  const shownList = (runs.data ?? []).filter((r) => mine(r.products?.name ?? ""));
 
   const eligibleRequests = useQuery({
     queryKey: ["eligible-production-requests", factoryId],
@@ -573,7 +601,17 @@ function ProductionPage() {
           {/* Opening, each shift and the closing that opens tomorrow (2026-11-11). */}
           {factoryId && <DailyBalanceCard factoryId={factoryId} />}
 
-          {factoryId && <ProductionHall factoryId={factoryId} />}
+          <Card className="rounded-2xl">
+            <CardContent className="flex flex-wrap items-end justify-between gap-3 pt-6">
+              <PeriodPicker value={period.state} onChange={period.setState} />
+              <p className="text-sm text-muted-foreground">
+                Releases and Production Runs for{" "}
+                <span className="font-medium text-foreground">{periodLabel(range)}</span>
+              </p>
+            </CardContent>
+          </Card>
+
+          {factoryId && <ProductionHall factoryId={factoryId} range={range} />}
 
           <AlertDialog open={!!releasedBlock} onOpenChange={(v) => !v && setReleasedBlock(null)}>
             <AlertDialogContent>
@@ -607,7 +645,6 @@ function ProductionPage() {
               <CardTitle>Production Runs</CardTitle>
               <ReportActions
                 size="sm"
-                title="Production Runs"
                 fileName="production-runs"
                 columns={[
                   { key: "number", label: "Number" },
@@ -619,7 +656,8 @@ function ProductionPage() {
                   { key: "batch", label: "Batch" },
                   { key: "status", label: "Status" },
                 ]}
-                rows={(list.data ?? []).map((row) => ({
+                title={`Production Runs — ${periodLabel(range)}`}
+                rows={(runs.data ?? []).map((row) => ({
                   number: row.production_number,
                   date: row.shift
                     ? `${row.production_date} (${SHIFT_LABEL[row.shift]})`
@@ -772,7 +810,7 @@ function ProductionPage() {
                   {shownList.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={11} className="text-center text-muted-foreground py-8">
-                        No production runs yet.
+                        {runs.isLoading ? "Loading…" : "No production runs in this period."}
                       </TableCell>
                     </TableRow>
                   )}

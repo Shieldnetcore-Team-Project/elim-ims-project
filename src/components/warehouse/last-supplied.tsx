@@ -7,7 +7,7 @@ import {
   useIsSupplyEditor,
 } from "@/components/warehouse/edit-supply";
 import { num } from "@/lib/format";
-import { useMyProductMatcher } from "@/lib/product-rules";
+import { fetchMyProductPatterns, handlesProduct, useMyProductMatcher } from "@/lib/product-rules";
 import { saleLineName } from "@/lib/sale-line-name";
 
 // What was last supplied to a marketer / the shop (Warehouse postings) or a
@@ -30,7 +30,7 @@ type Row = {
   }[];
 };
 
-const lastDay = (rows: Row[]): Supplied | null => {
+const lastDayOf = (rows: Row[]): Supplied | null => {
   if (rows.length === 0) return null;
   const date = rows[0].date;
   const day = rows.filter((r) => r.date === date);
@@ -56,14 +56,40 @@ const lastDay = (rows: Row[]): Supplied | null => {
 
 // With `day`, only what was supplied on that day (returns entered per supply
 // day, back-dated -- user, 2026-11-10); null when nothing went out that day.
+//
+// Only the signed-in officer's products count (user, 2026-11-16: Kemi saw
+// "Nothing supplied yet" for Malla because Gideon's sachet/dispenser posting
+// was the latest day and her 50cl/75cl posting of the 14th was skipped). The
+// lines are narrowed to her products BEFORE the last day is picked, so the
+// box opens on her own last supply.
 export function useLastSupplied(
   kind: "marketer" | "customer",
   id: string | null | undefined,
   day?: string,
 ) {
+  const patterns = useQuery({
+    queryKey: ["my-product-patterns"],
+    queryFn: fetchMyProductPatterns,
+    staleTime: 60_000,
+  });
+  const pats = patterns.data;
+  const lastDay = (rows: Row[]) =>
+    lastDayOf(
+      rows
+        .map((r) => ({
+          ...r,
+          items: r.items.filter((it) =>
+            handlesProduct(pats ?? [], saleLineName(it.products?.name, it.jar_mode)),
+          ),
+        }))
+        .filter((r) => r.items.length > 0),
+    );
+  // Without a day, look far enough back that many postings of the other
+  // officer's products can't hide this officer's last one.
+  const limit = day ? 50 : 200;
   return useQuery({
-    queryKey: ["last-supplied", kind, id, day ?? null],
-    enabled: !!id,
+    queryKey: ["last-supplied", kind, id, day ?? null, (pats ?? []).map((p) => p.source)],
+    enabled: !!id && !!pats,
     queryFn: async (): Promise<Supplied | null> => {
       if (kind === "marketer") {
         let mq = supabase
@@ -77,7 +103,7 @@ export function useLastSupplied(
         const { data, error } = await mq
           .order("dispatch_date", { ascending: false })
           .order("created_at", { ascending: false })
-          .limit(20);
+          .limit(limit);
         if (error) throw error;
         return lastDay(
           (
@@ -109,7 +135,7 @@ export function useLastSupplied(
       const { data, error } = await sq
         .order("sale_date", { ascending: false })
         .order("created_at", { ascending: false })
-        .limit(20);
+        .limit(limit);
       if (error) throw error;
       return lastDay(
         (
@@ -158,7 +184,7 @@ export function LastSuppliedPanel({
           </span>
         )}
       </div>
-      {q.isLoading ? (
+      {q.isPending ? (
         <div className="mt-1 text-muted-foreground">Loading…</div>
       ) : q.isError ? (
         <div className="mt-1 text-destructive">{(q.error as Error).message}</div>
