@@ -10,6 +10,7 @@ import { useRealtimeInvalidate } from "@/lib/realtime";
 import { money, num } from "@/lib/format";
 import { DatePicker } from "@/components/shared/date-picker";
 import { ReportActions } from "@/components/shared/report-actions";
+import { JugsSoldReport } from "@/components/jugs/jugs-sold-report";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -296,6 +297,19 @@ function ProductsReportPage() {
               Adjusted = Balance.
             </p>
           )}
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-2xl" id="jugs-sold">
+        <CardHeader>
+          <CardTitle>Jugs Sold</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Every jug sold in the month: Jug + Water and Empty Jug to marketers, the Retail Shop,
+            distributors and walk-in customers.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <JugsSoldReport factoryId={factoryId} place="Warehouse" />
         </CardContent>
       </Card>
 

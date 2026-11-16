@@ -19,6 +19,7 @@ import { localDay } from "@/lib/production-shift";
 import { useFactorySettings } from "@/lib/use-factory";
 import type { PdfAction } from "@/lib/pdf";
 import { qcLetterheadPdf, sheetCompany, type QcPdfReport } from "./qc-report-pdf";
+import { JugsSoldReport } from "@/components/jugs/jugs-sold-report";
 
 // Quality Control → Reports: pick Preform or Bottle, a From and To date (one
 // day = the same date twice) and Print; the sheet prints as the factory's own
@@ -120,7 +121,8 @@ const KIND: Record<string, string> = {
   walk_in: "Walk-in",
   outlet: "Retail Shop",
 };
-type Which = "preform" | "bottle" | "jugs" | "jug_places" | "jugs_collected" | "jug_postings";
+type Which =
+  "preform" | "bottle" | "jugs" | "jug_places" | "jugs_collected" | "jug_postings" | "jugs_sold";
 type Sheet = {
   title: string;
   columns: { key: string; label: string }[];
@@ -454,6 +456,8 @@ export function QcReportsTab({ factoryId }: { factoryId: string }) {
     jug_places: jugPlaces,
     jugs_collected: collected,
     jug_postings: postings,
+    // Its own screen (JugsSoldReport) with its own query.
+    jugs_sold: postings,
   }[which];
   const loading = current.isLoading;
   const error = current.error as Error | null;
@@ -503,25 +507,40 @@ export function QcReportsTab({ factoryId }: { factoryId: string }) {
               jug_places: "No jug types are set up.",
               jugs_collected: "No empty jugs collected or held in this period.",
               jug_postings: "QC has not posted any jugs to the PM in this period.",
+              jugs_sold: "",
             }[which]
           : null;
+
+  const reportChoice = (
+    <Choice
+      label="Report"
+      value={which}
+      onChange={setWhich}
+      options={[
+        ["preform", "Preform"],
+        ["bottle", "Bottle"],
+        ["jugs", "Jugs posted & returned"],
+        ["jug_places", "Where the jugs are"],
+        ["jugs_collected", "Jugs collected"],
+        ["jug_postings", "Jugs posted to PM"],
+        ["jugs_sold", "Jugs sold"],
+      ]}
+    />
+  );
+  // Jugs sold (user, 2026-11-16): the month's total -- the same screen as the
+  // Warehouse's Reports tab.
+  if (which === "jugs_sold")
+    return (
+      <div className="space-y-3">
+        {reportChoice}
+        <JugsSoldReport factoryId={factoryId} place="Quality Control" />
+      </div>
+    );
 
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-end gap-4">
-        <Choice
-          label="Report"
-          value={which}
-          onChange={setWhich}
-          options={[
-            ["preform", "Preform"],
-            ["bottle", "Bottle"],
-            ["jugs", "Jugs posted & returned"],
-            ["jug_places", "Where the jugs are"],
-            ["jugs_collected", "Jugs collected"],
-            ["jug_postings", "Jugs posted to PM"],
-          ]}
-        />
+        {reportChoice}
         <div>
           <Label htmlFor="qc-report-from" className="text-xs">
             From
