@@ -261,6 +261,7 @@ function WarehouseActivityPage() {
             </p>
           </div>
           <ReportActions
+            department="Warehouse Department"
             size="sm"
             title="Warehouse Activity Log"
             fileName={`warehouse-activity-${from}-to-${to}`}

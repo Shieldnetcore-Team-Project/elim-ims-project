@@ -53,7 +53,13 @@ const monthEnd = (ym: string) => {
 const monthLabel = (ym: string) =>
   new Date(`${ym}-01T00:00:00`).toLocaleDateString(undefined, { month: "long", year: "numeric" });
 
-export function JugsSoldReport({ factoryId, place }: { factoryId: string; place: string }) {
+export function JugsSoldReport({
+  factoryId,
+  place,
+}: {
+  factoryId: string;
+  place: "Warehouse" | "Quality Control";
+}) {
   const today = lagosToday();
   const [from, setFrom] = useState(monthStart(today));
   const [to, setTo] = useState(today);
@@ -179,7 +185,10 @@ export function JugsSoldReport({ factoryId, place }: { factoryId: string; place:
         </div>
         <div className="ml-auto">
           <ReportActions
-            title={`Jugs Sold — ${period}`}
+            department={
+              place === "Warehouse" ? "Warehouse Department" : "Quality Control Department"
+            }
+            title={`Jugs Sold — ${period.toUpperCase()}`}
             fileName={`jugs-sold-${from}-to-${to}`}
             columns={[
               { key: "sn", label: "S/N" },

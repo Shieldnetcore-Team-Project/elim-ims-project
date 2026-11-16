@@ -1,3 +1,4 @@
+import { letterheadReportPdf } from "@/components/qc/qc-report-pdf";
 import { useState } from "react";
 import { Download, FileSpreadsheet, Printer } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -39,7 +40,6 @@ import { localDay } from "@/lib/production-shift";
 import { num } from "@/lib/format";
 import { formatDay } from "@/lib/jug-accountability";
 import { exportCsv, exportExcel, type ReportColumn } from "@/lib/export";
-import { generateReportPdf } from "@/lib/pdf";
 import {
   KIND_NAME,
   STATUS_LABEL,
@@ -130,19 +130,20 @@ export function QcJugRegister({ factoryId }: { factoryId: string }) {
   }));
   const fileName = `qc-jugs-${qFrom}${qFrom === qTo ? "" : `-to-${qTo}`}`;
   const print = () =>
-    generateReportPdf(
-      "QC Jug Register — Old & New Jugs",
-      COLUMNS,
-      exportRows.map((r) => ({ ...r, date: formatDay(r.date) })),
-      "print",
-      { name: settings.data?.company_name, logo_url: settings.data?.logo_url },
-      [
+    letterheadReportPdf({
+      department: "Quality Control Department",
+      title: "Jug Register — Old & New Jugs",
+      columns: COLUMNS,
+      rows: exportRows.map((r) => ({ ...r, date: formatDay(r.date) })),
+      settings: settings.data,
+      printedBy: me.data,
+      filename: fileName,
+      subtitle: [
         `Reporting period: ${period}`,
         `Good to PM: ${num(sum("quantity_good"))} · Damaged: ${num(sum("quantity_damaged"))}`,
         `At QC at close: Old Jug ${num(closing("old"))} · New Jug ${num(closing("new"))}`,
-        `Printed by: ${me.data ?? "—"}`,
       ],
-    );
+    });
 
   const who = (id: string | null) => (id ? (names.data?.[id] ?? "") : "");
 

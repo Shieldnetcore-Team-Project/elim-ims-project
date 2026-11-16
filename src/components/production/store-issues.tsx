@@ -120,6 +120,7 @@ export function ProductionStoreIssues({ factoryId }: { factoryId: string }) {
               onChange={(e) => setSearch(e.target.value)}
             />
             <ReportActions
+              department="Production Department"
               size="sm"
               title="Materials issued from the Store to Production"
               fileName="production-store-issues"

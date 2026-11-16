@@ -1,3 +1,4 @@
+import { letterheadReportPdf } from "@/components/qc/qc-report-pdf";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { FileSpreadsheet, Printer, Search, X } from "lucide-react";
@@ -32,7 +33,6 @@ import { localDay } from "@/lib/production-shift";
 import { formatDay } from "@/lib/jug-accountability";
 import { num } from "@/lib/format";
 import { exportExcel, type ReportColumn } from "@/lib/export";
-import { generateReportPdf } from "@/lib/pdf";
 import { QcPostToPm } from "./jug-post-to-pm";
 import { useQcJugBatches } from "./jug-api";
 
@@ -270,17 +270,18 @@ export function QcJugCollections({ factoryId }: { factoryId: string }) {
     last: r.last_collected ? formatDay(r.last_collected) : "—",
   }));
   const print = () =>
-    generateReportPdf(
-      "Quality Control — Dispenser Jugs Collected",
+    letterheadReportPdf({
+      department: "Quality Control Department",
+      title: "Dispenser Jugs Collected",
       columns,
-      exportRows,
-      "print",
-      { name: settings.data?.company_name, logo_url: settings.data?.logo_url },
-      [
+      rows: exportRows,
+      settings: settings.data,
+      printedBy: me.data,
+      filename: "qc-jugs-collected",
+      subtitle: [
         `Collected / received / damaged: ${period}. Waiting, With QC, Posted to PM and Not returned: as of now.`,
-        `Printed by: ${me.data ?? "—"}`,
       ],
-    );
+    });
 
   const status = !ok
     ? "The To date is before the From date."

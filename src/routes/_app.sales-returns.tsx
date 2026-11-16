@@ -396,6 +396,7 @@ function SalesReturnsPage() {
               </>
             )}
             <ReportActions
+              department="Warehouse Department"
               size="sm"
               title="Stock Movement Summary"
               fileName="stock-movement-summary"
@@ -490,6 +491,7 @@ function SalesReturnsPage() {
         <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
           <CardTitle>Returns</CardTitle>
           <ReportActions
+            department="Warehouse Department"
             size="sm"
             title="Sales Returns"
             fileName="sales-returns"

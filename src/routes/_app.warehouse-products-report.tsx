@@ -151,6 +151,7 @@ function ProductsReportPage() {
             </div>
           </div>
           <ReportActions
+            department="Warehouse Department"
             title="All Products Report"
             fileName={`warehouse-products-report-${date}`}
             columns={[
@@ -402,6 +403,7 @@ function GiftDetails({
           </p>
         </div>
         <ReportActions
+          department="Warehouse Department"
           title="Gift / Sample details"
           fileName={`warehouse-gifts-${date}`}
           columns={[

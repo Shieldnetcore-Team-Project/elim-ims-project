@@ -1,3 +1,4 @@
+import { letterheadReportPdf } from "@/components/qc/qc-report-pdf";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { FileSpreadsheet, Printer, Search } from "lucide-react";
@@ -30,7 +31,6 @@ import { localDay } from "@/lib/production-shift";
 import { formatDay } from "@/lib/jug-accountability";
 import { num } from "@/lib/format";
 import { exportExcel, type ReportColumn } from "@/lib/export";
-import { generateReportPdf } from "@/lib/pdf";
 
 // Quality Control -> Dispenser Jug -> Accountability (user, 2026-11-14): who
 // still holds jugs -- marketers, Distributors / Office Delivery, marketers'
@@ -310,24 +310,23 @@ export function QcJugHolders({ factoryId }: { factoryId: string }) {
           ...moves(r),
         }));
   const print = () =>
-    generateReportPdf(
-      view === "person"
-        ? "Quality Control — Who Holds Dispenser Jugs"
-        : "Quality Control — Dispenser Jugs Day by Day",
+    letterheadReportPdf({
+      department: "Quality Control Department",
+      title: view === "person" ? "Who Holds Dispenser Jugs" : "Dispenser Jugs Day by Day",
       columns,
-      exportRows,
-      "print",
-      { name: settings.data?.company_name, logo_url: settings.data?.logo_url },
-      [
+      rows: exportRows,
+      settings: settings.data,
+      printedBy: me.data,
+      filename: `qc-jug-holders-${view}`,
+      subtitle: [
         `Period: ${period}. From marketers' postings and returns and the jug ledger, on the day of each.`,
         ...(isNow
           ? [
               "Owing as Empty Jug sold: marketers' jugs not back that Accounts charge at the Empty Jug price.",
             ]
           : []),
-        `Printed by: ${me.data ?? "—"}`,
       ],
-    );
+    });
 
   return (
     <div className="space-y-4">

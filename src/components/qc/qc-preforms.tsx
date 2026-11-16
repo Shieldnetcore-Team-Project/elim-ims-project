@@ -212,6 +212,7 @@ function PreformReport({ factoryId }: { factoryId: string }) {
         </div>
         <div className="flex flex-wrap items-end gap-2">
           <ReportActions
+            department="Quality Control Department"
             size="sm"
             title={title}
             fileName={`qc-preform-report-${from}-to-${to}`}

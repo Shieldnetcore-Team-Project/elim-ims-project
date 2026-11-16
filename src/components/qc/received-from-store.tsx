@@ -297,6 +297,7 @@ export function ReceivedFromStorePanel({ factoryId }: { factoryId: string }) {
             </CardDescription>
           </div>
           <ReportActions
+            department="Quality Control Department"
             size="sm"
             title="Quality Control — stock by material"
             fileName="qc-stock"
@@ -414,6 +415,7 @@ export function ReceivedFromStorePanel({ factoryId }: { factoryId: string }) {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <ReportActions
+              department="Quality Control Department"
               size="sm"
               title="Received from Store — Quality Control"
               fileName="qc-received-from-store"
@@ -580,6 +582,7 @@ export function ReceivedFromStorePanel({ factoryId }: { factoryId: string }) {
             </CardDescription>
           </div>
           <ReportActions
+            department="Quality Control Department"
             size="sm"
             title="Quality Control — out (used or issued to Production)"
             fileName="qc-out"

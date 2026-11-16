@@ -1,3 +1,4 @@
+import { letterheadReportPdf } from "@/components/qc/qc-report-pdf";
 import { Fragment, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, CalendarClock, Download, FileDown, Printer } from "lucide-react";
@@ -8,7 +9,6 @@ import { useMyProductMatcher } from "@/lib/product-rules";
 import { addDays, localDay, SHIFT_LABEL, type ProductionShift } from "@/lib/production-shift";
 import { num } from "@/lib/format";
 import { exportCsv } from "@/lib/export";
-import { generateReportPdf } from "@/lib/pdf";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -633,13 +633,17 @@ export function DailyBalanceReports({
   ];
   const fmt = (c: Col, v: unknown) => (c.num ? num(Number(v)) : String(v ?? ""));
   const pdf = (action: "download" | "print") =>
-    generateReportPdf(
-      title,
-      cols,
-      rows.map((r) => Object.fromEntries(cols.map((c) => [c.key, fmt(c, r[c.key])]))),
+    letterheadReportPdf(
+      {
+        department: "Production Department",
+        title,
+        columns: cols,
+        rows: rows.map((r) => Object.fromEntries(cols.map((c) => [c.key, fmt(c, r[c.key])]))),
+        settings: settings.data,
+        filename: `production-${kind}-${from}-to-${to}`,
+        subtitle,
+      },
       action,
-      { name: settings.data?.company_name, logo_url: settings.data?.logo_url },
-      subtitle,
     );
 
   return (

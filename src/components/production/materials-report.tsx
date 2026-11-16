@@ -1,3 +1,4 @@
+import { letterheadReportPdf } from "@/components/qc/qc-report-pdf";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileDown, Pencil, Plus, Printer, Search, Trash2 } from "lucide-react";
@@ -7,7 +8,6 @@ import { usePermissions } from "@/lib/permissions";
 import { useFactorySettings } from "@/lib/use-factory";
 import { localDay } from "@/lib/production-shift";
 import { num } from "@/lib/format";
-import { generateReportPdf } from "@/lib/pdf";
 import { useRealtimeInvalidate } from "@/lib/realtime";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -135,33 +135,37 @@ export function ProductionMaterialsReport({ factoryId }: { factoryId: string }) 
   };
 
   const pdf = (action: "download" | "print") =>
-    generateReportPdf(
-      "All Process Material",
-      [
-        { key: "sn", label: "S/N" },
-        { key: "material", label: "Material" },
-        { key: "opening", label: "Opening" },
-        { key: "qty_in", label: "Qty In" },
-        { key: "total", label: "Total" },
-        { key: "qty_used", label: "Qty Used" },
-        { key: "damages", label: "Damages" },
-        { key: "balance", label: "Balance" },
-        { key: "at", label: "Date/Time" },
-      ],
-      shown.map((r, i) => ({
-        sn: i + 1,
-        material: r.material_name,
-        opening: num(Number(r.opening)),
-        qty_in: num(Number(r.qty_in)),
-        total: num(Number(r.total)),
-        qty_used: num(Number(r.qty_used)),
-        damages: num(Number(r.damages)),
-        balance: num(Number(r.balance)),
-        at: new Date(r.created_at).toLocaleString(),
-      })),
+    letterheadReportPdf(
+      {
+        department: "Production Department",
+        title: "All Process Material",
+        settings: settings.data,
+        filename: `process-material-${date || "all"}`,
+        subtitle: [date ? `Date: ${date}` : "All dates"],
+        columns: [
+          { key: "sn", label: "S/N" },
+          { key: "material", label: "Material" },
+          { key: "opening", label: "Opening" },
+          { key: "qty_in", label: "Qty In" },
+          { key: "total", label: "Total" },
+          { key: "qty_used", label: "Qty Used" },
+          { key: "damages", label: "Damages" },
+          { key: "balance", label: "Balance" },
+          { key: "at", label: "Date/Time" },
+        ],
+        rows: shown.map((r, i) => ({
+          sn: i + 1,
+          material: r.material_name,
+          opening: num(Number(r.opening)),
+          qty_in: num(Number(r.qty_in)),
+          total: num(Number(r.total)),
+          qty_used: num(Number(r.qty_used)),
+          damages: num(Number(r.damages)),
+          balance: num(Number(r.balance)),
+          at: new Date(r.created_at).toLocaleString(),
+        })),
+      },
       action,
-      { name: settings.data?.company_name, logo_url: settings.data?.logo_url },
-      [date ? `Date: ${date}` : "All dates"],
     );
 
   return (

@@ -4,11 +4,14 @@ import { useFactoryId, useFactorySettings } from "@/lib/use-factory";
 import { useCurrentUserName } from "@/lib/use-current-user";
 import { exportCsv, exportExcel, type ReportColumn } from "@/lib/export";
 import { generateReportPdf } from "@/lib/pdf";
+import { letterheadReportPdf, type Department } from "@/components/qc/qc-report-pdf";
 
 // Print / Excel / CSV for whatever list a page is showing: the same rows, in
 // the same order, with the company logo and who printed it on the PDF. Pages
 // pass exactly what is on screen (after their own filters), so the printout
-// always matches the screen.
+// always matches the screen. With a department (Quality Control, Warehouse,
+// Production pages) it prints on the factory letterhead -- logo, address,
+// "<DEPARTMENT>: <TITLE>", blue header row -- like the QC sheets.
 export function ReportActions({
   title,
   fileName,
@@ -16,6 +19,7 @@ export function ReportActions({
   rows,
   subtitle = [],
   size = "default",
+  department,
 }: {
   title: string;
   fileName: string;
@@ -23,20 +27,32 @@ export function ReportActions({
   rows: Record<string, unknown>[];
   subtitle?: string[];
   size?: "default" | "sm";
+  department?: Department;
 }) {
   const { data: factoryId } = useFactoryId();
   const settings = useFactorySettings(factoryId);
   const me = useCurrentUserName();
   const empty = rows.length === 0;
   const print = () =>
-    generateReportPdf(
-      title,
-      columns,
-      rows,
-      "print",
-      { name: settings.data?.company_name, logo_url: settings.data?.logo_url },
-      [...subtitle, `${rows.length} row(s)`, `Printed by: ${me.data ?? "—"}`],
-    );
+    department
+      ? letterheadReportPdf({
+          department,
+          title,
+          columns,
+          rows,
+          subtitle,
+          settings: settings.data,
+          printedBy: me.data,
+          filename: fileName,
+        })
+      : generateReportPdf(
+          title,
+          columns,
+          rows,
+          "print",
+          { name: settings.data?.company_name, logo_url: settings.data?.logo_url },
+          [...subtitle, `${rows.length} row(s)`, `Printed by: ${me.data ?? "—"}`],
+        );
   return (
     <div className="flex gap-1">
       <Button

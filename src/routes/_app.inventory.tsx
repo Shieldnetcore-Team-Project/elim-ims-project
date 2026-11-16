@@ -330,6 +330,7 @@ function InventoryOverviewPage() {
                     />
                   </div>
                   <ReportActions
+                    department="Warehouse Department"
                     size="sm"
                     title={`Warehouse Stock — ${factoryLabel.name}`}
                     fileName="warehouse-stock"
