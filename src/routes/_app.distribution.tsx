@@ -3632,10 +3632,14 @@ function DispenserBreakdownCard({ d }: { d: DispenserBreakdown }) {
   const jwSold = Number(d.jug_water_sold);
   const wSold = Number(d.water_sold);
   const onVan = Number(d.on_van);
-  // Before the 20261116100000 database update: worked out here.
+  // Before the 20261116100000 database update: worked out here, without the
+  // Jug + Water the old function still guesses (so nothing counts twice).
   const toReturn = Number(
     d.empties_to_return ??
-      Math.max(Number(d.posted) - Number(d.unsold_back) - Number(d.empties_back), 0),
+      Math.max(
+        Number(d.posted) - Number(d.unsold_back) - Number(d.empties_back) - Number(d.jug_water_sold),
+        0,
+      ),
   );
   const lines: { label: string; qty: number; price: number | null }[] = [
     { label: "Jug + Water sold (jug kept by the customer)", qty: jwSold, price: jugWater },
