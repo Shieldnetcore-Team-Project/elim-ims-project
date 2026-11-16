@@ -3613,32 +3613,38 @@ type DispenserBreakdown = {
   jug_water_sold: number;
   water_sold: number;
   jw_posted: number;
+  jw_marked?: number;
   jw_back: number;
+  empties_to_return?: number;
   water_price: number | null;
   jug_price: number | null;
   jug_water_price: number;
 };
 
-// The Dispenser Water posted to a marketer, split the way it was sold: the
-// empties QC took back are Dispenser Water (N1,200); the jugs that didn't come
-// back, once off the van, are Jug + Water (N4,200). The same money as the
-// balance below (posted at N1,200 + the jug price for each jug not back).
+// The dispensers posted to a marketer, as the Warehouse posted or marked them
+// at the return (user, 2026-11-16): Jug + Water sold (the customer kept the
+// jug); Dispenser Water whose empty jug came back; Dispenser Water whose
+// empty jug is still to return (water + jug until it comes back). The same
+// money as the balance below.
 function DispenserBreakdownCard({ d }: { d: DispenserBreakdown }) {
   const water = Number(d.water_price ?? 0);
   const jugWater = Number(d.jug_water_price ?? 0);
   const jwSold = Number(d.jug_water_sold);
   const wSold = Number(d.water_sold);
   const onVan = Number(d.on_van);
-  const jwDirect = Math.max(Number(d.jw_posted) - Number(d.jw_back), 0);
+  // Before the 20261116100000 database update: worked out here.
+  const toReturn = Number(
+    d.empties_to_return ??
+      Math.max(Number(d.posted) - Number(d.unsold_back) - Number(d.empties_back), 0),
+  );
   const lines: { label: string; qty: number; price: number | null }[] = [
     { label: "Jug + Water sold (jug kept by the customer)", qty: jwSold, price: jugWater },
-    { label: "Dispenser Water sold (empty returned)", qty: wSold, price: water },
-    ...(jwDirect > 0
-      ? [{ label: "Jug + Water posted as such", qty: jwDirect, price: jugWater }]
-      : []),
-    ...(onVan > 0
-      ? [{ label: "Still on the van (water + jug until returned)", qty: onVan, price: jugWater }]
-      : []),
+    { label: "Dispenser Water, empty jug returned", qty: wSold, price: water },
+    {
+      label: `Dispenser Water, empty jug still to return${onVan > 0 ? ` (${num(onVan)} still on the van)` : ""}`,
+      qty: toReturn,
+      price: jugWater,
+    },
   ];
   const total = lines.reduce((t, l) => t + l.qty * Number(l.price ?? 0), 0);
   return (
@@ -3646,8 +3652,10 @@ function DispenserBreakdownCard({ d }: { d: DispenserBreakdown }) {
       <CardHeader className="pb-2">
         <CardTitle className="text-base">Dispensers</CardTitle>
         <p className="text-sm text-muted-foreground">
-          {num(Number(d.posted))} Dispenser Water posted · {num(Number(d.unsold_back))} returned
-          unsold · {num(Number(d.empties_back))} empty jugs returned (QC)
+          {num(Number(d.posted) + Number(d.jw_posted))} dispensers posted (
+          {num(Number(d.jw_posted))} Jug + Water) · {num(Number(d.unsold_back) + Number(d.jw_back))}{" "}
+          returned unsold · {num(Number(d.empties_back))} empty jugs returned (QC) ·{" "}
+          {num(toReturn)} empty jugs to return
         </p>
       </CardHeader>
       <CardContent className="overflow-x-auto">
@@ -3764,10 +3772,7 @@ export function RepAccountView({
             ]
           : []),
         {
-          label:
-            d && Number(d.jug_water_sold) > 0
-              ? `Add: jug price for jugs not brought back (${num(Number(s.jugs_owed ?? 0))}: ${num(Number(d.jug_water_sold))} sold as Jug + Water${Number(d.on_van) > 0 ? `, ${num(Number(d.on_van))} still on the van` : ""}; ${num(Number(s.jugs_returned ?? 0))} empty jugs returned)`
-              : `Add: jugs not brought back (${num(Number(s.jugs_owed ?? 0))} × jug price; ${num(Number(s.jugs_returned ?? 0))} empty jugs returned)`,
+          label: `Add: empty jugs still to return (${num(Number(s.jugs_owed ?? 0))} × jug price; ${num(Number(s.jugs_returned ?? 0))} empty jugs returned${d && Number(d.jug_water_sold) > 0 ? `; ${num(Number(d.jug_water_sold))} Jug + Water are in goods out` : ""})`,
           value: Number(s.jugs_owed_value ?? 0),
         },
         { label: "Less: cash remitted", value: -s.cash_remitted },

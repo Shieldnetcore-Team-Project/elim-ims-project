@@ -1,8 +1,10 @@
 -- ============================================================================
 -- Acceptance tests: 20261112130000_marketer_dispenser_breakdown.sql
 --   100 Dispenser Water posted to a marketer; 80 empties come back through
---   QC: Accounts sees 20 Jug + Water sold (N4,200) and 80 Dispenser Water
---   (N1,200), and the balance is the same 180,000 (user, 2026-11-12).
+--   QC: Accounts sees 80 Dispenser Water (N1,200) with the empty back and 20
+--   empty jugs still to return (N4,200 until back); the balance is 180,000.
+--   Since 20261116100000 Jug + Water is only what the Warehouse posted or
+--   marked (set_rep_jug_water_sold), never guessed from jugs not back.
 -- ============================================================================
 
 INSERT INTO factories(id, code, name) VALUES ('f7700000-0000-0000-0000-000000000001', 'mdbfac', 'MDB Factory');
@@ -38,10 +40,11 @@ BEGIN
   VALUES (f, 'e7700000-0000-0000-0000-000000000001', 'sales_rep', m, 'qc', NULL, 80, 'return', 'JRQ-T1');
 
   b := public.rep_dispenser_breakdown(m);
-  PERFORM pg_temp.check((b->>'posted')::numeric = 100 AND (b->>'sold')::numeric = 100 AND (b->>'on_van')::numeric = 0,
-                        'posted/sold: ' || b::text);
-  PERFORM pg_temp.check((b->>'jug_water_sold')::numeric = 20, 'Jug + Water sold 20: ' || b::text);
-  PERFORM pg_temp.check((b->>'water_sold')::numeric = 80, 'Dispenser Water sold 80: ' || b::text);
+  PERFORM pg_temp.check((b->>'posted')::numeric = 100 AND (b->>'on_van')::numeric = 0,
+                        'posted: ' || b::text);
+  PERFORM pg_temp.check((b->>'jug_water_sold')::numeric = 0, 'none marked Jug + Water: ' || b::text);
+  PERFORM pg_temp.check((b->>'water_sold')::numeric = 80, 'Dispenser Water, empty back 80: ' || b::text);
+  PERFORM pg_temp.check((b->>'empties_to_return')::numeric = 20, 'empties to return 20: ' || b::text);
   PERFORM pg_temp.check((b->>'jug_water_price')::numeric = 4200 AND (b->>'water_price')::numeric = 1200,
                         'prices: ' || b::text);
   -- The balance is the same money: 20 x 4,200 + 80 x 1,200.
@@ -50,13 +53,14 @@ BEGIN
                         'balance ' || (s->>'net_balance_owed') || ' = 180,000');
 END $$;
 
--- @@ Test 2: 10 still on the van are not counted as sold
+-- @@ Test 2: 10 still on the van are shown; the split stays
 DO $$
 DECLARE m uuid := 'c7700000-0000-0000-0000-000000000001'; w uuid := 'b7700000-0000-0000-0000-000000000001'; b jsonb;
 BEGIN
   UPDATE rep_stock SET quantity = 10 WHERE sales_rep_id = m AND product_id = w;
   b := public.rep_dispenser_breakdown(m);
-  PERFORM pg_temp.check((b->>'on_van')::numeric = 10 AND (b->>'sold')::numeric = 90, 'on van: ' || b::text);
-  PERFORM pg_temp.check((b->>'jug_water_sold')::numeric = 10 AND (b->>'water_sold')::numeric = 80, 'split: ' || b::text);
+  PERFORM pg_temp.check((b->>'on_van')::numeric = 10, 'on van: ' || b::text);
+  PERFORM pg_temp.check((b->>'empties_to_return')::numeric = 20 AND (b->>'water_sold')::numeric = 80,
+                        'split: ' || b::text);
   UPDATE rep_stock SET quantity = 0 WHERE sales_rep_id = m AND product_id = w;
 END $$;

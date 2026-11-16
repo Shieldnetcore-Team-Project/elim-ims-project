@@ -31,7 +31,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Checkbox } from "@/components/ui/checkbox";
 import { CountInput, fmtDateTime } from "@/components/preform/shared";
 import { db, rpc, useUserNames } from "@/components/preform/api";
 import { formatDay } from "@/lib/jug-accountability";
@@ -481,19 +482,75 @@ function MarketerUnsoldDialog({
   const over = held.some((s) => (qty[s.product_id] ?? 0) > s.quantity);
   const total = items.reduce((s, i) => s + i.quantity_returned, 0);
 
+  // Of the Dispenser Water posted on a day, how many went as Jug + Water (the
+  // customer kept the jug); the rest are empty jugs to return (user,
+  // 2026-11-16). Saved on the posting itself (set_rep_jug_water_sold), so
+  // Accounts sees the same split.
+  const [jwOn, setJwOn] = useState(false);
+  const [jwDay, setJwDay] = useState("");
+  const [jw, setJw] = useState<Record<string, number | null>>({});
+  const lastSupply = useLastSupplied("marketer", repId || null);
+  useEffect(() => {
+    if (!jwDay && lastSupply.data?.date) setJwDay(lastSupply.data.date);
+  }, [jwDay, lastSupply.data]);
+  const jwDayQ = useQuery({
+    queryKey: ["jug", "rep-jw-day", repId, jwDay],
+    enabled: jwOn && !!repId && !!jwDay,
+    queryFn: async () =>
+      (
+        await rpc<
+          {
+            product_id: string;
+            product_name: string;
+            water_posted: number;
+            jw_posted: number;
+            jw_marked: number;
+            jugs_out: number;
+          }[]
+        >("rep_jug_water_day", { p_rep: repId, p_day: jwDay })
+      ).map((r) => ({
+        ...r,
+        water_posted: Number(r.water_posted),
+        jw_posted: Number(r.jw_posted),
+        jw_marked: Number(r.jw_marked),
+        jugs_out: Number(r.jugs_out),
+      })),
+  });
+  const jwRows = jwOn ? (jwDayQ.data ?? []).filter((r) => mine(r.product_name)) : [];
+  const jwChanges = jwRows.filter((r) => jw[r.product_id] != null && jw[r.product_id] !== r.jw_marked);
+  const jwOver = jwRows.some((r) => (jw[r.product_id] ?? r.jw_marked) > r.water_posted + r.jw_marked);
+
+  const qcClient = useQueryClient();
   const save = useJugAction(
-    () =>
-      rpc<{ return_number: string }>("create_rep_return", {
-        payload: {
-          factory_id: factoryId,
-          sales_rep_id: repId,
-          return_date: unsoldDate,
-          notes: notes || undefined,
-          items,
-        },
-      }),
-    (r) =>
-      `${(r as { return_number: string }).return_number}: ${num(total)} unsold dispenser(s) received into the Warehouse`,
+    async () => {
+      const done: string[] = [];
+      for (const r of jwChanges) {
+        await rpc("set_rep_jug_water_sold", {
+          p_rep: repId,
+          p_product: r.product_id,
+          p_day: jwDay,
+          p_quantity: jw[r.product_id],
+          p_note: notes || null,
+        });
+        done.push(`${num(jw[r.product_id] ?? 0)} ${r.product_name} marked Jug + Water`);
+      }
+      if (items.length > 0) {
+        const r = await rpc<{ return_number: string }>("create_rep_return", {
+          payload: {
+            factory_id: factoryId,
+            sales_rep_id: repId,
+            return_date: unsoldDate,
+            notes: notes || undefined,
+            items,
+          },
+        });
+        done.push(`${r.return_number}: ${num(total)} unsold dispenser(s) received into the Warehouse`);
+      }
+      for (const key of [["last-supplied"], ["dist-rep-dispensers"], ["dist-account"]])
+        qcClient.invalidateQueries({ queryKey: key });
+      return done.join(" · ");
+    },
+    (r) => String(r),
   );
 
   return (
@@ -582,6 +639,87 @@ function MarketerUnsoldDialog({
               </TableBody>
             </Table>
           )}
+          {repId && (
+            <div className="rounded-lg border p-3">
+              <label className="flex items-center gap-2 text-sm font-medium">
+                <Checkbox checked={jwOn} onCheckedChange={(v) => setJwOn(v === true)} />
+                Sold as Jug + Water (the customer kept the jug)
+              </label>
+              {jwOn && (
+                <div className="mt-3 grid gap-2">
+                  <Field label="Posting day">
+                    <Input
+                      type="date"
+                      value={jwDay}
+                      max={localDay()}
+                      onChange={(e) => {
+                        setJwDay(e.target.value);
+                        setJw({});
+                      }}
+                    />
+                  </Field>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Product</TableHead>
+                        <TableHead className="text-right">Posted</TableHead>
+                        <TableHead className="w-28 text-right">Jug + Water sold</TableHead>
+                        <TableHead className="text-right">Empty jugs to return</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {jwRows.length === 0 && (
+                        <TableRow>
+                          <TableCell colSpan={4} className="py-4 text-center text-muted-foreground">
+                            {jwDayQ.isLoading
+                              ? "Loading…"
+                              : "No Dispenser Water was posted to this marketer on that day."}
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      {jwRows.map((r) => {
+                        const posted = r.water_posted + r.jw_marked;
+                        const v = jw[r.product_id] ?? r.jw_marked;
+                        const unsoldNow = unsoldDate === jwDay ? (qty[r.product_id] ?? 0) : 0;
+                        return (
+                          <TableRow key={r.product_id}>
+                            <TableCell>
+                              {r.product_name}
+                              {r.jw_posted > 0 && (
+                                <div className="text-[11px] text-muted-foreground">
+                                  + {num(r.jw_posted)} posted as Jug + Water
+                                </div>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right">{num(posted)}</TableCell>
+                            <TableCell className="text-right">
+                              <CountInput
+                                className="ml-auto w-24 text-right"
+                                value={jw[r.product_id] ?? r.jw_marked}
+                                onChange={(x) => setJw((q) => ({ ...q, [r.product_id]: x ?? 0 }))}
+                                placeholder="0"
+                              />
+                              {v > posted && (
+                                <div className="text-[11px] text-destructive">More than posted</div>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right font-medium">
+                              {num(Math.max(posted - v - unsoldNow, 0))}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                  <p className="text-xs text-muted-foreground">
+                    Saved on that day&apos;s posting: those dispensers show as Jug + Water (water +
+                    jug) for Accounts, and the rest as Dispenser Water with their empty jugs to
+                    return to QC. The marketer&apos;s balance stays the same.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
           <Field label="Notes (optional)">
             <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
           </Field>
@@ -591,11 +729,17 @@ function MarketerUnsoldDialog({
             Cancel
           </Button>
           <Button
-            disabled={!repId || items.length === 0 || over || save.isPending}
+            disabled={
+              !repId ||
+              (items.length === 0 && jwChanges.length === 0) ||
+              over ||
+              jwOver ||
+              save.isPending
+            }
             onClick={() => save.mutate(undefined, { onSuccess: onClose })}
           >
             {save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Receive {total > 0 ? num(total) : ""}
+            {items.length > 0 ? `Receive ${total > 0 ? num(total) : ""}` : "Save Jug + Water"}
           </Button>
         </DialogFooter>
       </DialogContent>
