@@ -866,7 +866,7 @@ function DailyProductionSheet({
   const shift: Shift = sunday ? "overtime" : pickedShift;
   // The sheet starts empty; the manager adds a row per product produced, each
   // counted in the unit picked beside it (Packs for Bottle Water, otherwise
-  // the product's own unit -- bags of Sachet Water, pieces of Dispenser/Jug
+  // the product's own unit -- bags of Sachet Water, bottles of Dispenser/Jug
   // Water).
   const unitsOfMeasure = useUnitsOfMeasure();
   const unitChoices = unitsOfMeasure.data ?? UNIT_OPTIONS_FALLBACK;
@@ -1210,7 +1210,7 @@ function ProductionForm({
     editing ? (editing.packaging_unit ?? editing.unit ?? "") : "",
   );
   // Packs for Bottle Water, otherwise the product's own unit (bags of Sachet
-  // Water, pieces of Dispenser/Jug Water).
+  // Water, bottles of Dispenser/Jug Water).
   const chosenProduct = products.find((p) => p.id === productId);
   const unit = unitPicked || (chosenProduct ? defaultUnitFor(chosenProduct, packUnit) : packUnit);
   const unitOptions = [...new Set([unit, packUnit, ...unitChoices])];

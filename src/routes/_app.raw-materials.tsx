@@ -1369,7 +1369,7 @@ function MaterialForm({
   );
   const unit = unitChoice === "__custom__" ? customUnit : unitChoice;
 
-  // Bottle/Sachet/Dispenser only take kg or pieces — if the category changes
+  // Bottle/Sachet/Dispenser only take kg or pieces (Dispenser also bottles) — if the category changes
   // to/from one of those, drop a unit choice that's no longer offered.
   useEffect(() => {
     if (unitChoice !== "__custom__" && !unitOptions.includes(unitChoice)) {

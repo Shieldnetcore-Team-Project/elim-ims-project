@@ -67,7 +67,7 @@ export const Route = createFileRoute("/_app/brands")({
   ),
 });
 
-const CATEGORIES = ["Bag", "Carton", "Piece", "Roll"] as const;
+const CATEGORIES = ["Bag", "Bottle", "Carton", "Piece", "Roll"] as const;
 
 type Brand = {
   id: string;

@@ -30,7 +30,7 @@ export const packUnitOf = (units: string[]) =>
 export const isBottleWater = (name: string) => /bottle water$/i.test(name.trim());
 // The unit a product is counted in by default when recording or posting it:
 // packs for Bottle Water, otherwise the product's own unit (Sachet Water in
-// bags, Dispenser/Jug Water in pieces).
+// bags, Dispenser/Jug Water in bottles).
 export const defaultUnitFor = (product: { name: string; unit: string }, packUnit: string) =>
   isBottleWater(product.name) ? packUnit : product.unit || packUnit;
 // Sachet Water and Empty Jug (sold as a finished product, user 2026-11-09) are
@@ -41,14 +41,14 @@ export const defaultUnitFor = (product: { name: string; unit: string }, packUnit
 export const isRestockable = (name: string) =>
   /sachet|satchet/i.test(name) || /^\s*empty jug\s*$/i.test(name);
 
-// Packaging categories that only ever come in these two units. Matched
+// Packaging categories that only ever come in these units (jugs: bottles). Matched
 // against the admin-defined `material_categories.name` (case-insensitive),
 // not a fixed category enum — factories can still add other categories,
 // which keep the full unit list.
 const CATEGORY_UNIT_OVERRIDES: Record<string, string[]> = {
   bottle: ["kilogram", "piece"],
   sachet: ["kilogram", "piece"],
-  dispenser: ["kilogram", "piece"],
+  dispenser: ["bottle", "kilogram", "piece"],
 };
 
 export function getUnitOptionsForCategory(

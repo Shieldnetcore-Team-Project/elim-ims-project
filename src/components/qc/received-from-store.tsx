@@ -221,6 +221,15 @@ export function ReceivedFromStorePanel({ factoryId }: { factoryId: string }) {
     { pending: 0, received: 0, out: 0, available: 0 },
   );
   const pendingCount = (receipts.data ?? []).filter((r) => r.status === "pending").length;
+  // The unit the cards and print headers name: the materials' own unit when
+  // they share one (jugs are counted in bottles, 2026-11-17), else pieces.
+  const units = [...new Set(stock.map((b) => (b.info?.unit ?? "").trim().toLowerCase()))];
+  const unitWord =
+    units.length === 1 && units[0] && !/^(piece|pieces|pc|pcs)$/.test(units[0])
+      ? units[0].endsWith("s")
+        ? units[0]
+        : `${units[0]}s`
+      : "pieces";
 
   const term = q.trim().toLowerCase();
   const matches = (...values: (string | null | undefined)[]) =>
@@ -275,16 +284,16 @@ export function ReceivedFromStorePanel({ factoryId }: { factoryId: string }) {
           hint={`${pendingCount} issue${pendingCount === 1 ? "" : "s"} to confirm`}
           tone={pendingCount > 0 ? "warning" : undefined}
         />
-        <SummaryCard label="Qty received" value={num(totals.received)} hint="confirmed, pieces" />
+        <SummaryCard label="Qty received" value={num(totals.received)} hint={`confirmed, ${unitWord}`} />
         <SummaryCard
           label="Out"
           value={num(totals.out)}
-          hint="used by QC or issued to Production, pieces"
+          hint={`used by QC or issued to Production, ${unitWord}`}
         />
         <SummaryCard
           label="Quantity available"
           value={num(totals.available)}
-          hint="received − out, pieces"
+          hint={`received − out, ${unitWord}`}
         />
       </div>
 
@@ -304,10 +313,10 @@ export function ReceivedFromStorePanel({ factoryId }: { factoryId: string }) {
             columns={[
               { key: "material", label: "Material" },
               { key: "brand", label: "Brand" },
-              { key: "pending", label: "Awaiting confirmation (pieces)" },
-              { key: "received", label: "Received (pieces)" },
-              { key: "out", label: "Out (pieces)" },
-              { key: "available", label: "Available (pieces)" },
+              { key: "pending", label: `Awaiting confirmation (${unitWord})` },
+              { key: "received", label: `Received (${unitWord})` },
+              { key: "out", label: `Out (${unitWord})` },
+              { key: "available", label: `Available (${unitWord})` },
               { key: "availablePacks", label: "Available in packs" },
             ]}
             rows={stock.map((b) => ({
@@ -424,7 +433,7 @@ export function ReceivedFromStorePanel({ factoryId }: { factoryId: string }) {
                 { key: "when", label: "Issued" },
                 { key: "material", label: "Material" },
                 { key: "brand", label: "Brand" },
-                { key: "quantity", label: "Quantity (pieces)" },
+                { key: "quantity", label: `Quantity (${unitWord})` },
                 { key: "packs", label: "In packs" },
                 { key: "collectedBy", label: "Collected By" },
                 { key: "issuedBy", label: "Issued By" },
@@ -590,7 +599,7 @@ export function ReceivedFromStorePanel({ factoryId }: { factoryId: string }) {
               { key: "when", label: "Date/Time" },
               { key: "material", label: "Material" },
               { key: "brand", label: "Brand" },
-              { key: "quantity", label: "Quantity (pieces)" },
+              { key: "quantity", label: `Quantity (${unitWord})` },
               { key: "packs", label: "In packs" },
               { key: "wentTo", label: "Went to" },
               { key: "reason", label: "Details" },
