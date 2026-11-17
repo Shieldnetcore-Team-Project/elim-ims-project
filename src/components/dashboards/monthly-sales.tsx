@@ -146,7 +146,7 @@ export function MonthlySalesCard({ factoryId }: { factoryId: string }) {
         accumulated: cash(r.accumulated),
       })),
       action,
-      { name: settings.data?.company_name, logo_url: settings.data?.logo_url },
+      settings.data,
       [
         "Approved sales only (excludes PR and deleted sales), by sale date.",
         "Accumulated is the running total from January.",

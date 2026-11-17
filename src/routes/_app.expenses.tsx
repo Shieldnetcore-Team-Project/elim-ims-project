@@ -449,7 +449,7 @@ function ExpensesPage() {
       columns,
       rows,
       action,
-      { name: settings.data?.company_name, logo_url: settings.data?.logo_url },
+      settings.data,
     );
   };
 

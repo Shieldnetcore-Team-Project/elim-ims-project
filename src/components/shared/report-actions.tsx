@@ -45,14 +45,11 @@ export function ReportActions({
           printedBy: me.data,
           filename: fileName,
         })
-      : generateReportPdf(
-          title,
-          columns,
-          rows,
-          "print",
-          { name: settings.data?.company_name, logo_url: settings.data?.logo_url },
-          [...subtitle, `${rows.length} row(s)`, `Printed by: ${me.data ?? "—"}`],
-        );
+      : generateReportPdf(title, columns, rows, "print", settings.data, [
+          ...subtitle,
+          `${rows.length} row(s)`,
+          `Printed by: ${me.data ?? "—"}`,
+        ]);
   return (
     <div className="flex gap-1">
       <Button

@@ -130,6 +130,157 @@ export async function drawLogoHeader(
   return baseTop + h + 10;
 }
 
+// ---------------------------------------------------------------------------
+// The factory letterhead every printed REPORT uses (user, 2026-11-16 for QC /
+// Warehouse / Production; 2026-11-17 "change all report printing color and
+// layout to be the same layout"): the logo centred, the address, Tel / Email
+// and Website lines, the title in capitals, then a grid under a blue header
+// row, all in bold Times. Invoices, receipts, slips, vouchers, payslips and
+// account statements are documents, not reports, and keep their own layout.
+// ---------------------------------------------------------------------------
+
+// The sheet's header blue.
+export const LETTERHEAD_BLUE: [number, number, number] = [31, 117, 188];
+const LETTERHEAD_FOOT: [number, number, number] = [230, 236, 245];
+
+// As printed on the factory's sheets when Settings has no details yet.
+export const SHEET_DEFAULTS = {
+  address:
+    "Plot No. 188A, FCDA SchemeExtension III, Off Bwari/Dutse Road, By Power Station, Opp. KAS Guest House, Kubwa, FCT Abuja.",
+  phone: "+2348166399794",
+  email: "info@elimtablewater.com",
+  website: "www.elimtablewater.com",
+};
+
+export type LetterheadCompany = {
+  logo_url?: string | null;
+  address: string;
+  phone: string;
+  email: string;
+  website: string;
+};
+
+// Anything carrying the factory's details: Settings' row, or the
+// { name, logo_url } many pages pass. Missing details fall back to the sheet.
+export type CompanyLike =
+  | {
+      logo_url?: string | null;
+      address?: string | null;
+      phone?: string | null;
+      email?: string | null;
+      website?: string | null;
+    }
+  | null
+  | undefined;
+
+export const sheetCompany = (s: CompanyLike): LetterheadCompany => ({
+  logo_url: s?.logo_url,
+  address: s?.address || SHEET_DEFAULTS.address,
+  phone: s?.phone || SHEET_DEFAULTS.phone,
+  email: s?.email || SHEET_DEFAULTS.email,
+  website: s?.website || SHEET_DEFAULTS.website,
+});
+
+// Draws the letterhead and the title (in capitals) with any small centred
+// lines under it; returns the y the table starts at.
+export async function drawLetterhead(
+  doc: jsPDF,
+  company: CompanyLike,
+  title: string,
+  subtitle?: string[],
+): Promise<number> {
+  const c = sheetCompany(company);
+  const W = doc.internal.pageSize.getWidth();
+  const M = 36;
+  let y = await drawLogoHeader(doc, c.logo_url, 22, 150, 58);
+  doc.setFont("times", "bold");
+  doc.setFontSize(10.5);
+  doc.setTextColor(0, 0, 0);
+  for (const line of [c.address, `Tel: ${c.phone}, Email: ${c.email}`, `Website: ${c.website}`]) {
+    for (const part of doc.splitTextToSize(line, W - 2 * M) as string[]) {
+      doc.text(part, W / 2, y, { align: "center" });
+      y += 13;
+    }
+  }
+  y += 16;
+  doc.setFontSize(12.5);
+  for (const [i, part] of (
+    doc.splitTextToSize(title.toUpperCase(), W - 2 * M) as string[]
+  ).entries()) {
+    if (i > 0) y += 15;
+    doc.text(part, W / 2, y, { align: "center" });
+  }
+  if (subtitle?.length) {
+    doc.setFontSize(9.5);
+    for (const line of subtitle)
+      for (const part of doc.splitTextToSize(line, W - 2 * M) as string[]) {
+        y += 13;
+        doc.text(part, W / 2, y, { align: "center" });
+      }
+  }
+  return y + 14;
+}
+
+// Smaller section heading inside a letterhead report (bold Times, left).
+export function letterheadSection(doc: jsPDF, text: string, y: number): number {
+  doc.setFont("times", "bold");
+  doc.setFontSize(11.5);
+  doc.setTextColor(0, 0, 0);
+  doc.text(text, 36, y);
+  return y + 6;
+}
+
+// The grid's look: spread into autoTable(...) options.
+export function letterheadTable(fontSize = 10) {
+  return {
+    theme: "grid" as const,
+    margin: { left: 36, right: 36 },
+    styles: {
+      font: "times",
+      fontStyle: "bold" as const,
+      fontSize,
+      textColor: [0, 0, 0] as [number, number, number],
+      lineColor: [40, 40, 40] as [number, number, number],
+      lineWidth: 0.6,
+      cellPadding: 3,
+    },
+    headStyles: {
+      fillColor: LETTERHEAD_BLUE,
+      textColor: [255, 255, 255] as [number, number, number],
+      fontStyle: "bold" as const,
+    },
+    footStyles: {
+      fillColor: LETTERHEAD_FOOT,
+      textColor: [0, 0, 0] as [number, number, number],
+      fontStyle: "bold" as const,
+    },
+  };
+}
+export const LETTERHEAD_SHADE = LETTERHEAD_FOOT;
+
+// "Printed by: ... · <time>" in small type under the last table.
+export function letterheadPrintedBy(doc: jsPDF, printedBy: string | null | undefined) {
+  const H = doc.internal.pageSize.getHeight();
+  const y =
+    ((doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? 60) + 14;
+  doc.setFont("times", "normal");
+  doc.setFontSize(8.5);
+  doc.setTextColor(0, 0, 0);
+  doc.text(
+    `${printedBy ? `Printed by: ${printedBy} · ` : "Printed "}${new Date().toLocaleString()}`,
+    36,
+    Math.min(y, H - 16),
+  );
+}
+
+export function finishPdf(doc: jsPDF, filename: string, action: PdfAction) {
+  if (action === "download") doc.save(`${filename.replace(/[\\/:*?"<>|\s]+/g, "-")}.pdf`);
+  else {
+    if (action === "print") doc.autoPrint();
+    window.open(doc.output("bloburl"), "_blank");
+  }
+}
+
 // The Warehouse's slim POS roll: exactly 80mm wide, as long as the receipt
 // (a fixed 297mm page fed ~20cm of blank roll after every receipt). The
 // margins keep text inside the roll's 72mm printable width, so the printer
@@ -1338,54 +1489,18 @@ export async function generateWarehouseProductsReportPdf(
   action: PdfAction = "download",
 ) {
   const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "landscape" });
-  const W = doc.internal.pageSize.getWidth();
-  const center = W / 2;
-  const logo = await resolveLogo(opts.company.logo_url);
-
-  let y = 24;
-  if (logo) {
-    const ratio = Math.min(150 / logo.width, 70 / logo.height, 1);
-    const w = logo.width * ratio;
-    const h = logo.height * ratio;
-    doc.addImage(logo.dataUrl, "PNG", center - w / 2, y, w, h);
-    y += h + 14;
-  } else {
-    doc.setFont("times", "bold");
-    doc.setFontSize(16);
-    doc.text(opts.company.name, center, y + 10, { align: "center" });
-    y += 26;
-  }
-  doc.setFont("times", "bold");
-  doc.setFontSize(10);
-  const lines = [
-    opts.company.address,
-    [
-      opts.company.phone && `Tel: ${opts.company.phone}`,
-      opts.company.email && `Email: ${opts.company.email}`,
-    ]
-      .filter(Boolean)
-      .join(", "),
-    opts.company.website && `Website: ${opts.company.website}`,
-  ].filter(Boolean) as string[];
-  lines.forEach((ln) => {
-    (doc.splitTextToSize(ln, W - 80) as string[]).forEach((part) => {
-      doc.text(part, center, y, { align: "center" });
-      y += 13;
-    });
-  });
-
-  y += 16;
-  doc.setFontSize(12);
-  doc.text(`WAREHOUSE: PRODUCTS REPORT FROM ${opts.from} TO ${opts.to}`, center, y, {
-    align: "center",
-  });
-  y += 12;
+  const y = await drawLetterhead(
+    doc,
+    opts.company,
+    `Warehouse: Products Report from ${opts.from} to ${opts.to}`,
+  );
 
   const n = (v: number) => (v ? v.toLocaleString() : "0");
   const anyAdj = opts.rows.some((r) => Number(r.adjusted ?? 0) !== 0);
   autoTable(doc, {
+    ...letterheadTable(10),
     startY: y,
-    margin: { left: 30, right: 30 },
+    columnStyles: { 0: { cellWidth: 34 } },
     head: [
       [
         "S/N",
@@ -1416,17 +1531,6 @@ export async function generateWarehouseProductsReportPdf(
       ...(anyAdj ? [n(Number(r.adjusted ?? 0))] : []),
       n(r.balance),
     ]),
-    theme: "grid",
-    styles: {
-      font: "times",
-      fontStyle: "bold",
-      fontSize: 10,
-      textColor: [0, 0, 0],
-      lineColor: [0, 0, 0],
-      lineWidth: 0.6,
-      cellPadding: 3,
-    },
-    headStyles: { fillColor: [31, 119, 180], textColor: [255, 255, 255], fontSize: 11 },
   });
 
   const name = `warehouse-products-report-${opts.from}-to-${opts.to}`;
@@ -1556,47 +1660,71 @@ export async function generateReportPdf(
   columns: { key: string; label: string }[],
   rows: Record<string, unknown>[],
   action: PdfAction = "download",
-  company?: { name?: string | null; logo_url?: string | null } | null,
-  // Extra lines under the title (reporting period, printed by...).
+  // Settings' row (or just { name, logo_url }); missing details print the sheet's.
+  company?: {
+    name?: string | null;
+    logo_url?: string | null;
+    address?: string | null;
+    phone?: string | null;
+    email?: string | null;
+    website?: string | null;
+  } | null,
+  // Extra lines under the title (reporting period...). A "Printed by: X" line
+  // prints under the table instead.
   subtitle?: string[],
 ) {
-  const doc = new jsPDF({
-    unit: "pt",
-    format: "a4",
-    orientation: columns.length > 6 ? "landscape" : "portrait",
-  });
-  const top = await drawLogoHeader(doc, company?.logo_url, 40);
-  let y = top;
-  if (company?.name) {
-    doc.setFontSize(10);
-    doc.text(company.name, 40, y);
-    y += 16;
-  }
-  doc.setFontSize(16);
-  doc.text(title, 40, y);
-  y += 16;
-  doc.setFontSize(9);
-  for (const line of subtitle ?? []) {
-    doc.text(line, 40, y);
-    y += 12;
-  }
-  doc.text(`Generated ${new Date().toLocaleString()}`, 40, y);
-  y += 16;
+  // On the factory letterhead, like every other report (user, 2026-11-17):
+  // an S/N column, a last "Total" line as the shaded foot, subtotal lines
+  // shaded, A4 landscape.
+  const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "landscape" });
+  const lines = subtitle ?? [];
+  const printedLine = lines.find((l) => /^printed by:/i.test(l));
+  const y = await drawLetterhead(
+    doc,
+    company,
+    title,
+    lines.filter((l) => l !== printedLine),
+  );
 
+  const cell = (v: unknown) => (v == null ? "" : String(v));
+  const isTotal = (r: Record<string, unknown>) =>
+    r.kind === "total" ||
+    columns.slice(0, 3).some((c) => /^(grand\s+)?total\b/i.test(cell(r[c.key]).trim()));
+  const last = rows[rows.length - 1];
+  const hasFoot = rows.length > 1 && !!last && isTotal(last);
+  const body = hasFoot ? rows.slice(0, -1) : rows;
+  const numbered = !/^(s\/?n|#|no\.?)$/i.test(columns[0]?.label ?? "");
+  let sn = 0;
+  const shaded = new Set<number>();
+  const bodyRows = body.map((r, i) => {
+    const sub = r.kind === "subtotal" || isTotal(r);
+    if (sub) shaded.add(i);
+    const vals = columns.map((c) => cell(r[c.key]));
+    return numbered ? [sub ? "" : String(++sn), ...vals] : vals;
+  });
+  const head = numbered ? ["S/N", ...columns.map((c) => c.label)] : columns.map((c) => c.label);
+  const look = letterheadTable(columns.length > 10 ? 8.5 : 10);
   autoTable(doc, {
+    ...look,
     startY: y,
-    head: [columns.map((c) => c.label)],
-    body: rows.map((r) => columns.map((c) => (r[c.key] == null ? "—" : String(r[c.key])))),
-    styles: { fontSize: 8 },
-    headStyles: { fillColor: [30, 41, 59] },
+    head: [head],
+    body: bodyRows,
+    foot: hasFoot
+      ? [
+          numbered
+            ? ["", ...columns.map((c) => cell(last[c.key]))]
+            : columns.map((c) => cell(last[c.key])),
+        ]
+      : undefined,
+    showFoot: "lastPage",
+    columnStyles: numbered ? { 0: { cellWidth: 34 } } : {},
+    didParseCell: (d) => {
+      if (d.section === "body" && shaded.has(d.row.index))
+        d.cell.styles.fillColor = LETTERHEAD_SHADE;
+    },
   });
-
-  if (action === "download") {
-    doc.save(`${title.replace(/\s+/g, "-")}.pdf`);
-  } else {
-    if (action === "print") doc.autoPrint();
-    window.open(doc.output("bloburl"), "_blank");
-  }
+  letterheadPrintedBy(doc, printedLine ? printedLine.replace(/^printed by:\s*/i, "") : null);
+  finishPdf(doc, title, action);
 }
 
 // Customer account statement: advance / debt position for a period, with every
@@ -1776,6 +1904,7 @@ export async function generateProductionStockReportPdf(
       address?: string | null;
       phone?: string | null;
       email?: string | null;
+      website?: string | null;
       logo_url?: string | null;
     };
     from: string;
@@ -1793,46 +1922,16 @@ export async function generateProductionStockReportPdf(
   },
   action: PdfAction = "download",
 ) {
-  const doc = new jsPDF({ unit: "pt", format: "a4" });
-  const pageW = doc.internal.pageSize.getWidth();
+  const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "landscape" });
   const withCleared = opts.rows.some((r) => (r.cleared ?? 0) !== 0);
-  let y = await drawLogoHeader(doc, opts.company.logo_url, 40, 140, 60);
-  doc.setFont("times", "bold");
-  if (opts.company.name) {
-    doc.setFontSize(13);
-    doc.text(opts.company.name, pageW / 2, y, { align: "center" });
-    y += 15;
-  }
-  doc.setFontSize(10);
-  if (opts.company.address) {
-    // A long address wraps; each line moves the Tel / Email line down so
-    // they never print on top of each other.
-    const lines = doc.splitTextToSize(opts.company.address, pageW - 80) as string[];
-    for (const line of lines) {
-      doc.text(line, pageW / 2, y, { align: "center" });
-      y += 13;
-    }
-    y += 1;
-  }
-  const contact = [
-    opts.company.phone ? `Tel: ${opts.company.phone}` : "",
-    opts.company.email ? `Email: ${opts.company.email}` : "",
-  ]
-    .filter(Boolean)
-    .join(", ");
-  if (contact) {
-    doc.text(contact, pageW / 2, y, { align: "center" });
-    y += 14;
-  }
-  y += 18;
-  doc.setFontSize(12);
-  doc.text(`PRODUCTION DEPARTMENT: PRODUCTS REPORT FROM ${opts.from} TO ${opts.to}`, pageW / 2, y, {
-    align: "center",
-  });
-  y += 12;
-
+  const y = await drawLetterhead(
+    doc,
+    opts.company,
+    `Production Department: Products Report from ${opts.from} to ${opts.to}`,
+  );
   const n = (v: number) => String(Math.round(v * 1000) / 1000);
   autoTable(doc, {
+    ...letterheadTable(10),
     startY: y,
     head: [
       [
@@ -1856,26 +1955,18 @@ export async function generateProductionStockReportPdf(
       ...(withCleared ? [n(r.cleared ?? 0)] : []),
       n(r.balance),
     ]),
-    styles: { font: "times", fontSize: 10, lineColor: [0, 0, 0], lineWidth: 0.5 },
-    headStyles: { fillColor: [31, 101, 196], textColor: 255, fontStyle: "bold" },
     columnStyles: { 0: { cellWidth: 34 } },
-    margin: { left: 30, right: 30 },
   });
-
-  if (action === "download") {
-    doc.save(`production-report-${opts.from}-to-${opts.to}.pdf`);
-  } else {
-    if (action === "print") doc.autoPrint();
-    window.open(doc.output("bloburl"), "_blank");
-  }
+  letterheadPrintedBy(doc, null);
+  finishPdf(doc, `production-report-${opts.from}-to-${opts.to}`, action);
 }
 
-// Items Sold to Customers: laid out like the accounting package's printout the
-// office already files — period heading, one block per customer, bold
-// customer subtotals, grand total, and "Page n of m" on every page.
+// Items Sold to Customers on the factory letterhead: one block per customer
+// (ID, name, a line per item), shaded customer subtotals, the grand total as
+// the shaded foot, and "Page n of m" on every page.
 export async function generateItemsSoldPdf(
   opts: {
-    company: { name?: string | null; logo_url?: string | null };
+    company: CompanyLike & { name?: string | null };
     report: import("./items-sold-report").ItemsSoldReport;
     periodLabel: string;
     printedBy?: string | null;
@@ -1883,118 +1974,91 @@ export async function generateItemsSoldPdf(
   action: PdfAction = "download",
 ) {
   const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "landscape" });
-  const pageW = doc.internal.pageSize.getWidth();
-  const printedAt = new Date().toLocaleString();
-  let y = await drawLogoHeader(doc, opts.company.logo_url, 40, 130, 60);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(13);
-  doc.text((opts.company.name ?? "Elim Table Water").toUpperCase(), pageW / 2, y, {
-    align: "center",
-  });
-  y += 16;
-  doc.setFontSize(11);
-  doc.text("Items Sold to Customers", pageW / 2, y, { align: "center" });
-  y += 15;
-  doc.text(`For the Period ${opts.periodLabel}`, pageW / 2, y, { align: "center" });
-  y += 13;
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.text(
-    "Posted sales only (PR excluded). Report order is by Customer ID, Item." +
-      (opts.printedBy ? `  Printed by: ${opts.printedBy}` : ""),
-    40,
-    y,
-  );
-  y += 8;
+  const y = await drawLetterhead(doc, opts.company, "Items Sold to Customers", [
+    `For the Period ${opts.periodLabel}`,
+    "Posted sales only (PR excluded). Report order is by Customer ID, Item.",
+  ]);
 
   const qty = (n: number) =>
     new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(
       n,
     );
-  type Row = { cells: string[]; kind: "item" | "subtotal" | "total" };
-  const body: Row[] = [];
+  const body: string[][] = [];
+  const shaded = new Set<number>();
+  let sn = 0;
   for (const g of opts.report.groups) {
     g.items.forEach((i, idx) =>
-      body.push({
-        kind: "item",
-        cells: [
-          idx === 0 ? (g.code ?? "") : "",
-          idx === 0 ? g.name : "",
-          i.product,
-          qty(i.quantity),
-          i.unit ?? "",
-          qty(i.amount),
-        ],
-      }),
+      body.push([
+        idx === 0 ? String(++sn) : "",
+        idx === 0 ? (g.code ?? "") : "",
+        idx === 0 ? g.name : "",
+        i.product,
+        qty(i.quantity),
+        i.unit ?? "",
+        qty(i.amount),
+      ]),
     );
-    body.push({ kind: "subtotal", cells: ["", "", "", qty(g.quantity), "", qty(g.amount)] });
+    shaded.add(body.length);
+    body.push(["", "", "", `Total — ${g.name}`, qty(g.quantity), "", qty(g.amount)]);
   }
-  body.push({
-    kind: "total",
-    cells: [
-      "",
-      "",
-      `GRAND TOTAL — ${opts.report.groups.length} customer(s)`,
-      qty(opts.report.quantity),
-      "",
-      qty(opts.report.amount),
-    ],
-  });
 
   autoTable(doc, {
+    ...letterheadTable(9.5),
     startY: y,
-    head: [["Customer ID", "Name", "Item", "Qty", "Stocking U/M", "Amount"]],
-    body: body.map((r) => r.cells),
-    theme: "plain",
-    styles: { font: "helvetica", fontSize: 9, cellPadding: 3 },
-    headStyles: { fontStyle: "bold", lineWidth: { bottom: 0.8 }, lineColor: [0, 0, 0] },
+    head: [["S/N", "Customer ID", "Name", "Item", "Qty", "Stocking U/M", "Amount"]],
+    body,
+    foot: [
+      [
+        "",
+        "",
+        "",
+        `GRAND TOTAL — ${opts.report.groups.length} customer(s)`,
+        qty(opts.report.quantity),
+        "",
+        qty(opts.report.amount),
+      ],
+    ],
+    showFoot: "lastPage",
     columnStyles: {
-      0: { cellWidth: 90 },
-      1: { cellWidth: 180 },
-      3: { halign: "right", cellWidth: 80 },
-      4: { cellWidth: 80 },
-      5: { halign: "right", cellWidth: 110 },
+      0: { cellWidth: 34 },
+      1: { cellWidth: 80 },
+      2: { cellWidth: 160 },
+      4: { halign: "right", cellWidth: 80 },
+      5: { cellWidth: 80 },
+      6: { halign: "right", cellWidth: 100 },
     },
-    margin: { left: 40, right: 40, top: 40 },
     didParseCell: (d) => {
-      if (d.section !== "body") return;
-      const kind = body[d.row.index]?.kind;
-      if (kind === "subtotal" || kind === "total") {
-        d.cell.styles.fontStyle = "bold";
-        // Subtotals rule off just the Qty and Amount columns; the grand total spans.
-        const ruled = kind === "total" || d.column.index === 3 || d.column.index === 5;
-        d.cell.styles.lineWidth = { top: ruled ? (kind === "total" ? 1 : 0.5) : 0 };
-        d.cell.styles.lineColor = [0, 0, 0];
-        if (kind === "total") d.cell.styles.fontSize = 10;
-        // Space between customer blocks, like the printout.
-        else d.cell.styles.cellPadding = { top: 3, bottom: 12, left: 3, right: 3 };
-      }
+      if (d.section === "body" && shaded.has(d.row.index))
+        d.cell.styles.fillColor = LETTERHEAD_SHADE;
+      if (d.section === "foot" && (d.column.index === 4 || d.column.index === 6))
+        d.cell.styles.halign = "right";
     },
   });
+  letterheadPrintedBy(doc, opts.printedBy);
+  letterheadPageNumbers(doc);
+  finishPdf(doc, `items-sold-to-customers-${opts.periodLabel.replace(/[^\w-]+/g, "-")}`, action);
+}
 
+// "Page n of m" at the foot of every page of a letterhead report.
+export function letterheadPageNumbers(doc: jsPDF) {
   const pages = doc.getNumberOfPages();
+  const W = doc.internal.pageSize.getWidth();
+  const H = doc.internal.pageSize.getHeight();
   for (let p = 1; p <= pages; p++) {
     doc.setPage(p);
-    doc.setFont("helvetica", "normal");
+    doc.setFont("times", "normal");
     doc.setFontSize(8);
-    doc.text(printedAt, 40, 24);
-    doc.text(`Page ${p} of ${pages}`, pageW - 40, 24, { align: "right" });
-  }
-
-  if (action === "download") {
-    doc.save(`items-sold-to-customers-${opts.periodLabel.replace(/[^\w-]+/g, "-")}.pdf`);
-  } else {
-    if (action === "print") doc.autoPrint();
-    window.open(doc.output("bloburl"), "_blank");
+    doc.setTextColor(0, 0, 0);
+    doc.text(`Page ${p} of ${pages}`, W - 36, H - 14, { align: "right" });
   }
 }
 
-// Marketer daily sales sheet: one page (or more) per marketer, Elim logo at the
-// top centre, "NAME (SEP, 2026)" heading, a gridded day-by-day table and a
-// TOTAL line — the layout of the sheet the office already keeps by hand.
+// Marketer daily sales sheet on the factory letterhead: one page (or more)
+// per marketer, "NAME (SEP, 2026)" as the title, the day-by-day grid under
+// the blue header row and a shaded TOTAL foot.
 export async function generateMarketerSheetPdf(
   opts: {
-    company: { name?: string | null; logo_url?: string | null };
+    company: CompanyLike & { name?: string | null };
     sheets: (import("./marketer-sales-sheet").MarketerSheet & {
       kind?: import("./marketer-sales-sheet").PartyKind;
     })[];
@@ -2008,41 +2072,14 @@ export async function generateMarketerSheetPdf(
   action: PdfAction = "download",
 ) {
   const doc = new jsPDF({ unit: "pt", format: "a4" });
-  const pageW = doc.internal.pageSize.getWidth();
-  const logo = await resolveLogo(opts.company.logo_url);
   const num = (v: number) =>
     v === 0 ? "-" : new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(v);
-  const drawLogo = () => {
-    if (!logo) return 40;
-    const ratio = Math.min(130 / logo.width, 60 / logo.height, 1);
-    const w = logo.width * ratio,
-      h = logo.height * ratio;
-    doc.addImage(logo.dataUrl, "PNG", pageW / 2 - w / 2, 24, w, h);
-    return 24 + h + 22;
-  };
-  const sheetStyles = {
-    theme: "grid" as const,
-    styles: {
-      font: "helvetica",
-      fontSize: 9,
-      lineColor: [0, 0, 0] as [number, number, number],
-      lineWidth: 0.5,
-      textColor: [0, 0, 0] as [number, number, number],
-      halign: "right" as const,
-    },
-    headStyles: {
-      fillColor: [255, 255, 255] as [number, number, number],
-      fontStyle: "bold" as const,
-      valign: "bottom" as const,
-    },
-    margin: { left: 36, right: 36 },
-  };
+  const HEAD = ["TOTAL SALES", "CREDIT SALES", "CASH SALES", "Recovery", "TOTAL CASH REMITTED"];
+  const look = letterheadTable(9.5);
+  const right = Object.fromEntries([1, 2, 3, 4, 5].map((i) => [i, { halign: "right" as const }]));
 
   if (opts.summary) {
-    const y = drawLogo();
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(14);
-    doc.text(`MONTHLY PERFORMANCE  (${opts.periodLabel})`, pageW / 2, y, { align: "center" });
+    const y = await drawLetterhead(doc, opts.company, `Monthly Performance (${opts.periodLabel})`);
     const figures = (t: Omit<import("./marketer-sales-sheet").SheetRow, "day">) => [
       num(t.total),
       num(t.credit),
@@ -2051,67 +2088,63 @@ export async function generateMarketerSheetPdf(
       num(t.remitted),
     ];
     const body: string[][] = [];
-    const bold = new Set<number>();
+    const shaded = new Set<number>();
     for (const k of PARTY_KINDS) {
       const group = opts.sheets.filter((s) => s.kind === k.kind);
       if (group.length === 0) continue;
-      bold.add(body.length);
+      shaded.add(body.length);
       body.push([k.label.toUpperCase(), "", "", "", "", ""]);
       for (const s of group)
         body.push([s.code ? `${s.name} (${s.code})` : s.name, ...figures(s.totals)]);
-      bold.add(body.length);
+      shaded.add(body.length);
       body.push([
         `TOTAL ${k.label.toUpperCase()}`,
         ...figures(sheetTotals(group.map((s) => ({ day: "", ...s.totals })))),
       ]);
     }
-    bold.add(body.length);
-    body.push([
-      "GRAND TOTAL",
-      ...figures(sheetTotals(opts.sheets.map((s) => ({ day: "", ...s.totals })))),
-    ]);
     autoTable(doc, {
-      ...sheetStyles,
-      startY: y + 10,
-      head: [
-        ["NAME", "TOTAL SALES", "CREDIT SALES", "CASH SALES", "Recovery", "TOTAL CASH REMITTED"],
-      ],
+      ...look,
+      startY: y,
+      head: [["NAME", ...HEAD]],
       body,
-      columnStyles: { 0: { cellWidth: 170 } },
+      foot: [
+        [
+          "GRAND TOTAL",
+          ...figures(sheetTotals(opts.sheets.map((s) => ({ day: "", ...s.totals })))),
+        ],
+      ],
+      showFoot: "lastPage",
+      columnStyles: { 0: { cellWidth: 170 }, ...right },
       didParseCell: (d) => {
-        if (d.column.index === 0) d.cell.styles.halign = "left";
-        if (d.section === "body" && bold.has(d.row.index)) d.cell.styles.fontStyle = "bold";
+        if (d.section === "body" && shaded.has(d.row.index))
+          d.cell.styles.fillColor = LETTERHEAD_SHADE;
+        if (d.section !== "body" && d.column.index > 0) d.cell.styles.halign = "right";
       },
     });
   }
 
-  opts.sheets.forEach((s, idx) => {
+  for (const [idx, s] of opts.sheets.entries()) {
     if (idx > 0 || opts.summary) doc.addPage();
-    let y = drawLogo();
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(14);
-    doc.text(`${s.name.toUpperCase()}  (${opts.periodLabel})`, pageW / 2, y, { align: "center" });
-    if (s.code) {
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(9);
-      const idLabel = PARTY_KINDS.find((k) => k.kind === s.kind)?.idLabel ?? "Marketer ID";
-      doc.text(`${idLabel}: ${s.code}`, pageW / 2, y + 13, { align: "center" });
-      y += 13;
-    }
+    const idLabel = PARTY_KINDS.find((k) => k.kind === s.kind)?.idLabel ?? "Marketer ID";
+    const y = await drawLetterhead(
+      doc,
+      opts.company,
+      `${s.name} (${opts.periodLabel})`,
+      s.code ? [`${idLabel}: ${s.code}`] : undefined,
+    );
     autoTable(doc, {
-      startY: y + 10,
-      head: [
-        ["DATE", "TOTAL SALES", "CREDIT SALES", "CASH SALES", "Recovery", "TOTAL CASH REMITTED"],
-      ],
-      body: [
-        ...s.rows.map((r) => [
-          sheetDayLabel(r.day),
-          num(r.total),
-          num(r.credit),
-          num(r.cash),
-          num(r.recovery),
-          num(r.remitted),
-        ]),
+      ...look,
+      startY: y,
+      head: [["DATE", ...HEAD]],
+      body: s.rows.map((r) => [
+        sheetDayLabel(r.day),
+        num(r.total),
+        num(r.credit),
+        num(r.cash),
+        num(r.recovery),
+        num(r.remitted),
+      ]),
+      foot: [
         [
           "TOTAL",
           num(s.totals.total),
@@ -2121,53 +2154,19 @@ export async function generateMarketerSheetPdf(
           num(s.totals.remitted),
         ],
       ],
-      theme: "grid",
-      styles: {
-        font: "helvetica",
-        fontSize: 9,
-        lineColor: [0, 0, 0],
-        lineWidth: 0.5,
-        textColor: [0, 0, 0],
-        halign: "right",
-      },
-      headStyles: { fillColor: [255, 255, 255], fontStyle: "bold", valign: "bottom" },
-      columnStyles: { 0: { cellWidth: 170 } },
-      margin: { left: 36, right: 36 },
+      showFoot: "lastPage",
+      columnStyles: { 0: { cellWidth: 170 }, ...right },
       didParseCell: (d) => {
-        if (d.column.index === 0 && d.section === "head") d.cell.styles.halign = "left";
-        if (d.section === "body" && d.row.index === s.rows.length) {
-          d.cell.styles.fontStyle = "bold";
-          if (d.column.index === 0) d.cell.styles.halign = "left";
-        }
+        if (d.section !== "body" && d.column.index > 0) d.cell.styles.halign = "right";
       },
     });
-  });
-
-  const pages = doc.getNumberOfPages();
-  const printedAt = new Date().toLocaleString();
-  for (let p = 1; p <= pages; p++) {
-    doc.setPage(p);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(7);
-    const foot = [
-      opts.company.name,
-      `Printed ${printedAt}`,
-      opts.printedBy && `by ${opts.printedBy}`,
-    ]
-      .filter(Boolean)
-      .join("  ·  ");
-    doc.text(foot, 36, doc.internal.pageSize.getHeight() - 18);
-    doc.text(`Page ${p} of ${pages}`, pageW - 36, doc.internal.pageSize.getHeight() - 18, {
-      align: "right",
-    });
+    letterheadPrintedBy(doc, opts.printedBy);
   }
 
-  if (action === "download") {
-    doc.save(
-      `${opts.fileName ?? "marketer-sales-sheet"}-${opts.periodLabel.replace(/[^\w-]+/g, "-")}.pdf`,
-    );
-  } else {
-    if (action === "print") doc.autoPrint();
-    window.open(doc.output("bloburl"), "_blank");
-  }
+  letterheadPageNumbers(doc);
+  finishPdf(
+    doc,
+    `${opts.fileName ?? "marketer-sales-sheet"}-${opts.periodLabel.replace(/[^\w-]+/g, "-")}`,
+    action,
+  );
 }

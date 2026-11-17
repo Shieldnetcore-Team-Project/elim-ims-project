@@ -827,7 +827,7 @@ function ReportsPage() {
     if (sheets && (type === "pdf" || type === "print"))
       generateMarketerSheetPdf(
         {
-          company: { name: settings.data?.company_name, logo_url: settings.data?.logo_url },
+          company: settings.data ?? {},
           sheets,
           periodLabel: sheetDays.label,
           printedBy: me.data,
@@ -837,7 +837,7 @@ function ReportsPage() {
     else if (itemsSold && (type === "pdf" || type === "print"))
       generateItemsSoldPdf(
         {
-          company: { name: settings.data?.company_name, logo_url: settings.data?.logo_url },
+          company: settings.data ?? {},
           report: itemsSold,
           periodLabel,
           printedBy: me.data,
@@ -847,15 +847,8 @@ function ReportsPage() {
     else if (type === "csv") exportCsv(name, columns, rows);
     else if (type === "excel") exportExcel(name, columns, rows);
     else if (type === "pdf")
-      generateReportPdf(reportLabel, columns, rows, "download", {
-        name: settings.data?.company_name,
-        logo_url: settings.data?.logo_url,
-      });
-    else
-      generateReportPdf(reportLabel, columns, rows, "print", {
-        name: settings.data?.company_name,
-        logo_url: settings.data?.logo_url,
-      });
+      generateReportPdf(reportLabel, columns, rows, "download", settings.data);
+    else generateReportPdf(reportLabel, columns, rows, "print", settings.data);
     logAudit({
       action: type === "print" ? "print" : "export",
       entity: "report",

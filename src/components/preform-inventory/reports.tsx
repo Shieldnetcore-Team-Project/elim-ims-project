@@ -497,10 +497,7 @@ export function ReportsPanel({
   const canExport = can("raw-materials", "export") || can("preform-production", "export");
   const canPrint = can("raw-materials", "print") || can("preform-production", "print");
   const pdf = (action: PdfAction) =>
-    generateReportPdf(title, built.columns, built.rows, action, {
-      name: settings.data?.company_name,
-      logo_url: settings.data?.logo_url,
-    });
+    generateReportPdf(title, built.columns, built.rows, action, settings.data);
   const fileName = `${REPORTS[kind].replace(/\W+/g, "-")}-${localDay()}`;
 
   return (

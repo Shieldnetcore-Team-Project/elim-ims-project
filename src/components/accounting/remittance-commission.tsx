@@ -172,7 +172,7 @@ export function RemittanceCommission({
         },
       ],
       "print",
-      { name: settings.data?.company_name, logo_url: settings.data?.logo_url },
+      settings.data,
       [
         "Achieved = remitted / target (posted less returned) x 100, per marketer per day.",
         "50-59.99% pays 50% of the commission ... 90-99.99% pays 90%, 100% or more pays 100%; below 50% none.",

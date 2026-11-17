@@ -68,7 +68,7 @@ export function PartySheetsCard({ factoryId }: { factoryId: string }) {
     span &&
     generateMarketerSheetPdf(
       {
-        company: { name: settings.data?.company_name, logo_url: settings.data?.logo_url },
+        company: settings.data ?? {},
         sheets: shown,
         periodLabel: span.label,
         summary: !selected,

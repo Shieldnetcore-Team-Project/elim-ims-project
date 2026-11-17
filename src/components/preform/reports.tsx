@@ -790,6 +790,7 @@ export function ReportsTab({ factoryId }: { factoryId: string }) {
     preformReportPdf(
       {
         company: settings.data?.company_name ?? "Elim Table Water",
+        settings: settings.data,
         title: KIND_LABEL[kind],
         period,
         filters: filterText,

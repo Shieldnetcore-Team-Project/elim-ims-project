@@ -2,7 +2,15 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { drawLogoHeader, pdfMoney, type PdfAction } from "./pdf";
+import {
+  drawLetterhead,
+  finishPdf,
+  letterheadPageNumbers,
+  letterheadSection,
+  letterheadTable,
+  pdfMoney,
+  type PdfAction,
+} from "./pdf";
 import { fetchSaleLines } from "./invoice";
 import { saleLineName } from "./sale-line-name";
 import type { Database } from "@/integrations/supabase/types";
@@ -134,37 +142,19 @@ export async function printMonthlySales(
     }
   }
 
-  const doc = new jsPDF({ unit: "pt", format: "a4" });
-  const pageW = doc.internal.pageSize.getWidth();
-  const M = 40;
-  let top = await drawLogoHeader(doc, settings?.logo_url, 40, 130, 60);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(13);
-  doc.text((settings?.company_name ?? "Elim Table Water").toUpperCase(), pageW / 2, top, {
-    align: "center",
-  });
-  top += 16;
-  doc.setFontSize(11);
-  doc.text(
+  const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "landscape" });
+  const M = 36;
+  const top = await drawLetterhead(
+    doc,
+    settings,
     customer ? `Monthly Sales Statement — ${customer}` : "Monthly Accumulated Sales",
-    pageW / 2,
-    top,
-    { align: "center" },
+    [monthLabel, "Posted invoices only (PR / complimentary excluded)."],
   );
-  top += 15;
-  doc.text(monthLabel, pageW / 2, top, { align: "center" });
-  top += 12;
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.text("Posted invoices only (PR / complimentary excluded).", M, top);
-  top += 10;
 
   const table = (title: string, head: string[], body: string[][], foot?: string[]) => {
     const last = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable;
     const startY = last ? last.finalY + 22 : top + 8;
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(10);
-    doc.text(title, M, startY - 6);
+    letterheadSection(doc, title, startY - 6);
     const right = head
       .map((h, i) => i)
       .filter((i) => i > 0 && /amount|total|paid|balance|qty|invoices/i.test(head[i]));
@@ -173,10 +163,8 @@ export async function printMonthlySales(
       head: [head],
       body,
       foot: foot ? [foot] : undefined,
-      theme: "grid",
-      styles: { font: "helvetica", fontSize: 8.5, cellPadding: 3 },
-      headStyles: { fillColor: [30, 41, 59] },
-      footStyles: { fillColor: [226, 232, 240], textColor: [0, 0, 0], fontStyle: "bold" },
+      ...letterheadTable(9),
+      showFoot: "lastPage",
       columnStyles: Object.fromEntries(right.map((i) => [i, { halign: "right" as const }])),
       margin: { left: M, right: M, top: 40 },
     });
@@ -239,21 +227,10 @@ export async function printMonthlySales(
     ["Total", num(all.invoices), cash(all.total), cash(all.paid), cash(all.balance)],
   );
 
-  const printedAt = new Date().toLocaleString();
-  const pages = doc.getNumberOfPages();
-  for (let p = 1; p <= pages; p++) {
-    doc.setPage(p);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(8);
-    doc.text(printedAt, M, 24);
-    doc.text(`Page ${p} of ${pages}`, pageW - M, 24, { align: "right" });
-  }
-
-  const file = `monthly-sales-${month}${customer ? `-${customer.replace(/[^\w-]+/g, "-")}` : ""}.pdf`;
-  if (action === "download") {
-    doc.save(file);
-  } else {
-    if (action === "print") doc.autoPrint();
-    window.open(doc.output("bloburl"), "_blank");
-  }
+  letterheadPageNumbers(doc);
+  finishPdf(
+    doc,
+    `monthly-sales-${month}${customer ? `-${customer.replace(/[^\w-]+/g, "-")}` : ""}`,
+    action,
+  );
 }
