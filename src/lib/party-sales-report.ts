@@ -54,6 +54,9 @@ export function productLabel(name: string): string {
   if (/^cup\b|\bcup water\b/i.test(n)) return "Cup";
   const cl = n.match(/(\d+(?:\.\d+)?)\s*cl\b/i);
   if (cl) return `${cl[1]}CL`;
+  // "1.5Ltr Bottle Water" prints as just "1.5Ltr" (user, 2026-11-17).
+  const ltr = n.match(/(\d+(?:\.\d+)?)\s*(?:ltr|litres?|liters?|l)\b/i);
+  if (ltr) return `${ltr[1]}Ltr`;
   return n;
 }
 
@@ -65,6 +68,9 @@ function productRank(name: string): [number, number, string] {
   if (/jug|dispenser/.test(n)) return [2, 0, n];
   const cl = n.match(/(\d+(?:\.\d+)?)\s*cl\b/);
   if (cl) return [3, -Number(cl[1]), n];
+  // Litre bottles sit with the cl ones by size (1.5Ltr = 150cl).
+  const ltr = n.match(/(\d+(?:\.\d+)?)\s*(?:ltr|litres?|liters?|l)\b/);
+  if (ltr) return [3, -Number(ltr[1]) * 100, n];
   if (/\bcup\b/.test(n)) return [5, 0, n];
   if (/sachet/.test(n)) return [6, 0, n];
   return [4, 0, n];

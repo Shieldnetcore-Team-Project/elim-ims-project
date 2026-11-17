@@ -121,4 +121,18 @@ test("periods and title", () => {
     "Operations: Weekly Sales Report from 2022-11-14 to 2022-11-19",
   );
   assert.equal(productLabel("Cup Water"), "Cup");
+  assert.equal(productLabel("1.5Ltr Bottle Water"), "1.5Ltr");
+  assert.equal(productLabel("1Ltr Bottle Water"), "1Ltr");
+  const r = buildPartySales([
+    product("Bottle Water 75cl"),
+    product("1Ltr Bottle Water"),
+    product("Sachet Water"),
+    product("1.5Ltr Bottle Water"),
+  ]);
+  assert.deepEqual(r.products, [
+    "1.5Ltr Bottle Water",
+    "1Ltr Bottle Water",
+    "Bottle Water 75cl",
+    "Sachet Water",
+  ]);
 });
