@@ -102,13 +102,24 @@ export function ProductionMaterialsReport({ factoryId }: { factoryId: string }) 
   const canEdit = canAdd || can("production", "edit");
   const settings = useFactorySettings(factoryId);
   useRealtimeInvalidate(["raw_material_movements"], [["production-material-options", factoryId]]);
-  const [date, setDate] = useState(localDay());
+  // Custom From – To range (user, 2026-11-17); both today to start, both
+  // blank (All) for every date. A reversed range is read the right way round.
+  const [fromDay, setFromDay] = useState(localDay());
+  const [toDay, setToDay] = useState(localDay());
+  const [from, to] = fromDay && toDay && fromDay > toDay ? [toDay, fromDay] : [fromDay, toDay];
+  const oneDay = !!from && from === to;
+  const rangeLabel =
+    !from && !to
+      ? "All dates"
+      : oneDay
+        ? `Date: ${from}`
+        : `From ${from || "the start"} to ${to || localDay()}`;
   const [q, setQ] = useState("");
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<ReportRow | null>(null);
 
   const rows = useQuery({
-    queryKey: ["production-material-reports", factoryId, date],
+    queryKey: ["production-material-reports", factoryId, from, to],
     queryFn: async () => {
       let query = supabase
         .from("production_material_reports" as never)
@@ -116,8 +127,12 @@ export function ProductionMaterialsReport({ factoryId }: { factoryId: string }) 
           "id,report_date,material_name,unit,opening,qty_in,total,qty_used,damages,replaced,balance,remarks,created_by_name,created_at",
         )
         .eq("factory_id", factoryId);
-      if (date) query = query.eq("report_date", date);
-      const { data, error } = await query.order("created_at", { ascending: false }).limit(500);
+      if (from) query = query.gte("report_date", from);
+      if (to) query = query.lte("report_date", to);
+      const { data, error } = await query
+        .order("report_date", { ascending: false })
+        .order("created_at", { ascending: false })
+        .limit(2000);
       if (error) throw error;
       return (data ?? []) as unknown as ReportRow[];
     },
@@ -140,10 +155,11 @@ export function ProductionMaterialsReport({ factoryId }: { factoryId: string }) 
         department: "Production Department",
         title: "All Process Material",
         settings: settings.data,
-        filename: `process-material-${date || "all"}`,
-        subtitle: [date ? `Date: ${date}` : "All dates"],
+        filename: `process-material-${!from && !to ? "all" : oneDay ? from : `${from || "start"}-to-${to || localDay()}`}`,
+        subtitle: [rangeLabel],
         columns: [
           { key: "sn", label: "S/N" },
+          ...(oneDay ? [] : [{ key: "day", label: "Date" }]),
           { key: "material", label: "Material" },
           { key: "opening", label: "Opening" },
           { key: "qty_in", label: "Qty In" },
@@ -155,6 +171,7 @@ export function ProductionMaterialsReport({ factoryId }: { factoryId: string }) 
         ],
         rows: shown.map((r, i) => ({
           sn: i + 1,
+          day: r.report_date,
           material: r.material_name,
           opening: num(Number(r.opening)),
           qty_in: num(Number(r.qty_in)),
@@ -208,16 +225,44 @@ export function ProductionMaterialsReport({ factoryId }: { factoryId: string }) 
               />
             </div>
             <div>
-              <Label className="text-xs">Filter by date</Label>
-              <div className="flex gap-1">
+              <Label className="text-xs">Custom date</Label>
+              <div className="flex flex-wrap items-center gap-1">
+                <span className="text-xs text-muted-foreground">From</span>
                 <Input
                   type="date"
-                  value={date}
+                  value={fromDay}
                   max={localDay()}
-                  onChange={(e) => setDate(e.target.value)}
-                  className="h-9"
+                  onChange={(e) => setFromDay(e.target.value)}
+                  className="h-9 w-40"
+                  aria-label="From date"
                 />
-                <Button variant="ghost" size="sm" onClick={() => setDate("")}>
+                <span className="text-xs text-muted-foreground">To</span>
+                <Input
+                  type="date"
+                  value={toDay}
+                  max={localDay()}
+                  onChange={(e) => setToDay(e.target.value)}
+                  className="h-9 w-40"
+                  aria-label="To date"
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setFromDay(localDay());
+                    setToDay(localDay());
+                  }}
+                >
+                  Today
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setFromDay("");
+                    setToDay("");
+                  }}
+                >
                   All
                 </Button>
               </div>
@@ -228,6 +273,7 @@ export function ProductionMaterialsReport({ factoryId }: { factoryId: string }) 
               <TableHeader>
                 <TableRow>
                   <TableHead>S/N</TableHead>
+                  {!oneDay && <TableHead>Date</TableHead>}
                   <TableHead>Material</TableHead>
                   <TableHead className="text-right">Opening</TableHead>
                   <TableHead className="text-right">Qty In</TableHead>
@@ -243,6 +289,9 @@ export function ProductionMaterialsReport({ factoryId }: { factoryId: string }) 
                 {shown.map((r, i) => (
                   <TableRow key={r.id}>
                     <TableCell>{i + 1}</TableCell>
+                    {!oneDay && (
+                      <TableCell className="whitespace-nowrap">{r.report_date}</TableCell>
+                    )}
                     <TableCell className="font-medium">{r.material_name}</TableCell>
                     <TableCell className="text-right">{num(Number(r.opening))}</TableCell>
                     <TableCell className="text-right">{num(Number(r.qty_in))}</TableCell>
@@ -273,14 +322,16 @@ export function ProductionMaterialsReport({ factoryId }: { factoryId: string }) 
                 {shown.length === 0 && (
                   <TableRow>
                     <TableCell
-                      colSpan={canEdit ? 10 : 9}
+                      colSpan={(canEdit ? 10 : 9) + (oneDay ? 0 : 1)}
                       className="py-8 text-center text-muted-foreground"
                     >
                       {rows.isLoading
                         ? "Loading…"
                         : rows.isError
                           ? (rows.error as Error).message
-                          : "No process material for this date yet."}
+                          : oneDay
+                            ? "No process material for this date yet."
+                            : "No process material in this period."}
                     </TableCell>
                   </TableRow>
                 )}
