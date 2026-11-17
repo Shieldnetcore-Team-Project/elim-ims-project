@@ -53,6 +53,7 @@ import {
   revenueRows,
 } from "@/lib/sales-revenue-report";
 import { postedSalesRows } from "@/lib/metric-queries";
+import { PartySalesReport } from "@/components/reports/party-sales-report";
 import {
   CUSTOMER_REPORTS,
   CUSTOMER_SNAPSHOT_REPORTS,
@@ -87,6 +88,7 @@ export const Route = createFileRoute("/_app/reports")({
 
 type ReportKey =
   | "sales"
+  | "party_sales"
   | "sales_revenue"
   | "monthly_accumulated"
   | "items_sold"
@@ -108,6 +110,7 @@ type ReportKey =
 
 const REPORTS: { key: ReportKey; label: string }[] = [
   { key: "sales", label: "Sales" },
+  { key: "party_sales", label: "Sales Report (Marketer/Distributor)" },
   { key: "sales_revenue", label: "Sales Revenue (daily, accumulated)" },
   { key: "monthly_accumulated", label: "Monthly Accumulated Sales" },
   { key: "items_sold", label: "Items Sold to Customers" },
@@ -223,6 +226,7 @@ async function fetchReport(
 }> {
   if (isCustomerReport(key)) return fetchCustomerReport(key, factoryId, start, end);
   // Built per marketer in the page (it needs the marketer picker).
+  if (key === "party_sales") throw new Error("Party sales are fetched by their own panel");
   if (key === "marketer_sheet") throw new Error("Marketer sheet is fetched by the page");
   if (key === "monthly_accumulated") throw new Error("Monthly sales are fetched by the page");
   if (key === "sales_revenue") {
@@ -652,6 +656,7 @@ async function fetchReport(
 
 const DATE_FIELDS: Record<ReportKey, string> = {
   sales: "sale_date",
+  party_sales: "sale_date",
   sales_revenue: "sale_date",
   monthly_accumulated: "sale_date",
   items_sold: "sale_date",
@@ -763,7 +768,10 @@ function ReportsPage() {
       reportKey === "marketer_sheet" ? [marketerId, marketers.length, sheetDays] : null,
       reportKey === "monthly_accumulated" ? salesYear : null,
     ],
-    enabled: !!factoryId && (reportKey !== "marketer_sheet" || directory.isSuccess),
+    enabled:
+      !!factoryId &&
+      reportKey !== "party_sales" &&
+      (reportKey !== "marketer_sheet" || directory.isSuccess),
     queryFn: async () => {
       if (reportKey === "monthly_accumulated") {
         const monthly = buildMonthlyAccumulated(
@@ -882,7 +890,7 @@ function ReportsPage() {
               </SelectContent>
             </Select>
           </div>
-          {reportKey === "monthly_accumulated" ? (
+          {reportKey === "party_sales" ? null : reportKey === "monthly_accumulated" ? (
             <div>
               <Label className="mb-1 block text-xs">Year</Label>
               <Select value={String(salesYear)} onValueChange={(v) => setSalesYear(Number(v))}>
@@ -994,6 +1002,7 @@ function ReportsPage() {
             </>
           )}
           {reportKey !== "marketer_sheet" &&
+            reportKey !== "party_sales" &&
             reportKey !== "monthly_accumulated" &&
             !isSnapshot &&
             range === "custom" && (
@@ -1016,20 +1025,32 @@ function ReportsPage() {
                 </div>
               </>
             )}
-          <div className="ml-auto flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" className="gap-2" onClick={() => doExport("csv")}>
-              <FileDown className="h-4 w-4" /> CSV
-            </Button>
-            <Button variant="outline" size="sm" className="gap-2" onClick={() => doExport("excel")}>
-              <FileSpreadsheet className="h-4 w-4" /> Excel
-            </Button>
-            <Button variant="outline" size="sm" className="gap-2" onClick={() => doExport("pdf")}>
-              <FileText className="h-4 w-4" /> PDF
-            </Button>
-            <Button variant="outline" size="sm" className="gap-2" onClick={() => doExport("print")}>
-              <Printer className="h-4 w-4" /> Print
-            </Button>
-          </div>
+          {reportKey !== "party_sales" && (
+            <div className="ml-auto flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" className="gap-2" onClick={() => doExport("csv")}>
+                <FileDown className="h-4 w-4" /> CSV
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={() => doExport("excel")}
+              >
+                <FileSpreadsheet className="h-4 w-4" /> Excel
+              </Button>
+              <Button variant="outline" size="sm" className="gap-2" onClick={() => doExport("pdf")}>
+                <FileText className="h-4 w-4" /> PDF
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={() => doExport("print")}
+              >
+                <Printer className="h-4 w-4" /> Print
+              </Button>
+            </div>
+          )}
         </CardContent>
         {reportKey === "production" && (
           <CardContent className="p-4 pt-0 flex flex-wrap items-end gap-3 border-t">
@@ -1112,62 +1133,66 @@ function ReportsPage() {
         )}
       </Card>
 
-      <Card className="rounded-2xl">
-        <CardHeader>
-          <CardTitle>
-            {reportLabel} (
-            {report.data?.itemsSold
-              ? `${report.data.itemsSold.groups.length} customers`
-              : report.data?.sheets
-                ? `${report.data.sheets.length} marketers`
-                : rows.length}
-            )
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                {columns.map((c) => (
-                  <TableHead key={c.key}>{c.label}</TableHead>
-                ))}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((r, i) => (
-                <TableRow
-                  key={i}
-                  className={
-                    r.kind === "subtotal"
-                      ? "font-semibold bg-muted/40"
-                      : r.kind === "total"
-                        ? "font-bold bg-muted"
-                        : undefined
-                  }
-                >
+      {reportKey === "party_sales" ? (
+        <PartySalesReport factoryId={factoryId} settings={settings.data} printedBy={me.data} />
+      ) : (
+        <Card className="rounded-2xl">
+          <CardHeader>
+            <CardTitle>
+              {reportLabel} (
+              {report.data?.itemsSold
+                ? `${report.data.itemsSold.groups.length} customers`
+                : report.data?.sheets
+                  ? `${report.data.sheets.length} marketers`
+                  : rows.length}
+              )
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
                   {columns.map((c) => (
-                    <TableCell key={c.key}>{String(r[c.key] ?? "—")}</TableCell>
+                    <TableHead key={c.key}>{c.label}</TableHead>
                   ))}
                 </TableRow>
-              ))}
-              {rows.length === 0 && (
-                <TableRow>
-                  <TableCell
-                    colSpan={columns.length || 1}
-                    className="text-center text-muted-foreground py-8"
+              </TableHeader>
+              <TableBody>
+                {rows.map((r, i) => (
+                  <TableRow
+                    key={i}
+                    className={
+                      r.kind === "subtotal"
+                        ? "font-semibold bg-muted/40"
+                        : r.kind === "total"
+                          ? "font-bold bg-muted"
+                          : undefined
+                    }
                   >
-                    {report.error instanceof Error
-                      ? report.error.message
-                      : report.isLoading
-                        ? "Loading…"
-                        : "No data for this range."}
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+                    {columns.map((c) => (
+                      <TableCell key={c.key}>{String(r[c.key] ?? "—")}</TableCell>
+                    ))}
+                  </TableRow>
+                ))}
+                {rows.length === 0 && (
+                  <TableRow>
+                    <TableCell
+                      colSpan={columns.length || 1}
+                      className="text-center text-muted-foreground py-8"
+                    >
+                      {report.error instanceof Error
+                        ? report.error.message
+                        : report.isLoading
+                          ? "Loading…"
+                          : "No data for this range."}
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
