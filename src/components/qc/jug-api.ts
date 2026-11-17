@@ -41,6 +41,8 @@ export type JugBatch = {
   from_type?: "sales_rep" | "customer" | "walk_in" | null;
   from_id?: string | null;
   pm_posting?: string | null;
+  // Where QC posted it (20261117130000): the PM or the Warehouse.
+  posted_to?: "pm" | "warehouse" | null;
 };
 
 export type JugRegisterRow = {

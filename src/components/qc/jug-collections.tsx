@@ -99,8 +99,8 @@ const STAGE: Record<
 > = {
   awaiting_count: { label: "Waiting for QC count", variant: "destructive" },
   at_qc: { label: "With QC — to verify", variant: "secondary" },
-  posted_to_pm: { label: "Posted to PM — not confirmed", variant: "outline" },
-  received_by_pm: { label: "Received by PM", variant: "default" },
+  posted_to_pm: { label: "Posted to PM / WH — not confirmed", variant: "outline" },
+  received_by_pm: { label: "Received by PM / WH", variant: "default" },
   none_counted: { label: "Counted 0", variant: "outline" },
   cancelled: { label: "Cancelled", variant: "outline" },
   direct: { label: "Recorded directly (no QC count)", variant: "outline" },
@@ -250,8 +250,8 @@ export function QcJugCollections({ factoryId }: { factoryId: string }) {
     { key: "collected", label: "Collected" },
     { key: "awaiting", label: "Waiting QC count" },
     { key: "at_qc", label: "With QC" },
-    { key: "posted", label: "Posted to PM" },
-    { key: "received", label: "Received by PM" },
+    { key: "posted", label: "Posted to PM / WH" },
+    { key: "received", label: "Received by PM / WH" },
     { key: "damaged", label: "Damaged" },
     { key: "not_returned", label: "Not returned" },
     { key: "last", label: "Last collected" },
@@ -279,7 +279,7 @@ export function QcJugCollections({ factoryId }: { factoryId: string }) {
       printedBy: me.data,
       filename: "qc-jugs-collected",
       subtitle: [
-        `Collected / received / damaged: ${period}. Waiting, With QC, Posted to PM and Not returned: as of now.`,
+        `Collected / received / damaged: ${period}. Waiting, With QC, Posted to PM / WH and Not returned: as of now.`,
       ],
     });
 
@@ -373,14 +373,14 @@ export function QcJugCollections({ factoryId }: { factoryId: string }) {
           hint="With QC now, not yet posted to the PM"
         />
         <Stat
-          label="Posted to PM"
+          label="Posted to PM / WH"
           value={num(goodOf(toPm))}
-          hint={`${num(toPm.length)} posting(s) the PM has not confirmed yet`}
+          hint={`${num(toPm.length)} posting(s) not confirmed yet`}
         />
         <Stat
-          label="Received by PM"
+          label="Received by PM / WH"
           value={num(goodOf(atPm))}
-          hint={`Good jugs the PM confirmed, ${period}`}
+          hint={`Good jugs the PM or Warehouse confirmed, ${period}`}
         />
         <Stat
           label="Not returned"
@@ -397,8 +397,8 @@ export function QcJugCollections({ factoryId }: { factoryId: string }) {
           <CardHeader>
             <CardTitle className="text-base">Retail Shop — empty jugs returned</CardTitle>
             <p className="text-xs text-muted-foreground">
-              The factory shop, on its own. Collected, Received by PM and Damaged are for {period};
-              the rest as of now.
+              The factory shop, on its own. Collected, Received by PM / WH and Damaged are for{" "}
+              {period}; the rest as of now.
             </p>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -427,8 +427,8 @@ export function QcJugCollections({ factoryId }: { factoryId: string }) {
                         ["Collected", sh.collected],
                         ["Waiting QC count", sh.awaiting_count],
                         ["With QC", sh.at_qc],
-                        ["Posted to PM", sh.posted_to_pm],
-                        ["Received by PM", sh.received_by_pm],
+                        ["Posted to PM / WH", sh.posted_to_pm],
+                        ["Received by PM / WH", sh.received_by_pm],
                         ["Damaged", sh.damaged],
                         ["Not returned", sh.not_returned],
                       ] as [string, number][]
@@ -458,10 +458,10 @@ export function QcJugCollections({ factoryId }: { factoryId: string }) {
           <CardHeader>
             <CardTitle className="text-base">Jugs collected — marketers and distributors</CardTitle>
             <p className="text-xs text-muted-foreground">
-              Collected, Received by PM and Damaged are for {period}. Waiting, With QC, Posted to PM
-              and Not returned are as of now. Not returned counts every jug still with them, full or
-              empty (Full = dispensers on their stock that Accounts have not recorded as sold).
-              Click a name to see each collection.
+              Collected, Received by PM / WH and Damaged are for {period}. Waiting, With QC, Posted
+              to PM / WH and Not returned are as of now. Not returned counts every jug still with
+              them, full or empty (Full = dispensers on their stock that Accounts have not recorded
+              as sold). Click a name to see each collection.
             </p>
           </CardHeader>
           <CardContent className="overflow-x-auto">
@@ -472,8 +472,8 @@ export function QcJugCollections({ factoryId }: { factoryId: string }) {
                   <TableHead className="text-right">Collected</TableHead>
                   <TableHead className="text-right">Waiting QC count</TableHead>
                   <TableHead className="text-right">With QC</TableHead>
-                  <TableHead className="text-right">Posted to PM</TableHead>
-                  <TableHead className="text-right">Received by PM</TableHead>
+                  <TableHead className="text-right">Posted to PM / WH</TableHead>
+                  <TableHead className="text-right">Received by PM / WH</TableHead>
                   <TableHead className="text-right">Damaged</TableHead>
                   <TableHead className="text-right">Not returned</TableHead>
                   <TableHead>Last collected</TableHead>

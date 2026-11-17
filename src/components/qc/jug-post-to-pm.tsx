@@ -51,6 +51,9 @@ import { KIND_NAME, useQcJugAction, useQcJugBatches, useQcJugLive } from "./jug-
 //   JugPostingsCard   every posting QC has made (PM confirms; QC reads)
 // Server side: qc_post_jugs_to_pm, receive_qc_jug_posting, qc_pm_jug_postings
 // (20261110140000).
+// QC posts to the PM or to the Warehouse (user, 2026-11-17): a Warehouse
+// posting (QWH-...) is accepted on the Warehouse page and joins Empty Jug
+// stock (receive_qc_jugs_at_warehouse, 20261117130000).
 
 type Posting = {
   posting: string;
@@ -65,7 +68,12 @@ type Posting = {
   status: "verified" | "received";
   received_at: string | null;
   received_by: string | null;
+  destination?: "pm" | "warehouse" | null;
 };
+
+type Dest = "pm" | "warehouse";
+const DEST_NAME: Record<Dest, string> = { pm: "PM", warehouse: "Warehouse" };
+const destOf = (d: string | null | undefined): Dest => (d === "warehouse" ? "warehouse" : "pm");
 
 const n = (v: unknown) => (v == null ? 0 : Number(v));
 
@@ -148,12 +156,13 @@ export function QcPostToPm({ factoryId }: { factoryId: string }) {
       <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
         <div>
           <CardTitle className="flex items-center gap-2 text-base">
-            Jugs with QC — post to PM
+            Jugs with QC — post to PM or Warehouse
             <Badge variant={total > 0 ? "default" : "outline"}>{num(total)}</Badge>
           </CardTitle>
           <p className="mt-1 text-xs text-muted-foreground">
             Every empty jug returned by marketers, distributors and the shop comes to QC. Post them
-            all to the Production Manager in one go — daily — and record the damaged ones.
+            to the Production Manager or to the Warehouse in one go — daily — and record the damaged
+            ones.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -180,7 +189,7 @@ export function QcPostToPm({ factoryId }: { factoryId: string }) {
           )}
           {canPost && (
             <Button className="gap-2" disabled={total <= 0} onClick={() => setPosting(true)}>
-              <Send className="h-4 w-4" /> Post to PM
+              <Send className="h-4 w-4" /> Send Jug
             </Button>
           )}
         </div>
@@ -236,8 +245,8 @@ export function QcPostToPm({ factoryId }: { factoryId: string }) {
                       {b.status === "accepted"
                         ? "With QC"
                         : b.status === "verified"
-                          ? "Posted to PM"
-                          : "Received by PM"}
+                          ? `Posted to ${DEST_NAME[destOf(b.posted_to)]}`
+                          : `Received by ${DEST_NAME[destOf(b.posted_to)]}`}
                     </Badge>
                     {b.pm_posting && (
                       <div className="mt-0.5 font-mono text-[11px] text-muted-foreground">
@@ -476,6 +485,7 @@ function PostDialog({
   const [damaged, setDamaged] = useState<number | null>(0);
   const [reason, setReason] = useState("");
   const [good, setGood] = useState<number | null>(null);
+  const [dest, setDest] = useState<Dest>("pm");
   const goodNow = good ?? Math.max(total - (damaged ?? 0), 0);
   const kept = total - goodNow - (damaged ?? 0);
   const post = useQcJugAction(
@@ -489,11 +499,12 @@ function PostDialog({
           p_good: goodNow,
           p_day: from,
           p_to: to,
+          p_dest: dest,
         },
       ),
     (r) => {
       const x = r as { reference: string; good: number; damaged: number; kept: number };
-      return `${x.reference}: ${num(n(x.good))} posted to the PM${n(x.damaged) ? `, ${num(n(x.damaged))} damaged` : ""}`;
+      return `${x.reference}: ${num(n(x.good))} posted to the ${DEST_NAME[dest]}${n(x.damaged) ? `, ${num(n(x.damaged))} damaged` : ""}`;
     },
   );
   const problem =
@@ -512,9 +523,26 @@ function PostDialog({
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Post jugs to the PM</DialogTitle>
+          <DialogTitle>Post jugs to the {DEST_NAME[dest]}</DialogTitle>
         </DialogHeader>
         <div className="grid gap-3">
+          <div className="space-y-1.5">
+            <Label>Send to</Label>
+            <Select value={dest} onValueChange={(v) => setDest(v as Dest)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="pm">PM</SelectItem>
+                <SelectItem value="warehouse">Warehouse</SelectItem>
+              </SelectContent>
+            </Select>
+            {dest === "warehouse" && (
+              <p className="text-xs text-muted-foreground">
+                The Warehouse accepts the posting; the good jugs then join Empty Jug stock.
+              </p>
+            )}
+          </div>
           <div className="grid grid-cols-2 items-end gap-3">
             <div className="space-y-1.5">
               <Label>From</Label>
@@ -556,7 +584,7 @@ function PostDialog({
               <CountInput value={damaged} onChange={setDamaged} placeholder="0" />
             </div>
             <div className="space-y-1.5">
-              <Label>Good (to the PM)</Label>
+              <Label>Good (to the {DEST_NAME[dest]})</Label>
               <CountInput value={goodNow} onChange={(v) => setGood(v ?? 0)} placeholder="0" />
             </div>
           </div>
@@ -577,7 +605,7 @@ function PostDialog({
             onClick={() => post.mutate(undefined, { onSuccess: onClose })}
           >
             {post.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Post {num(goodNow)} to PM
+            Post {num(goodNow)} to {DEST_NAME[dest]}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -585,17 +613,26 @@ function PostDialog({
   );
 }
 
-// Every posting QC has made to the PM. On the Production page the PM
-// confirms each posting when the jugs arrive; QC sees the same list.
-export function JugPostingsCard({ factoryId, mode }: { factoryId: string; mode: "qc" | "pm" }) {
+// Every posting QC has made. On the Production page the PM confirms each PM
+// posting when the jugs arrive; on the Warehouse page the dispenser officer
+// accepts each Warehouse posting into Empty Jug stock; QC sees them all.
+export function JugPostingsCard({
+  factoryId,
+  mode,
+}: {
+  factoryId: string;
+  mode: "qc" | "pm" | "warehouse";
+}) {
   const { can } = usePermissions();
   // Empty jugs go to dispenser production only (20261102290000).
   const mine = useMyProductMatcher();
   const dispenserProduction = mine("Dispenser+Water");
+  // In the Warehouse: the officer who handles Empty Jug (user, 2026-11-17).
+  const emptyJugOfficer = mine("Empty Jug");
   const canReceive =
-    mode === "pm" &&
-    dispenserProduction &&
-    (can("production", "submit") || can("production", "create"));
+    mode === "pm"
+      ? dispenserProduction && (can("production", "submit") || can("production", "create"))
+      : mode === "warehouse" && emptyJugOfficer && can("finished-goods", "create");
   useQcJugLive();
   const today = localDay();
   // The day's activity first (user, 2026-11-10): today until another date is picked.
@@ -615,22 +652,37 @@ export function JugPostingsCard({ factoryId, mode }: { factoryId: string; mode: 
       ).map((p) => ({ ...p, total: n(p.total), good: n(p.good), damaged: n(p.damaged) })),
   });
   const [q, setQ] = useState("");
-  const rows = (postings.data ?? []).filter((p) =>
-    matches(q, p.posting, p.sources, p.posted_by, p.received_by, p.damage_reason, p.total),
-  );
+  const rows = (postings.data ?? [])
+    .filter((p) => mode === "qc" || destOf(p.destination) === mode)
+    .filter((p) =>
+      matches(
+        q,
+        p.posting,
+        p.sources,
+        p.posted_by,
+        p.received_by,
+        p.damage_reason,
+        p.total,
+        DEST_NAME[destOf(p.destination)],
+      ),
+    );
   const pending = rows.filter((p) => p.status === "verified" && p.good > 0);
   const receive = useQcJugAction(
     (posting: string) =>
-      rpc<{ reference: string; good: number }>("receive_qc_jug_posting", {
-        p_factory: factoryId,
-        p_posting: posting,
-      }),
+      rpc<{ reference: string; good: number }>(
+        mode === "warehouse" ? "receive_qc_jugs_at_warehouse" : "receive_qc_jug_posting",
+        { p_factory: factoryId, p_posting: posting },
+      ),
     (r) => {
       const x = r as { reference: string; good: number };
-      return `${x.reference}: ${num(n(x.good))} jugs received from QC`;
+      return mode === "warehouse"
+        ? `${x.reference}: ${num(n(x.good))} empty jugs added to Empty Jug stock`
+        : `${x.reference}: ${num(n(x.good))} jugs received from QC`;
     },
   );
   if (mode === "pm" && !dispenserProduction) return null;
+  if (mode === "warehouse" && !emptyJugOfficer) return null;
+  const who = mode === "warehouse" ? "Warehouse" : "PM";
   const sum = (k: "total" | "good" | "damaged") => rows.reduce((s, r) => s + r[k], 0);
 
   return (
@@ -639,13 +691,15 @@ export function JugPostingsCard({ factoryId, mode }: { factoryId: string; mode: 
         <div>
           <CardTitle className="flex items-center gap-2 text-base">
             <PackageCheck className="h-4 w-4" />
-            {mode === "pm" ? "Empty jugs from QC" : "Posted to the PM"}
+            {mode === "qc" ? "Posted to the PM / Warehouse" : "Empty jugs from QC"}
             {pending.length > 0 && <Badge variant="secondary">{pending.length} to confirm</Badge>}
           </CardTitle>
           <p className="mt-1 text-xs text-muted-foreground">
             {mode === "pm"
               ? "Every posting QC has made: jugs returned by marketers, distributors and the shop. Confirm each one when the jugs reach Production."
-              : "Every posting to the Production Manager, and whether the PM has confirmed it."}
+              : mode === "warehouse"
+                ? "Empty jugs QC has sent to the Warehouse. Count them and accept each posting — the good jugs join Empty Jug stock."
+                : "Every posting to the Production Manager or the Warehouse, and whether it has been confirmed."}
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-2">
@@ -670,14 +724,20 @@ export function JugPostingsCard({ factoryId, mode }: { factoryId: string; mode: 
               <TableHead className="text-right">Jugs</TableHead>
               <TableHead className="text-right">Good</TableHead>
               <TableHead className="text-right">Damaged</TableHead>
-              <TableHead>Production Manager</TableHead>
+              {mode === "qc" && <TableHead>Sent to</TableHead>}
+              <TableHead>
+                {mode === "qc" ? "Received" : mode === "pm" ? "Production Manager" : "Warehouse"}
+              </TableHead>
               <TableHead />
             </TableRow>
           </TableHeader>
           <TableBody>
             {rows.length === 0 && (
               <TableRow>
-                <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
+                <TableCell
+                  colSpan={mode === "qc" ? 9 : 8}
+                  className="py-8 text-center text-muted-foreground"
+                >
                   {!ok
                     ? "The To date is before the From date."
                     : postings.isLoading
@@ -711,9 +771,14 @@ export function JugPostingsCard({ factoryId, mode }: { factoryId: string; mode: 
                     <div className="text-[11px] text-muted-foreground">{p.damage_reason}</div>
                   )}
                 </TableCell>
+                {mode === "qc" && (
+                  <TableCell className="text-xs">{DEST_NAME[destOf(p.destination)]}</TableCell>
+                )}
                 <TableCell className="text-xs">
                   <Badge variant={p.status === "received" ? "default" : "secondary"}>
-                    {p.status === "received" ? "Received" : "Waiting for PM"}
+                    {p.status === "received"
+                      ? "Received"
+                      : `Waiting for ${mode === "qc" ? DEST_NAME[destOf(p.destination)] : who}`}
                   </Badge>
                   {p.received_at && (
                     <div className="text-muted-foreground">
@@ -728,7 +793,7 @@ export function JugPostingsCard({ factoryId, mode }: { factoryId: string; mode: 
                       disabled={receive.isPending}
                       onClick={() => receive.mutate(p.posting)}
                     >
-                      Confirm received
+                      {mode === "warehouse" ? "Accept into stock" : "Confirm received"}
                     </Button>
                   )}
                 </TableCell>
@@ -742,7 +807,7 @@ export function JugPostingsCard({ factoryId, mode }: { factoryId: string; mode: 
                 <TableCell className="text-right">{num(sum("total"))}</TableCell>
                 <TableCell className="text-right">{num(sum("good"))}</TableCell>
                 <TableCell className="text-right">{num(sum("damaged"))}</TableCell>
-                <TableCell colSpan={2} />
+                <TableCell colSpan={mode === "qc" ? 3 : 2} />
               </TableRow>
             </TableFooter>
           )}

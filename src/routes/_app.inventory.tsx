@@ -37,6 +37,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { WarehousePostMenu } from "@/components/warehouse/post-menu";
 import { ReleasesToAccept } from "@/components/warehouse/releases-to-accept";
+import { JugPostingsCard } from "@/components/qc/jug-post-to-pm";
 import { WarehouseRecentActivity } from "@/components/warehouse/recent-activity";
 import { RestockButton } from "@/components/warehouse/restock-dialog";
 import { WarehouseProductsReportButton } from "@/components/warehouse/products-report";
@@ -312,6 +313,13 @@ function InventoryOverviewPage() {
 
         <TabsContent value="releases">
           {factoryId && <ReleasesToAccept factoryId={factoryId} alwaysShow />}
+          {/* Empty jugs QC posted to the Warehouse (user, 2026-11-17); shown
+              to the officer who handles Empty Jug. */}
+          {factoryId && (
+            <div className="mt-4">
+              <JugPostingsCard factoryId={factoryId} mode="warehouse" />
+            </div>
+          )}
         </TabsContent>
 
         {canSeeFinishedGoods && (

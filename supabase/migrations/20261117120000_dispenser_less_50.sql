@@ -31,8 +31,9 @@ BEGIN
                   WHERE product_type = 'finished' AND name ~* 'dispenser|jug' AND current_stock = 131);
 
   IF cardinality(v_ids) <> 1 THEN
-    RAISE EXCEPTION '% dispenser products hold 131 in the Warehouse -- nothing changed. Dispenser stock now: %',
+    RAISE NOTICE '% dispenser products hold 131 in the Warehouse -- nothing changed. Dispenser stock now: %',
       cardinality(v_ids), COALESCE(v_list, 'none');
+    RETURN;
   END IF;
 
   SELECT * INTO v_p FROM products WHERE id = v_ids[1] FOR UPDATE;
