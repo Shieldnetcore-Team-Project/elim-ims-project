@@ -1858,6 +1858,28 @@ export function PosDialog({
       return (data ?? []) as { product_id: string; quantity: number }[];
     },
   });
+  // Shop dropdown order (user, 2026-11-17): Sachet Water first, then the
+  // shop's best sellers by units sold over the last 30 days.
+  const shopSold = useQuery({
+    queryKey: ["shop-sold-rank", presetSalesRepId],
+    enabled: !!presetSalesRepId && !editingSale,
+    staleTime: 10 * 60 * 1000,
+    queryFn: async () => {
+      const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      const { data, error } = await supabase
+        .from("rep_stock_movements")
+        .select("product_id,quantity")
+        .eq("sales_rep_id", presetSalesRepId!)
+        .eq("movement_type", "sold")
+        .gte("created_at", since)
+        .limit(5000);
+      if (error) return new Map<string, number>();
+      const sold = new Map<string, number>();
+      for (const m of data ?? [])
+        sold.set(m.product_id, (sold.get(m.product_id) ?? 0) + Math.abs(Number(m.quantity)));
+      return sold;
+    },
+  });
   const repMode = salesRepId !== "none";
   // When a rep is selling, the goods left the warehouse at dispatch time, so the
   // sellable quantity is what's on the rep's van — not products.current_stock.
@@ -1914,9 +1936,19 @@ export function PosDialog({
       // (user, 2026-11-09).
       retailMode ? !isEmptyDispenser(p.name) || effStock(p) > 0 : mine(p.name),
     );
-    return categoryFilter === "all" ? all : all.filter((p) => p.category_id === categoryFilter);
+    const list =
+      categoryFilter === "all" ? all : all.filter((p) => p.category_id === categoryFilter);
+    if (!retailMode) return list;
+    const sold = shopSold.data;
+    const rank = (p: Product) => (/sachet/i.test(p.name) ? 0 : 1);
+    return [...list].sort(
+      (a, b) =>
+        rank(a) - rank(b) ||
+        (sold?.get(b.id) ?? 0) - (sold?.get(a.id) ?? 0) ||
+        a.name.localeCompare(b.name),
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps -- effStock reads repStock.data
-  }, [products.data, categoryFilter, retailMode, mine, repStock.data]);
+  }, [products.data, categoryFilter, retailMode, mine, repStock.data, shopSold.data]);
 
   const totals = useMemo(() => {
     const subtotal = cart.reduce((s, i) => s + i.quantity * netPrice(i), 0);
