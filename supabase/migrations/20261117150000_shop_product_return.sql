@@ -48,6 +48,8 @@ DECLARE
 BEGIN
   IF NOT (public.has_permission(v_uid, 'sales'::module_key, 'create'::action_key)
        OR public.has_permission(v_uid, 'sales'::module_key, 'write'::action_key)
+       OR public.has_permission(v_uid, 'sales'::module_key, 'edit'::action_key)
+       OR public.has_permission(v_uid, 'sales-returns'::module_key, 'create'::action_key)
        OR public.has_permission(v_uid, 'sales-returns'::module_key, 'submit'::action_key)) THEN
     RAISE EXCEPTION 'Insufficient permissions';
   END IF;

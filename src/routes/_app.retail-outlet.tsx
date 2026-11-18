@@ -126,6 +126,13 @@ function RetailOutletPage() {
   const qc = useQueryClient();
   const { can } = usePermissions();
   const canSell = can("sales", "create");
+  // Return Product: Retail Shop staff too, not only those who can sell
+  // (user, 2026-11-18). Matches record_shop_product_return's check.
+  const canReturn =
+    canSell ||
+    can("sales", "edit") ||
+    can("sales-returns", "create") ||
+    can("sales-returns", "submit");
   const [outletId, setOutletId] = useState<string>("");
   const [period, setPeriod] = useState<Period>("today");
   const [posOpen, setPosOpen] = useState(false);
@@ -393,7 +400,7 @@ function RetailOutletPage() {
               )}
             </Dialog>
           )}
-          {canSell && outletId && (
+          {canReturn && outletId && (
             <Dialog open={returning} onOpenChange={setReturning}>
               <DialogTrigger asChild>
                 <Button variant="outline" className="gap-2">
