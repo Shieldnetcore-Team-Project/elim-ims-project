@@ -71,3 +71,23 @@ BEGIN
   PERFORM pg_temp.check(pg_temp.err(format($q$SELECT public.record_sold_dispenser_jugs(%L)$q$,
     jsonb_build_object('customer_id', c, 'quantity', 8))) LIKE '%only 7 dispenser jug%', 'no more than 7');
 END $$;
+
+-- @@ Test 3: H MEDIX case (20261118100000) -- 50 swapped, 49 empties handed in -> 1 Jug + Water can be recorded
+DO $$
+DECLARE r jsonb; f uuid := 'f9c00000-0000-0000-0000-000000000001'; c uuid := 'd9c00000-0000-0000-0000-000000000003';
+        s jsonb; t uuid := 'e9c00000-0000-0000-0000-000000000001';
+BEGIN
+  INSERT INTO customers(id, factory_id, name, registered) VALUES (c, f, 'SJ Medix', true);
+  s := public.create_sale(jsonb_build_object('factory_id', f, 'customer_id', c, 'customer_name', 'SJ Medix',
+    'items', jsonb_build_array(jsonb_build_object('product_id', 'b9c00000-0000-0000-0000-000000000001',
+                                                  'quantity', 50, 'jar_mode', 'swap'))));
+  IF (SELECT status FROM sales WHERE id = (s->>'sale_id')::uuid) <> 'posted' THEN
+    PERFORM public._post_sale((s->>'sale_id')::uuid, 'test');
+  END IF;
+  -- 49 empties handed in (plus 30 older jugs from before tracking) on the jug ledger
+  INSERT INTO container_movements(factory_id, container_type_id, from_type, from_id, to_type, quantity, source)
+  VALUES (f, t, 'customer', c, 'warehouse', 79, 'return');
+  r := public.record_sold_dispenser_jugs(jsonb_build_object('customer_id', c, 'quantity', 1));
+  PERFORM pg_temp.check((SELECT grand_total FROM sales WHERE invoice_number = r->>'invoice_number') = 3000,
+                        '1 jug billed');
+END $$;
