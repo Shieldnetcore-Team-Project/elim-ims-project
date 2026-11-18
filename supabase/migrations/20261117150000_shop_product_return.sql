@@ -53,7 +53,7 @@ BEGIN
   END IF;
   IF v_method = 'credit' THEN RAISE EXCEPTION 'Choose how the money went back: cash, transfer or POS'; END IF;
 
-  SELECT * INTO v_rep FROM sales_reps WHERE id = NULLIF(payload->>'outlet_id', '')::uuid;
+  SELECT * FROM sales_reps WHERE id = NULLIF(payload->>'outlet_id', '')::uuid INTO v_rep;
   IF NOT FOUND OR v_rep.kind <> 'outlet' THEN RAISE EXCEPTION 'Choose the Retail Shop'; END IF;
   IF NOT public._works_in_factory(v_uid, v_rep.factory_id) THEN RAISE EXCEPTION 'Insufficient permissions'; END IF;
   PERFORM public._check_return_day(v_date, v_rep.id);
@@ -63,7 +63,7 @@ BEGIN
     v_qty := COALESCE(NULLIF(v_item->>'quantity', '')::numeric, 0);
     CONTINUE WHEN v_qty = 0;
     IF v_qty < 0 THEN RAISE EXCEPTION 'Quantities cannot be negative'; END IF;
-    SELECT * INTO v_product FROM products WHERE id = NULLIF(v_item->>'product_id', '')::uuid;
+    SELECT * FROM products WHERE id = NULLIF(v_item->>'product_id', '')::uuid INTO v_product;
     IF NOT FOUND OR v_product.factory_id <> v_rep.factory_id THEN RAISE EXCEPTION 'Product not found'; END IF;
     v_value := COALESCE(NULLIF(v_item->>'value', '')::numeric, round(v_qty * COALESCE(v_product.unit_price, 0), 2));
     IF v_value < 0 THEN RAISE EXCEPTION 'The value given back cannot be negative'; END IF;
@@ -83,8 +83,8 @@ BEGIN
     v_qty := (v_line->>'quantity')::numeric;
     v_ref := v_number || CASE WHEN v_count > 1 THEN '-' || v_n ELSE '' END;
 
-    SELECT quantity INTO v_before FROM rep_stock
-     WHERE sales_rep_id = v_rep.id AND product_id = (v_line->>'product_id')::uuid FOR UPDATE;
+    SELECT quantity FROM rep_stock
+     WHERE sales_rep_id = v_rep.id AND product_id = (v_line->>'product_id')::uuid FOR UPDATE INTO v_before;
     IF FOUND THEN
       UPDATE rep_stock SET quantity = quantity + v_qty, updated_at = now()
        WHERE sales_rep_id = v_rep.id AND product_id = (v_line->>'product_id')::uuid;
