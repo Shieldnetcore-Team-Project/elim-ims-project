@@ -115,11 +115,7 @@ export function ShopProductReturnDialog({
     <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
       <DialogHeader>
         <DialogTitle>Return Product</DialogTitle>
-        <DialogDescription>
-          A customer brings back a product {outletName} sold them — they no longer want it, or want
-          another product instead. It goes back into the shop&apos;s stock and its value is given
-          back. Then sell them the other product with New outlet sale.
-        </DialogDescription>
+        <DialogDescription className="sr-only">Return Product</DialogDescription>
       </DialogHeader>
       <div className="grid gap-3">
         <ReturnDateField value={returnDate} onChange={setReturnDate} />
