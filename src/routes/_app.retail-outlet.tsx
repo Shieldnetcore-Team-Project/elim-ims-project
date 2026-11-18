@@ -11,7 +11,7 @@ import { KPI } from "@/lib/dashboard-kit";
 import { money, num } from "@/lib/format";
 import { PosDialog } from "./_app.sales";
 import { RetailDayClose } from "@/components/retail/outlet-day-close";
-import { ReturnToWarehouseDialog } from "@/components/retail/return-to-warehouse-dialog";
+import { ShopProductReturnDialog } from "@/components/retail/shop-product-return-dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogTrigger } from "@/components/ui/dialog";
@@ -397,18 +397,20 @@ function RetailOutletPage() {
             <Dialog open={returning} onOpenChange={setReturning}>
               <DialogTrigger asChild>
                 <Button variant="outline" className="gap-2">
-                  <Undo2 className="h-4 w-4" /> Return unsold to Warehouse
+                  <Undo2 className="h-4 w-4" /> Return Product
                 </Button>
               </DialogTrigger>
+              {/* A customer's product back into the shop (user, 2026-11-17);
+                  was "Return unsold to Warehouse". */}
               {returning && (
-                <ReturnToWarehouseDialog
+                <ShopProductReturnDialog
                   outletId={outletId}
                   outletName={outlets.data?.find((o) => o.id === outletId)?.full_name ?? "the shop"}
-                  stock={(stock.data ?? []).map((r) => ({
-                    product_id: r.product_id,
-                    name: r.products?.name ?? "—",
-                    unit: r.products?.unit ?? "",
-                    quantity: Number(r.quantity),
+                  products={byProduct.map((r) => ({
+                    id: r.id,
+                    name: r.name,
+                    unit: r.unit,
+                    price: r.price,
                   }))}
                   onDone={() => setReturning(false)}
                 />
