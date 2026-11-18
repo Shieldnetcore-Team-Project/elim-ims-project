@@ -41,5 +41,33 @@ BEGIN
   PERFORM pg_temp.check((SELECT current_stock FROM products WHERE id = 'b9c00000-0000-0000-0000-000000000002') = 0,
                         'Dispenser Empty stock unchanged');
   PERFORM pg_temp.check(pg_temp.err(format($q$SELECT public.record_sold_dispenser_jugs(%L)$q$,
-    jsonb_build_object('customer_id', c, 'quantity', 12))) LIKE '%holds only 11%', 'no more than held');
+    jsonb_build_object('customer_id', c, 'quantity', 12))) LIKE '%only 11 dispenser jug%', 'no more than held');
+END $$;
+
+-- @@ Test 2: Dispenser Water supplied as a swap (no jug on the ledger, 20261118090000):
+-- 20 supplied, 3 back unsold -> 17 can be sold; 10 sold -> 7 left; ledger never minus
+DO $$
+DECLARE r jsonb; f uuid := 'f9c00000-0000-0000-0000-000000000001'; c uuid := 'd9c00000-0000-0000-0000-000000000002';
+        s jsonb; t uuid := 'e9c00000-0000-0000-0000-000000000001'; b numeric;
+BEGIN
+  INSERT INTO customers(id, factory_id, name, registered) VALUES (c, f, 'SJ High Commission', true);
+  s := public.create_sale(jsonb_build_object('factory_id', f, 'customer_id', c, 'customer_name', 'SJ High Commission',
+    'items', jsonb_build_array(jsonb_build_object('product_id', 'b9c00000-0000-0000-0000-000000000001',
+                                                  'quantity', 20, 'jar_mode', 'swap'))));
+  IF (SELECT status FROM sales WHERE id = (s->>'sale_id')::uuid) <> 'posted' THEN
+    PERFORM public._post_sale((s->>'sale_id')::uuid, 'test');
+  END IF;
+  PERFORM pg_temp.check(public._jug_customer_balance(c, t) = 0, 'swap leaves no jug on the ledger');
+  INSERT INTO sales_returns(factory_id, return_number, sale_id, customer_id, product_id, quantity_returned, unit, reason, received_by)
+  VALUES (f, 'SR-SJ-1', (s->>'sale_id')::uuid, c, 'b9c00000-0000-0000-0000-000000000001', 3, 'Piece', 'unsold',
+          'a9c00000-0000-0000-0000-000000000001');
+  PERFORM pg_temp.check(public._customer_jugs_sellable(c) = 17, '17 sellable');
+  b := public._jug_customer_balance(c, t);
+  r := public.record_sold_dispenser_jugs(jsonb_build_object('customer_id', c, 'quantity', 10));
+  PERFORM pg_temp.check((SELECT grand_total FROM sales WHERE invoice_number = r->>'invoice_number') = 30000,
+                        'billed 10 x 3,000');
+  PERFORM pg_temp.check(public._customer_jugs_sellable(c) = 7, '7 left');
+  PERFORM pg_temp.check(public._jug_customer_balance(c, t) = b, 'ledger unchanged by the sold jugs');
+  PERFORM pg_temp.check(pg_temp.err(format($q$SELECT public.record_sold_dispenser_jugs(%L)$q$,
+    jsonb_build_object('customer_id', c, 'quantity', 8))) LIKE '%only 7 dispenser jug%', 'no more than 7');
 END $$;

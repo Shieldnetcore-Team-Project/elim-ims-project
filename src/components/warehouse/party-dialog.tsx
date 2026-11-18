@@ -574,11 +574,7 @@ function SoldJugsDialog({ party, onClose }: { party: Party; onClose: () => void 
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>Record sold Jug + Water</DialogTitle>
-          <DialogDescription>
-            {party.name} sold dispensers with the jug — their customers keep the jugs. Each jug is
-            billed to {party.name} at the empty-jug price, on an invoice Accounts confirms, and no
-            longer owed back.
-          </DialogDescription>
+          <DialogDescription className="sr-only">{party.name}</DialogDescription>
         </DialogHeader>
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
