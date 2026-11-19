@@ -104,7 +104,15 @@ function WarehouseActivityPage() {
   const [q, setQ] = useState("");
 
   useRealtimeInvalidate(
-    ["production_releases", "stock_dispatches", "sales", "inventory_movements"],
+    [
+      "production_releases",
+      "stock_dispatches",
+      "sales",
+      "inventory_movements",
+      "rep_returns",
+      "sales_returns",
+      "jug_returns",
+    ],
     [["warehouse-activity-log"]],
   );
 
