@@ -85,69 +85,6 @@ function PasswordInput({
   );
 }
 
-// The flowing wave behind the hero, drawn rather than loaded so the page
-// needs no extra image. Each layer drifts and swells on its own slow loop so
-// the wave flows; it holds still for anyone who has reduced motion set.
-function HeroWave() {
-  return (
-    <svg
-      aria-hidden
-      viewBox="0 0 1440 520"
-      preserveAspectRatio="none"
-      className="pointer-events-none absolute inset-x-0 bottom-0 h-[70%] w-full"
-    >
-      <style>{`
-        .wave-a { animation: wave-flow-a 14s ease-in-out infinite alternate; transform-origin: 50% 100%; }
-        .wave-b { animation: wave-flow-b 10s ease-in-out infinite alternate; transform-origin: 50% 100%; }
-        .wave-c { animation: wave-flow-c 18s ease-in-out infinite alternate; transform-origin: 50% 100%; }
-        @keyframes wave-flow-a {
-          0% { transform: translateX(-60px) scaleY(1); }
-          100% { transform: translateX(60px) scaleY(1.08); }
-        }
-        @keyframes wave-flow-b {
-          0% { transform: translateX(70px) scaleY(1.06); }
-          100% { transform: translateX(-70px) scaleY(0.94); }
-        }
-        @keyframes wave-flow-c {
-          0% { transform: translateX(-40px) scaleY(0.95); opacity: 0.35; }
-          100% { transform: translateX(80px) scaleY(1.1); opacity: 0.6; }
-        }
-        @media (prefers-reduced-motion: reduce) {
-          .wave-a, .wave-b, .wave-c { animation: none; }
-        }
-      `}</style>
-      <defs>
-        <linearGradient id="wave-a" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#7cc4ef" stopOpacity="0.95" />
-          <stop offset="55%" stopColor="#2f86d0" stopOpacity="0.85" />
-          <stop offset="100%" stopColor="#0b4a94" stopOpacity="0.6" />
-        </linearGradient>
-        <linearGradient id="wave-b" x1="1" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#bfe3f8" stopOpacity="0.9" />
-          <stop offset="60%" stopColor="#4aa3e0" stopOpacity="0.7" />
-          <stop offset="100%" stopColor="#0d4f9c" stopOpacity="0.3" />
-        </linearGradient>
-      </defs>
-      {/* Paths run past both edges so the drift never shows a gap. */}
-      <path
-        className="wave-a"
-        d="M-160 430 C 120 300, 360 210, 560 150 C 700 110, 820 120, 760 230 C 700 340, 900 400, 1120 380 C 1300 365, 1460 320, 1600 280 L1600 520 L-160 520 Z"
-        fill="url(#wave-a)"
-      />
-      <path
-        className="wave-c"
-        d="M-160 470 C 200 400, 520 330, 820 360 C 1080 385, 1300 330, 1600 250 L1600 520 L-160 520 Z"
-        fill="#9fd5f5"
-      />
-      <path
-        className="wave-b"
-        d="M200 520 C 400 380, 560 230, 700 170 C 760 145, 790 170, 760 240 C 720 330, 860 420, 1080 430 C 1260 437, 1440 390, 1600 340 L1600 520 Z"
-        fill="url(#wave-b)"
-      />
-    </svg>
-  );
-}
-
 const STATUS_MESSAGES: Record<string, (reason?: string | null) => string> = {
   pending: () => "Your account is awaiting admin approval. You'll be notified once it's reviewed.",
   rejected: (reason) =>
@@ -291,12 +228,22 @@ function Landing() {
   };
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#071433] text-white">
+    <div className="relative isolate flex min-h-screen flex-col bg-[#071433] text-white">
+      {/* The aerial factory photo fills the whole page, under a navy gradient
+          so the heading, card and footer stay readable (user, 2026-11-21). */}
+      <div aria-hidden className="absolute inset-0 -z-10 overflow-hidden">
+        <img
+          src="/assets/elim-factory.jpg"
+          alt=""
+          className="h-full w-full object-cover object-center"
+        />
+        <div className="absolute inset-0 bg-gradient-to-r from-[#071433]/90 via-[#0a3477]/65 to-[#082a63]/40" />
+        <div className="absolute inset-0 bg-gradient-to-b from-[#071433]/40 via-transparent to-[#071433]/95" />
+      </div>
       {/* The hero fills the screen down to the footer, which stays in view,
           and the logo, heading and login card sit in its vertical middle
           (user, 2026-10-30). */}
-      <section className="relative flex flex-1 flex-col overflow-hidden bg-gradient-to-br from-[#0a3a82] via-[#0a3477] to-[#082a63]">
-        <HeroWave />
+      <section className="relative flex flex-1 flex-col overflow-hidden">
         <div className="relative mx-auto flex w-full max-w-6xl flex-1 flex-col justify-center px-4 py-10 sm:px-8 lg:py-16">
           <div className="grid items-start gap-8 lg:grid-cols-2 lg:gap-12">
             {/* The logo heads the left column, its top level with the top of
@@ -498,7 +445,7 @@ function Landing() {
         </div>
       </section>
 
-      <footer className="bg-[#071433]">
+      <footer className="bg-[#071433]/70 backdrop-blur-sm">
         <div className="mx-auto grid w-full max-w-6xl items-start gap-8 px-4 py-8 sm:px-8 md:grid-cols-2">
           <div className="flex items-center gap-3">
             <div className="aspect-[1747/900] w-20 shrink-0 overflow-hidden rounded-lg ring-1 ring-white/15">
