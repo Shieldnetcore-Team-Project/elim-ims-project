@@ -54,12 +54,14 @@ import {
   ClipboardList,
   ArrowLeftRight,
   ShieldCheck,
+  Wallet,
 } from "lucide-react";
 import { requestDelete } from "@/lib/request-delete";
 import { num } from "@/lib/format";
 import { PartsInventoryTab, StockMovementsTab } from "@/components/maintenance/parts-inventory";
 import { MaintenanceLogTab } from "@/components/maintenance/maintenance-log";
 import { IssueApprovalsTab } from "@/components/maintenance/issue-approvals";
+import { MaintenanceExpensesTab } from "@/components/maintenance/expenses";
 import {
   db,
   isLowStock,
@@ -211,6 +213,7 @@ function MaintenancePage() {
       "maintenance_requests",
       "maintenance_purchases",
       "vehicles",
+      "maintenance_expenses",
     ],
     [
       ["maintenance-parts"],
@@ -220,11 +223,12 @@ function MaintenancePage() {
       ["maintenance-requests"],
       ["maintenance-purchases"],
       ["logistics-vehicles"],
+      ["maintenance-expenses"],
     ],
   );
   const [q, setQ] = useSearchQuery();
   const qc = useQueryClient();
-  const { canWrite, canEdit, canApprove, canReject, canCancel } = usePermissions();
+  const { canWrite, canEdit, canDelete, canApprove, canReject, canCancel } = usePermissions();
   const factory = useFactoryId();
   const factoryId = factory.data;
   const write = canWrite("logistics");
@@ -611,6 +615,9 @@ function MaintenancePage() {
           <TabsTrigger value="vehicles">
             <Truck className="mr-1.5 h-4 w-4" /> Vehicles
           </TabsTrigger>
+          <TabsTrigger value="expenses">
+            <Wallet className="mr-1.5 h-4 w-4" /> Expenses
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="parts" className="pt-4">
@@ -735,6 +742,15 @@ function MaintenancePage() {
               </Table>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="expenses" className="pt-4">
+          <MaintenanceExpensesTab
+            factoryId={factoryId}
+            canCreate={write}
+            canEdit={canEdit("logistics")}
+            canDelete={canDelete("logistics")}
+          />
         </TabsContent>
 
         <TabsContent value="vehicles" className="space-y-4 pt-4">
