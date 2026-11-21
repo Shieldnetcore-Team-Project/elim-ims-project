@@ -88,6 +88,7 @@ type ExpenseRow = {
   recorded_by_name: string | null;
   updated_by_name: string | null;
   created_at: string;
+  vehicles?: { plate_number: string } | null;
 };
 
 const monthStart = () => localDay().slice(0, 8) + "01";
@@ -132,7 +133,7 @@ export function MaintenanceExpensesTab({
       let query = db
         .from("maintenance_expenses")
         .select(
-          "id,expense_number,expense_date,category,description,amount,paid_to,payment_method,receipt_ref,recorded_by_name,updated_by_name,created_at",
+          "id,expense_number,expense_date,category,description,amount,paid_to,payment_method,receipt_ref,recorded_by_name,updated_by_name,created_at,vehicles(plate_number)",
         )
         .eq("factory_id", factoryId)
         .order("expense_date", { ascending: false })
@@ -259,7 +260,9 @@ export function MaintenanceExpensesTab({
       date: fmtDate(e.expense_date),
       number: e.expense_number,
       category: e.category,
-      description: e.description ?? "",
+      description: [e.description, e.vehicles && `Vehicle ${e.vehicles.plate_number}`]
+        .filter(Boolean)
+        .join(" — "),
       paid_to: e.paid_to ?? "",
       method: e.payment_method ?? "",
       amount: money(e.amount),
@@ -404,7 +407,14 @@ export function MaintenanceExpensesTab({
                     {e.expense_number}
                   </TableCell>
                   <TableCell className="whitespace-nowrap">{e.category}</TableCell>
-                  <TableCell>{e.description ?? "—"}</TableCell>
+                  <TableCell>
+                    {e.description ?? (e.vehicles ? "" : "—")}
+                    {e.vehicles && (
+                      <div className="text-xs text-muted-foreground">
+                        Vehicle {e.vehicles.plate_number}
+                      </div>
+                    )}
+                  </TableCell>
                   <TableCell>{e.paid_to ?? "—"}</TableCell>
                   <TableCell>{e.payment_method ?? "—"}</TableCell>
                   <TableCell>{e.receipt_ref ?? "—"}</TableCell>

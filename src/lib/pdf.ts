@@ -2170,3 +2170,91 @@ export async function generateMarketerSheetPdf(
     action,
   );
 }
+
+// Maintenance › Vehicle Expenses, laid out like the factory's "DAILY VEHICLE
+// EXPENSES FOR <PLATE> <DRIVERS>" sheet (user, 2026-11-21): the particulars
+// with their TOTAL, then FUEL USED with TOTAL FUEL USED (n LITERS), then the
+// grand TOTAL. One letterhead page (or more) per vehicle.
+export type VehicleExpenseSheet = {
+  plate: string;
+  model?: string | null;
+  drivers?: string | null;
+  parts: { date: string; text: string; amount: number }[];
+  fuel: { date: string; text: string; litres: number; amount: number }[];
+};
+
+export async function generateVehicleExpensesPdf(
+  opts: {
+    company: CompanyLike;
+    period: string;
+    printedBy?: string | null;
+    vehicles: VehicleExpenseSheet[];
+    filename: string;
+  },
+  action: PdfAction = "print",
+) {
+  const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "portrait" });
+  const amt = (n: number) =>
+    n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const sum = (xs: { amount: number }[]) => xs.reduce((s, x) => s + Number(x.amount), 0);
+  const shade = { fillColor: LETTERHEAD_SHADE, fontStyle: "bold" as const };
+
+  for (const [vi, v] of opts.vehicles.entries()) {
+    if (vi > 0) doc.addPage();
+    const y = await drawLetterhead(
+      doc,
+      opts.company,
+      `Daily vehicle expenses for ${v.plate}${v.drivers ? ` ${v.drivers}` : ""}`,
+      [...(v.model ? [v.model] : []), `Period: ${opts.period}`],
+    );
+
+    type Cell = string | { content: string; colSpan?: number; styles?: Record<string, unknown> };
+    const body: Cell[][] = [];
+    const partsTotal = sum(v.parts);
+    const fuelTotal = sum(v.fuel);
+    const litres = v.fuel.reduce((s, f) => s + Number(f.litres), 0);
+
+    v.parts.forEach((p, i) => body.push([String(i + 1), p.date, p.text.toUpperCase(), amt(p.amount)]));
+    if (v.parts.length)
+      body.push([
+        { content: "TOTAL", colSpan: 3, styles: { ...shade, halign: "center" } },
+        { content: amt(partsTotal), styles: shade },
+      ]);
+    if (v.fuel.length) {
+      body.push([{ content: "FUEL USED", colSpan: 4, styles: { halign: "center" } }]);
+      v.fuel.forEach((f, i) =>
+        body.push([String(i + 1), f.date, f.text.toUpperCase(), amt(f.amount)]),
+      );
+      body.push([
+        {
+          content: `TOTAL FUEL USED (${litres.toLocaleString()} LITERS)`,
+          colSpan: 3,
+          styles: { ...shade, halign: "center" },
+        },
+        { content: amt(fuelTotal), styles: shade },
+      ]);
+    }
+
+    autoTable(doc, {
+      ...letterheadTable(10),
+      startY: y,
+      head: [["S/N", "Date", "Particulars", "Amount"]],
+      body,
+      foot: [
+        [
+          { content: "TOTAL", colSpan: 3 },
+          { content: amt(partsTotal + fuelTotal), styles: { halign: "right" } },
+        ],
+      ],
+      showFoot: "lastPage",
+      columnStyles: {
+        0: { cellWidth: 34 },
+        1: { cellWidth: 72 },
+        3: { cellWidth: 100, halign: "right" },
+      },
+    });
+    letterheadPrintedBy(doc, opts.printedBy);
+  }
+  letterheadPageNumbers(doc);
+  finishPdf(doc, opts.filename, action);
+}

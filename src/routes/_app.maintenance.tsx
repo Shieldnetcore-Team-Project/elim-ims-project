@@ -55,6 +55,7 @@ import {
   ArrowLeftRight,
   ShieldCheck,
   Wallet,
+  Fuel,
 } from "lucide-react";
 import { requestDelete } from "@/lib/request-delete";
 import { num } from "@/lib/format";
@@ -62,6 +63,7 @@ import { PartsInventoryTab, StockMovementsTab } from "@/components/maintenance/p
 import { MaintenanceLogTab } from "@/components/maintenance/maintenance-log";
 import { IssueApprovalsTab } from "@/components/maintenance/issue-approvals";
 import { MaintenanceExpensesTab } from "@/components/maintenance/expenses";
+import { VehicleExpensesTab } from "@/components/maintenance/vehicle-expenses";
 import {
   db,
   isLowStock,
@@ -618,6 +620,9 @@ function MaintenancePage() {
           <TabsTrigger value="expenses">
             <Wallet className="mr-1.5 h-4 w-4" /> Expenses
           </TabsTrigger>
+          <TabsTrigger value="vehicle-expenses">
+            <Fuel className="mr-1.5 h-4 w-4" /> Vehicle Expenses
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="parts" className="pt-4">
@@ -747,6 +752,16 @@ function MaintenancePage() {
         <TabsContent value="expenses" className="pt-4">
           <MaintenanceExpensesTab
             factoryId={factoryId}
+            canCreate={write}
+            canEdit={canEdit("logistics")}
+            canDelete={canDelete("logistics")}
+          />
+        </TabsContent>
+
+        <TabsContent value="vehicle-expenses" className="pt-4">
+          <VehicleExpensesTab
+            factoryId={factoryId}
+            vehicles={vehicles.data ?? []}
             canCreate={write}
             canEdit={canEdit("logistics")}
             canDelete={canDelete("logistics")}
