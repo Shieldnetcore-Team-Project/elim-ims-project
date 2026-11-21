@@ -1966,7 +1966,7 @@ export async function generateProductionStockReportPdf(
 // the shaded foot, and "Page n of m" on every page.
 export async function generateItemsSoldPdf(
   opts: {
-    company: CompanyLike & { name?: string | null };
+    company: CompanyLike;
     report: import("./items-sold-report").ItemsSoldReport;
     periodLabel: string;
     printedBy?: string | null;
@@ -2058,7 +2058,7 @@ export function letterheadPageNumbers(doc: jsPDF) {
 // the blue header row and a shaded TOTAL foot.
 export async function generateMarketerSheetPdf(
   opts: {
-    company: CompanyLike & { name?: string | null };
+    company: CompanyLike;
     sheets: (import("./marketer-sales-sheet").MarketerSheet & {
       kind?: import("./marketer-sales-sheet").PartyKind;
     })[];
@@ -2303,4 +2303,135 @@ export async function generateExpenseMatrixPdf(
   letterheadPrintedBy(doc, opts.printedBy);
   letterheadPageNumbers(doc);
   finishPdf(doc, opts.filename, action);
+}
+
+// Maintenance › Requests printed as the factory's CASH REQUISITION FORM
+// (user, 2026-11-21): logo, ELIM TABLE WATER, CASH REQUISITION FORM, the
+// address and contacts; the request's details (requested by and the date
+// filled in automatically); the items with qty x amount and the TOTAL COST;
+// then who requested, Accounts' and the Chairman's decisions with a
+// signature space each.
+type RequisitionStage = { decision: string; by: string; at: string; note: string } | null;
+
+export async function generateCashRequisitionPdf(
+  opts: {
+    company: CompanyLike;
+    request: {
+      number: string;
+      date: string;
+      requestedBy: string;
+      title: string;
+      category: string;
+      for: string;
+      priority: string;
+      purpose: string;
+      status: string;
+    };
+    items: { name: string; description: string; qty: number; unit: number; amount: number }[];
+    total: number;
+    accounts: RequisitionStage;
+    chairman: RequisitionStage;
+    printedBy?: string | null;
+  },
+  action: PdfAction = "print",
+) {
+  const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "portrait" });
+  const c = sheetCompany(opts.company);
+  const W = doc.internal.pageSize.getWidth();
+  const M = 36;
+  const amt = (n: number) =>
+    n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  let y = await drawLogoHeader(doc, c.logo_url, 22, 150, 58);
+  doc.setFont("times", "bold");
+  doc.setTextColor(0, 0, 0);
+  doc.setFontSize(18);
+  doc.text("ELIM TABLE WATER", W / 2, y + 4, { align: "center" });
+  y += 24;
+  doc.setFontSize(13);
+  doc.text("CASH REQUISITION FORM", W / 2, y, { align: "center" });
+  const tw = doc.getTextWidth("CASH REQUISITION FORM");
+  doc.setLineWidth(0.8);
+  doc.line(W / 2 - tw / 2, y + 2.5, W / 2 + tw / 2, y + 2.5);
+  y += 18;
+  doc.setFontSize(10);
+  for (const line of [c.address, `Tel: ${c.phone}, Email: ${c.email}`, `Website: ${c.website}`]) {
+    for (const part of doc.splitTextToSize(line, W - 2 * M) as string[]) {
+      doc.text(part, W / 2, y, { align: "center" });
+      y += 12.5;
+    }
+  }
+  y += 8;
+
+  const look = letterheadTable(10);
+  const r = opts.request;
+  const label = { fontStyle: "bold" as const, fillColor: LETTERHEAD_SHADE, cellWidth: 95 };
+  autoTable(doc, {
+    ...look,
+    startY: y,
+    body: [
+      ["Request No.", r.number, "Date of request", r.date],
+      ["Requested by", r.requestedBy, "Status", r.status],
+      ["Title", { content: r.title, colSpan: 3 }],
+      ["Category", r.category, "Priority", r.priority.replace(/^./, (s) => s.toUpperCase())],
+      ...(r.for ? [["Vehicle / machine", { content: r.for, colSpan: 3 }]] : []),
+      ...(r.purpose ? [["Purpose", { content: r.purpose, colSpan: 3 }]] : []),
+    ],
+    columnStyles: { 0: label, 2: label },
+  });
+
+  const yItems =
+    ((doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y) + 12;
+  autoTable(doc, {
+    ...look,
+    startY: yItems,
+    head: [["S/N", "Item", "Description", "Qty", "Amount", "Total"]],
+    body: opts.items.map((i, k) => [
+      String(k + 1),
+      i.name,
+      i.description,
+      i.qty.toLocaleString("en-US", { maximumFractionDigits: 3 }),
+      amt(i.unit),
+      amt(i.amount),
+    ]),
+    foot: [
+      [
+        { content: "TOTAL COST", colSpan: 5, styles: { halign: "right" } },
+        { content: amt(opts.total), styles: { halign: "right" } },
+      ],
+    ],
+    showFoot: "lastPage",
+    columnStyles: {
+      0: { cellWidth: 30 },
+      3: { halign: "right", cellWidth: 45 },
+      4: { halign: "right", cellWidth: 80 },
+      5: { halign: "right", cellWidth: 90 },
+    },
+  });
+
+  const ySign =
+    ((doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y) + 16;
+  const stageRow = (who: string, s: RequisitionStage) =>
+    s ? [who, s.by, s.decision, s.at, s.note, ""] : [who, "", "Pending", "", "", ""];
+  autoTable(doc, {
+    ...look,
+    startY: ySign,
+    head: [["", "Name", "Decision", "Date", "Remark", "Signature"]],
+    body: [
+      ["Requested by", r.requestedBy, "Requested", r.date, "", ""],
+      stageRow("Accounts", opts.accounts),
+      stageRow("Chairman", opts.chairman),
+    ],
+    styles: { ...look.styles, minCellHeight: 30, valign: "middle" },
+    columnStyles: {
+      0: { fontStyle: "bold", fillColor: LETTERHEAD_SHADE, cellWidth: 80 },
+      2: { cellWidth: 65 },
+      3: { cellWidth: 65 },
+      5: { cellWidth: 90 },
+    },
+  });
+
+  letterheadPrintedBy(doc, opts.printedBy);
+  letterheadPageNumbers(doc);
+  finishPdf(doc, `cash-requisition-${r.number}`, action);
 }

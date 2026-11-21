@@ -39,7 +39,8 @@ BEGIN
   v := public.create_maintenance_request(jsonb_build_object('factory_id', f, 'category', 'factory_maintenance', 'title', 'Fix gate'));
   req := (v->>'id')::uuid;
   PERFORM set_config('test.uid', 'a5000000-0000-0000-0000-000000000002', false);
-  PERFORM public.decide_maintenance_request(req, true, NULL);
+  PERFORM public.decide_maintenance_request(req, true, NULL); -- Accounts (admin)
+  PERFORM public.decide_maintenance_request(req, true, NULL); -- Chairman (admin)
   PERFORM public.add_maintenance_purchase(jsonb_build_object('request_id', req, 'item_description', 'Hinges', 'quantity', 2, 'unit_cost', 1500));
   PERFORM public.complete_maintenance_request(req, 'done');
   PERFORM pg_temp.check((SELECT status FROM maintenance_requests WHERE id = req) = 'completed', 'completed');

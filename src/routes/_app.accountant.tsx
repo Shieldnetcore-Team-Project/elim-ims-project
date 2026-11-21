@@ -3,6 +3,7 @@ import { printReturnNote, returnedQtyText } from "@/lib/return-note-pdf";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { RequireAccess } from "@/components/layout/require-access";
+import { CashRequisitionsTab } from "@/components/maintenance/cash-requisition";
 import { supabase } from "@/integrations/supabase/client";
 import { useFactoryId, useFactorySettings } from "@/lib/use-factory";
 import { usePermissions, type ModuleKey } from "@/lib/permissions";
@@ -1143,6 +1144,7 @@ function AccountantPage() {
               <TabsTrigger value="remittances">Cash remitted</TabsTrigger>
             )}
             <TabsTrigger value="distributors">Distributor/Office Delivery</TabsTrigger>
+            <TabsTrigger value="requisitions">Cash requisitions</TabsTrigger>
             {can("customers") && <TabsTrigger value="customers">Customers</TabsTrigger>}
           </TabsList>
           <div className={`relative w-full sm:w-72 ${searchable ? "" : "hidden"}`}>
@@ -1670,6 +1672,11 @@ function AccountantPage() {
 
         <TabsContent value="dispensers">
           <DispenserReports factoryId={factoryId} currency={currency} />
+        </TabsContent>
+
+        {/* Maintenance cash requisitions: Accounts accept, then the Chairman (2026-11-21). */}
+        <TabsContent value="requisitions">
+          <CashRequisitionsTab factoryId={factoryId} />
         </TabsContent>
 
         <TabsContent value="distributors">

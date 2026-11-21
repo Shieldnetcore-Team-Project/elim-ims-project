@@ -65,6 +65,23 @@ import { IssueApprovalsTab } from "@/components/maintenance/issue-approvals";
 import { MaintenanceExpensesTab } from "@/components/maintenance/expenses";
 import { VehicleExpensesTab } from "@/components/maintenance/vehicle-expenses";
 import {
+  PrintRequisitionButton,
+  RequisitionItemsEditor,
+  RequisitionItemsTable,
+  RequisitionTrail,
+} from "@/components/maintenance/cash-requisition";
+import {
+  blankItem,
+  canDecide,
+  draftProblem,
+  REQUEST_STATUS_LABELS,
+  usedItems,
+  useRequestItems,
+  useRequisitionRole,
+  type DraftItem,
+} from "@/components/maintenance/requisition";
+import { useMyRoles } from "@/lib/permissions";
+import {
   db,
   isLowStock,
   MAINTENANCE_QUERY_KEYS,
@@ -95,13 +112,8 @@ const CATEGORY_LABELS: Record<string, string> = {
   other: "Other",
 };
 
-const STATUS_LABELS: Record<string, string> = {
-  pending_approval: "Pending approval",
-  approved: "Approved — in progress",
-  rejected: "Rejected",
-  completed: "Completed",
-  cancelled: "Cancelled",
-};
+// Accounts accept, then the Chairman approves (20261121110000).
+const STATUS_LABELS = REQUEST_STATUS_LABELS;
 
 const statusVariant = (s: string): "default" | "secondary" | "outline" | "destructive" =>
   s === "completed"
@@ -136,6 +148,12 @@ type RequestRow = {
   completion_notes: string | null;
   created_at: string;
   vehicles: { plate_number: string } | null;
+  accounts_by_name?: string | null;
+  accounts_at?: string | null;
+  accounts_note?: string | null;
+  chairman_by_name?: string | null;
+  chairman_at?: string | null;
+  chairman_note?: string | null;
 };
 
 type PurchaseRow = {
@@ -190,7 +208,6 @@ const emptyRequestForm = {
   vehicle_id: "",
   asset_name: "",
   priority: "normal",
-  estimated_cost: "",
 };
 
 const emptyPurchaseForm = () => ({
@@ -230,7 +247,7 @@ function MaintenancePage() {
   );
   const [q, setQ] = useSearchQuery();
   const qc = useQueryClient();
-  const { canWrite, canEdit, canDelete, canApprove, canReject, canCancel } = usePermissions();
+  const { canWrite, canEdit, canDelete, canCancel } = usePermissions();
   const factory = useFactoryId();
   const factoryId = factory.data;
   const write = canWrite("logistics");
@@ -238,6 +255,9 @@ function MaintenancePage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [requestOpen, setRequestOpen] = useState(false);
   const [rForm, setRForm] = useState(emptyRequestForm);
+  const [rItems, setRItems] = useState<DraftItem[]>(() => [blankItem()]);
+  const reqRole = useRequisitionRole();
+  const isAdmin = (useMyRoles().data ?? []).includes("super_admin");
   const [viewingId, setViewingId] = useState<string | null>(null);
   const [purchaseOpen, setPurchaseOpen] = useState(false);
   const [pForm, setPForm] = useState(emptyPurchaseForm);
@@ -320,7 +340,10 @@ function MaintenancePage() {
     .filter((r) => statusFilter === "all" || r.status === statusFilter)
     .filter((r) => matchesSearch(q, r));
 
-  const pendingCount = allRequests.filter((r) => r.status === "pending_approval").length;
+  const pendingCount = allRequests.filter(
+    (r) => r.status === "pending_approval" || r.status === "accounts_approved",
+  ).length;
+  const viewingItems = useRequestItems(viewingId);
   const lowStockCount = (parts.data ?? []).filter((p) => p.is_active && isLowStock(p)).length;
   const stockValue = (parts.data ?? []).reduce(
     (s, p) => s + Number(p.quantity_on_hand) * Number(p.last_unit_cost ?? 0),
@@ -357,14 +380,19 @@ function MaintenancePage() {
           vehicle_id: rForm.vehicle_id || null,
           asset_name: rForm.asset_name || null,
           priority: rForm.priority,
-          estimated_cost: rForm.estimated_cost === "" ? null : Number(rForm.estimated_cost),
+          items: usedItems(rItems).map((i) => ({
+            item_name: i.item_name.trim(),
+            description: i.description.trim() || null,
+            quantity: Number(i.quantity),
+            unit_amount: i.unit_amount,
+          })),
         },
       });
       if (error) throw error;
       return data as { id: string; request_number: string };
     },
     onSuccess: (res) => {
-      toast.success(`Request ${res.request_number} sent for approval`);
+      toast.success(`Request ${res.request_number} sent to Accounts`);
       logAudit({
         action: "create",
         entity: "maintenance_requests",
@@ -374,6 +402,7 @@ function MaintenancePage() {
       invalidateMaintenance();
       setRequestOpen(false);
       setRForm(emptyRequestForm);
+      setRItems([blankItem()]);
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -521,12 +550,14 @@ function MaintenancePage() {
   const isOwnRequest = !!viewing && viewing.requested_by === me;
   const canCancelViewing =
     !!viewing &&
-    (viewing.status === "pending_approval" || viewing.status === "approved") &&
+    ["pending_approval", "accounts_approved", "approved"].includes(viewing.status) &&
     viewingPurchases.length === 0 &&
     (canCancel("logistics") || (isOwnRequest && write));
 
+  // Accounts accept first, then the Chairman approves.
+  const decideStage = viewing ? canDecide(viewing, reqRole, me, isAdmin) : null;
   const noteTitle = {
-    approve: "Approve request",
+    approve: decideStage === "accounts" ? "Accept and send to the Chairman" : "Approve request",
     reject: "Reject request",
     complete: "Mark request completed",
     cancel: "Cancel request",
@@ -679,7 +710,7 @@ function MaintenancePage() {
                     <TableHead>Title</TableHead>
                     <TableHead>Machine / Vehicle</TableHead>
                     <TableHead>Priority</TableHead>
-                    <TableHead className="text-right">Estimate</TableHead>
+                    <TableHead className="text-right">Total cost</TableHead>
                     <TableHead className="text-right">Spent</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Requested by</TableHead>
@@ -873,10 +904,13 @@ function MaintenancePage() {
         open={requestOpen}
         onOpenChange={(v) => {
           setRequestOpen(v);
-          if (!v) setRForm(emptyRequestForm);
+          if (!v) {
+            setRForm(emptyRequestForm);
+            setRItems([blankItem()]);
+          }
         }}
       >
-        <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
+        <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>New Maintenance Request</DialogTitle>
           </DialogHeader>
@@ -979,22 +1013,26 @@ function MaintenancePage() {
                 onChange={(e) => setRForm({ ...rForm, description: e.target.value })}
               />
             </div>
-            <div className="space-y-2">
-              <Label>Estimated cost (optional)</Label>
-              <Input
-                type="number"
-                min="0"
-                value={rForm.estimated_cost}
-                onChange={(e) => setRForm({ ...rForm, estimated_cost: e.target.value })}
-              />
-            </div>
+            <RequisitionItemsEditor items={rItems} onChange={setRItems} />
+            <p className="text-xs text-muted-foreground">
+              Goes to Accounts to accept or reject, then to the Chairman. Your name and today's date
+              are filled in on the printed requisition.
+            </p>
           </div>
-          <DialogFooter>
+          <DialogFooter className="items-center gap-2">
+            {draftProblem(rItems) && (
+              <span className="mr-auto text-xs text-muted-foreground">{draftProblem(rItems)}</span>
+            )}
             <Button
-              disabled={!rForm.category || !rForm.title.trim() || createRequest.isPending}
+              disabled={
+                !rForm.category ||
+                !rForm.title.trim() ||
+                !!draftProblem(rItems) ||
+                createRequest.isPending
+              }
               onClick={() => createRequest.mutate()}
             >
-              Submit for approval
+              Send to Accounts
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1034,7 +1072,7 @@ function MaintenancePage() {
                     {new Date(viewing.created_at).toLocaleString()}
                   </div>
                   <div>
-                    <span className="text-muted-foreground">Estimate: </span>
+                    <span className="text-muted-foreground">Total cost: </span>
                     {viewing.estimated_cost != null ? money(Number(viewing.estimated_cost)) : "—"}
                   </div>
                   {viewing.decided_at && (
@@ -1063,6 +1101,12 @@ function MaintenancePage() {
                       {viewing.completion_notes && ` — ${viewing.completion_notes}`}
                     </div>
                   )}
+                </div>
+
+                <div className="space-y-2">
+                  <div className="font-medium">Items requested</div>
+                  <RequisitionItemsTable items={viewingItems.data ?? []} />
+                  <RequisitionTrail r={viewing} />
                 </div>
 
                 <div className="space-y-2">
@@ -1120,7 +1164,8 @@ function MaintenancePage() {
                               colSpan={8}
                               className="text-center text-muted-foreground py-6"
                             >
-                              {viewing.status === "pending_approval"
+                              {viewing.status === "pending_approval" ||
+                              viewing.status === "accounts_approved"
                                 ? "Purchases can be logged once the request is approved."
                                 : "No purchases logged."}
                             </TableCell>
@@ -1137,14 +1182,16 @@ function MaintenancePage() {
                     <Ban className="mr-2 h-4 w-4" /> Cancel request
                   </Button>
                 )}
-                {viewing.status === "pending_approval" && canReject("logistics") && (
+                <PrintRequisitionButton r={viewing} items={viewingItems.data} />
+                {decideStage && (
                   <Button variant="destructive" onClick={() => setNoteAction("reject")}>
                     <X className="mr-2 h-4 w-4" /> Reject
                   </Button>
                 )}
-                {viewing.status === "pending_approval" && canApprove("logistics") && (
+                {decideStage && (
                   <Button onClick={() => setNoteAction("approve")}>
-                    <Check className="mr-2 h-4 w-4" /> Approve
+                    <Check className="mr-2 h-4 w-4" />
+                    {decideStage === "accounts" ? "Accept (Accounts)" : "Approve (Chairman)"}
                   </Button>
                 )}
                 {viewing.status === "approved" && canEdit("logistics") && (
