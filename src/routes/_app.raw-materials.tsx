@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useFactoryId, useFactorySettings } from "@/lib/use-factory";
+import { useActiveFactoryCode } from "@/lib/factory-store";
 import { usePermissions } from "@/lib/permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -1976,6 +1977,14 @@ const ISSUE_DEPARTMENT_LABEL: Record<IssueDepartment, string> = {
 // Other sites (20261029100000): no user on the system to pick; whoever
 // collected it is typed in, and it is a general issue.
 const ISSUE_SITES: IssueDepartment[] = ["lugbe", "jos"];
+// Lugbe Factory (2026-11-21): Kubwa's Store issues to Lugbe's Quality Control
+// or Production Manager. The issue lands in Lugbe's own flow (QC confirms it
+// on Received from Store; PM gets it as Process Material Qty In),
+// 20261121160000. Picked as "lugbe:quality_control" / "lugbe:production".
+const LUGBE_TO_LABEL: Record<"quality_control" | "production", string> = {
+  quality_control: "Lugbe — Quality Control",
+  production: "Lugbe — Production Manager",
+};
 
 function IssueDialog({ material, onDone }: { material: Material; onDone: () => void }) {
   const { data: factoryId } = useFactoryId();
@@ -1995,7 +2004,12 @@ function IssueDialog({ material, onDone }: { material: Material; onDone: () => v
   });
   // "<department>:<user id>", or "<department>:" for the department only.
   const [issueTo, setIssueTo] = useState("");
-  const [toDept, toUser] = issueTo.split(":") as [IssueDepartment | "", string | undefined];
+  const [toDept, toPart] = issueTo.split(":") as [IssueDepartment | "", string | undefined];
+  const lugbeTo =
+    toDept === "lugbe" && (toPart === "quality_control" || toPart === "production") ? toPart : null;
+  const toUser = toDept === "lugbe" ? undefined : toPart;
+  // Only Kubwa's Store issues to Lugbe; Lugbe's own Store doesn't list itself.
+  const inKubwa = useActiveFactoryCode() === "water";
   const [quantity, setQuantity] = useState(0);
   // Preforms are issued in bags; one with no bag size sets it here first.
   const [perBag, setPerBag] = useState<number | null>(material.pieces_per_bag);
@@ -2051,6 +2065,7 @@ function IssueDialog({ material, onDone }: { material: Material; onDone: () => v
           issued_to_department: toDept,
           issued_to_user: toUser || null,
           collected_by: toSite ? collectedBy.trim() || null : null,
+          lugbe_to: lugbeTo,
           reason: reason || null,
           reference: reference || null,
         } as any,
@@ -2061,7 +2076,9 @@ function IssueDialog({ material, onDone }: { material: Material; onDone: () => v
       toast.success(
         preformToQc
           ? "Issued to Quality Control — waiting for her to accept it on Quality Control → Preforms"
-          : `Issued to ${toDept ? ISSUE_DEPARTMENT_LABEL[toDept] : "—"}`,
+          : lugbeTo
+            ? `Issued to ${LUGBE_TO_LABEL[lugbeTo]}`
+            : `Issued to ${toDept ? ISSUE_DEPARTMENT_LABEL[toDept] : "—"}`,
       );
       onDone();
     },
@@ -2092,11 +2109,13 @@ function IssueDialog({ material, onDone }: { material: Material; onDone: () => v
             <SelectContent>
               <SelectGroup>
                 <SelectLabel>Other sites</SelectLabel>
-                {ISSUE_SITES.map((d) => (
-                  <SelectItem key={d} value={`${d}:`}>
-                    {ISSUE_DEPARTMENT_LABEL[d]}
-                  </SelectItem>
-                ))}
+                {inKubwa &&
+                  (["quality_control", "production"] as const).map((t) => (
+                    <SelectItem key={t} value={`lugbe:${t}`}>
+                      {LUGBE_TO_LABEL[t]}
+                    </SelectItem>
+                  ))}
+                <SelectItem value="jos:">{ISSUE_DEPARTMENT_LABEL.jos}</SelectItem>
               </SelectGroup>
               {(["production", "quality_control"] as IssueDepartment[]).map((d) => {
                 const people = (recipients.data ?? []).filter((r) => r.department === d);
