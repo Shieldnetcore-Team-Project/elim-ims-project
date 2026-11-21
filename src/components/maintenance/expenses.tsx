@@ -37,6 +37,7 @@ import {
 import { SearchBox } from "@/components/shared/search-box";
 import { ReportActions } from "@/components/shared/report-actions";
 import { db } from "./shared";
+import { MaintenanceExpenseReport } from "./expense-report";
 
 // The factory's expense heads, as on its expense sheet (user, 2026-11-20).
 // Saved by name, so adding or renaming one here needs no migration.
@@ -59,6 +60,7 @@ export const MAINTENANCE_EXPENSE_CATEGORIES = [
   "COMMISSION",
   "CLEANING EXP.",
   "VEHICLE MAINT.",
+  "TIRE",
   "TRYCYCLE",
   "VEHICLE TOOLS & PAPER.",
   "OVERTIME",
@@ -75,6 +77,33 @@ export const MAINTENANCE_EXPENSE_CATEGORIES = [
 
 const PAYMENT_METHODS = ["Cash", "Transfer", "POS", "Cheque"];
 
+// "Other…" in the head dropdown: the user types a head that isn't listed.
+const OTHER = "__other__";
+
+// The sheet's heads, then every head users have typed in before (so a
+// typed-in head is offered next time too).
+export function useExpenseHeads(factoryId: string | null | undefined) {
+  const used = useQuery({
+    queryKey: ["maintenance-expense-heads", factoryId],
+    enabled: !!factoryId,
+    staleTime: 5 * 60_000,
+    queryFn: async () => {
+      const { data, error } = await db
+        .from("maintenance_expenses")
+        .select("category")
+        .eq("factory_id", factoryId)
+        .limit(10000);
+      if (error) throw error;
+      return [...new Set(((data ?? []) as { category: string }[]).map((r) => r.category))];
+    },
+  });
+  return useMemo(() => {
+    const base = MAINTENANCE_EXPENSE_CATEGORIES as readonly string[];
+    const extra = (used.data ?? []).filter((c) => !base.includes(c)).sort();
+    return [...base, ...extra];
+  }, [used.data]);
+}
+
 type ExpenseRow = {
   id: string;
   expense_number: string;
@@ -89,7 +118,14 @@ type ExpenseRow = {
   updated_by_name: string | null;
   created_at: string;
   vehicles?: { plate_number: string } | null;
+  tire_type: string | null;
+  tire_size: string | null;
 };
+
+const tireText = (e: Pick<ExpenseRow, "tire_type" | "tire_size">) =>
+  [e.tire_type && `Type: ${e.tire_type}`, e.tire_size && `Size: ${e.tire_size}`]
+    .filter(Boolean)
+    .join(", ");
 
 const monthStart = () => localDay().slice(0, 8) + "01";
 
@@ -97,6 +133,9 @@ const emptyForm = () => ({
   id: "",
   expense_date: localDay(),
   category: "",
+  custom_category: "",
+  tire_type: "",
+  tire_size: "",
   description: "",
   amount: 0,
   paid_to: "",
@@ -125,6 +164,10 @@ export function MaintenanceExpensesTab({
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [deleting, setDeleting] = useState<ExpenseRow | null>(null);
+  const heads = useExpenseHeads(factoryId);
+  // The head that gets saved: the typed one when "Other…" is picked.
+  const head = form.category === OTHER ? form.custom_category.trim().toUpperCase() : form.category;
+  const isTire = head === "TIRE";
 
   const expenses = useQuery({
     queryKey: ["maintenance-expenses", factoryId, from, to],
@@ -133,7 +176,7 @@ export function MaintenanceExpensesTab({
       let query = db
         .from("maintenance_expenses")
         .select(
-          "id,expense_number,expense_date,category,description,amount,paid_to,payment_method,receipt_ref,recorded_by_name,updated_by_name,created_at,vehicles(plate_number)",
+          "id,expense_number,expense_date,category,description,amount,paid_to,payment_method,receipt_ref,recorded_by_name,updated_by_name,created_at,vehicles(plate_number),tire_type,tire_size",
         )
         .eq("factory_id", factoryId)
         .order("expense_date", { ascending: false })
@@ -170,7 +213,11 @@ export function MaintenanceExpensesTab({
     return order.filter((k) => sums.has(k)).map((k) => ({ category: k, ...sums.get(k)! }));
   }, [rows]);
 
-  const invalidate = () => qc.invalidateQueries({ queryKey: ["maintenance-expenses"] });
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ["maintenance-expenses"] });
+    qc.invalidateQueries({ queryKey: ["maintenance-expense-heads"] });
+    qc.invalidateQueries({ queryKey: ["maintenance-expense-report"] });
+  };
 
   const save = useMutation({
     mutationFn: async () => {
@@ -179,7 +226,9 @@ export function MaintenanceExpensesTab({
           id: form.id || null,
           factory_id: factoryId,
           expense_date: form.expense_date,
-          category: form.category,
+          category: head,
+          tire_type: isTire ? form.tire_type : null,
+          tire_size: isTire ? form.tire_size : null,
           description: form.description,
           amount: form.amount,
           paid_to: form.paid_to,
@@ -236,6 +285,9 @@ export function MaintenanceExpensesTab({
       id: e.id,
       expense_date: e.expense_date,
       category: e.category,
+      custom_category: "",
+      tire_type: e.tire_type ?? "",
+      tire_size: e.tire_size ?? "",
       description: e.description ?? "",
       amount: Number(e.amount),
       paid_to: e.paid_to ?? "",
@@ -260,7 +312,7 @@ export function MaintenanceExpensesTab({
       date: fmtDate(e.expense_date),
       number: e.expense_number,
       category: e.category,
-      description: [e.description, e.vehicles && `Vehicle ${e.vehicles.plate_number}`]
+      description: [e.description, tireText(e), e.vehicles && `Vehicle ${e.vehicles.plate_number}`]
         .filter(Boolean)
         .join(" — "),
       paid_to: e.paid_to ?? "",
@@ -271,18 +323,7 @@ export function MaintenanceExpensesTab({
       ? [{ date: "Total", kind: "total", amount: money(total) } as Record<string, unknown>]
       : []),
   ];
-  const summaryRows: Record<string, unknown>[] = [
-    ...byCategory.map((c) => ({
-      category: c.category,
-      count: c.count,
-      amount: money(c.amount),
-    })),
-    ...(byCategory.length
-      ? [{ category: "Total", kind: "total", count: rows.length, amount: money(total) }]
-      : []),
-  ];
-
-  const valid = !!form.category && form.amount > 0 && !!form.expense_date;
+  const valid = !!head && head !== OTHER && form.amount > 0 && !!form.expense_date;
 
   return (
     <div className="space-y-4">
@@ -314,7 +355,7 @@ export function MaintenanceExpensesTab({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All categories</SelectItem>
-              {MAINTENANCE_EXPENSE_CATEGORIES.map((c) => (
+              {heads.map((c) => (
                 <SelectItem key={c} value={c}>
                   {c}
                 </SelectItem>
@@ -408,7 +449,10 @@ export function MaintenanceExpensesTab({
                   </TableCell>
                   <TableCell className="whitespace-nowrap">{e.category}</TableCell>
                   <TableCell>
-                    {e.description ?? (e.vehicles ? "" : "—")}
+                    {e.description ?? (e.vehicles || tireText(e) ? "" : "—")}
+                    {tireText(e) && (
+                      <div className="text-xs text-muted-foreground">{tireText(e)}</div>
+                    )}
                     {e.vehicles && (
                       <div className="text-xs text-muted-foreground">
                         Vehicle {e.vehicles.plate_number}
@@ -465,56 +509,7 @@ export function MaintenanceExpensesTab({
         </CardContent>
       </Card>
 
-      <Card className="rounded-2xl">
-        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 pb-2">
-          <CardTitle className="text-base">By category</CardTitle>
-          <ReportActions
-            title="Maintenance Expenses by Category"
-            fileName={`maintenance-expenses-by-category-${from || "start"}-to-${to || "today"}`}
-            columns={[
-              { key: "category", label: "Category" },
-              { key: "count", label: "Entries" },
-              { key: "amount", label: "Amount" },
-            ]}
-            rows={summaryRows}
-            subtitle={[`Period: ${period}`]}
-            size="sm"
-          />
-        </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Category</TableHead>
-                <TableHead className="text-right">Entries</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {byCategory.map((c) => (
-                <TableRow key={c.category}>
-                  <TableCell>{c.category}</TableCell>
-                  <TableCell className="text-right">{c.count}</TableCell>
-                  <TableCell className="text-right whitespace-nowrap">{money(c.amount)}</TableCell>
-                </TableRow>
-              ))}
-              {byCategory.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={3} className="py-6 text-center text-muted-foreground">
-                    Nothing recorded in this period
-                  </TableCell>
-                </TableRow>
-              ) : (
-                <TableRow className="bg-muted/50 font-semibold">
-                  <TableCell>Total</TableCell>
-                  <TableCell className="text-right">{rows.length}</TableCell>
-                  <TableCell className="text-right whitespace-nowrap">{money(total)}</TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+      <MaintenanceExpenseReport factoryId={factoryId} heads={heads} />
 
       <Dialog
         open={open}
@@ -547,18 +542,53 @@ export function MaintenanceExpensesTab({
                   <SelectValue placeholder="Choose category" />
                 </SelectTrigger>
                 <SelectContent>
-                  {MAINTENANCE_EXPENSE_CATEGORIES.map((c) => (
+                  {heads.map((c) => (
                     <SelectItem key={c} value={c}>
                       {c}
                     </SelectItem>
                   ))}
-                  {form.category &&
-                    !(MAINTENANCE_EXPENSE_CATEGORIES as readonly string[]).includes(
-                      form.category,
-                    ) && <SelectItem value={form.category}>{form.category}</SelectItem>}
+                  {form.category && form.category !== OTHER && !heads.includes(form.category) && (
+                    <SelectItem value={form.category}>{form.category}</SelectItem>
+                  )}
+                  <SelectItem value={OTHER}>Other (not listed) — type it</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+            {form.category === OTHER && (
+              <div className="space-y-1 sm:col-span-2">
+                <Label>New category</Label>
+                <Input
+                  autoFocus
+                  value={form.custom_category}
+                  placeholder="e.g. SECURITY"
+                  onChange={(e) => setForm({ ...form, custom_category: e.target.value })}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Saved in capitals; it will be in the list next time and gets its own line on the
+                  report.
+                </p>
+              </div>
+            )}
+            {isTire && (
+              <>
+                <div className="space-y-1">
+                  <Label>Tire type</Label>
+                  <Input
+                    value={form.tire_type}
+                    placeholder="e.g. Tubeless, Michelin"
+                    onChange={(e) => setForm({ ...form, tire_type: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>Tire size</Label>
+                  <Input
+                    value={form.tire_size}
+                    placeholder="e.g. 195/65 R15"
+                    onChange={(e) => setForm({ ...form, tire_size: e.target.value })}
+                  />
+                </div>
+              </>
+            )}
             <div className="space-y-1">
               <Label>Amount (₦)</Label>
               <MoneyInput value={form.amount} onChange={(v) => setForm({ ...form, amount: v })} />

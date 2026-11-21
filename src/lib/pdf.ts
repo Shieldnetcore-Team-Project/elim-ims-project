@@ -2214,7 +2214,9 @@ export async function generateVehicleExpensesPdf(
     const fuelTotal = sum(v.fuel);
     const litres = v.fuel.reduce((s, f) => s + Number(f.litres), 0);
 
-    v.parts.forEach((p, i) => body.push([String(i + 1), p.date, p.text.toUpperCase(), amt(p.amount)]));
+    v.parts.forEach((p, i) =>
+      body.push([String(i + 1), p.date, p.text.toUpperCase(), amt(p.amount)]),
+    );
     if (v.parts.length)
       body.push([
         { content: "TOTAL", colSpan: 3, styles: { ...shade, halign: "center" } },
@@ -2255,6 +2257,50 @@ export async function generateVehicleExpensesPdf(
     });
     letterheadPrintedBy(doc, opts.printedBy);
   }
+  letterheadPageNumbers(doc);
+  finishPdf(doc, opts.filename, action);
+}
+
+// Maintenance › Expenses report like the factory's "WEEKLY REPORT FROM
+// OCTOBER 2026" sheet (user, 2026-11-21): heads down the side, one column
+// per period, TOTAL column and a shaded TOTAL foot; "-" for nothing spent.
+export async function generateExpenseMatrixPdf(
+  opts: {
+    company: CompanyLike;
+    title: string;
+    subtitle?: string[];
+    columns: string[];
+    rows: { head: string; values: number[]; total: number }[];
+    colTotals: number[];
+    grand: number;
+    printedBy?: string | null;
+    filename: string;
+  },
+  action: PdfAction = "print",
+) {
+  const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "landscape" });
+  const y = await drawLetterhead(doc, opts.company, opts.title, opts.subtitle);
+  const amt = (n: number) =>
+    n ? n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "-";
+  const n = opts.columns.length;
+  const font = n > 10 ? 7.5 : n > 6 ? 8.5 : 9.5;
+  const right: Record<number, { halign: "right"; cellWidth?: number }> = {};
+  for (let i = 1; i <= n + 1; i++) right[i] = { halign: "right" };
+  autoTable(doc, {
+    ...letterheadTable(font),
+    startY: y,
+    head: [["DATE", ...opts.columns, "TOTAL"]],
+    body: opts.rows.map((r) => [r.head, ...r.values.map(amt), amt(r.total)]),
+    foot: [["TOTAL", ...opts.colTotals.map(amt), amt(opts.grand)]],
+    showFoot: "lastPage",
+    styles: { ...letterheadTable(font).styles, cellPadding: 2 },
+    columnStyles: { 0: { cellWidth: n > 10 ? 110 : 140 }, ...right },
+    didParseCell: (d) => {
+      if ((d.section === "head" || d.section === "foot") && d.column.index > 0)
+        d.cell.styles.halign = "right";
+    },
+  });
+  letterheadPrintedBy(doc, opts.printedBy);
   letterheadPageNumbers(doc);
   finishPdf(doc, opts.filename, action);
 }

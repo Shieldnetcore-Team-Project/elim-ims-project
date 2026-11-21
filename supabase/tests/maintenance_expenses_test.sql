@@ -70,3 +70,23 @@ BEGIN
   END;
   PERFORM pg_temp.check(ok, 'missing category refused');
 END $$;
+
+-- @@ Test 4: TIRE keeps type and size; a typed-in head is accepted
+DO $$
+DECLARE r jsonb; n int;
+BEGIN
+  PERFORM set_config('test.uid', 'a0000000-0000-0000-0000-0000000000e1', false);
+  r := public.save_maintenance_expense(jsonb_build_object(
+    'factory_id','fa000000-0000-0000-0000-0000000000e1','category','TIRE','amount',85000,
+    'tire_type','Tubeless','tire_size','195/65 R15'));
+  n := (SELECT count(*) FROM maintenance_expenses WHERE id = (r->>'id')::uuid
+          AND tire_type = 'Tubeless' AND tire_size = '195/65 R15');
+  PERFORM pg_temp.check(n = 1, 'tire fields saved');
+  PERFORM public.save_maintenance_expense(jsonb_build_object(
+    'id', r->>'id', 'factory_id','fa000000-0000-0000-0000-0000000000e1','category','TIRE','amount',90000));
+  n := (SELECT count(*) FROM maintenance_expenses WHERE id = (r->>'id')::uuid AND tire_size = '195/65 R15' AND amount = 90000);
+  PERFORM pg_temp.check(n = 1, 'edit without tire keys keeps them');
+  r := public.save_maintenance_expense(jsonb_build_object(
+    'factory_id','fa000000-0000-0000-0000-0000000000e1','category','SECURITY','amount',5000));
+  PERFORM pg_temp.check((r->>'expense_number') LIKE 'MEX-%', 'typed head accepted');
+END $$;
