@@ -1975,6 +1975,21 @@ export function PosDialog({
   }, [cart, discountInput, discountType, amountPaid, availableCredit, vatRate, applyVat, isPr]);
 
   const registeredCustomer = customerId !== "walkin";
+  // Retail Shop walk-in (user, 2026-11-21): no amount box -- a walk-in pays
+  // the whole total, worked out from the products sold. Only how they paid
+  // (cash, transfer, POS...) is picked. Registered customers keep the box:
+  // they may pay part now and owe the rest.
+  const autoPay = retailMode && !registeredCustomer && !isPr && moneyMode;
+  const autoPayMethod = payments[0]?.method ?? "cash";
+  useEffect(() => {
+    if (!autoPay) return;
+    const amount = Math.round(totals.grand * 100) / 100;
+    setPayments((ps) =>
+      ps.length === 1 && ps[0].amount === amount && ps[0].method === autoPayMethod
+        ? ps
+        : [{ amount, method: autoPayMethod }],
+    );
+  }, [autoPay, totals.grand, autoPayMethod]);
   // Same arithmetic approve_sale() finalises with, so the figures shown while
   // building the sale are the ones that get posted.
   const position = useMemo(
@@ -2628,11 +2643,39 @@ export function PosDialog({
               <Label className="text-xs">
                 Paid — {payments.length > 1 ? "payments" : "payment"}
               </Label>
-              <PaymentLinesEditor
-                payments={payments}
-                onChange={setPayments}
-                methods={PAY_DIALOG_METHODS}
-              />
+              {autoPay ? (
+                <div className="flex items-center gap-2">
+                  <div className="flex h-9 flex-1 items-center rounded-md border bg-muted/40 px-3 text-sm font-medium">
+                    {money(totals.grand)}
+                    <span className="ml-2 text-xs font-normal text-muted-foreground">
+                      total of the products sold
+                    </span>
+                  </div>
+                  <Select
+                    value={autoPayMethod}
+                    onValueChange={(v) =>
+                      setPayments([{ amount: totals.grand, method: v as PaymentMethod }])
+                    }
+                  >
+                    <SelectTrigger className="w-32 shrink-0">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PAY_DIALOG_METHODS.map((m) => (
+                        <SelectItem key={m} value={m} className="capitalize">
+                          {m}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : (
+                <PaymentLinesEditor
+                  payments={payments}
+                  onChange={setPayments}
+                  methods={PAY_DIALOG_METHODS}
+                />
+              )}
             </div>
           )}
           {!retailMode && (
