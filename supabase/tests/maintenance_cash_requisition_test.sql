@@ -48,15 +48,19 @@ DO $$
 DECLARE v uuid; ok boolean := false;
 BEGIN
   v := pg_temp.new_req();
-  -- chairman can't jump ahead of Accounts
+  -- the Chairman may decide without Accounts (20261121120000)
   PERFORM set_config('test.uid', 'a0000000-0000-0000-0000-0000000000c3', false);
-  BEGIN
-    PERFORM public.decide_maintenance_request(v, true, NULL);
-  EXCEPTION WHEN OTHERS THEN ok := SQLERRM LIKE '%waiting for Accounts%';
-  END;
-  PERFORM pg_temp.check(ok, 'chairman waits for Accounts');
-  ok := false;
+  PERFORM public.decide_maintenance_request(v, true, 'Go ahead');
+  PERFORM pg_temp.check((SELECT status = 'approved' AND accounts_by IS NULL
+                           AND chairman_note = 'Go ahead'
+                           FROM maintenance_requests WHERE id = v), 'chairman approved without Accounts');
+  v := pg_temp.new_req();
+  PERFORM set_config('test.uid', 'a0000000-0000-0000-0000-0000000000c3', false);
+  PERFORM public.decide_maintenance_request(v, false, 'Not now');
+  PERFORM pg_temp.check((SELECT status = 'rejected' AND chairman_note = 'Not now' AND accounts_by IS NULL
+                           FROM maintenance_requests WHERE id = v), 'chairman rejected without Accounts');
 
+  v := pg_temp.new_req();
   PERFORM set_config('test.uid', 'a0000000-0000-0000-0000-0000000000c1', false);
   BEGIN
     PERFORM public.decide_maintenance_request(v, true, NULL); -- as maintenance (requester)

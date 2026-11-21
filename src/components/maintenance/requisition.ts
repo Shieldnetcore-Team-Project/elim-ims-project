@@ -125,7 +125,9 @@ export function canDecide(
 ) {
   if (r.requested_by && r.requested_by === me && !isAdmin) return null;
   if (r.status === "pending_approval" && role.isAccounts) return "accounts" as const;
-  if (r.status === "accounts_approved" && role.isChairman) return "chairman" as const;
+  // The Chairman may also decide while it still waits for Accounts.
+  if ((r.status === "accounts_approved" || r.status === "pending_approval") && role.isChairman)
+    return "chairman" as const;
   return null;
 }
 
@@ -166,13 +168,11 @@ export function printCashRequisition(
       amount: n0(i.amount),
     })),
     total: items.length ? items.reduce((s, i) => s + n0(i.amount), 0) : n0(r.estimated_cost),
-    accounts: stage(
-      r.accounts_by_name,
-      r.accounts_at,
-      r.accounts_note,
-      "Accepted",
-      accountsRejected,
-    ),
+    // The Chairman decided without Accounts: say so instead of "Pending".
+    accounts:
+      !r.accounts_by_name && r.chairman_by_name
+        ? { decision: "Not reviewed", by: "", at: "", note: "Chairman decided directly" }
+        : stage(r.accounts_by_name, r.accounts_at, r.accounts_note, "Accepted", accountsRejected),
     chairman: stage(
       r.chairman_by_name,
       r.chairman_at,

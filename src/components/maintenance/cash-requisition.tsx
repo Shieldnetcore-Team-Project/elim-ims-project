@@ -207,6 +207,8 @@ export function RequisitionTrail({ r }: { r: RequisitionRow }) {
         </>
       ) : waiting ? (
         <span className="text-amber-600">waiting</span>
+      ) : who === "Accounts" && r.chairman_by_name ? (
+        <span className="text-muted-foreground">not reviewed — the Chairman decided directly</span>
       ) : (
         "—"
       )}
@@ -305,7 +307,7 @@ export function CashRequisitionsTab({ factoryId }: { factoryId: string | null | 
   const all = requests.data ?? [];
   const waitingForMe = (r: RequisitionRow) =>
     (r.status === "pending_approval" && role.isAccounts) ||
-    (r.status === "accounts_approved" && role.isChairman);
+    ((r.status === "accounts_approved" || r.status === "pending_approval") && role.isChairman);
   const rows = all.filter((r) =>
     filter === "all" ? true : filter === "waiting" ? waitingForMe(r) : r.status === filter,
   );
