@@ -2,6 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { usePermissions, useIsSuperAdmin } from "@/lib/permissions";
 import { useRealtimeInvalidate } from "@/lib/realtime";
+import { useFactoryId } from "@/lib/use-factory";
+import { useActiveFactoryCode } from "@/lib/factory-store";
 import { acceptsOwnRelease, fetchMyProductPatterns, handlesProduct } from "@/lib/product-rules";
 
 // The approval queues (the Approval Center page itself was removed on
@@ -29,11 +31,13 @@ function useCount(
   key: string,
   enabled: boolean,
   uid: string | null | undefined,
+  factoryId: string | undefined,
   run: () => PromiseLike<PendingCountResult>,
 ) {
+  // Per factory (2026-11-21): keyed by the active factory; waits for it.
   return useQuery({
-    queryKey: ["pending-attention", key, uid],
-    enabled: enabled && uid !== undefined,
+    queryKey: ["pending-attention", key, uid, factoryId],
+    enabled: enabled && uid !== undefined && !!factoryId,
     queryFn: async () => {
       const { count, error } = await run();
       if (error) throw error;
@@ -55,81 +59,107 @@ export function usePendingAttention() {
   // self-approval block every other approver role is still under -- mirror
   // that here instead of hiding an admin's own sale from their own count.
   const isSuperAdmin = useIsSuperAdmin().data ?? false;
+  // Counts are per factory (Kubwa / Lugbe, 2026-11-21): a factory's bell and
+  // badges show only its own items, so Lugbe starts empty. Queues with no
+  // factory on their rows (maintenance, customer adjustments, role changes)
+  // belong to Kubwa, where they were all raised.
+  const { data: fid } = useFactoryId();
+  const isKubwa = useActiveFactoryCode() === "water";
+  const f = fid ?? "";
 
   // Warehouse postings to distributors are confirmed by Accounts, not on the
   // Sales (Retail) queue (warehousePostings below).
-  const sales = useCount("sales", canApprove("sales"), uid, () => {
+  const sales = useCount("sales", canApprove("sales"), uid, fid, () => {
     const q = (supabase as any)
       .from("sales")
       .select("id", { count: "exact", head: true })
+      .eq("factory_id", f)
       .eq("status", "pending_approval")
       .eq("is_warehouse_posting", false);
     return isSuperAdmin ? q : q.neq("created_by", uid ?? "");
   });
-  const expenses = useCount("expenses", canApprove("expenses"), uid, () =>
+  const expenses = useCount("expenses", canApprove("expenses"), uid, fid, () =>
     supabase
       .from("expenses")
       .select("id", { count: "exact", head: true })
+      .eq("factory_id", f)
       .eq("approval_status", "pending")
       .neq("submitted_by", uid ?? ""),
   );
-  const debts = useCount("debts", canApprove("debts"), uid, () =>
+  const debts = useCount("debts", canApprove("debts"), uid, fid, () =>
     supabase
       .from("debts")
       .select("id", { count: "exact", head: true })
+      .eq("factory_id", f)
       .eq("writeoff_status", "requested")
       .neq("writeoff_requested_by", uid ?? ""),
   );
-  const payroll = useCount("payroll", canApprove("payroll"), uid, () =>
+  const payroll = useCount("payroll", canApprove("payroll"), uid, fid, () =>
     supabase
       .from("payroll")
       .select("id", { count: "exact", head: true })
+      .eq("factory_id", f)
       .eq("status", "pending_approval")
       .neq("submitted_by", uid ?? ""),
   );
-  const stockRaw = useCount("stock-raw", canApprove("raw-materials"), uid, () =>
+  const stockRaw = useCount("stock-raw", canApprove("raw-materials"), uid, fid, () =>
     supabase
       .from("stock_adjustment_requests")
       .select("id", { count: "exact", head: true })
+      .eq("factory_id", f)
       .eq("entity_type", "raw_material")
       .eq("status", "pending_approval")
       .neq("submitted_by", uid ?? ""),
   );
-  const stockFinished = useCount("stock-finished", canApprove("finished-goods"), uid, async () => {
-    const { data, error } = await supabase
-      .from("stock_adjustment_requests")
-      .select("products(name)")
-      .eq("entity_type", "finished_good")
-      .eq("status", "pending_approval")
-      .neq("submitted_by", uid ?? "");
-    if (error) return { count: null, error };
-    const patterns = await fetchMyProductPatterns();
-    return {
-      count: (data ?? []).filter((r) => handlesProduct(patterns, r.products?.name ?? "")).length,
-      error: null,
-    };
-  });
-  const roleGrants = useCount("role-grants", canApprove("users"), uid, () =>
+  const stockFinished = useCount(
+    "stock-finished",
+    canApprove("finished-goods"),
+    uid,
+    fid,
+    async () => {
+      const { data, error } = await supabase
+        .from("stock_adjustment_requests")
+        .select("products(name)")
+        .eq("factory_id", f)
+        .eq("entity_type", "finished_good")
+        .eq("status", "pending_approval")
+        .neq("submitted_by", uid ?? "");
+      if (error) return { count: null, error };
+      const patterns = await fetchMyProductPatterns();
+      return {
+        count: (data ?? []).filter((r) => handlesProduct(patterns, r.products?.name ?? "")).length,
+        error: null,
+      };
+    },
+  );
+  const roleGrants = useCount("role-grants", isKubwa && canApprove("users"), uid, fid, () =>
     supabase
       .from("role_grant_requests")
       .select("id", { count: "exact", head: true })
       .eq("review_status", "pending")
       .neq("requested_by", uid ?? ""),
   );
-  const goodsReceipts = useCount("goods-receipts", canConfirm("goods-receiving"), uid, () =>
+  const goodsReceipts = useCount("goods-receipts", canConfirm("goods-receiving"), uid, fid, () =>
     supabase
       .from("goods_receipts")
       .select("id", { count: "exact", head: true })
+      .eq("factory_id", f)
       .eq("status", "pending_confirmation")
       .neq("submitted_by", uid ?? ""),
   );
   // Store issues to Quality Control waiting for QC to confirm receiving them
   // (20261023160000_qc_store.sql).
-  const qcStoreReceipts = useCount("qc-store-receipts", canSubmit("goods-receiving"), uid, () =>
-    supabase
-      .from("qc_store_receipts")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "pending"),
+  const qcStoreReceipts = useCount(
+    "qc-store-receipts",
+    canSubmit("goods-receiving"),
+    uid,
+    fid,
+    () =>
+      supabase
+        .from("qc_store_receipts")
+        .select("id", { count: "exact", head: true })
+        .eq("factory_id", f)
+        .eq("status", "pending"),
   );
   // Production releases from the hall waiting for the Warehouse to accept:
   // only this officer's products, and their own release only where they may
@@ -138,10 +168,12 @@ export function usePendingAttention() {
     "production-batches",
     canConfirm("production"),
     uid,
+    fid,
     async () => {
       const { data, error } = await supabase
         .from("production_releases")
         .select("released_by,products(name)")
+        .eq("factory_id", f)
         .eq("status", "pending");
       if (error) return { count: null, error };
       const patterns = await fetchMyProductPatterns();
@@ -159,10 +191,11 @@ export function usePendingAttention() {
       return { count, error: null };
     },
   );
-  const costingSheets = useCount("costing-sheets", canApprove("costing"), uid, () =>
+  const costingSheets = useCount("costing-sheets", canApprove("costing"), uid, fid, () =>
     supabase
       .from("costing_sheets")
       .select("id", { count: "exact", head: true })
+      .eq("factory_id", f)
       .eq("status", "pending_approval")
       .neq("created_by", uid ?? ""),
   );
@@ -170,10 +203,12 @@ export function usePendingAttention() {
     "production-requests",
     canApprove("production-requests"),
     uid,
+    fid,
     () =>
       supabase
         .from("production_requests")
         .select("id", { count: "exact", head: true })
+        .eq("factory_id", f)
         .eq("approval_status", "pending")
         .eq("request_type", "production_material")
         .neq("requested_by", uid ?? ""),
@@ -182,57 +217,85 @@ export function usePendingAttention() {
     "purchase-requests",
     canApprove("production-requests"),
     uid,
+    fid,
     () =>
       supabase
         .from("production_requests")
         .select("id", { count: "exact", head: true })
+        .eq("factory_id", f)
         .eq("approval_status", "pending")
         .eq("request_type", "purchase")
         .neq("requested_by", uid ?? ""),
   );
-  const staffDeductions = useCount("staff-deductions", canApprove("payroll"), uid, () =>
+  const staffDeductions = useCount("staff-deductions", canApprove("payroll"), uid, fid, () =>
     supabase
       .from("staff_deductions")
       .select("id", { count: "exact", head: true })
+      .eq("factory_id", f)
       .eq("status", "pending")
       .neq("submitted_by", uid ?? ""),
   );
-  const staffLoans = useCount("staff-loans", canApprove("payroll"), uid, () =>
+  const staffLoans = useCount("staff-loans", canApprove("payroll"), uid, fid, () =>
     supabase
       .from("staff_loans")
       .select("id", { count: "exact", head: true })
+      .eq("factory_id", f)
       .eq("status", "pending")
       .neq("submitted_by", uid ?? ""),
   );
 
-  const warehousePostings = useCount("warehouse-postings", canView("finance"), uid, async () => {
-    const { data, error } = await supabase.rpc("warehouse_postings_to_confirm" as never);
-    return { count: (data as unknown as number | null) ?? 0, error };
-  });
+  const warehousePostings = useCount(
+    "warehouse-postings",
+    canView("finance"),
+    uid,
+    fid,
+    async () => {
+      const { data, error } = await supabase.rpc(
+        "warehouse_postings_to_confirm" as never,
+        { p_factory: f } as never,
+      );
+      return { count: (data as unknown as number | null) ?? 0, error };
+    },
+  );
 
   // Maintenance (permission key 'logistics'): parts issues and requests
   // waiting on an approver other than whoever raised them.
-  const maintenanceIssues = useCount("maintenance-issues", canApprove("logistics"), uid, () =>
-    (supabase as any)
-      .from("maintenance_issue_requests")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "pending_approval")
-      .neq("requested_by", uid ?? ""),
+  const maintenanceIssues = useCount(
+    "maintenance-issues",
+    isKubwa && canApprove("logistics"),
+    uid,
+    fid,
+    () =>
+      (supabase as any)
+        .from("maintenance_issue_requests")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "pending_approval")
+        .neq("requested_by", uid ?? ""),
   );
-  const maintenanceRequests = useCount("maintenance-requests", canApprove("logistics"), uid, () =>
-    (supabase as any)
-      .from("maintenance_requests")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "pending_approval")
-      .neq("requested_by", uid ?? ""),
+  const maintenanceRequests = useCount(
+    "maintenance-requests",
+    isKubwa && canApprove("logistics"),
+    uid,
+    fid,
+    () =>
+      (supabase as any)
+        .from("maintenance_requests")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "pending_approval")
+        .neq("requested_by", uid ?? ""),
   );
 
-  const customerAdjustments = useCount("customer-adjustments", canApprove("customers"), uid, () =>
-    (supabase as any)
-      .from("customer_account_adjustments")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "pending_approval")
-      .neq("submitted_by", uid ?? ""),
+  const customerAdjustments = useCount(
+    "customer-adjustments",
+    isKubwa && canApprove("customers"),
+    uid,
+    fid,
+    () =>
+      (supabase as any)
+        .from("customer_account_adjustments")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "pending_approval")
+        .neq("submitted_by", uid ?? ""),
   );
 
   useRealtimeInvalidate(

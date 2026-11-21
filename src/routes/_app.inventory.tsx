@@ -59,7 +59,8 @@ export const Route = createFileRoute("/_app/inventory")({
 });
 
 const FACTORY_LABEL = {
-  water: { name: "Water Factory", icon: Droplet },
+  water: { name: "Kubwa Factory", icon: Droplet },
+  lugbe: { name: "Lugbe Factory", icon: Droplet },
 } as const;
 
 type RawMaterialRow = {

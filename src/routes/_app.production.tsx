@@ -111,65 +111,13 @@ export const Route = createFileRoute("/_app/production")({
   ),
 });
 
-// Access to Production can still be scoped per profiles.production_scope (see
-// has_production_scope_access() — enforced at the RLS/RPC layer), a holdover
-// from when this app managed more than one factory. With only Water Factory
-// left, a "WATER" scope is the only meaningful restriction; the warning card
-// below is a defense-in-depth fallback for a scope that doesn't match.
+// Production works in whichever factory is active (Kubwa or Lugbe). The old
+// production_scope ("WATER") means the water product line, which both
+// factories make, so it no longer locks anyone to one factory (2026-11-21;
+// has_production_scope_access() matches, 20261121140000).
 function ProductionFactoryGate() {
   const factory = useFactoryId();
-  const factoryId = factory.data;
-  const myScope = useMyProductionScope();
-  const active = useActiveFactoryCode();
-  const qc = useQueryClient();
-  const currentFactory = useQuery({
-    queryKey: ["factory-code-for-gate", factoryId],
-    enabled: !!factoryId,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("factories")
-        .select("code,name")
-        .eq("id", factoryId!)
-        .maybeSingle();
-      if (error) throw error;
-      return data;
-    },
-  });
-
-  const scope = myScope.data ?? "BOTH";
-  const lockedCode = scope === "WATER" ? ("water" as const) : null;
-
-  useEffect(() => {
-    if (lockedCode && active !== lockedCode) {
-      setActiveFactoryCode(lockedCode);
-      qc.invalidateQueries();
-    }
-  }, [lockedCode, active, qc]);
-
-  if (!factoryId || myScope.isLoading || currentFactory.isLoading) return null;
-
-  const isRestricted =
-    scope !== "BOTH" &&
-    currentFactory.data?.code &&
-    scope !== currentFactory.data.code.toUpperCase();
-
-  if (isRestricted) {
-    return (
-      <Card className="rounded-2xl border-dashed">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <AlertTriangle className="h-5 w-5 text-warning" /> Wrong factory selected
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          Your production scope is <span className="font-medium text-foreground">{scope}</span>{" "}
-          only. This should resolve automatically — if it doesn't, reload the page or ask an Admin
-          to check your access.
-        </CardContent>
-      </Card>
-    );
-  }
-
+  if (!factory.data) return null;
   return <ProductionPage />;
 }
 

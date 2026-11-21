@@ -1,12 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
-import { useActiveFactoryCode } from "./factory-store";
+import { useResolvedFactoryCode } from "./factory-store";
 import { getFactoryIdByCode } from "./factories";
 import { supabase } from "@/integrations/supabase/client";
 
 export function useFactoryId() {
-  const code = useActiveFactoryCode();
+  const { code, ready } = useResolvedFactoryCode();
   return useQuery({
     queryKey: ["factory-id", code],
+    enabled: ready,
     queryFn: () => getFactoryIdByCode(code),
     staleTime: Infinity,
   });

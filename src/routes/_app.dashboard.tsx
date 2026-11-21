@@ -7,6 +7,11 @@ import { useMyRoles, type Role } from "@/lib/permissions";
 import { fetchMyProductMatcher, useMyProductMatcher } from "@/lib/product-rules";
 import { useRealtimeInvalidate } from "@/lib/realtime";
 import { KPI, PageHeader } from "@/lib/dashboard-kit";
+import { FactorySwitcher } from "@/components/layout/factory-switcher";
+
+// One colour per day on the "Sales — last 7 days" bars (user, 2026-11-21).
+// Mid-tone hues that read on both the light and dark theme.
+const DAY_COLORS = ["#38bdf8", "#34d399", "#fbbf24", "#f472b6", "#a78bfa", "#fb923c", "#2dd4bf"];
 import { usePendingAttention } from "@/lib/pending-attention";
 import {
   COUNTED_STATUSES,
@@ -22,14 +27,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
   ResponsiveContainer,
-  LineChart,
-  Line,
   XAxis,
   YAxis,
   Tooltip,
   CartesianGrid,
   BarChart,
   Bar,
+  Cell,
 } from "recharts";
 import { money, num } from "@/lib/format";
 import {
@@ -49,7 +53,6 @@ import {
   Truck,
   PackageMinus,
   Package,
-  ScrollText,
 } from "lucide-react";
 import { format, startOfDay, startOfMonth, subDays } from "date-fns";
 
@@ -368,25 +371,11 @@ function AdminDashboard({ factoryId }: { factoryId: string }) {
     },
   });
 
-  const systemActivity = useQuery({
-    queryKey: ["dashboard-system-activity", factoryId],
-    enabled: !!factoryId,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("audit_logs")
-        .select("id,action,entity,created_at")
-        .eq("factory_id", factoryId)
-        .order("created_at", { ascending: false })
-        .limit(6);
-      if (error) throw error;
-      return data ?? [];
-    },
-  });
-
   return (
     <div className="space-y-6">
       <PageHeader
         title="Dashboard"
+        action={<FactorySwitcher />}
         hint="Factory-wide overview — every module, every pending item."
       />
 
@@ -427,129 +416,69 @@ function AdminDashboard({ factoryId }: { factoryId: string }) {
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <Card className="rounded-2xl lg:col-span-2">
-          <CardHeader>
-            <CardTitle>Sales — last 7 days</CardTitle>
-          </CardHeader>
-          <CardContent className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={salesTrend.data ?? []}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-                <XAxis dataKey="date" stroke="var(--color-muted-foreground)" fontSize={12} />
-                <YAxis stroke="var(--color-muted-foreground)" fontSize={12} />
-                <Tooltip
-                  contentStyle={{
-                    background: "var(--color-card)",
-                    border: "1px solid var(--color-border)",
-                    borderRadius: 8,
-                  }}
-                  formatter={(v: number) => money(v)}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="total"
-                  stroke="var(--color-primary)"
-                  strokeWidth={2.5}
-                  dot={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-        <Card className="rounded-2xl">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4 text-warning" /> Low-stock alerts
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {(lowStock.data?.length ?? 0) === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                All raw materials are above their reorder level.
-              </p>
-            ) : (
-              <ul className="space-y-2">
-                {lowStock.data!.slice(0, 8).map((r) => (
-                  <li
-                    key={r.id}
-                    className="flex items-center justify-between rounded-md border p-2 text-sm"
-                  >
-                    <span className="font-medium">{r.name}</span>
-                    <span className="text-muted-foreground">
-                      {num(Number(r.current_stock))} / {num(Number(r.reorder_level))} {r.unit}
-                    </span>
-                  </li>
+      <Card className="rounded-2xl">
+        <CardHeader>
+          <CardTitle>Sales — last 7 days</CardTitle>
+        </CardHeader>
+        <CardContent className="h-80">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={salesTrend.data ?? []}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
+              <XAxis dataKey="date" stroke="var(--color-muted-foreground)" fontSize={12} />
+              <YAxis
+                stroke="var(--color-muted-foreground)"
+                fontSize={12}
+                width={90}
+                tickFormatter={(v: number) => num(v)}
+              />
+              <Tooltip
+                cursor={{ fill: "var(--color-muted)", opacity: 0.3 }}
+                contentStyle={{
+                  background: "var(--color-card)",
+                  border: "1px solid var(--color-border)",
+                  borderRadius: 8,
+                }}
+                formatter={(v: number) => money(v)}
+              />
+              <Bar dataKey="total" name="Sales" radius={[6, 6, 0, 0]} maxBarSize={72}>
+                {(salesTrend.data ?? []).map((d, i) => (
+                  <Cell key={d.date} fill={DAY_COLORS[i % DAY_COLORS.length]} />
                 ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </CardContent>
+      </Card>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <Card className="rounded-2xl lg:col-span-2">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Activity className="h-4 w-4" /> Recent transactions
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {(recentActivity.data?.length ?? 0) === 0 ? (
-              <p className="text-sm text-muted-foreground">No activity yet for this factory.</p>
-            ) : (
-              <ul className="divide-y">
-                {recentActivity.data!.map((item) => (
-                  <li key={item.id} className="flex items-center gap-3 py-2.5">
-                    <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
-                      <item.icon className="h-4 w-4" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium">{item.label}</div>
-                      <div className="truncate text-xs text-muted-foreground">{item.detail}</div>
-                    </div>
-                    <div className="shrink-0 text-xs text-muted-foreground">
-                      {format(new Date(item.at), "MMM d, HH:mm")}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
-        <Card className="rounded-2xl">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <ScrollText className="h-4 w-4" /> System activity
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {(systemActivity.data?.length ?? 0) === 0 ? (
-              <p className="text-sm text-muted-foreground">Nothing logged yet.</p>
-            ) : (
-              <ul className="space-y-2 text-sm">
-                {systemActivity.data!.map((a: any) => (
-                  <li
-                    key={a.id}
-                    className="flex items-center justify-between rounded-md border p-2"
-                  >
-                    <span className="capitalize">{String(a.action).replace(/_/g, " ")}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {format(new Date(a.created_at), "MMM d, HH:mm")}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <Link
-              to="/audit-logs"
-              className="mt-3 block text-center text-xs text-primary hover:underline"
-            >
-              View full audit log →
-            </Link>
-          </CardContent>
-        </Card>
-      </div>
+      <Card className="rounded-2xl">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Activity className="h-4 w-4" /> Recent transactions
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {(recentActivity.data?.length ?? 0) === 0 ? (
+            <p className="text-sm text-muted-foreground">No activity yet for this factory.</p>
+          ) : (
+            <ul className="divide-y">
+              {recentActivity.data!.map((item) => (
+                <li key={item.id} className="flex items-center gap-3 py-2.5">
+                  <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+                    <item.icon className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium">{item.label}</div>
+                    <div className="truncate text-xs text-muted-foreground">{item.detail}</div>
+                  </div>
+                  <div className="shrink-0 text-xs text-muted-foreground">
+                    {format(new Date(item.at), "MMM d, HH:mm")}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -642,6 +571,7 @@ function SalesDashboard({ factoryId }: { factoryId: string }) {
     <div className="space-y-6">
       <PageHeader
         title="Sales Dashboard"
+        action={<FactorySwitcher />}
         hint="Today's floor — orders, stock on hand, and what customers still owe."
       />
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -796,6 +726,7 @@ function InventoryDashboard({ factoryId }: { factoryId: string }) {
     <div className="space-y-6">
       <PageHeader
         title="Inventory Dashboard"
+        action={<FactorySwitcher />}
         hint="Raw material stock health and what's moving in and out."
       />
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -979,6 +910,7 @@ function ProductionDashboard({ factoryId }: { factoryId: string }) {
     <div className="space-y-6">
       <PageHeader
         title="Production Dashboard"
+        action={<FactorySwitcher />}
         hint="What's queued, what's running, and what shipped today."
       />
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -1159,6 +1091,7 @@ function WarehouseDashboard({ factoryId }: { factoryId: string }) {
     <div className="space-y-6">
       <PageHeader
         title="Warehouse Dashboard"
+        action={<FactorySwitcher />}
         hint="Finished-goods stock, what just arrived, and what's waiting to go out."
       />
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -1228,6 +1161,7 @@ function GenericDashboard({ factoryId }: { factoryId: string }) {
     <div className="space-y-6">
       <PageHeader
         title="Dashboard"
+        action={<FactorySwitcher />}
         hint="Use the sidebar to jump into the modules you have access to."
       />
       <Card className="rounded-2xl border-dashed">

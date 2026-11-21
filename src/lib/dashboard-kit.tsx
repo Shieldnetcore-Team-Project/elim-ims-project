@@ -1,3 +1,4 @@
+import type React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
@@ -44,11 +45,22 @@ export function KPI({
   );
 }
 
-export function PageHeader({ title, hint }: { title: string; hint: string }) {
+export function PageHeader({
+  title,
+  hint,
+  action,
+}: {
+  title: string;
+  hint: string;
+  action?: React.ReactNode;
+}) {
   return (
     <div className="flex items-center justify-between">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+          {action}
+        </div>
         <p className="text-sm text-muted-foreground">{hint}</p>
       </div>
     </div>

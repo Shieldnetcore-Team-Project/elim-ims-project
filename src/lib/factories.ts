@@ -13,7 +13,7 @@ export async function loadFactories(): Promise<FactoryRow[]> {
   return cache;
 }
 
-export async function getFactoryIdByCode(code: "water" | "nylon"): Promise<string> {
+export async function getFactoryIdByCode(code: "water" | "lugbe"): Promise<string> {
   const list = await loadFactories();
   const f = list.find((x) => x.code === code);
   if (!f) throw new Error(`Factory ${code} not found`);
