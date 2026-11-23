@@ -1,7 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { useState } from "react";
 import { useAccountsAdmin, type Account } from "@/lib/use-accounts-admin";
-import { useAllRoles, usePermissions, type ProductionScope, type Role } from "@/lib/permissions";
+import { useAllRoles, usePermissions, type Role } from "@/lib/permissions";
 import { adminUpdateUser } from "@/lib/admin-users";
 import { useMutation } from "@tanstack/react-query";
 import { CreateUserDialog } from "@/components/admin/create-user-dialog";
@@ -52,9 +52,14 @@ const statusVariant = (status: string): "default" | "secondary" | "outline" | "d
   return "destructive";
 };
 
-const SCOPES: { value: ProductionScope; label: string }[] = [
-  { value: "WATER", label: "Water Factory" },
-];
+// Kubwa (code "water") first, then Lugbe.
+type FactoryOption = { id: string; code: string; name: string };
+const sortFactories = (list: FactoryOption[]) =>
+  list
+    .slice()
+    .sort((a, b) =>
+      a.code === "water" ? -1 : b.code === "water" ? 1 : a.name.localeCompare(b.name),
+    );
 
 const PASSWORD_ALPHABET = "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%";
 function generatePassword(length = 14): string {
@@ -64,7 +69,7 @@ function generatePassword(length = 14): string {
 }
 
 export function UsersTab() {
-  const { accounts, lastLogins, rolesFor, remove, resetPassword } = useAccountsAdmin();
+  const { accounts, lastLogins, rolesFor, remove, resetPassword, factories } = useAccountsAdmin();
   const allRoles = useAllRoles();
   const { canWrite, canEdit, canDelete } = usePermissions();
   const canRemove =
@@ -83,6 +88,16 @@ export function UsersTab() {
   };
 
   const rows = (accounts.data ?? []).filter((a) => a.status !== "pending");
+
+  // The account's home factory; none recorded = Kubwa.
+  const factoryLabel = (a: Account) => {
+    const list = factories.data ?? [];
+    return (
+      list.find((f) => f.id === a.active_factory_id)?.name ??
+      list.find((f) => f.code === "water")?.name ??
+      "Kubwa Factory"
+    );
+  };
 
   return (
     <div className="space-y-4">
@@ -149,10 +164,7 @@ export function UsersTab() {
                       <span className="text-xs text-muted-foreground">Not set</span>
                     )}
                   </TableCell>
-                  <TableCell className="text-sm">
-                    {/* Water is the only factory, so every user belongs to it. */}
-                    {SCOPES[0].label}
-                  </TableCell>
+                  <TableCell className="text-sm">{factoryLabel(a)}</TableCell>
                   <TableCell>
                     <Badge variant={statusVariant(a.status)} className="capitalize">
                       {a.status}
@@ -230,7 +242,10 @@ export function UsersTab() {
 }
 
 function EditUserDialog({ account, onDone }: { account: Account; onDone: () => void }) {
-  const { rolesFor, setProductionScope, setRole, setStatus } = useAccountsAdmin();
+  const { rolesFor, setFactory, setRole, setStatus, factories } = useAccountsAdmin();
+  const factoryList = sortFactories(factories.data ?? []);
+  const currentFactory =
+    account.active_factory_id ?? factoryList.find((f) => f.code === "water")?.id ?? "";
   const allRoles = useAllRoles();
   // The factory-wide role, else the first per-factory one (e.g. a role given
   // for one factory only).
@@ -242,7 +257,7 @@ function EditUserDialog({ account, onDone }: { account: Account; onDone: () => v
   const [phone, setPhone] = useState(account.phone ?? "");
   const [department, setDepartment] = useState(account.department ?? "");
   const [role, setRoleValue] = useState<Role>(currentRole);
-  const [scope, setScope] = useState<ProductionScope>(account.production_scope);
+  const [factoryId, setFactoryId] = useState<string>(currentFactory);
   const [status, setStatusValue] = useState(account.status);
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -271,8 +286,8 @@ function EditUserDialog({ account, onDone }: { account: Account; onDone: () => v
         });
         if (error) throw error;
       }
-      if (scope !== account.production_scope) {
-        await setProductionScope.mutateAsync({ userId: account.id, scope });
+      if (factoryId && factoryId !== currentFactory) {
+        await setFactory.mutateAsync({ userId: account.id, factoryId });
       }
       if (
         status !== account.status &&
@@ -399,14 +414,14 @@ function EditUserDialog({ account, onDone }: { account: Account; onDone: () => v
             </div>
             <div className="space-y-1.5">
               <Label>Factory</Label>
-              <Select value={scope} onValueChange={(v) => setScope(v as ProductionScope)}>
+              <Select value={factoryId} onValueChange={setFactoryId}>
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="Kubwa Factory" />
                 </SelectTrigger>
                 <SelectContent>
-                  {SCOPES.map((s) => (
-                    <SelectItem key={s.value} value={s.value}>
-                      {s.label}
+                  {factoryList.map((f) => (
+                    <SelectItem key={f.id} value={f.id}>
+                      {f.name}
                     </SelectItem>
                   ))}
                 </SelectContent>

@@ -25,9 +25,7 @@ import {
 import { toast } from "sonner";
 import { Copy, Eye, EyeOff, RefreshCw, UserPlus } from "lucide-react";
 
-type Factory = { id: string; name: string };
-
-const SCOPES: { value: ProductionScope; label: string }[] = [{ value: "WATER", label: "Water" }];
+type Factory = { id: string; code: string; name: string };
 
 // Avoids look-alike characters (0/O, 1/l/I) so a password read off a screen and
 // typed by hand doesn't bounce.
@@ -62,14 +60,24 @@ export function CreateUserDialog() {
   // the page — the password is never retrievable again after this.
   const [lastCreated, setLastCreated] = useState<{ email: string; password: string } | null>(null);
 
+  // Kubwa Factory (code "water") first, then Lugbe. Shares the cache key with
+  // useAccountsAdmin, so both select id, code and name.
   const factories = useQuery({
     queryKey: ["factories-all"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("factories").select("id,code,name").order("name");
+      const { data, error } = await supabase.from("factories").select("id,code,name");
       if (error) throw error;
       return (data ?? []) as Factory[];
     },
+    select: (list) =>
+      list
+        .slice()
+        .sort((a, b) =>
+          a.code === "water" ? -1 : b.code === "water" ? 1 : a.name.localeCompare(b.name),
+        ),
   });
+  // Nothing picked yet = Kubwa.
+  const factoryId = form.factory_id || factories.data?.[0]?.id || "";
 
   const set = <K extends keyof typeof EMPTY>(key: K, value: (typeof EMPTY)[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
@@ -85,7 +93,7 @@ export function CreateUserDialog() {
           phone: form.phone.trim() || undefined,
           department: form.department.trim() || undefined,
           role: form.role,
-          factory_id: form.factory_id || undefined,
+          factory_id: factoryId || undefined,
           production_scope: form.production_scope,
         },
       });
@@ -122,7 +130,8 @@ export function CreateUserDialog() {
     !form.full_name.trim() ||
     !/^\S+@\S+\.\S+$/.test(form.email.trim()) ||
     form.password.length < 8 ||
-    !form.role;
+    !form.role ||
+    !factoryId;
 
   return (
     <>
@@ -228,9 +237,9 @@ export function CreateUserDialog() {
 
             <div className="space-y-1.5">
               <Label htmlFor="cu-factory">Factory</Label>
-              <Select value={form.factory_id} onValueChange={(v) => set("factory_id", v)}>
+              <Select value={factoryId} onValueChange={(v) => set("factory_id", v)}>
                 <SelectTrigger id="cu-factory">
-                  <SelectValue placeholder="Default (Water)" />
+                  <SelectValue placeholder="Select a factory" />
                 </SelectTrigger>
                 <SelectContent>
                   {(factories.data ?? []).map((f) => (
@@ -240,25 +249,9 @@ export function CreateUserDialog() {
                   ))}
                 </SelectContent>
               </Select>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="cu-scope">Production scope</Label>
-              <Select
-                value={form.production_scope}
-                onValueChange={(v) => set("production_scope", v as ProductionScope)}
-              >
-                <SelectTrigger id="cu-scope">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {SCOPES.map((s) => (
-                    <SelectItem key={s.value} value={s.value}>
-                      {s.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <p className="text-[11px] text-muted-foreground">
+                The account works in this factory and opens in it.
+              </p>
             </div>
 
             <div className="space-y-1.5">
@@ -295,7 +288,7 @@ export function CreateUserDialog() {
           <DialogFooter className="flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between">
             <span className="text-xs text-muted-foreground">
               {missing
-                ? "Name, a valid email, a role, and an 8+ character password are required."
+                ? "Name, a valid email, a role, a factory and an 8+ character password are required."
                 : "The password is shown once after creation — copy it before closing."}
             </span>
             <Button

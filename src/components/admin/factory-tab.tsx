@@ -19,8 +19,8 @@ import {
 type AccessRow = { user_id: string; factory_id: string };
 
 // Two factories (2026-11-21): Kubwa (code "water") and Lugbe. Every account
-// works in Kubwa. The Chairman and Admin open every factory; anyone else
-// opens Lugbe only once allowed here (factory_access / set_factory_access).
+// works in the factory it was created under (2026-11-23). The Chairman and Admin open every factory; anyone else
+// opens the other one only once allowed here (factory_access / set_factory_access).
 export function FactoryTab() {
   const qc = useQueryClient();
   const { accounts, factories } = useAccountsAdmin();
@@ -34,7 +34,11 @@ export function FactoryTab() {
       return data ?? [];
     },
   });
-  const others = (factoryCodes.data ?? []).filter((f) => f.code !== "water");
+  // Kubwa first, then Lugbe.
+  const allFactories = (factoryCodes.data ?? [])
+    .slice()
+    .sort((a, b) => (a.code === "water" ? -1 : b.code === "water" ? 1 : 0));
+  const kubwaId = allFactories.find((f) => f.code === "water")?.id;
 
   const access = useQuery({
     queryKey: ["factory-access"],
@@ -97,43 +101,45 @@ export function FactoryTab() {
     roles.data?.has(userId) ||
     ["elimwaters09@gmail.com", "sbjoel160@gmail.com"].includes((email ?? "").toLowerCase());
 
+  // The account's own factory (set when it was created; none = Kubwa).
+  const homeOf = (a: { active_factory_id: string | null }) => a.active_factory_id ?? kubwaId;
+  const canOpen = (
+    a: { id: string; email: string | null; active_factory_id: string | null },
+    factoryId: string,
+  ) => homeOf(a) === factoryId || isSwitcher(a.id, a.email) || has(a.id, factoryId);
+
   const active = (accounts.data ?? []).filter((a) => a.status !== "pending");
 
   return (
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-3">
-        {(factoryCodes.data ?? [])
-          .slice()
-          .sort((a, b) => (a.code === "water" ? -1 : b.code === "water" ? 1 : 0))
-          .map((f) => {
-            const name = factories.data?.find((x) => x.id === f.id)?.name ?? f.name;
-            const count =
-              f.code === "water"
-                ? active.length
-                : active.filter((a) => isSwitcher(a.id, a.email) || has(a.id, f.id)).length;
-            return (
-              <Card key={f.id} className="rounded-2xl">
-                <CardHeader className="flex flex-row items-center flex-wrap justify-between gap-2 pb-2">
-                  <CardTitle className="text-sm font-medium">{name}</CardTitle>
-                  <Factory className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-semibold">{count}</div>
-                  <p className="text-xs text-muted-foreground">users who can open this factory</p>
-                </CardContent>
-              </Card>
-            );
-          })}
+        {allFactories.map((f) => {
+          const name = factories.data?.find((x) => x.id === f.id)?.name ?? f.name;
+          const count = active.filter((a) => canOpen(a, f.id)).length;
+          return (
+            <Card key={f.id} className="rounded-2xl">
+              <CardHeader className="flex flex-row items-center flex-wrap justify-between gap-2 pb-2">
+                <CardTitle className="text-sm font-medium">{name}</CardTitle>
+                <Factory className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-semibold">{count}</div>
+                <p className="text-xs text-muted-foreground">users who can open this factory</p>
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
 
-      {others.length > 0 && (
+      {allFactories.length > 1 && (
         <Card className="rounded-2xl">
           <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
             <div>
               <CardTitle>Factory access</CardTitle>
               <p className="text-sm text-muted-foreground">
-                Everyone works in Kubwa Factory. The Chairman and Admin can open every factory. Turn
-                a switch on to let another account choose that factory from the Dashboard.
+                Every account works in the factory it was created under (change it in Users › Edit).
+                The Chairman and Admin can open every factory. Turn a switch on to let an account
+                also choose the other factory from the Dashboard.
               </p>
             </div>
             <Input
@@ -149,7 +155,7 @@ export function FactoryTab() {
                 <TableRow>
                   <TableHead>Account</TableHead>
                   <TableHead>Department</TableHead>
-                  {others.map((f) => (
+                  {allFactories.map((f) => (
                     <TableHead key={f.id} className="text-center">
                       {f.name}
                     </TableHead>
@@ -166,10 +172,12 @@ export function FactoryTab() {
                         <div className="text-xs text-muted-foreground">{a.email}</div>
                       </TableCell>
                       <TableCell>{a.department || "—"}</TableCell>
-                      {others.map((f) => (
+                      {allFactories.map((f) => (
                         <TableCell key={f.id} className="text-center">
                           {always ? (
                             <span className="text-xs text-muted-foreground">Chairman / Admin</span>
+                          ) : homeOf(a) === f.id ? (
+                            <span className="text-xs font-medium text-primary">Own factory</span>
                           ) : (
                             <Switch
                               checked={has(a.id, f.id)}
