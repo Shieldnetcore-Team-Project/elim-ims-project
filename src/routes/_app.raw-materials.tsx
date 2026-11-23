@@ -66,6 +66,7 @@ import {
 } from "lucide-react";
 import { ReportActions } from "@/components/shared/report-actions";
 import { generateStockCardPdf } from "@/lib/pdf";
+import { StorePeriodReport } from "@/components/store/store-period-report";
 import {
   useUnitsOfMeasure,
   UNIT_OPTIONS as UNIT_OPTIONS_FALLBACK,
@@ -926,6 +927,8 @@ function RawMaterialsPage() {
           </Table>
         </CardContent>
       </Card>
+
+      {factoryId && <StorePeriodReport factoryId={factoryId} />}
 
       {(pendingReceipts.data ?? []).length > 0 && (
         <Card className="rounded-2xl border-dashed">

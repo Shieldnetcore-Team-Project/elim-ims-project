@@ -100,7 +100,10 @@ export async function qcLetterheadPdf(
 // rows the screens and Excel use; a last row labelled "Total" becomes the
 // shaded totals row. Title prints as "<DEPARTMENT>: <TITLE>".
 export type Department =
-  "Quality Control Department" | "Warehouse Department" | "Production Department";
+  | "Quality Control Department"
+  | "Warehouse Department"
+  | "Production Department"
+  | "Store Department";
 
 export function letterheadReportPdf(
   opts: {
@@ -124,8 +127,8 @@ export function letterheadReportPdf(
   const title = /department/i.test(opts.title)
     ? opts.title
     : `${opts.department}: ${opts.title
-        .replace(/^(quality control|warehouse|production)\s*[—–-]\s*/i, "")
-        .replace(/\s*[—–-]\s*(quality control|warehouse|production)$/i, "")}`;
+        .replace(/^(quality control|warehouse|production|store)\s*[—–-]\s*/i, "")
+        .replace(/\s*[—–-]\s*(quality control|warehouse|production|store)$/i, "")}`;
   return qcLetterheadPdf(
     {
       company: sheetCompany(opts.settings),
