@@ -19,6 +19,8 @@ export type Account = {
   department: string | null;
   role_requested: Role | null;
   requested_factory_id: string | null;
+  // Home factory (Kubwa or Lugbe): the factory the account works in.
+  active_factory_id: string | null;
   production_scope: ProductionScope;
   status: string;
   created_at: string;
@@ -145,6 +147,23 @@ export function useAccountsAdmin() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  // Moves an account to another factory (20261123100000).
+  const setFactory = useMutation({
+    mutationFn: async ({ userId, factoryId }: { userId: string; factoryId: string }) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- RPC added in 20261123100000, not in generated types yet
+      const { error } = await (supabase.rpc as any)("set_user_factory", {
+        _user_id: userId,
+        _factory_id: factoryId,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      invalidateAll();
+      qc.invalidateQueries({ queryKey: ["my-factories"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const setProductionScope = useMutation({
     mutationFn: async ({ userId, scope }: { userId: string; scope: ProductionScope }) => {
       const { error } = await supabase.rpc("set_production_scope", {
@@ -207,6 +226,7 @@ export function useAccountsAdmin() {
     reject,
     setStatus,
     setProductionScope,
+    setFactory,
     setRole,
     remove,
     resetPassword,

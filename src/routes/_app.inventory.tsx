@@ -232,7 +232,7 @@ function InventoryOverviewPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Warehouse Overview</h1>
           <p className="text-sm text-muted-foreground">
-            Every finished product on hand at the Water Factory, ready to post to marketers,
+            Every finished product on hand at this factory, ready to post to marketers,
             distributors and the Company Retail Shop.
           </p>
         </div>
