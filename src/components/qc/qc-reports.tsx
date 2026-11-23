@@ -64,6 +64,7 @@ type BottleRow = {
 //                   marketers, customers, walk-in, total
 type JugReportRow = {
   report_date: string;
+  sales_rep_id: string;
   rep_code: string | null;
   rep_name: string;
   container_name: string;
@@ -76,6 +77,14 @@ type JugReportRow = {
   expected_empties: number;
   received: number;
   outstanding: number;
+};
+type EmptyJugSoldRow = {
+  sold_on: string;
+  buyer_kind: string;
+  buyer_id: string | null;
+  buyer_name: string;
+  buyer_code: string | null;
+  empty_jug: number;
 };
 type JugPlaceRow = {
   container_name: string;
@@ -181,6 +190,15 @@ export function QcReportsTab({ factoryId }: { factoryId: string }) {
         p_to: to,
         p_container_type: null,
       }),
+  });
+  // Empty Jug column (user, 2026-11-23): from what was really done in the
+  // system -- Empty Jug posted to marketers less unsold returned, and the
+  // Retail Shop's sales -- as on the "Jugs sold" report (jugs_sold_report).
+  const emptyJugsSold = useQuery({
+    queryKey: ["qc-reports", "jugs-empty-sold", factoryId, from, to],
+    enabled: ok && which === "jugs",
+    queryFn: () =>
+      rpc<EmptyJugSoldRow[]>("jugs_sold_report", { p_factory: factoryId, p_from: from, p_to: to }),
   });
   const jugPlaces = useQuery({
     queryKey: ["qc-reports", "jug-places", factoryId, to],
@@ -294,9 +312,50 @@ export function QcReportsTab({ factoryId }: { factoryId: string }) {
         return m.set(key, g);
       }, new Map<string, JugReportRow>())
       .values(),
-  ].filter(
-    (r) => n(r.opening) || n(r.loaded) || n(r.returned) || n(r.received) || n(r.outstanding),
-  );
+  ];
+  // Empty Jug per marketer / shop per day, from the system's activity.
+  const emptyJug = new Map<string, number>();
+  for (const e of emptyJugsSold.data ?? []) {
+    if (!e.buyer_id || (e.buyer_kind !== "rep" && e.buyer_kind !== "shop")) continue;
+    const key = `${e.sold_on}|${e.buyer_id}`;
+    emptyJug.set(key, (emptyJug.get(key) ?? 0) + n(e.empty_jug));
+  }
+  const jugKey = (r: JugReportRow) => `${r.report_date}|${r.sales_rep_id}`;
+  const seen = new Set(jugRows.map(jugKey));
+  // A day with Empty Jug activity but no other jug movement still gets a row.
+  for (const e of emptyJugsSold.data ?? []) {
+    const key = `${e.sold_on}|${e.buyer_id}`;
+    if (!e.buyer_id || !emptyJug.get(key) || seen.has(key)) continue;
+    seen.add(key);
+    jugRows.push({
+      report_date: e.sold_on,
+      sales_rep_id: e.buyer_id,
+      rep_code: e.buyer_code,
+      rep_name: e.buyer_name,
+      container_name: "Dispenser",
+      opening: 0,
+      loaded: 0,
+      total: 0,
+      jug_water_sold: 0,
+      empties_sold: 0,
+      returned: 0,
+      expected_empties: 0,
+      received: 0,
+      outstanding: 0,
+    });
+  }
+  for (const r of jugRows) r.empties_sold = emptyJug.get(jugKey(r)) ?? 0;
+  const jugRowsShown = jugRows
+    .filter(
+      (r) =>
+        n(r.opening) ||
+        n(r.loaded) ||
+        n(r.returned) ||
+        n(r.received) ||
+        n(r.outstanding) ||
+        n(r.empties_sold),
+    )
+    .sort((a, b) => a.report_date.localeCompare(b.report_date));
   sheets.jugs = {
     title: `Quality Control Department: Empty Jug ${period}`,
     columns: [
@@ -314,7 +373,7 @@ export function QcReportsTab({ factoryId }: { factoryId: string }) {
       { key: "outstanding", label: "Outstanding" },
     ],
     sum: ["loaded", "sold", "empty_jug", "returned", "expected", "received"],
-    rows: jugRows.map((r, i) => ({
+    rows: jugRowsShown.map((r, i) => ({
       sn: i + 1,
       date: r.report_date,
       name: r.rep_code ? `${r.rep_name} (${r.rep_code})` : r.rep_name,
@@ -462,8 +521,8 @@ export function QcReportsTab({ factoryId }: { factoryId: string }) {
     // Its own screen (JugsSoldReport) with its own query.
     jugs_sold: postings,
   }[which];
-  const loading = current.isLoading;
-  const error = current.error as Error | null;
+  const loading = current.isLoading || (which === "jugs" && emptyJugsSold.isLoading);
+  const error = (current.error ?? (which === "jugs" ? emptyJugsSold.error : null)) as Error | null;
   const fileBase = `qc-${which}-report-${from}-to-${to}`;
 
   // The same rows on screen and on paper (user, 2026-11-04: QC sees the
