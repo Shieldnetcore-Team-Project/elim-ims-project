@@ -376,6 +376,7 @@ export function QcReportsTab({ factoryId }: { factoryId: string }) {
         .values(),
     ].map((r, i) => ({
       sn: i + 1,
+      jug: r.container_name,
       store: n(r.store),
       qc: n(r.qc),
       production: n(r.production),
