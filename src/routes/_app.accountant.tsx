@@ -1956,6 +1956,7 @@ function AccountantPage() {
               factoryId={factoryId}
               repId={dayViewing.repId}
               customerName={dayViewing.customer}
+              partyName={dayViewing.party}
               day={dayViewing.day}
               showValues={perms.canSeeMoney}
               currency={currency}

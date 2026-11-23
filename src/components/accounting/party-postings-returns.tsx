@@ -15,6 +15,7 @@ import { money, num } from "@/lib/format";
 import { printDispatchDayInvoice, printDispatchInvoice } from "@/lib/dispatch-slip";
 import { printSaleInvoice } from "@/lib/invoice";
 import { localDay } from "@/lib/production-shift";
+import { partyPeriodPdf } from "@/components/accounting/party-period-pdf";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -61,10 +62,13 @@ export function PartyPostingsReturns({
   factoryId,
   repId,
   customerName,
+  partyName,
   showValues,
   currency,
   day,
 }: {
+  // The name printed on the period statement (a marketer's / the shop's).
+  partyName?: string;
   // Opened on one day (All activity's day row); the calendar still changes it.
   day?: string;
   factoryId: string;
@@ -193,6 +197,20 @@ export function PartyPostingsReturns({
         )
       : printSaleInvoice(ids, settings, mode);
   };
+  // The whole period picked on one letterhead statement (user, 2026-11-23).
+  const printPeriod = (mode: "print" | "download") =>
+    partyPeriodPdf(
+      {
+        company: settings ?? {},
+        party: partyName ?? customerName ?? "Customer",
+        from,
+        to: to && to >= from ? to : from,
+        totals: [...totals],
+        groups,
+        showValues,
+      },
+      mode,
+    );
   const dayLabel = (day: string) =>
     new Date(`${day}T12:00:00`).toLocaleDateString(undefined, {
       weekday: "short",
@@ -373,6 +391,26 @@ export function PartyPostingsReturns({
               max={localDay()}
               onChange={(e) => setTo(e.target.value)}
             />
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-8 w-8"
+              title="Print everything on the dates picked"
+              disabled={groups.length === 0}
+              onClick={() => void printPeriod("print")}
+            >
+              <Printer className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              title="Download everything on the dates picked"
+              disabled={groups.length === 0}
+              onClick={() => void printPeriod("download")}
+            >
+              <Download className="h-4 w-4" />
+            </Button>
             {from && (
               <Button
                 variant="ghost"
