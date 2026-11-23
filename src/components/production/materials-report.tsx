@@ -55,6 +55,16 @@ type ReportRow = {
   created_by_name: string | null;
   created_at: string;
 };
+type SummaryRow = {
+  material: string;
+  unit: string | null;
+  entries: number;
+  opening: number;
+  qty_in: number;
+  qty_used: number;
+  damages: number;
+  balance: number;
+};
 // kind 'bottle': a blown bottle QC sends to the PM (20261029110000) -- her
 // raw material for Bottle Water; received_since = bottles received from QC
 // after its last line, the Qty In a new line starts with.
@@ -138,52 +148,129 @@ export function ProductionMaterialsReport({ factoryId }: { factoryId: string }) 
     },
   });
 
+  // "Period total" (user, 2026-11-23): one row per material for the whole
+  // From–To range instead of a row per day; a material can be picked alone.
+  const [view, setView] = useState<"days" | "total">("days");
+  const [material, setMaterial] = useState("all");
+  const materialNames = useMemo(
+    () =>
+      [...new Set((rows.data ?? []).map((r) => r.material_name))].sort((a, b) =>
+        a.localeCompare(b),
+      ),
+    [rows.data],
+  );
+
   const shown = useMemo(() => {
     const term = q.trim().toLowerCase();
-    const all = rows.data ?? [];
+    let all = rows.data ?? [];
+    if (material !== "all") all = all.filter((r) => r.material_name === material);
     return term ? all.filter((r) => r.material_name.toLowerCase().includes(term)) : all;
-  }, [rows.data, q]);
+  }, [rows.data, q, material]);
+
+  // Rows come newest first: the last one seen for a material is its earliest
+  // line (the period's Opening), the first one its latest (the closing Balance).
+  const totals = useMemo(() => {
+    const by = new Map<string, SummaryRow>();
+    for (const r of shown) {
+      const s = by.get(r.material_name);
+      if (!s) {
+        by.set(r.material_name, {
+          material: r.material_name,
+          unit: r.unit,
+          entries: 1,
+          opening: Number(r.opening),
+          qty_in: Number(r.qty_in),
+          qty_used: Number(r.qty_used),
+          damages: Number(r.damages),
+          balance: Number(r.balance),
+        });
+      } else {
+        s.entries += 1;
+        s.opening = Number(r.opening);
+        s.qty_in += Number(r.qty_in);
+        s.qty_used += Number(r.qty_used);
+        s.damages += Number(r.damages);
+      }
+    }
+    return [...by.values()].sort((a, b) => a.material.localeCompare(b.material));
+  }, [shown]);
+  const isTotal = view === "total";
+  const hasRows = isTotal ? totals.length > 0 : shown.length > 0;
 
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ["production-material-reports"] });
     qc.invalidateQueries({ queryKey: ["production-material-options"] });
   };
 
+  const periodSlug =
+    !from && !to ? "all" : oneDay ? from : `${from || "start"}-to-${to || localDay()}`;
   const pdf = (action: "download" | "print") =>
-    letterheadReportPdf(
-      {
-        department: "Production Department",
-        title: "All Process Material",
-        settings: settings.data,
-        filename: `process-material-${!from && !to ? "all" : oneDay ? from : `${from || "start"}-to-${to || localDay()}`}`,
-        subtitle: [rangeLabel],
-        columns: [
-          { key: "sn", label: "S/N" },
-          ...(oneDay ? [] : [{ key: "day", label: "Date" }]),
-          { key: "material", label: "Material" },
-          { key: "opening", label: "Opening" },
-          { key: "qty_in", label: "Qty In" },
-          { key: "total", label: "Total" },
-          { key: "qty_used", label: "Qty Used" },
-          { key: "damages", label: "Damages" },
-          { key: "balance", label: "Balance" },
-          { key: "at", label: "Date/Time" },
-        ],
-        rows: shown.map((r, i) => ({
-          sn: i + 1,
-          day: r.report_date,
-          material: r.material_name,
-          opening: num(Number(r.opening)),
-          qty_in: num(Number(r.qty_in)),
-          total: num(Number(r.total)),
-          qty_used: num(Number(r.qty_used)),
-          damages: num(Number(r.damages)),
-          balance: num(Number(r.balance)),
-          at: new Date(r.created_at).toLocaleString(),
-        })),
-      },
-      action,
-    );
+    isTotal
+      ? letterheadReportPdf(
+          {
+            department: "Production Department",
+            title:
+              material === "all"
+                ? "Process Material — Period Total"
+                : `Process Material — ${material}`,
+            settings: settings.data,
+            filename: `process-material-total-${periodSlug}`,
+            subtitle: [rangeLabel],
+            columns: [
+              { key: "sn", label: "S/N" },
+              { key: "material", label: "Material" },
+              { key: "opening", label: "Opening" },
+              { key: "qty_in", label: "Total Qty In" },
+              { key: "qty_used", label: "Total Processed (Used)" },
+              { key: "damages", label: "Total Damages" },
+              { key: "balance", label: "Closing Balance" },
+            ],
+            rows: totals.map((s, i) => ({
+              sn: i + 1,
+              material: `${s.material}${s.unit ? ` (${s.unit})` : ""}`,
+              opening: num(s.opening),
+              qty_in: num(s.qty_in),
+              qty_used: num(s.qty_used),
+              damages: num(s.damages),
+              balance: num(s.balance),
+            })),
+          },
+          action,
+        )
+      : letterheadReportPdf(
+          {
+            department: "Production Department",
+            title: material === "all" ? "All Process Material" : `Process Material — ${material}`,
+            settings: settings.data,
+            filename: `process-material-${periodSlug}`,
+            subtitle: [rangeLabel],
+            columns: [
+              { key: "sn", label: "S/N" },
+              ...(oneDay ? [] : [{ key: "day", label: "Date" }]),
+              { key: "material", label: "Material" },
+              { key: "opening", label: "Opening" },
+              { key: "qty_in", label: "Qty In" },
+              { key: "total", label: "Total" },
+              { key: "qty_used", label: "Qty Used" },
+              { key: "damages", label: "Damages" },
+              { key: "balance", label: "Balance" },
+              { key: "at", label: "Date/Time" },
+            ],
+            rows: shown.map((r, i) => ({
+              sn: i + 1,
+              day: r.report_date,
+              material: r.material_name,
+              opening: num(Number(r.opening)),
+              qty_in: num(Number(r.qty_in)),
+              total: num(Number(r.total)),
+              qty_used: num(Number(r.qty_used)),
+              damages: num(Number(r.damages)),
+              balance: num(Number(r.balance)),
+              at: new Date(r.created_at).toLocaleString(),
+            })),
+          },
+          action,
+        );
 
   return (
     <div className="space-y-4">
@@ -202,7 +289,7 @@ export function ProductionMaterialsReport({ factoryId }: { factoryId: string }) 
             <Button
               variant="outline"
               className="gap-2"
-              disabled={!shown.length}
+              disabled={!hasRows}
               onClick={() => void pdf("download")}
             >
               <FileDown className="h-4 w-4" /> Generate report
@@ -210,11 +297,42 @@ export function ProductionMaterialsReport({ factoryId }: { factoryId: string }) 
             <Button
               variant="outline"
               className="gap-2"
-              disabled={!shown.length}
+              disabled={!hasRows}
               onClick={() => void pdf("print")}
             >
               <Printer className="h-4 w-4" /> Print view
             </Button>
+            <div>
+              <Label className="text-xs">Report</Label>
+              <Select value={view} onValueChange={(v) => setView(v as "days" | "total")}>
+                <SelectTrigger className="h-9 w-44">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="days">Day by day</SelectItem>
+                  <SelectItem value="total">Period total</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Material</Label>
+              <Select value={material} onValueChange={setMaterial}>
+                <SelectTrigger className="h-9 w-52">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All materials</SelectItem>
+                  {material !== "all" && !materialNames.includes(material) && (
+                    <SelectItem value={material}>{material}</SelectItem>
+                  )}
+                  {materialNames.map((m) => (
+                    <SelectItem key={m} value={m}>
+                      {m}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <div className="relative ml-auto w-full max-w-xs">
               <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
@@ -268,76 +386,126 @@ export function ProductionMaterialsReport({ factoryId }: { factoryId: string }) 
               </div>
             </div>
           </div>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>S/N</TableHead>
-                  {!oneDay && <TableHead>Date</TableHead>}
-                  <TableHead>Material</TableHead>
-                  <TableHead className="text-right">Opening</TableHead>
-                  <TableHead className="text-right">Qty In</TableHead>
-                  <TableHead className="text-right">Total</TableHead>
-                  <TableHead className="text-right">Qty Used</TableHead>
-                  <TableHead className="text-right">Damages</TableHead>
-                  <TableHead className="text-right">Balance</TableHead>
-                  <TableHead>Date/Time</TableHead>
-                  {canEdit && <TableHead>Actions</TableHead>}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {shown.map((r, i) => (
-                  <TableRow key={r.id}>
-                    <TableCell>{i + 1}</TableCell>
-                    {!oneDay && (
-                      <TableCell className="whitespace-nowrap">{r.report_date}</TableCell>
-                    )}
-                    <TableCell className="font-medium">{r.material_name}</TableCell>
-                    <TableCell className="text-right">{num(Number(r.opening))}</TableCell>
-                    <TableCell className="text-right">{num(Number(r.qty_in))}</TableCell>
-                    <TableCell className="text-right">{num(Number(r.total))}</TableCell>
-                    <TableCell className="text-right">{num(Number(r.qty_used))}</TableCell>
-                    <TableCell className="text-right">{num(Number(r.damages))}</TableCell>
-                    <TableCell className="text-right font-semibold">
-                      {num(Number(r.balance))}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap text-xs">
-                      {new Date(r.created_at).toLocaleString()}
-                    </TableCell>
-                    {canEdit && (
-                      <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          title="Enter quantity produced and damaged"
-                          aria-label="Enter quantity produced and damaged"
-                          onClick={() => setEditing(r)}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
-                    )}
-                  </TableRow>
-                ))}
-                {shown.length === 0 && (
+          {isTotal ? (
+            <div className="overflow-x-auto">
+              <p className="mb-2 text-xs text-muted-foreground">
+                {rangeLabel}. One line per material for the whole period: Opening is the first
+                entry&apos;s opening, Qty In / Processed / Damages are added up, Closing Balance is
+                the last entry&apos;s balance.
+              </p>
+              <Table>
+                <TableHeader>
                   <TableRow>
-                    <TableCell
-                      colSpan={(canEdit ? 10 : 9) + (oneDay ? 0 : 1)}
-                      className="py-8 text-center text-muted-foreground"
-                    >
-                      {rows.isLoading
-                        ? "Loading…"
-                        : rows.isError
-                          ? (rows.error as Error).message
-                          : oneDay
-                            ? "No process material for this date yet."
-                            : "No process material in this period."}
-                    </TableCell>
+                    <TableHead>S/N</TableHead>
+                    <TableHead>Material</TableHead>
+                    <TableHead className="text-right">Entries</TableHead>
+                    <TableHead className="text-right">Opening</TableHead>
+                    <TableHead className="text-right">Total Qty In</TableHead>
+                    <TableHead className="text-right">Total Processed (Used)</TableHead>
+                    <TableHead className="text-right">Total Damages</TableHead>
+                    <TableHead className="text-right">Closing Balance</TableHead>
                   </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
+                </TableHeader>
+                <TableBody>
+                  {totals.map((s, i) => (
+                    <TableRow key={s.material}>
+                      <TableCell>{i + 1}</TableCell>
+                      <TableCell className="font-medium">
+                        {s.material}
+                        {s.unit && (
+                          <span className="ml-1 text-xs text-muted-foreground">({s.unit})</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">{s.entries}</TableCell>
+                      <TableCell className="text-right">{num(s.opening)}</TableCell>
+                      <TableCell className="text-right">{num(s.qty_in)}</TableCell>
+                      <TableCell className="text-right font-semibold">{num(s.qty_used)}</TableCell>
+                      <TableCell className="text-right">{num(s.damages)}</TableCell>
+                      <TableCell className="text-right font-semibold">{num(s.balance)}</TableCell>
+                    </TableRow>
+                  ))}
+                  {totals.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
+                        {rows.isLoading ? "Loading…" : "No process material in this period."}
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>S/N</TableHead>
+                    {!oneDay && <TableHead>Date</TableHead>}
+                    <TableHead>Material</TableHead>
+                    <TableHead className="text-right">Opening</TableHead>
+                    <TableHead className="text-right">Qty In</TableHead>
+                    <TableHead className="text-right">Total</TableHead>
+                    <TableHead className="text-right">Qty Used</TableHead>
+                    <TableHead className="text-right">Damages</TableHead>
+                    <TableHead className="text-right">Balance</TableHead>
+                    <TableHead>Date/Time</TableHead>
+                    {canEdit && <TableHead>Actions</TableHead>}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {shown.map((r, i) => (
+                    <TableRow key={r.id}>
+                      <TableCell>{i + 1}</TableCell>
+                      {!oneDay && (
+                        <TableCell className="whitespace-nowrap">{r.report_date}</TableCell>
+                      )}
+                      <TableCell className="font-medium">{r.material_name}</TableCell>
+                      <TableCell className="text-right">{num(Number(r.opening))}</TableCell>
+                      <TableCell className="text-right">{num(Number(r.qty_in))}</TableCell>
+                      <TableCell className="text-right">{num(Number(r.total))}</TableCell>
+                      <TableCell className="text-right">{num(Number(r.qty_used))}</TableCell>
+                      <TableCell className="text-right">{num(Number(r.damages))}</TableCell>
+                      <TableCell className="text-right font-semibold">
+                        {num(Number(r.balance))}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-xs">
+                        {new Date(r.created_at).toLocaleString()}
+                      </TableCell>
+                      {canEdit && (
+                        <TableCell>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Enter quantity produced and damaged"
+                            aria-label="Enter quantity produced and damaged"
+                            onClick={() => setEditing(r)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      )}
+                    </TableRow>
+                  ))}
+                  {shown.length === 0 && (
+                    <TableRow>
+                      <TableCell
+                        colSpan={(canEdit ? 10 : 9) + (oneDay ? 0 : 1)}
+                        className="py-8 text-center text-muted-foreground"
+                      >
+                        {rows.isLoading
+                          ? "Loading…"
+                          : rows.isError
+                            ? (rows.error as Error).message
+                            : oneDay
+                              ? "No process material for this date yet."
+                              : "No process material in this period."}
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          )}
         </CardContent>
       </Card>
 
