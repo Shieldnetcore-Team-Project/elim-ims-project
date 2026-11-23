@@ -71,6 +71,7 @@ type JugReportRow = {
   loaded: number;
   total: number;
   jug_water_sold: number;
+  empties_sold: number;
   returned: number;
   expected_empties: number;
   received: number;
@@ -272,6 +273,7 @@ export function QcReportsTab({ factoryId }: { factoryId: string }) {
           loaded: 0,
           total: 0,
           jug_water_sold: 0,
+          empties_sold: 0,
           returned: 0,
           expected_empties: 0,
           received: 0,
@@ -282,6 +284,7 @@ export function QcReportsTab({ factoryId }: { factoryId: string }) {
           "loaded",
           "total",
           "jug_water_sold",
+          "empties_sold",
           "returned",
           "expected_empties",
           "received",
@@ -300,26 +303,26 @@ export function QcReportsTab({ factoryId }: { factoryId: string }) {
       { key: "sn", label: "S/N" },
       { key: "date", label: "Date" },
       { key: "name", label: "Marketer / Shop" },
-      { key: "jug", label: "Dispenser" },
       { key: "opening", label: "Opening" },
       { key: "loaded", label: "Loaded" },
       { key: "total", label: "Total" },
       { key: "sold", label: "Jug Water Sold" },
+      { key: "empty_jug", label: "Empty Jug" },
       { key: "returned", label: "Returned" },
       { key: "expected", label: "Expected Empties" },
       { key: "received", label: "Received" },
       { key: "outstanding", label: "Outstanding" },
     ],
-    sum: ["loaded", "sold", "returned", "expected", "received"],
+    sum: ["loaded", "sold", "empty_jug", "returned", "expected", "received"],
     rows: jugRows.map((r, i) => ({
       sn: i + 1,
       date: r.report_date,
       name: r.rep_code ? `${r.rep_name} (${r.rep_code})` : r.rep_name,
-      jug: r.container_name,
       opening: n(r.opening),
       loaded: n(r.loaded),
       total: n(r.total),
       sold: n(r.jug_water_sold),
+      empty_jug: n(r.empties_sold),
       returned: n(r.returned),
       expected: n(r.expected_empties),
       received: n(r.received),
@@ -373,7 +376,6 @@ export function QcReportsTab({ factoryId }: { factoryId: string }) {
         .values(),
     ].map((r, i) => ({
       sn: i + 1,
-      jug: r.container_name,
       store: n(r.store),
       qc: n(r.qc),
       production: n(r.production),
