@@ -56,7 +56,7 @@ type BottleRow = {
   balance: number;
 };
 // Jugs (user, 2026-11-04), on the same letterhead:
-//   Jugs posted & returned  jug_accountability_report  per marketer / the
+//   Empty Jug               jug_accountability_report  per marketer / the
 //                   shop and day: Opening, Loaded, Total, Jug Water sold,
 //                   Returned, Expected empties, Received, Outstanding
 //   Where the jugs are      jug_locations (20261104120000), at the end of
@@ -298,7 +298,7 @@ export function QcReportsTab({ factoryId }: { factoryId: string }) {
     (r) => n(r.opening) || n(r.loaded) || n(r.returned) || n(r.received) || n(r.outstanding),
   );
   sheets.jugs = {
-    title: `Quality Control Department: Jugs Posted & Returned ${period}`,
+    title: `Quality Control Department: Empty Jug ${period}`,
     columns: [
       { key: "sn", label: "S/N" },
       { key: "date", label: "Date" },
@@ -522,7 +522,7 @@ export function QcReportsTab({ factoryId }: { factoryId: string }) {
       options={[
         ["preform", "Preform"],
         ["bottle", "Bottle"],
-        ["jugs", "Jugs posted & returned"],
+        ["jugs", "Empty Jug"],
         ["jug_places", "Where the jugs are"],
         ["jugs_collected", "Jugs collected"],
         ["jug_postings", "Jugs posted to PM"],
