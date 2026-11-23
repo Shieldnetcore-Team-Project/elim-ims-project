@@ -804,7 +804,9 @@ export async function generateProductionSlipPdf(
   },
   action: PdfAction = "download",
 ) {
-  const doc = new jsPDF({ unit: "pt", format: "a5" });
+  // Production prints are landscape (user, 2026-11-23).
+  const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "landscape" });
+  const R = doc.internal.pageSize.getWidth() - 40;
   const currency = opts.currency ?? "NGN";
   const top = await drawLogoHeader(doc, opts.company.logo_url, 50);
   doc.setFontSize(16);
@@ -814,10 +816,10 @@ export async function generateProductionSlipPdf(
   if (opts.company.phone) doc.text(opts.company.phone, 40, top + 30);
 
   doc.setFontSize(18);
-  doc.text("PRODUCTION REPORT", 380, top, { align: "right" });
+  doc.text("PRODUCTION REPORT", R, top, { align: "right" });
   doc.setFontSize(10);
-  doc.text(`# ${opts.production_number}`, 380, top + 16, { align: "right" });
-  doc.text(`Date: ${opts.production_date}`, 380, top + 30, { align: "right" });
+  doc.text(`# ${opts.production_number}`, R, top + 16, { align: "right" });
+  doc.text(`Date: ${opts.production_date}`, R, top + 30, { align: "right" });
 
   doc.setFontSize(11);
   let y = top + 80;
@@ -1296,7 +1298,9 @@ export async function generateProductionRequestPdf(
   },
   action: PdfAction = "download",
 ) {
-  const doc = new jsPDF({ unit: "pt", format: "a4" });
+  // Production prints are landscape (user, 2026-11-23).
+  const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "landscape" });
+  const R = doc.internal.pageSize.getWidth() - 40;
 
   const top = await drawLogoHeader(doc, opts.company.logo_url, 50);
   doc.setFontSize(18);
@@ -1313,10 +1317,10 @@ export async function generateProductionRequestPdf(
   }
 
   doc.setFontSize(18);
-  doc.text("PRODUCTION REQUEST / MATERIAL ISSUE", 555, top, { align: "right" });
+  doc.text("PRODUCTION REQUEST / MATERIAL ISSUE", R, top, { align: "right" });
   doc.setFontSize(10);
-  doc.text(`# ${opts.request_number}`, 555, top + 18, { align: "right" });
-  doc.text(`Date: ${opts.request_date}`, 555, top + 32, { align: "right" });
+  doc.text(`# ${opts.request_number}`, R, top + 18, { align: "right" });
+  doc.text(`Date: ${opts.request_date}`, R, top + 32, { align: "right" });
 
   y = Math.max(y, top + 60);
   doc.setFontSize(11);
