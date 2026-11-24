@@ -220,6 +220,11 @@ export const nav: { section: string; items: NavItem[] }[] = [
             module: "finished-goods",
             url: "/warehouse-products-report",
           },
+          {
+            label: "Returns Report",
+            module: "finished-goods",
+            url: "/warehouse-returns-report",
+          },
           // Store requests: Store › Requests only (2026-11-10).
           // No "Orders" tab (user, 2026-11-02): sales values are Accounts'.
           { label: "Returns", module: "sales-returns", url: "/sales-returns" },

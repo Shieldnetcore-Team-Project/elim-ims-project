@@ -49,6 +49,7 @@ BEGIN
     'quantity_produced', p_qty, 'damaged_quantity', p_damaged, 'unit', 'Bag',
     'production_date', p_day, 'shift', p_shift, 'supervisor', p_op))->>'id')::uuid;
 END $$;
+
 CREATE OR REPLACE FUNCTION pg_temp.issue(p_day date, p_shift text, p_qty numeric)
 RETURNS uuid LANGUAGE plpgsql AS $$
 BEGIN
@@ -233,4 +234,39 @@ BEGIN
   SELECT count(DISTINCT b.product_id) INTO n FROM public.production_daily_balance(f, NULL, d3, d3) b
    WHERE b.product_id IN (p, '6d000000-0000-0000-0000-000000001112');
   PERFORM pg_temp.check(n = 1, 'only products with activity, got ' || n);
+END $$;
+
+-- @@ Test 8: later production cannot be used to cover an earlier release
+DO $$
+DECLARE
+  f uuid := (SELECT id FROM factories WHERE code = 'water');
+  p uuid := '6d000000-0000-0000-0000-000000001112';
+  today date := (now() AT TIME ZONE 'Africa/Lagos')::date;
+  today_shift text := CASE WHEN extract(dow FROM (now() AT TIME ZONE 'Africa/Lagos')::date) = 0
+                           THEN 'overtime' ELSE 'day' END;
+  ok boolean;
+  result jsonb;
+BEGIN
+  PERFORM public.create_production(jsonb_build_object(
+    'factory_id', f, 'product_id', p, 'quantity_produced', 1000,
+    'damaged_quantity', 0, 'unit', 'Pack', 'production_date', today,
+    'shift', today_shift, 'supervisor', 'DB Test'));
+
+  ok := false;
+  BEGIN
+    PERFORM public.release_to_warehouse(jsonb_build_object(
+      'factory_id', f, 'product_id', p, 'quantity', 1,
+      'production_date', today - 1, 'shift', 'day'));
+  EXCEPTION WHEN OTHERS THEN
+    ok := SQLERRM LIKE '%selected shift%';
+  END;
+  PERFORM pg_temp.check(ok, 'later production cannot fund a backdated release');
+  PERFORM pg_temp.check(public._production_hall_available(f, p) = 1000,
+                        'refused historical release does not reduce current stock');
+
+  result := public.release_to_warehouse(jsonb_build_object(
+    'factory_id', f, 'product_id', p, 'quantity', 100,
+    'production_date', today, 'shift', today_shift));
+  PERFORM pg_temp.check((result->>'in_hall_after')::numeric = 900,
+                        'release is still allowed when its selected shift has stock');
 END $$;
