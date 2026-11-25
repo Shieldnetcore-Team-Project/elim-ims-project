@@ -94,16 +94,15 @@ export async function qcLetterheadPdf(
   finishPdf(doc, opts.filename, action);
 }
 
-// Every report on the Quality Control, Warehouse and Production pages prints
-// on this letterhead (user, 2026-11-16: "this style of report for all report
-// in the qc, warehouse and production page"). Takes the same keyed columns /
+// Department reports print on this letterhead. Takes the same keyed columns /
 // rows the screens and Excel use; a last row labelled "Total" becomes the
 // shaded totals row. Title prints as "<DEPARTMENT>: <TITLE>".
 export type Department =
   | "Quality Control Department"
   | "Warehouse Department"
   | "Production Department"
-  | "Store Department";
+  | "Store Department"
+  | "Maintenance Department";
 
 export function letterheadReportPdf(
   opts: {
@@ -127,8 +126,8 @@ export function letterheadReportPdf(
   const title = /department/i.test(opts.title)
     ? opts.title
     : `${opts.department}: ${opts.title
-        .replace(/^(quality control|warehouse|production|store)\s*[—–-]\s*/i, "")
-        .replace(/\s*[—–-]\s*(quality control|warehouse|production|store)$/i, "")}`;
+        .replace(/^(quality control|warehouse|production|store|maintenance)\s*[—–-]\s*/i, "")
+        .replace(/\s*[—–-]\s*(quality control|warehouse|production|store|maintenance)$/i, "")}`;
   return qcLetterheadPdf(
     {
       company: sheetCompany(opts.settings),

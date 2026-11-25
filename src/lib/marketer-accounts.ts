@@ -662,36 +662,42 @@ export function useDayCloses(repId: string) {
   });
 }
 
+export async function fetchCustomerStatement(
+  customerId: string,
+  from: string | null,
+  to: string | null,
+): Promise<CustomerStatement> {
+  const s = await rpc<CustomerStatement>("customer_statement", {
+    p_customer: customerId,
+    p_from: from,
+    p_to: to,
+  });
+  return {
+    ...s,
+    customer: numRow(s.customer, TEXT_KEYS),
+    opening: { debt: n(s.opening.debt), advance: n(s.opening.advance) },
+    closing: { debt: n(s.closing.debt), advance: n(s.closing.advance) },
+    lines: s.lines.map((l) => ({
+      ...numRow(l, ["reference", "invoice", "receipt"]),
+      items: l.items ? l.items.map((i) => numRow(i)) : null,
+    })),
+    invoices: s.invoices.map((i) => ({
+      ...numRow(i, TEXT_KEYS),
+      items: i.items.map((x) => numRow(x)),
+      payments: i.payments.map((p) => ({ ...p, amount: n(p.amount) })),
+    })),
+    payments: s.payments.map((p) => ({
+      ...numRow(p, TEXT_KEYS),
+      allocations: (p.allocations ?? []).map((a) => ({ ...a, amount: n(a.amount) })),
+    })),
+    returns: s.returns.map((r) => numRow(r, ["return_number", "invoice"])),
+  } as CustomerStatement;
+}
+
 export function useCustomerStatement(customerId: string, from: string | null, to: string | null) {
   return useQuery({
     queryKey: ["cust-statement", customerId, from, to],
-    queryFn: async () => {
-      const s = await rpc<CustomerStatement>("customer_statement", {
-        p_customer: customerId,
-        p_from: from,
-        p_to: to,
-      });
-      return {
-        ...s,
-        customer: numRow(s.customer, TEXT_KEYS),
-        opening: { debt: n(s.opening.debt), advance: n(s.opening.advance) },
-        closing: { debt: n(s.closing.debt), advance: n(s.closing.advance) },
-        lines: s.lines.map((l) => ({
-          ...numRow(l, ["reference", "invoice", "receipt"]),
-          items: l.items ? l.items.map((i) => numRow(i)) : null,
-        })),
-        invoices: s.invoices.map((i) => ({
-          ...numRow(i, TEXT_KEYS),
-          items: i.items.map((x) => numRow(x)),
-          payments: i.payments.map((p) => ({ ...p, amount: n(p.amount) })),
-        })),
-        payments: s.payments.map((p) => ({
-          ...numRow(p, TEXT_KEYS),
-          allocations: (p.allocations ?? []).map((a) => ({ ...a, amount: n(a.amount) })),
-        })),
-        returns: s.returns.map((r) => numRow(r, ["return_number", "invoice"])),
-      } as CustomerStatement;
-    },
+    queryFn: () => fetchCustomerStatement(customerId, from, to),
   });
 }
 

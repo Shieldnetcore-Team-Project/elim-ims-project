@@ -1081,68 +1081,59 @@ export async function generateExpenseVoucherPdf(
     payment_method: string;
     amount: number;
     requested_by?: string | null;
+    requested_by_label?: string;
     approval_status?: string;
     approved_by?: string | null;
+    title?: string;
+    reviewer?: string | null;
+    reviewed_at?: string | null;
+    review_note?: string | null;
     recorded_by?: string | null;
     remarks?: string | null;
     currency?: string;
+    printedBy?: string | null;
   },
   action: PdfAction = "download",
 ) {
-  const doc = new jsPDF({ unit: "pt", format: "a5" });
+  const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "portrait" });
   const currency = opts.currency ?? "NGN";
-
-  const top = await drawLogoHeader(doc, opts.company.logo_url, 50);
-  doc.setFontSize(16);
-  doc.text(opts.company.name, 40, top);
-  doc.setFontSize(10);
-  if (opts.company.address) doc.text(opts.company.address, 40, top + 16);
-  if (opts.company.phone) doc.text(opts.company.phone, 40, top + 30);
-
-  doc.setFontSize(18);
-  doc.text("EXPENSE VOUCHER", 380, top, { align: "right" });
-  doc.setFontSize(10);
-  if (opts.receipt_number)
-    doc.text(`Ref: ${opts.receipt_number}`, 380, top + 16, { align: "right" });
-  doc.text(`Date: ${opts.expense_date}`, 380, top + 30, { align: "right" });
-
-  doc.setFontSize(11);
-  let y = top + 80;
+  const title = opts.title ?? "EXPENSE VOUCHER";
+  const startY = await drawLetterhead(
+    doc,
+    opts.company,
+    title,
+    [
+      opts.receipt_number ? `Reference: ${opts.receipt_number}` : "",
+      `Date: ${opts.expense_date}`,
+    ].filter(Boolean),
+  );
   const rows: [string, string][] = [
     ["Category", opts.category || "—"],
     ["Description", opts.description || "—"],
     ["Vendor", opts.vendor || "—"],
     ["Payment method", opts.payment_method],
-    ["Requested by", opts.requested_by || "—"],
-    ["Approval status", (opts.approval_status ?? "pending").toUpperCase()],
+    [opts.requested_by_label ?? "Requested by", opts.requested_by || "—"],
+    ["Approval status", (opts.approval_status ?? "pending").replace(/_/g, " ").toUpperCase()],
   ];
-  rows.forEach(([l, v]) => {
-    doc.text(`${l}: ${v}`, 40, y);
-    y += 18;
+  if (opts.reviewer) rows.push(["Reviewed by", opts.reviewer]);
+  if (opts.reviewed_at) rows.push(["Reviewed on", opts.reviewed_at.slice(0, 10)]);
+  if (opts.review_note) rows.push(["Review note", opts.review_note]);
+  if (opts.approved_by && !opts.reviewer) rows.push(["Approved by", opts.approved_by]);
+  if (opts.recorded_by) rows.push(["Recorded by", opts.recorded_by]);
+  if (opts.remarks) rows.push(["Remarks", opts.remarks]);
+
+  autoTable(doc, {
+    ...letterheadTable(10),
+    startY,
+    head: [["DETAIL", "INFORMATION"]],
+    body: rows,
+    foot: [["AMOUNT", pdfMoney(opts.amount, currency)]],
+    showFoot: "lastPage",
+    columnStyles: { 0: { cellWidth: 150 } },
   });
-
-  doc.setFontSize(20);
-  y += 10;
-  doc.text(`Amount: ${money(opts.amount, currency)}`, 40, y);
-  y += 30;
-
-  doc.setFontSize(10);
-  if (opts.approved_by) {
-    doc.text(`Approved by: ${opts.approved_by}`, 40, y);
-    y += 18;
-  }
-  if (opts.recorded_by) {
-    doc.text(`Recorded by: ${opts.recorded_by}`, 40, y);
-    y += 18;
-  }
-  if (opts.remarks) doc.text(`Remarks: ${opts.remarks}`, 40, y);
-
-  if (action === "download") {
-    doc.save(`Expense-${opts.receipt_number || opts.expense_date}.pdf`);
-  } else {
-    if (action === "print") doc.autoPrint();
-    window.open(doc.output("bloburl"), "_blank");
-  }
+  letterheadPrintedBy(doc, opts.printedBy);
+  letterheadPageNumbers(doc);
+  finishPdf(doc, `Expense-${opts.receipt_number || opts.expense_date}`, action);
 }
 
 export async function generatePayslipPdf(

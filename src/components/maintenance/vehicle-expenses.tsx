@@ -59,6 +59,7 @@ type Line = {
   line_kind: "part" | "fuel" | null;
   quantity: number | null;
   unit_price: number | null;
+  approval_status: "pending_review" | "approved" | "rejected";
 };
 
 type DraftLine = {
@@ -155,7 +156,7 @@ export function VehicleExpensesTab({
       let query = db
         .from("maintenance_expenses")
         .select(
-          "id,expense_number,expense_date,category,description,amount,payment_method,vehicle_id,driver_name,line_kind,quantity,unit_price,created_at",
+          "id,expense_number,expense_date,category,description,amount,payment_method,vehicle_id,driver_name,line_kind,quantity,unit_price,approval_status,created_at",
         )
         .eq("factory_id", factoryId)
         .not("vehicle_id", "is", null)
@@ -391,12 +392,12 @@ export function VehicleExpensesTab({
 
   const lineActions = (l: Line) => (
     <TableCell className="whitespace-nowrap text-right">
-      {canEdit && (
+      {canEdit && l.approval_status !== "approved" && (
         <Button size="icon" variant="ghost" title="Edit" onClick={() => openEdit(l)}>
           <Pencil className="h-4 w-4" />
         </Button>
       )}
-      {canDelete && (
+      {canDelete && l.approval_status !== "approved" && (
         <Button size="icon" variant="ghost" title="Delete" onClick={() => setDeleting(l)}>
           <Trash2 className="h-4 w-4 text-destructive" />
         </Button>

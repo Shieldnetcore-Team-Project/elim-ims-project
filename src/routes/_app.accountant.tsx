@@ -3,7 +3,8 @@ import { printReturnNote, returnedQtyText } from "@/lib/return-note-pdf";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { RequireAccess } from "@/components/layout/require-access";
-import { CashRequisitionsTab } from "@/components/maintenance/cash-requisition";
+import { MaintenanceExpenseReviewTab } from "@/components/maintenance/expense-review";
+import { useRequisitionRole } from "@/components/maintenance/requisition";
 import { supabase } from "@/integrations/supabase/client";
 import { useFactoryId, useFactorySettings } from "@/lib/use-factory";
 import { usePermissions, type ModuleKey } from "@/lib/permissions";
@@ -14,13 +15,7 @@ import { fetchSaleLines, printSaleInvoice } from "@/lib/invoice";
 import { printMonthlySales } from "@/lib/monthly-sales-pdf";
 import { printDayPostings } from "@/lib/day-postings-pdf";
 import { generateReceiptPdf } from "@/lib/pdf";
-import {
-  AccountsTab,
-  RemittancesTab,
-  RepDetailsDialog,
-  RepsTab,
-  type Rep,
-} from "@/routes/_app.distribution";
+import { AccountsTab, RepDetailsDialog, type Rep } from "@/routes/_app.distribution";
 import { printDispatchDayInvoice, printDispatchInvoice } from "@/lib/dispatch-slip";
 import { localDay } from "@/lib/production-shift";
 import { PartyPostingsReturns } from "@/components/accounting/party-postings-returns";
@@ -31,6 +26,8 @@ import { RetailCashUpTab } from "@/components/retail/outlet-day-close";
 import { DispenserReports } from "@/components/retail/dispenser-reports";
 import { RetailDailyBook } from "@/components/accounting/retail-daily-book";
 import { CustomerActivityDialog } from "@/components/accounting/customer-activity-dialog";
+import { DebtsPage } from "@/routes/_app.cash-ledger.debts";
+import { LedgerPage } from "@/routes/_app.cash-ledger.ledger";
 import {
   Dialog,
   DialogContent,
@@ -71,12 +68,19 @@ import { saleLineName } from "@/lib/sale-line-name";
 
 export const Route = createFileRoute("/_app/accountant")({
   head: () => ({
-    meta: [{ title: "Accountant — Elim Table Water" }, { name: "robots", content: "noindex" }],
+    meta: [{ title: "Account/Finance — Elim Table Water" }, { name: "robots", content: "noindex" }],
   }),
   // ?tab= opens a tab (Finance → Marketer & Retail Accounts links to
   // postings / accounts / distributors); no param means All activity.
-  validateSearch: (s: Record<string, unknown>): { tab?: string } => ({
+  validateSearch: (
+    s: Record<string, unknown>,
+  ): {
+    tab?: string;
+    paymentView?: "ledger" | "debts";
+  } => ({
     tab: typeof s.tab === "string" ? s.tab : undefined,
+    paymentView:
+      s.paymentView === "ledger" || s.paymentView === "debts" ? s.paymentView : undefined,
   }),
   component: () => (
     <RequireAccess module="finance">
@@ -453,11 +457,16 @@ function AccountantPage() {
   const [actTo, setActTo] = useState("");
   const [invFrom, setInvFrom] = useState("");
   const [invTo, setInvTo] = useState("");
-  const { tab: tabParam = "activity" } = Route.useSearch();
+  const { tab: tabParam = "activity", paymentView: paymentViewParam } = Route.useSearch();
   // Accounts' discount per pack on the shop's postings (2026-11-03).
   const canDiscount = useCanDiscountPostings();
+  const requisitionRole = useRequisitionRole();
   // Retail cash-up lives in Retail daily now (2026-11-03); old links land there.
-  const tab = tabParam === "retail-cashup" ? "retail-daily" : tabParam;
+  const tab = ["reps", "remittances", "requisitions"].includes(tabParam)
+    ? "activity"
+    : tabParam === "retail-cashup"
+      ? "retail-daily"
+      : tabParam;
   const navigate = useNavigate({ from: Route.fullPath });
   const setTab = (v: string) =>
     navigate({
@@ -465,9 +474,19 @@ function AccountantPage() {
       replace: true,
       state: (prev) => prev,
     });
+  const canViewLedger = perms.canView("receipts-payments");
+  const canViewDebts = perms.canView("debts");
+  const paymentView =
+    paymentViewParam === "debts" && canViewDebts ? "debts" : canViewLedger ? "ledger" : "debts";
+  const setPaymentView = (v: string) =>
+    navigate({
+      search: { tab: "payments", paymentView: v === "debts" ? "debts" : "ledger" },
+      replace: true,
+      state: (prev) => prev,
+    });
   // Marketer & retail accounts read the distribution side (reps, van stock).
   const canRepAccounts = perms.canView("distribution");
-  const searchable = ["activity", "invoices", "payments"].includes(tab);
+  const searchable = ["activity", "invoices"].includes(tab);
 
   const reps = useQuery({
     queryKey: ["dist-reps", factoryId],
@@ -493,6 +512,7 @@ function AccountantPage() {
       "rep_returns",
       "sales_returns",
       "rep_remittances",
+      "maintenance_expenses",
     ],
     [
       ["acct-sales"],
@@ -503,6 +523,7 @@ function AccountantPage() {
       ["acct-activity-returns"],
       ["acct-customer-returns"],
       ["acct-activity-remittances"],
+      ["acct-maintenance-expenses"],
     ],
   );
 
@@ -1073,9 +1094,27 @@ function AccountantPage() {
       action,
     );
 
-  const actions: { label: string; to: string; icon: React.ElementType; module: ModuleKey }[] = [
-    { label: "Receive payment", to: "/cash-ledger/ledger", icon: HandCoins, module: "payments" },
-    { label: "Debts & receivables", to: "/cash-ledger/debts", icon: Wallet, module: "debts" },
+  const actions: {
+    label: string;
+    to: string;
+    icon: React.ElementType;
+    module: ModuleKey;
+    paymentView?: "ledger" | "debts";
+  }[] = [
+    {
+      label: "Receive payment",
+      to: "/accountant",
+      paymentView: "ledger",
+      icon: HandCoins,
+      module: "payments",
+    },
+    {
+      label: "Debts & receivables",
+      to: "/accountant",
+      paymentView: "debts",
+      icon: Wallet,
+      module: "debts",
+    },
     { label: "Record expense", to: "/expenses", icon: Receipt, module: "expenses" },
     { label: "Payroll", to: "/payroll", icon: BadgeDollarSign, module: "payroll" },
     { label: "Finance overview", to: "/finance", icon: Landmark, module: "finance" },
@@ -1087,7 +1126,7 @@ function AccountantPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Accountant</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Account/Finance</h1>
         <p className="text-sm text-muted-foreground">
           Print invoices, receive payments and print receipts, and follow every money transaction in
           one place.
@@ -1096,12 +1135,18 @@ function AccountantPage() {
 
       <div className="flex flex-wrap gap-2">
         {actions
-          .filter((a) => can(a.module))
+          .filter((a) => can(a.module) && (a.paymentView !== "ledger" || canViewLedger))
           .map((a) => (
-            <Button key={a.to} asChild variant="outline" size="sm" className="gap-2">
-              <Link to={a.to}>
-                <a.icon className="h-4 w-4" /> {a.label}
-              </Link>
+            <Button key={a.label} asChild variant="outline" size="sm" className="gap-2">
+              {a.paymentView ? (
+                <Link to="/accountant" search={{ tab: "payments", paymentView: a.paymentView }}>
+                  <a.icon className="h-4 w-4" /> {a.label}
+                </Link>
+              ) : (
+                <Link to={a.to}>
+                  <a.icon className="h-4 w-4" /> {a.label}
+                </Link>
+              )}
             </Button>
           ))}
       </div>
@@ -1135,16 +1180,16 @@ function AccountantPage() {
             <TabsTrigger value="retail-daily">Retail daily</TabsTrigger>
             <TabsTrigger value="dispensers">Dispenser sales</TabsTrigger>
             <TabsTrigger value="invoices">Invoices</TabsTrigger>
-            <TabsTrigger value="payments">Payments received</TabsTrigger>
+            {(canViewLedger || canViewDebts) && (
+              <TabsTrigger value="payments">Payments</TabsTrigger>
+            )}
             {canRepAccounts && (
               <TabsTrigger value="accounts">Marketer &amp; retail accounts</TabsTrigger>
             )}
-            {canRepAccounts && <TabsTrigger value="reps">Reps &amp; outlets</TabsTrigger>}
-            {canRepAccounts && perms.canSeeMoney && (
-              <TabsTrigger value="remittances">Cash remitted</TabsTrigger>
-            )}
             <TabsTrigger value="distributors">Distributor/Office Delivery</TabsTrigger>
-            <TabsTrigger value="requisitions">Cash requisitions</TabsTrigger>
+            {requisitionRole.isAccounts && (
+              <TabsTrigger value="maintenance-expenses">Maintenance expenses</TabsTrigger>
+            )}
             {can("customers") && <TabsTrigger value="customers">Customers</TabsTrigger>}
           </TabsList>
           <div className={`relative w-full sm:w-72 ${searchable ? "" : "hidden"}`}>
@@ -1647,22 +1692,6 @@ function AccountantPage() {
           </TabsContent>
         )}
 
-        {/* Moved from the Distribution page (2026-11-02). */}
-        {canRepAccounts && (
-          <TabsContent value="reps">
-            <RepsTab factoryId={factoryId} reps={reps.data ?? []} perms={perms} />
-          </TabsContent>
-        )}
-        {canRepAccounts && perms.canSeeMoney && (
-          <TabsContent value="remittances">
-            <RemittancesTab
-              factoryId={factoryId}
-              reps={(reps.data ?? []).filter((r) => r.status === "active")}
-              perms={perms}
-            />
-          </TabsContent>
-        )}
-
         {/* The shop in one place (2026-11-03): its cash-up, then day by day what was
             posted, sent back and sold, with invoices. */}
         <TabsContent value="retail-daily" className="space-y-4">
@@ -1674,10 +1703,14 @@ function AccountantPage() {
           <DispenserReports factoryId={factoryId} currency={currency} />
         </TabsContent>
 
-        {/* Maintenance cash requisitions: Accounts accept, then the Chairman (2026-11-21). */}
-        <TabsContent value="requisitions">
-          <CashRequisitionsTab factoryId={factoryId} />
-        </TabsContent>
+        {requisitionRole.isAccounts && (
+          <TabsContent value="maintenance-expenses">
+            <MaintenanceExpenseReviewTab
+              factoryId={factoryId}
+              canReview={requisitionRole.isAccounts}
+            />
+          </TabsContent>
+        )}
 
         <TabsContent value="distributors">
           <DistributorsTab factoryId={factoryId} currency={currency} />
@@ -1849,90 +1882,26 @@ function AccountantPage() {
         </TabsContent>
 
         <TabsContent value="payments">
-          <Card className="rounded-2xl">
-            <CardHeader className="flex flex-row items-center flex-wrap justify-between gap-2">
-              <CardTitle>Payments received</CardTitle>
-              {can("payments") && (
-                <Button asChild size="sm" className="gap-2">
-                  <Link to="/cash-ledger/ledger">
-                    <HandCoins className="h-4 w-4" /> Receive payment
-                  </Link>
-                </Button>
-              )}
-            </CardHeader>
-            <CardContent className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Receipt #</TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Customer</TableHead>
-                    <TableHead>Invoice</TableHead>
-                    <TableHead>Method</TableHead>
-                    <TableHead className="text-right">Amount</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {(payments.data ?? [])
-                    .filter((p) =>
-                      match(p.receipt_number, p.customers?.name, p.sales?.invoice_number),
-                    )
-                    .map((p) => (
-                      <TableRow key={p.id}>
-                        <TableCell className="font-mono text-xs">{p.receipt_number}</TableCell>
-                        <TableCell className="whitespace-nowrap text-xs">
-                          {new Date(p.payment_date).toLocaleDateString()}
-                        </TableCell>
-                        <TableCell>{p.customers?.name ?? "—"}</TableCell>
-                        <TableCell className="font-mono text-xs">
-                          {p.sales?.invoice_number ?? "—"}
-                        </TableCell>
-                        <TableCell className="capitalize">
-                          {p.payment_method.replace(/_/g, " ")}
-                        </TableCell>
-                        <TableCell className="text-right font-medium">
-                          {money(p.amount, currency)}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={statusVariant(p.status)} className="capitalize">
-                            {p.status.replace(/_/g, " ")}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex justify-end gap-1">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              title="Print receipt"
-                              onClick={() => printReceipt(p, "print")}
-                            >
-                              <Printer className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              title="Download receipt"
-                              onClick={() => printReceipt(p, "download")}
-                            >
-                              <FileText className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  {(payments.data ?? []).length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={8} className="text-center text-sm text-muted-foreground">
-                        No payments yet.
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
+          <Tabs value={paymentView} onValueChange={setPaymentView}>
+            <TabsList>
+              {canViewLedger && <TabsTrigger value="ledger">Ledger</TabsTrigger>}
+              {canViewDebts && <TabsTrigger value="debts">Debts</TabsTrigger>}
+            </TabsList>
+            {canViewLedger && (
+              <TabsContent value="ledger">
+                <RequireAccess module="receipts-payments">
+                  <LedgerPage />
+                </RequireAccess>
+              </TabsContent>
+            )}
+            {canViewDebts && (
+              <TabsContent value="debts">
+                <RequireAccess module="debts">
+                  <DebtsPage />
+                </RequireAccess>
+              </TabsContent>
+            )}
+          </Tabs>
         </TabsContent>
       </Tabs>
 

@@ -37,6 +37,13 @@ export type DistributorInvoiceData = {
   balance: number;
   remarks?: string | null;
   is_pr?: boolean;
+  document_title?: string;
+  document_number_title?: string;
+  customer_box_title?: string;
+  party_id_title?: string;
+  delivery_method_title?: string;
+  extra_info_rows?: [string, string][];
+  expense_receipt?: boolean;
 };
 
 type RGB = [number, number, number];
@@ -121,8 +128,10 @@ export async function generateDistributorInvoicePdf(
   } else {
     ry += 30;
   }
-  doc.setFontSize(data.is_pr ? 18 : 30);
-  doc.text(data.is_pr ? "PR / COMPLIMENTARY" : "INVOICE", colCenter, ry, { align: "center" });
+  doc.setFontSize(data.expense_receipt ? 20 : data.is_pr ? 18 : 30);
+  doc.text(data.document_title ?? (data.is_pr ? "PR / COMPLIMENTARY" : "INVOICE"), colCenter, ry, {
+    align: "center",
+  });
 
   // ------------------------------------------------------------ BILLED TO
   const boxTop = Math.max(leftBottom + 18, ry - 12);
@@ -140,7 +149,7 @@ export async function generateDistributorInvoicePdf(
   doc.setFillColor(...BLUE);
   doc.rect(M, boxTop, boxW, barH, "F");
   doc.setTextColor(255, 255, 255);
-  doc.text("BILLED TO", M + 4, boxTop + 12.5);
+  doc.text(data.customer_box_title ?? "BILLED TO", M + 4, boxTop + 12.5);
   doc.setTextColor(...INK);
   doc.rect(M, boxTop, boxW, boxH);
   let by = boxTop + barH + 12;
@@ -152,7 +161,9 @@ export async function generateDistributorInvoicePdf(
   // Invoice No / Date, right-aligned level with the bottom of the box.
   doc.setFontSize(10.5);
   const metaY = Math.max(boxTop + boxH - 20, ry + 30);
-  doc.text(`Invoice No: ${data.invoice_number}`, right, metaY, { align: "right" });
+  doc.text(`${data.document_number_title ?? "Invoice No"}: ${data.invoice_number}`, right, metaY, {
+    align: "right",
+  });
   doc.text(`Date/Time: ${fmtIssued(data.issued_at)}`, right, metaY + 14, { align: "right" });
 
   // --------------------------------------- ID + delivery method (two rows)
@@ -162,29 +173,43 @@ export async function generateDistributorInvoicePdf(
   doc.setFontSize(11);
   const infoRows: [string, string][] = [
     [
-      "Marketer/Distributor ID",
+      data.party_id_title ?? "Marketer/Distributor ID",
       [data.party_id, data.party_label].filter(Boolean).join(" — ") || "",
     ],
-    ["Delivery Method", data.delivery_method],
+    [data.delivery_method_title ?? "Delivery Method", data.delivery_method],
+    ...(data.extra_info_rows ?? []),
   ];
-  infoRows.forEach(([label, value], i) => {
-    const top = y + i * rowH;
-    doc.rect(M, top, contentW, rowH);
-    doc.text(label, M + 4, top + 12.5);
-    doc.text(value, splitX + 4, top + 12.5);
+  let infoY = y;
+  infoRows.forEach(([label, value]) => {
+    const labelLines = doc.splitTextToSize(label, splitX - M - 8) as string[];
+    const valueLines = doc.splitTextToSize(value, right - splitX - 8) as string[];
+    const lineCount = Math.max(labelLines.length, valueLines.length);
+    const height = Math.max(rowH, rowH + (lineCount - 1) * 12);
+    doc.rect(M, infoY, contentW, height);
+    labelLines.forEach((line, i) => doc.text(line, M + 4, infoY + 12.5 + i * 12));
+    valueLines.forEach((line, i) => doc.text(line, splitX + 4, infoY + 12.5 + i * 12));
+    infoY += height;
   });
-  doc.line(splitX, y, splitX, y + rowH * infoRows.length);
-  y += rowH * infoRows.length + 6;
+  doc.line(splitX, y, splitX, infoY);
+  y = infoY + 6;
 
   // ------------------------------------------------------------ item grid
-  const cols = [
-    { title: "S/N", w: 0.054 },
-    { title: "PRODUCT DESCRIPTION", w: 0.277 },
-    { title: "QUANTITY", w: 0.159 },
-    { title: "UNIT COST(N)", w: 0.149 },
-    { title: "AMOUNT(N)", w: 0.167 },
-    { title: "REMARKS ON RETURN", w: 0.194 },
-  ];
+  const cols = data.expense_receipt
+    ? [
+        { title: "S/N", w: 0.06 },
+        { title: "EXPENSE DESCRIPTION", w: 0.5 },
+        { title: "QUANTITY", w: 0.14 },
+        { title: "UNIT COST(N)", w: 0.15 },
+        { title: "AMOUNT(N)", w: 0.15 },
+      ]
+    : [
+        { title: "S/N", w: 0.054 },
+        { title: "PRODUCT DESCRIPTION", w: 0.277 },
+        { title: "QUANTITY", w: 0.159 },
+        { title: "UNIT COST(N)", w: 0.149 },
+        { title: "AMOUNT(N)", w: 0.167 },
+        { title: "REMARKS ON RETURN", w: 0.194 },
+      ];
   const xs: number[] = [M];
   cols.forEach((c) => xs.push(xs[xs.length - 1] + c.w * contentW));
   xs[xs.length - 1] = right;
@@ -226,23 +251,29 @@ export async function generateDistributorInvoicePdf(
   // --------------------------------------------------------------- totals
   doc.setFont("times", "bold");
   const tLeft = xs[3] + 20;
-  const tSplit = xs[5] + 2;
+  const tSplit = xs[data.expense_receipt ? 4 : 5] + 2;
   const tRow = 16;
   // No VAT line on any printout (user, 2026-11-03); the total still includes it.
-  const totals: [string, string][] = data.is_pr
+  const totals: [string, string][] = data.expense_receipt
     ? [
-        ["Value of goods issued", `N${fig(data.subtotal)}`],
-        ["Not billed - no payment due", "N0"],
-      ]
-    : [
-        ["Subtotal", `N${fig(data.subtotal)}`],
-        ...(data.discount > 0
-          ? ([["Discount", `-N${fig(data.discount)}`]] as [string, string][])
-          : []),
-        ["Total", `N${fig(data.grand_total)}`],
+        ["Expense Total", `N${fig(data.grand_total)}`],
         ["Amount Paid", `N${fig(data.amount_paid)}`],
         ["Balance Due", `N${fig(data.balance)}`],
-      ];
+      ]
+    : data.is_pr
+      ? [
+          ["Value of goods issued", `N${fig(data.subtotal)}`],
+          ["Not billed - no payment due", "N0"],
+        ]
+      : [
+          ["Subtotal", `N${fig(data.subtotal)}`],
+          ...(data.discount > 0
+            ? ([["Discount", `-N${fig(data.discount)}`]] as [string, string][])
+            : []),
+          ["Total", `N${fig(data.grand_total)}`],
+          ["Amount Paid", `N${fig(data.amount_paid)}`],
+          ["Balance Due", `N${fig(data.balance)}`],
+        ];
   if (y + totals.length * tRow + 70 > H) {
     doc.addPage();
     y = M;
@@ -280,4 +311,79 @@ export async function generateDistributorInvoicePdf(
     if (action === "print") doc.autoPrint();
     window.open(doc.output("bloburl"), "_blank");
   }
+}
+
+export type MaintenanceExpenseReceiptData = {
+  company: DistributorInvoiceData["company"];
+  expense_number: string;
+  expense_date: string;
+  paid_to: string | null;
+  category: string;
+  description: string;
+  payment_method: string;
+  amount: number;
+  receipt_ref?: string | null;
+  recorded_by?: string | null;
+  approval_status?: string | null;
+  reviewer?: string | null;
+  reviewed_at?: string | null;
+  review_note?: string | null;
+  printed_by?: string | null;
+};
+
+export function generateMaintenanceExpenseReceiptPdf(
+  expense: MaintenanceExpenseReceiptData,
+  action: PdfAction = "print",
+) {
+  const amount = Number(expense.amount);
+  const status = (expense.approval_status ?? "pending review").replace(/_/g, " ").toUpperCase();
+  const remarks = [
+    expense.receipt_ref && `Receipt reference: ${expense.receipt_ref}`,
+    expense.review_note && `Review note: ${expense.review_note}`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  return generateDistributorInvoicePdf(
+    {
+      company: expense.company,
+      invoice_number: expense.expense_number,
+      issued_at: expense.expense_date,
+      customer: { name: expense.paid_to || "—" },
+      party_id: null,
+      party_label: expense.category,
+      delivery_method: expense.payment_method,
+      items: [
+        {
+          name: expense.description || expense.category,
+          quantity: 1,
+          unit_price: amount,
+          line_total: amount,
+        },
+      ],
+      subtotal: amount,
+      discount: 0,
+      vat: 0,
+      grand_total: amount,
+      amount_paid: amount,
+      balance: 0,
+      remarks,
+      document_title: "EXPENSE RECEIPT",
+      document_number_title: "Expense No",
+      customer_box_title: "PAID TO",
+      party_id_title: "EXPENSE CATEGORY",
+      delivery_method_title: "PAYMENT METHOD",
+      extra_info_rows: [
+        ["Recorded by", expense.recorded_by || "—"],
+        ["Review status", status],
+        ...(expense.reviewer ? [["Reviewed by", expense.reviewer] as [string, string]] : []),
+        ...(expense.reviewed_at
+          ? [["Reviewed on", expense.reviewed_at.slice(0, 10)] as [string, string]]
+          : []),
+        ...(expense.printed_by ? [["Printed by", expense.printed_by] as [string, string]] : []),
+      ],
+      expense_receipt: true,
+    },
+    action,
+  );
 }

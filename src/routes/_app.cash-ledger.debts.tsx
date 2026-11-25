@@ -135,7 +135,7 @@ function SummaryCard({
   );
 }
 
-function DebtsPage() {
+export function DebtsPage() {
   const { data: factoryId } = useFactoryId();
   const settings = useFactorySettings(factoryId);
   const qc = useQueryClient();

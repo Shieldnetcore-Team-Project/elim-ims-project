@@ -261,19 +261,7 @@ export const nav: { section: string; items: NavItem[] }[] = [
     section: "Finance",
     items: [
       { title: "Finance Overview", url: "/finance", icon: Landmark, module: "finance" },
-      { title: "Accountant", url: "/accountant", icon: BookOpenCheck, module: "finance" },
-      {
-        title: "Payments",
-        url: "/cash-ledger",
-        icon: Wallet,
-        modules: ["payments", "receipts-payments", "cash-flow", "debts"],
-        tabs: [
-          { label: "Overview", module: "cash-flow" },
-          { label: "Ledger", module: "receipts-payments" },
-          { label: "Debts", module: "debts" },
-          { label: "Record Payments", module: "payments" },
-        ],
-      },
+      { title: "Account/Finance", url: "/accountant", icon: BookOpenCheck, module: "finance" },
       {
         // Money owed by and collected from marketers, the retail outlet and
         // distributors (credit customers): Accounting's, not the Warehouse's.
