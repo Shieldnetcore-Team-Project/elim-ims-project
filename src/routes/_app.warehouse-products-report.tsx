@@ -125,8 +125,8 @@ function ProductsReportPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">All Products Report</h1>
         <p className="text-sm text-muted-foreground">
-          The Warehouse&apos;s stock for each product on a day: opening, in, out, returned,
-          gifts/samples and the balance left.
+          Opening carries forward the previous closing. Qty In records production releases and
+          authorized restocks; customer and marketer returns are shown separately under Returned.
         </p>
       </div>
 

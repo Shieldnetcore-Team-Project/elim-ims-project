@@ -52,7 +52,8 @@ DECLARE f uuid := 'f6000000-0000-0000-0000-000000000001'; r record; d jsonb; v j
   disp uuid := 'b6000000-0000-0000-0000-000000000003'; jug uuid := 'b6000000-0000-0000-0000-000000000004';
   rep uuid := 'c6000000-0000-0000-0000-000000000001';
 BEGIN
-  -- 35cl: 577 in from Production, 433 posted out, 1 returned -> 1202.
+  -- 35cl: 577 in from Production, 433 posted out, 1 marketer return and
+  -- 2 customer returns -> 1204. Both return paths stay out of Qty In.
   UPDATE products SET current_stock = current_stock + 577 WHERE id = p35;
   INSERT INTO inventory_movements(factory_id, product_id, movement_type, quantity, reference, reason, quantity_before, quantity_after)
   VALUES (f, p35, 'produced', 577, 'REL-T', 'Production release accepted by Warehouse', 1057, 1634);
@@ -60,6 +61,12 @@ BEGIN
          'items', jsonb_build_array(jsonb_build_object('product_id', p35, 'quantity', 433))));
   PERFORM public.create_rep_return(jsonb_build_object('factory_id', f, 'sales_rep_id', rep,
             'items', jsonb_build_array(jsonb_build_object('product_id', p35, 'quantity_returned', 1))));
+  UPDATE products SET current_stock = current_stock + 2 WHERE id = p35;
+  INSERT INTO inventory_movements(factory_id, product_id, movement_type, quantity, reference, reason,
+                                  quantity_before, quantity_after)
+  SELECT f, p35, 'returned', 2, 'WPR-CUSTOMER-RETURN', 'Accepted sales return',
+         current_stock - 2, current_stock
+    FROM products WHERE id = p35;
   -- A posting made by mistake and reversed: not out, not a return.
   v := public.create_stock_dispatch(jsonb_build_object('factory_id', f, 'sales_rep_id', rep,
          'items', jsonb_build_array(jsonb_build_object('product_id', p35, 'quantity', 50))));
@@ -75,8 +82,8 @@ BEGIN
          'items', jsonb_build_array(jsonb_build_object('product_id', jug, 'quantity', 53))));
 
   SELECT * INTO r FROM public.warehouse_products_report(f, CURRENT_DATE, CURRENT_DATE) WHERE product_id = p35;
-  PERFORM pg_temp.check(r.opening = 1057 AND r.qty_in = 577 AND r.qty_out = 433 AND r.returned = 1
-                        AND r.sold = 432 AND r.gift = 0 AND r.balance = 1202,
+  PERFORM pg_temp.check(r.opening = 1057 AND r.qty_in = 577 AND r.qty_out = 433 AND r.returned = 3
+                        AND r.sold = 430 AND r.gift = 0 AND r.balance = 1204,
                         format('35cl row: %s', to_jsonb(r)));
   SELECT * INTO r FROM public.warehouse_products_report(f, CURRENT_DATE, CURRENT_DATE) WHERE product_id = sachet;
   PERFORM pg_temp.check(r.opening = 62 AND r.qty_in = 5661 AND r.qty_out = 5686 AND r.gift = 37 AND r.balance = 0,
@@ -88,4 +95,9 @@ BEGIN
   -- Yesterday: nothing moved, opening = balance = stock before today.
   SELECT * INTO r FROM public.warehouse_products_report(f, CURRENT_DATE - 1, CURRENT_DATE - 1) WHERE product_id = p35;
   PERFORM pg_temp.check(r.opening = 1057 AND r.balance = 1057 AND r.qty_out = 0, format('yesterday: %s', to_jsonb(r)));
+  PERFORM pg_temp.check(
+    r.balance = (SELECT opening FROM public.warehouse_products_report(f, CURRENT_DATE, CURRENT_DATE)
+                 WHERE product_id = p35),
+    'today opening carries forward yesterday closing'
+  );
 END $$;
