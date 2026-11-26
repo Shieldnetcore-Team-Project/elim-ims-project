@@ -85,6 +85,10 @@ BEGIN
   PERFORM pg_temp.check(r.opening = 1057 AND r.qty_in = 577 AND r.qty_out = 433 AND r.returned = 3
                         AND r.sold = 430 AND r.gift = 0 AND r.balance = 1204,
                         format('35cl row: %s', to_jsonb(r)));
+  SELECT * INTO r FROM public.warehouse_products_report(f, CURRENT_DATE) WHERE product_id = p35;
+  PERFORM pg_temp.check(r.opening = 1057 AND r.qty_in = 577 AND r.total = 1634
+                        AND r.qty_out = 433 AND r.returned = 3 AND r.balance = 1204,
+                        format('single-day 35cl row: %s', to_jsonb(r)));
   SELECT * INTO r FROM public.warehouse_products_report(f, CURRENT_DATE, CURRENT_DATE) WHERE product_id = sachet;
   PERFORM pg_temp.check(r.opening = 62 AND r.qty_in = 5661 AND r.qty_out = 5686 AND r.gift = 37 AND r.balance = 0,
                         format('sachet row: %s', to_jsonb(r)));
