@@ -626,7 +626,7 @@ function CustomersTab({
     <Card className="rounded-2xl">
       <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3">
         <div>
-          <CardTitle className="text-base">Customers of {repName}</CardTitle>
+          <CardTitle className="text-base">{repName}&apos;s Customer</CardTitle>
           <p className="text-sm text-muted-foreground">
             {rows.length} customer(s) · purchases {money(t.p)} · paid {money(t.pd)} ·{" "}
             <span className={t.o > 0 ? "font-medium text-destructive" : ""}>

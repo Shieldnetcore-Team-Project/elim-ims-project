@@ -4,8 +4,12 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useFactoryId, useFactorySettings } from "@/lib/use-factory";
 import { saleLineName } from "@/lib/sale-line-name";
-import { useMarketerStatement } from "@/lib/marketer-accounts";
-import { companyOf, generateMarketerStatementPdf } from "@/lib/marketer-pdf";
+import { fetchCustomerStatement, periodLabel, useMarketerStatement } from "@/lib/marketer-accounts";
+import {
+  companyOf,
+  generateCustomerAccountPdf,
+  generateMarketerStatementPdf,
+} from "@/lib/marketer-pdf";
 import { PrintCopiesButton } from "@/components/shared/print-copies-button";
 import {
   printDispatchDayInvoice,
@@ -2666,14 +2670,15 @@ export function AccountsTab({
   const [repId, setRepId] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const selectedRep = reps.find((rep) => rep.id === repId);
 
   return (
     <div className="space-y-4">
       <Card className="rounded-2xl">
         <CardContent className="flex flex-wrap items-end gap-3 pt-6">
           <div className="min-w-48">
-            <Label>Rep / outlet</Label>
-            <Select value={repId} onValueChange={setRepId}>
+            <Label>Marketer / outlet</Label>
+            <Select value={selectedRep?.id ?? ""} onValueChange={setRepId}>
               <SelectTrigger>
                 <SelectValue placeholder="Select rep or outlet…" />
               </SelectTrigger>
@@ -2694,155 +2699,58 @@ export function AccountsTab({
             <Label>To</Label>
             <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
           </div>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                const today = localDay(new Date());
+                setFrom(today);
+                setTo(today);
+              }}
+            >
+              Today
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={!from && !to}
+              onClick={() => {
+                setFrom("");
+                setTo("");
+              }}
+            >
+              Clear dates
+            </Button>
+          </div>
+          <p className="w-full text-xs text-muted-foreground">
+            Customer printouts use these dates. Set From and To to the same date for a daily
+            printout.
+          </p>
         </CardContent>
       </Card>
 
-      <AllAccountsCard reps={reps} from={from} to={to} selected={repId} onPick={setRepId} />
+      {!selectedRep && (
+        <Card className="rounded-2xl border-dashed">
+          <CardContent className="pt-6 text-sm text-muted-foreground">
+            Select a marketer or outlet above to view its account details, transactions, customers,
+            and customer statement printouts.
+          </CardContent>
+        </Card>
+      )}
 
-      {repId && (
-        <>
-          <RepAccountView
-            factoryId={factoryId}
-            repId={repId}
-            repName={reps.find((r) => r.id === repId)?.full_name ?? "rep"}
-            perms={perms}
-            from={from}
-            to={to}
-          />
-          <RepActivityCard
-            factoryId={factoryId}
-            repId={repId}
-            repName={reps.find((r) => r.id === repId)?.full_name ?? "rep"}
-            showValues
-          />
-        </>
+      {selectedRep && (
+        <RepAccountView
+          factoryId={factoryId}
+          repId={selectedRep.id}
+          repName={selectedRep.full_name}
+          perms={perms}
+          from={from}
+          to={to}
+          showActivity
+        />
       )}
     </div>
-  );
-}
-
-// Every marketer's and outlet's account side by side for the period (all time
-// when no dates are picked): what was posted to them, returned, remitted,
-// owed on credit and the balance they owe -- rep_account_summary per rep, the
-// same figures as the account below. Busiest first; a row opens that account.
-function AllAccountsCard({
-  reps,
-  from,
-  to,
-  selected,
-  onPick,
-}: {
-  reps: Rep[];
-  from: string;
-  to: string;
-  selected: string;
-  onPick: (id: string) => void;
-}) {
-  const active = reps.filter((r) => r.status === "active" || r.id === selected);
-  const all = useQuery({
-    queryKey: ["dist-account", "all", active.map((r) => r.id).join(","), from, to],
-    enabled: active.length > 0,
-    queryFn: async () =>
-      Promise.all(
-        active.map(async (r) => {
-          const { data, error } = await supabase.rpc("rep_account_summary", {
-            p_sales_rep_id: r.id,
-            p_from: from || undefined,
-            p_to: to || undefined,
-          });
-          if (error) throw error;
-          return { rep: r, s: data as unknown as AccountSummary };
-        }),
-      ),
-  });
-  const rows = [...(all.data ?? [])].sort(
-    (a, b) =>
-      Number(b.s.goods_out_value) - Number(a.s.goods_out_value) ||
-      a.rep.full_name.localeCompare(b.rep.full_name),
-  );
-  const total = (k: keyof AccountSummary) => rows.reduce((t, r) => t + Number(r.s[k] ?? 0), 0);
-
-  return (
-    <Card className="rounded-2xl">
-      <CardHeader>
-        <CardTitle>All accounts</CardTitle>
-        <p className="text-sm text-muted-foreground">
-          {from || to
-            ? `${from || "start"} to ${to || "today"}`
-            : "All time — pick From / To to narrow it"}
-          . Click a name to open that account.
-        </p>
-      </CardHeader>
-      <CardContent className="overflow-x-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Marketer / outlet</TableHead>
-              <TableHead className="text-right">Goods posted</TableHead>
-              <TableHead className="text-right">Returns</TableHead>
-              <TableHead className="text-right">Empty jugs returned</TableHead>
-              <TableHead className="text-right">Jugs not back</TableHead>
-              <TableHead className="text-right">Cash remitted</TableHead>
-              <TableHead className="text-right">Credit outstanding</TableHead>
-              <TableHead className="text-right">Balance owed</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.map(({ rep: r, s }) => (
-              <TableRow
-                key={r.id}
-                className={`cursor-pointer ${r.id === selected ? "bg-muted" : ""} ${
-                  Number(s.goods_out_value) === 0 && Number(s.cash_remitted) === 0
-                    ? "text-muted-foreground"
-                    : ""
-                }`}
-                onClick={() => onPick(r.id)}
-              >
-                <TableCell className="font-medium">{repLabel(r)}</TableCell>
-                <TableCell className="text-right">{money(s.goods_out_value)}</TableCell>
-                <TableCell className="text-right">{money(s.accepted_returns_value)}</TableCell>
-                <TableCell className="text-right">{num(Number(s.jugs_returned ?? 0))}</TableCell>
-                <TableCell
-                  className={`text-right ${Number(s.jugs_owed ?? 0) > 0 ? "text-destructive" : ""}`}
-                >
-                  {num(Number(s.jugs_owed ?? 0))}
-                </TableCell>
-                <TableCell className="text-right">{money(s.cash_remitted)}</TableCell>
-                <TableCell className="text-right">{money(s.credit_outstanding)}</TableCell>
-                <TableCell className="text-right font-medium">
-                  {money(s.net_balance_owed)}
-                </TableCell>
-              </TableRow>
-            ))}
-            {rows.length > 0 && (
-              <TableRow className="bg-muted font-bold">
-                <TableCell>Total</TableCell>
-                <TableCell className="text-right">{money(total("goods_out_value"))}</TableCell>
-                <TableCell className="text-right">
-                  {money(total("accepted_returns_value"))}
-                </TableCell>
-                <TableCell className="text-right">{num(total("jugs_returned"))}</TableCell>
-                <TableCell className="text-right">{num(total("jugs_owed"))}</TableCell>
-                <TableCell className="text-right">{money(total("cash_remitted"))}</TableCell>
-                <TableCell className="text-right">{money(total("credit_outstanding"))}</TableCell>
-                <TableCell className="text-right">{money(total("net_balance_owed"))}</TableCell>
-              </TableRow>
-            )}
-            {rows.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={8} className="py-6 text-center text-muted-foreground">
-                  {all.isLoading
-                    ? "Loading…"
-                    : all.error
-                      ? (all.error as Error).message
-                      : "No marketers or outlets yet."}
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </CardContent>
-    </Card>
   );
 }
 
@@ -3329,8 +3237,9 @@ export function RepActivityCard({
         <div>
           <CardTitle>All postings</CardTitle>
           <p className="text-sm text-muted-foreground">
-            Everything posted to {repName}, with returns, sales and cash handed in. Click one to see
-            its products; pick dates to see an earlier day.
+            Warehouse postings and returns are grouped by day, with that day&apos;s products
+            combined. Customer sales remain invoice-by-invoice. Expand a daily posting to see its
+            products; pick dates to see an earlier day.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -3406,10 +3315,10 @@ export function RepActivityCard({
                     <Badge variant="outline">
                       {r.dayPostings
                         ? r.dayPostings.length && r.dayReturns?.length
-                          ? "Posted & returned"
+                          ? "Daily posting & return"
                           : r.dayPostings.length
-                            ? "Posted"
-                            : "Returned"
+                            ? "Daily warehouse posting"
+                            : "Daily return"
                         : r.kind}
                     </Badge>
                   </TableCell>
@@ -3709,6 +3618,7 @@ export function RepAccountView({
   perms,
   from = "",
   to = "",
+  showActivity = false,
 }: {
   factoryId: string;
   repId: string;
@@ -3716,6 +3626,7 @@ export function RepAccountView({
   perms: Perms;
   from?: string;
   to?: string;
+  showActivity?: boolean;
 }) {
   const qc = useQueryClient();
   // Cash the marketer brings in for goods taken earlier (a remittance),
@@ -3812,6 +3723,10 @@ export function RepAccountView({
               tone={s.net_balance_owed > 0 ? "warn" : "ok"}
             />
           </div>
+
+          {showActivity && (
+            <RepActivityCard factoryId={factoryId} repId={repId} repName={repName} showValues />
+          )}
 
           {d && Number(d.posted) + Number(d.jw_posted) > 0 && <DispenserBreakdownCard d={d} />}
 
@@ -4209,7 +4124,8 @@ function RepCustomersCard({
   const [open, setOpen] = useState<string | null>(null);
   const [takingOff, setTakingOff] = useState<CustomerRow | null>(null);
   const [editing, setEditing] = useState<CustomerRow | null>(null);
-  const actions = canCollect || canTakeOff || canEditCustomer;
+  const settings = useFactorySettings(factoryId);
+  const [printing, setPrinting] = useState<string | null>(null);
   const [owingOnly, setOwingOnly] = useState(false);
   const [paying, setPaying] = useState<CustomerRow | null>(null);
   const [adding, setAdding] = useState(false);
@@ -4350,11 +4266,46 @@ function RepCustomersCard({
             ? "Part paid"
             : "Unpaid";
 
+  const printCustomerAccount = async (customer: CustomerRow) => {
+    if (from && to && from > to) {
+      toast.error("From date must be on or before To date.");
+      return;
+    }
+
+    setPrinting(customer.key);
+    try {
+      if (customer.customerId) {
+        const range = { from: from || null, to: to || null };
+        const statement = await fetchCustomerStatement(customer.customerId, range.from, range.to);
+        await generateCustomerAccountPdf(
+          {
+            company: companyOf(settings.data),
+            statement,
+            periodLabel: periodLabel(range),
+            currency: settings.data?.currency ?? "NGN",
+          },
+          "print",
+        );
+      } else if (customer.invoices.length > 0) {
+        if (!settings.data) throw new Error("Factory settings are still loading.");
+        await printSaleInvoice(
+          customer.invoices.map((invoice) => invoice.sale_id),
+          settings.data,
+          "print",
+        );
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not print customer account.");
+    } finally {
+      setPrinting(null);
+    }
+  };
+
   return (
     <Card className="rounded-2xl">
       <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3">
         <div>
-          <CardTitle>Customers of {repName}</CardTitle>
+          <CardTitle>{repName}&apos;s Customer</CardTitle>
           <p className="text-sm text-muted-foreground">
             {customers.length} customer(s) · goods {money(totals.goods)} · paid {money(totals.paid)}{" "}
             ·{" "}
@@ -4365,7 +4316,7 @@ function RepCustomersCard({
               <span className="text-destructive"> ({money(totals.overdue)} overdue)</span>
             )}{" "}
             · collected by {repName}: {money(totals.collected)}. Click a customer for their
-            invoices.
+            invoices. Print icons produce account statements or invoices for the selected dates.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -4406,16 +4357,15 @@ function RepCustomersCard({
               <TableHead className="text-right">Overdue</TableHead>
               <TableHead className="text-right">Collected by rep</TableHead>
               <TableHead>Last purchase</TableHead>
-              {actions && <TableHead className="w-56" />}
+              <TableHead className="w-56">
+                <span className="sr-only">Actions</span>
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {customers.length === 0 && (
               <TableRow>
-                <TableCell
-                  colSpan={actions ? 11 : 10}
-                  className="py-8 text-center text-muted-foreground"
-                >
+                <TableCell colSpan={11} className="py-8 text-center text-muted-foreground">
                   {invoices.isLoading || accounts.isLoading
                     ? "Loading…"
                     : owingOnly
@@ -4472,51 +4422,65 @@ function RepCustomersCard({
                     <TableCell className="whitespace-nowrap">
                       {c.last ? new Date(c.last).toLocaleDateString() : "—"}
                     </TableCell>
-                    {actions && (
-                      <TableCell onClick={(e) => e.stopPropagation()}>
-                        {c.customerId && (
-                          <div className="flex justify-end gap-1">
-                            {canCollect && (
-                              <>
-                                <Button size="sm" variant="outline" onClick={() => setSelling(c)}>
-                                  Record sale
-                                </Button>
-                                <Button size="sm" variant="outline" onClick={() => setPaying(c)}>
-                                  Record payment
-                                </Button>
-                              </>
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <div className="flex flex-wrap justify-end gap-1">
+                        {(c.customerId || c.invoices.length > 0) && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            aria-label={`Print ${c.name}'s ${c.customerId ? "statement" : "invoice"}`}
+                            title={`Print ${c.name}'s ${
+                              c.customerId ? "statement" : "invoice(s)"
+                            } (${periodLabel({ from: from || null, to: to || null })})`}
+                            disabled={!!printing || (!c.customerId && !settings.data)}
+                            onClick={() => void printCustomerAccount(c)}
+                          >
+                            {printing === c.key ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Printer className="h-4 w-4" />
                             )}
-                            {canEditCustomer && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="gap-1"
-                                title={`Edit ${c.name}'s name, phone and address`}
-                                onClick={() => setEditing(c)}
-                              >
-                                <Pencil className="h-3.5 w-3.5" /> Edit
-                              </Button>
-                            )}
-                            {canTakeOff && c.assigned && (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="text-destructive"
-                                title={`Take ${c.name} off ${repName}'s account`}
-                                onClick={() => setTakingOff(c)}
-                              >
-                                Take off
-                              </Button>
-                            )}
-                          </div>
+                          </Button>
                         )}
-                      </TableCell>
-                    )}
+                        {c.customerId && canCollect && (
+                          <>
+                            <Button size="sm" variant="outline" onClick={() => setSelling(c)}>
+                              Record sale
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={() => setPaying(c)}>
+                              Record payment
+                            </Button>
+                          </>
+                        )}
+                        {c.customerId && canEditCustomer && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="gap-1"
+                            title={`Edit ${c.name}'s name, phone and address`}
+                            onClick={() => setEditing(c)}
+                          >
+                            <Pencil className="h-3.5 w-3.5" /> Edit
+                          </Button>
+                        )}
+                        {c.customerId && canTakeOff && c.assigned && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-destructive"
+                            title={`Take ${c.name} off ${repName}'s account`}
+                            onClick={() => setTakingOff(c)}
+                          >
+                            Take off
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
                   </TableRow>
                   {expanded && (
                     <TableRow className="bg-muted/30 hover:bg-muted/30">
                       <TableCell />
-                      <TableCell colSpan={actions ? 10 : 9}>
+                      <TableCell colSpan={10}>
                         {c.account && (
                           <p className="mb-2 text-xs text-muted-foreground">
                             Whole account: owes {money(Number(c.account.total_owed))} · advance{" "}

@@ -104,7 +104,7 @@ const reviewBadge = (s?: string): "default" | "secondary" | "outline" | "destruc
       ? "destructive"
       : "outline";
 
-function LedgerPage() {
+export function LedgerPage() {
   const { data: factoryId } = useFactoryId();
   const settings = useFactorySettings(factoryId);
   const currency = settings.data?.currency ?? "NGN";

@@ -52,16 +52,13 @@ import {
   Eye,
   Package,
   ClipboardList,
-  ArrowLeftRight,
-  ShieldCheck,
   Wallet,
   Fuel,
 } from "lucide-react";
 import { requestDelete } from "@/lib/request-delete";
 import { num } from "@/lib/format";
-import { PartsInventoryTab, StockMovementsTab } from "@/components/maintenance/parts-inventory";
+import { PartsInventoryTab } from "@/components/maintenance/parts-inventory";
 import { MaintenanceLogTab } from "@/components/maintenance/maintenance-log";
-import { IssueApprovalsTab } from "@/components/maintenance/issue-approvals";
 import { MaintenanceExpensesTab } from "@/components/maintenance/expenses";
 import { VehicleExpensesTab } from "@/components/maintenance/vehicle-expenses";
 import {
@@ -626,17 +623,6 @@ function MaintenancePage() {
           <TabsTrigger value="log">
             <Wrench className="mr-1.5 h-4 w-4" /> Maintenance Log
           </TabsTrigger>
-          <TabsTrigger value="issues">
-            <ShieldCheck className="mr-1.5 h-4 w-4" /> Issue Approvals
-            {pendingIssueCount > 0 && (
-              <Badge variant="destructive" className="ml-1.5 px-1.5 py-0 text-[10px]">
-                {pendingIssueCount}
-              </Badge>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="movements">
-            <ArrowLeftRight className="mr-1.5 h-4 w-4" /> Stock Movements
-          </TabsTrigger>
           <TabsTrigger value="requests">
             <ClipboardList className="mr-1.5 h-4 w-4" /> Requests
             {pendingCount > 0 && (
@@ -667,14 +653,6 @@ function MaintenancePage() {
             vehicles={vehicles.data ?? []}
             requests={allRequests}
           />
-        </TabsContent>
-
-        <TabsContent value="issues" className="pt-4">
-          <IssueApprovalsTab factoryId={factoryId} />
-        </TabsContent>
-
-        <TabsContent value="movements" className="pt-4">
-          <StockMovementsTab factoryId={factoryId} />
         </TabsContent>
 
         <TabsContent value="requests" className="space-y-4 pt-4">

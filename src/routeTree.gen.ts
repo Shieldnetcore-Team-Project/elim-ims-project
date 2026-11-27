@@ -59,6 +59,7 @@ import { Route as AppSuppliersRouteImport } from './routes/_app.suppliers'
 import { Route as AppUsersRouteImport } from './routes/_app.users'
 import { Route as AppWarehouseActivityRouteImport } from './routes/_app.warehouse-activity'
 import { Route as AppWarehouseProductsReportRouteImport } from './routes/_app.warehouse-products-report'
+import { Route as AppWarehouseReturnsReportRouteImport } from './routes/_app.warehouse-returns-report'
 import { Route as AppCashLedgerIndexRouteImport } from './routes/_app.cash-ledger.index'
 import { Route as AppCashLedgerDebtsRouteImport } from './routes/_app.cash-ledger.debts'
 import { Route as AppCashLedgerLedgerRouteImport } from './routes/_app.cash-ledger.ledger'
@@ -316,6 +317,12 @@ const AppWarehouseProductsReportRoute =
     path: '/warehouse-products-report',
     getParentRoute: () => AppRoute,
   } as any)
+const AppWarehouseReturnsReportRoute =
+  AppWarehouseReturnsReportRouteImport.update({
+    id: '/warehouse-returns-report',
+    path: '/warehouse-returns-report',
+    getParentRoute: () => AppRoute,
+  } as any)
 const AppCashLedgerIndexRoute = AppCashLedgerIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -400,6 +407,7 @@ export interface FileRoutesByFullPath {
   '/users': typeof AppUsersRoute
   '/warehouse-activity': typeof AppWarehouseActivityRoute
   '/warehouse-products-report': typeof AppWarehouseProductsReportRoute
+  '/warehouse-returns-report': typeof AppWarehouseReturnsReportRoute
   '/cash-ledger/debts': typeof AppCashLedgerDebtsRoute
   '/cash-ledger/ledger': typeof AppCashLedgerLedgerRoute
   '/marketer-accounts/$repId': typeof AppMarketerAccountsRepIdRoute
@@ -456,6 +464,7 @@ export interface FileRoutesByTo {
   '/users': typeof AppUsersRoute
   '/warehouse-activity': typeof AppWarehouseActivityRoute
   '/warehouse-products-report': typeof AppWarehouseProductsReportRoute
+  '/warehouse-returns-report': typeof AppWarehouseReturnsReportRoute
   '/cash-ledger/debts': typeof AppCashLedgerDebtsRoute
   '/cash-ledger/ledger': typeof AppCashLedgerLedgerRoute
   '/marketer-accounts/$repId': typeof AppMarketerAccountsRepIdRoute
@@ -515,6 +524,7 @@ export interface FileRoutesById {
   '/_app/users': typeof AppUsersRoute
   '/_app/warehouse-activity': typeof AppWarehouseActivityRoute
   '/_app/warehouse-products-report': typeof AppWarehouseProductsReportRoute
+  '/_app/warehouse-returns-report': typeof AppWarehouseReturnsReportRoute
   '/_app/cash-ledger/debts': typeof AppCashLedgerDebtsRoute
   '/_app/cash-ledger/ledger': typeof AppCashLedgerLedgerRoute
   '/_app/marketer-accounts_/$repId': typeof AppMarketerAccountsRepIdRoute
@@ -574,6 +584,7 @@ export interface FileRouteTypes {
     | '/users'
     | '/warehouse-activity'
     | '/warehouse-products-report'
+    | '/warehouse-returns-report'
     | '/cash-ledger/debts'
     | '/cash-ledger/ledger'
     | '/marketer-accounts/$repId'
@@ -630,6 +641,7 @@ export interface FileRouteTypes {
     | '/users'
     | '/warehouse-activity'
     | '/warehouse-products-report'
+    | '/warehouse-returns-report'
     | '/cash-ledger/debts'
     | '/cash-ledger/ledger'
     | '/marketer-accounts/$repId'
@@ -688,6 +700,7 @@ export interface FileRouteTypes {
     | '/_app/users'
     | '/_app/warehouse-activity'
     | '/_app/warehouse-products-report'
+    | '/_app/warehouse-returns-report'
     | '/_app/cash-ledger/debts'
     | '/_app/cash-ledger/ledger'
     | '/_app/marketer-accounts_/$repId'
@@ -1054,6 +1067,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppWarehouseProductsReportRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/warehouse-returns-report': {
+      id: '/_app/warehouse-returns-report'
+      path: '/warehouse-returns-report'
+      fullPath: '/warehouse-returns-report'
+      preLoaderRoute: typeof AppWarehouseReturnsReportRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/cash-ledger/': {
       id: '/_app/cash-ledger/'
       path: '/'
@@ -1163,6 +1183,7 @@ interface AppRouteChildren {
   AppUsersRoute: typeof AppUsersRoute
   AppWarehouseActivityRoute: typeof AppWarehouseActivityRoute
   AppWarehouseProductsReportRoute: typeof AppWarehouseProductsReportRoute
+  AppWarehouseReturnsReportRoute: typeof AppWarehouseReturnsReportRoute
   AppMarketerAccountsRepIdRoute: typeof AppMarketerAccountsRepIdRoute
   AppPreformInventoryMaterialIdRoute: typeof AppPreformInventoryMaterialIdRoute
   AppMarketerAccountsRepIdCustomersCustomerIdRoute: typeof AppMarketerAccountsRepIdCustomersCustomerIdRoute
@@ -1216,6 +1237,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppUsersRoute: AppUsersRoute,
   AppWarehouseActivityRoute: AppWarehouseActivityRoute,
   AppWarehouseProductsReportRoute: AppWarehouseProductsReportRoute,
+  AppWarehouseReturnsReportRoute: AppWarehouseReturnsReportRoute,
   AppMarketerAccountsRepIdRoute: AppMarketerAccountsRepIdRoute,
   AppPreformInventoryMaterialIdRoute: AppPreformInventoryMaterialIdRoute,
   AppMarketerAccountsRepIdCustomersCustomerIdRoute:

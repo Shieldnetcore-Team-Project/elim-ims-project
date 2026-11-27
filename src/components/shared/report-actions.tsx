@@ -10,8 +10,8 @@ import { letterheadReportPdf, type Department } from "@/components/qc/qc-report-
 // the same order, with the company logo and who printed it on the PDF. Pages
 // pass exactly what is on screen (after their own filters), so the printout
 // always matches the screen. With a department (Quality Control, Warehouse,
-// Production pages) it prints on the factory letterhead -- logo, address,
-// "<DEPARTMENT>: <TITLE>", blue header row -- like the QC sheets.
+// Production and Maintenance pages) it prints on the factory letterhead --
+// logo, address, "<DEPARTMENT>: <TITLE>", blue header row.
 export function ReportActions({
   title,
   fileName,

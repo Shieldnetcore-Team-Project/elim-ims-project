@@ -1,11 +1,14 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { Pencil, Plus, Printer, Trash2 } from "lucide-react";
 import { logAudit } from "@/lib/audit";
 import { money } from "@/lib/format";
 import { localDay } from "@/lib/production-shift";
 import { matchesSearch, useSearchQuery } from "@/lib/search";
+import { generateMaintenanceExpenseReceiptPdf } from "@/lib/distributor-invoice";
+import { useFactorySettings } from "@/lib/use-factory";
+import { useCurrentUserName } from "@/lib/use-current-user";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -117,6 +120,10 @@ type ExpenseRow = {
   recorded_by_name: string | null;
   updated_by_name: string | null;
   created_at: string;
+  approval_status: "pending_review" | "approved" | "rejected";
+  reviewed_by_name: string | null;
+  reviewed_at: string | null;
+  review_note: string | null;
   vehicles?: { plate_number: string } | null;
   tire_type: string | null;
   tire_size: string | null;
@@ -165,6 +172,8 @@ export function MaintenanceExpensesTab({
   const [form, setForm] = useState(emptyForm);
   const [deleting, setDeleting] = useState<ExpenseRow | null>(null);
   const heads = useExpenseHeads(factoryId);
+  const settings = useFactorySettings(factoryId ?? undefined);
+  const printedBy = useCurrentUserName();
   // The head that gets saved: the typed one when "Other…" is picked.
   const head = form.category === OTHER ? form.custom_category.trim().toUpperCase() : form.category;
   const isTire = head === "TIRE";
@@ -176,7 +185,7 @@ export function MaintenanceExpensesTab({
       let query = db
         .from("maintenance_expenses")
         .select(
-          "id,expense_number,expense_date,category,description,amount,paid_to,payment_method,receipt_ref,recorded_by_name,updated_by_name,created_at,vehicles(plate_number),tire_type,tire_size",
+          "id,expense_number,expense_date,category,description,amount,paid_to,payment_method,receipt_ref,recorded_by_name,updated_by_name,created_at,approval_status,reviewed_by_name,reviewed_at,review_note,vehicles(plate_number),tire_type,tire_size",
         )
         .eq("factory_id", factoryId)
         .order("expense_date", { ascending: false })
@@ -295,6 +304,44 @@ export function MaintenanceExpensesTab({
       receipt_ref: e.receipt_ref ?? "",
     });
     setOpen(true);
+  };
+
+  const printExpense = (e: ExpenseRow) => {
+    const description = [
+      e.description,
+      e.vehicles && `Vehicle ${e.vehicles.plate_number}`,
+      e.tire_type && `Tire type: ${e.tire_type}`,
+      e.tire_size && `Tire size: ${e.tire_size}`,
+    ]
+      .filter(Boolean)
+      .join(" — ");
+    void generateMaintenanceExpenseReceiptPdf(
+      {
+        company: {
+          name: settings.data?.company_name ?? "Elim Table Water",
+          address: settings.data?.address,
+          phone: settings.data?.phone,
+          email: settings.data?.email,
+          website: settings.data?.website,
+          logo_url: settings.data?.logo_url,
+        },
+        expense_number: e.expense_number,
+        expense_date: e.expense_date,
+        category: e.category,
+        description,
+        paid_to: e.paid_to,
+        payment_method: e.payment_method ?? "—",
+        amount: Number(e.amount),
+        receipt_ref: e.receipt_ref,
+        recorded_by: e.recorded_by_name,
+        approval_status: e.approval_status,
+        reviewer: e.reviewed_by_name,
+        reviewed_at: e.reviewed_at,
+        review_note: e.review_note,
+        printed_by: printedBy.data,
+      },
+      "print",
+    ).catch((error: Error) => toast.error(error.message));
   };
 
   const period = `${from ? fmtDate(from) : "start"} to ${to ? fmtDate(to) : "today"}`;
@@ -421,6 +468,7 @@ export function MaintenanceExpensesTab({
               ...(category === "all" ? [] : [`Category: ${category}`]),
             ]}
             size="sm"
+            department="Maintenance Department"
           />
         </CardHeader>
         <CardContent className="overflow-x-auto">
@@ -472,12 +520,20 @@ export function MaintenanceExpensesTab({
                     )}
                   </TableCell>
                   <TableCell className="whitespace-nowrap text-right">
-                    {canEdit && (
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      title="Print expense"
+                      onClick={() => printExpense(e)}
+                    >
+                      <Printer className="h-4 w-4" />
+                    </Button>
+                    {canEdit && e.approval_status !== "approved" && (
                       <Button size="icon" variant="ghost" title="Edit" onClick={() => openEdit(e)}>
                         <Pencil className="h-4 w-4" />
                       </Button>
                     )}
-                    {canDelete && (
+                    {canDelete && e.approval_status !== "approved" && (
                       <Button
                         size="icon"
                         variant="ghost"
